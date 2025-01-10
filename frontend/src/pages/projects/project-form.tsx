@@ -123,17 +123,17 @@ const projectFormSchema = z.object({
                 z.object({
                     work_package_name: z.string(),
                     category_list: z
-                    .object({
-                        list: z.array(
-                            z.object({
-                                name: z.string(),
-                                makes: z.array(z.object({
-                                    label: z.string(),
-                                    value: z.string()
-                                }))
-                            })
-                        )
-                    })
+                        .object({
+                            list: z.array(
+                                z.object({
+                                    name: z.string(),
+                                    makes: z.array(z.object({
+                                        label: z.string(),
+                                        value: z.string()
+                                    }))
+                                })
+                            )
+                        })
                 })
             )
             // scopes: z.array(z.string()).refine((value) => value.some((item) => item), {
@@ -342,17 +342,17 @@ export const ProjectForm = () => {
             } else {
                 reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
                     const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
-                      name: category.name,
-                      makes: category.makes.map((make) => make.label), // Extract only the labels
+                        name: category.name,
+                        makes: category.makes.map((make) => make.label), // Extract only the labels
                     }));
-                  
+
                     return {
-                      ...workPackage,
-                      category_list: {
-                        list: updatedCategoriesList,
-                      },
+                        ...workPackage,
+                        category_list: {
+                            list: updatedCategoriesList,
+                        },
                     };
-                  });
+                });
             }
             // Format the dates
             const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
@@ -389,7 +389,7 @@ export const ProjectForm = () => {
                     design_lead: values.design_lead,
                     accountant: values.accountant,
                     project_manager: values.project_manager,
-                    project_work_packages: {work_packages: reformattedWorkPackages},
+                    project_work_packages: { work_packages: reformattedWorkPackages },
                     // project_category_list: values.project_category_list,
                     project_scopes: values.project_scopes,
                     subdivisions: values.subdivisions,
@@ -1417,7 +1417,7 @@ export const ProjectForm = () => {
                                 <div className="pt-2 flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectAssignees")
-                                        setCurrentStep(prevStep => prevStep - 1)
+                                        setCurrentStep(prevStep => prevStep-1)
                                     }}>Previous</Button>
                                     {(loading) ?
                                         <ButtonLoading />
@@ -1462,11 +1462,11 @@ export const ProjectForm = () => {
 
                         {section === "packageSelection" && (
                             <>
-                            {wp_list?.length > 0 && (<WorkPackageSelection form={form} wp_list={wp_list} />)}
-                            <div className="pt-2 flex items-center justify-end gap-2">
+                                {wp_list?.length > 0 && (<WorkPackageSelection form={form} wp_list={wp_list} />)}
+                                <div className="pt-2 flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectAssignees")
-                                        setCurrentStep(prevStep => prevStep-1)
+                                        setCurrentStep(prevStep => prevStep - 1)
                                     }}>Previous</Button>
                                     {(loading) ?
                                         <ButtonLoading />
@@ -1490,13 +1490,13 @@ export const ProjectForm = () => {
                                                     Go Back
                                                 </AlertDialogAction>
                                                 <AlertDialogAction onClick={() => {
-                                            form.reset()
-                                            form.clearErrors()
-                                        }}
-                                            className="flex items-center gap-1"
-                                        >
-                                            <CirclePlus className="h-4 w-4" />
-                                            Create New</AlertDialogAction>
+                                                    form.reset()
+                                                    form.clearErrors()
+                                                }}
+                                                    className="flex items-center gap-1"
+                                                >
+                                                    <CirclePlus className="h-4 w-4" />
+                                                    Create New</AlertDialogAction>
                                                 <AlertDialogAction onClick={() => navigate(`/projects/${newProjectId}/add-estimates`)} className="flex items-center gap-1 bg-gray-100 text-black">
                                                     <BadgeIndianRupee className="h-4 w-4" />
                                                     Next: Fill Estimates
@@ -1514,204 +1514,204 @@ export const ProjectForm = () => {
     )
 }
 
-const WorkPackageSelection = ({form, wp_list}) => {
+const WorkPackageSelection = ({ form, wp_list }) => {
 
-  const [openValue, setOpenValue] = useState(null);
-  const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
-    fields: ["category_name", "work_package", "name"],
-    filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
-    limit: 1000,
-  });
+    const [openValue, setOpenValue] = useState(null);
+    const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
+        fields: ["category_name", "work_package", "name"],
+        filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
+        limit: 1000,
+    });
 
-  const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
-    fields: ["make", "category"],
-    limit: 10000,
-  });
+    const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
+        fields: ["make", "category"],
+        limit: 10000,
+    });
 
-  const workPackages = form.watch("project_work_packages.work_packages");
+    const workPackages = form.watch("project_work_packages.work_packages");
 
-  const handleSelectAll = (checked) => {
-    if (checked) {
-      const allWorkPackages = categoriesList.reduce((acc, category) => {
-        const existingPackage = acc.find((wp) => wp.work_package_name === category.work_package);
-        if (existingPackage) {
-          existingPackage.category_list.list.push({
-            name: category.category_name,
-            makes: [],
-          });
-        } else {
-          acc.push({
-            work_package_name: category.work_package,
-            category_list: {
-              list: [
-                {
-                  name: category.category_name,
-                  makes: [],
-                },
-              ],
-            },
-          });
-        }
-        return acc;
-      }, []);
-
-      form.setValue("project_work_packages.work_packages", allWorkPackages);
-    } else {
-      form.setValue("project_work_packages.work_packages", []);
-    }
-  };
-
-const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
-    const updatedWorkPackages = [...workPackages];
-  
-    let workPackage = updatedWorkPackages.find((wp) => wp.work_package_name === workPackageName);
-  
-    if (!workPackage) {
-      const associatedCategories = categoriesList
-        .filter((cat) => cat.work_package === workPackageName)
-        .map((cat) => ({
-          name: cat.category_name,
-          makes: [],
-        }));
-  
-      workPackage = {
-        work_package_name: workPackageName,
-        category_list: {
-          list: associatedCategories,
-        },
-      };
-  
-      updatedWorkPackages.push(workPackage);
-    }
-
-    const category = workPackage.category_list.list.find((cat) => cat.name === categoryName);
-  
-    if (!category) {
-      workPackage.category_list.list.push({
-        name: categoryName,
-        makes: selectedMakes,
-      });
-    } else {
-      category.makes = selectedMakes;
-    }
-  
-    form.setValue("project_work_packages.work_packages", updatedWorkPackages);
-  };
-  
-
-  if(categoriesListLoading || categoryMakeListLoading) return <div>loading..</div>
-
-  return (
-    <div>
-      <p className="text-sky-600 font-semibold">Package Specification</p>
-      <FormField
-        control={form.control}
-        name="project_work_packages"
-        render={() => (
-          <FormItem>
-            <div className="mb-4">
-              <FormLabel className="text-base flex">
-                Work Package Selection<sup className="pl-1 text-sm text-red-600">*</sup>
-              </FormLabel>
-            </div>
-            <Checkbox
-              className="mr-3"
-              onCheckedChange={handleSelectAll}
-            /> <span className="text-sm text-red-600 font-bold">Select All</span>
-            <Separator />
-            <Separator />
-
-            {wp_list?.map((item) => (
-              <Accordion
-                key={item.work_package_name}
-                type="single"
-                collapsible
-                value={openValue}
-                onValueChange={setOpenValue}
-                className="w-full"
-              >
-                <AccordionItem value={item.work_package_name}>
-                  <AccordionTrigger>
-                    <FormField
-                      control={form.control}
-                      name="project_work_packages.work_packages"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
-                              onCheckedChange={(checked) => {
-                                const updatedCategories = categoriesList
-                                  .filter((cat) => cat.work_package === item.work_package_name)
-                                  .map((cat) => ({
-                                    name: cat.category_name,
+    const handleSelectAll = (checked) => {
+        if (checked) {
+            const allWorkPackages = categoriesList.reduce((acc, category) => {
+                const existingPackage = acc.find((wp) => wp.work_package_name === category.work_package);
+                if (existingPackage) {
+                    existingPackage.category_list.list.push({
+                        name: category.category_name,
+                        makes: [],
+                    });
+                } else {
+                    acc.push({
+                        work_package_name: category.work_package,
+                        category_list: {
+                            list: [
+                                {
+                                    name: category.category_name,
                                     makes: [],
-                                  }));
+                                },
+                            ],
+                        },
+                    });
+                }
+                return acc;
+            }, []);
 
-                                const updatedWorkPackages = checked
-                                  ? [
-                                      ...field.value,
-                                      { work_package_name: item.work_package_name, category_list: { list: updatedCategories } },
-                                    ]
-                                  : field.value.filter((wp) => wp.work_package_name !== item.work_package_name);
+            form.setValue("project_work_packages.work_packages", allWorkPackages);
+        } else {
+            form.setValue("project_work_packages.work_packages", []);
+        }
+    };
 
-                                field.onChange(updatedWorkPackages);
-                              }}
-                            />
-                          </FormControl>
-                          <FormLabel>{item.work_package_name}</FormLabel>
-                        </FormItem>
-                      )}
-                    />
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    {categoriesList
-                      ?.filter((cat) => cat.work_package === item.work_package_name)
-                      ?.map((cat) => {
-                        const categoryMakeOptions = categoryMakeList?.filter((make) => make.category === cat.name);
-                        const makeOptions = categoryMakeOptions.map((make) => ({
-                          label: make.make,
-                          value: make.make,
-                        }));
+    const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
+        const updatedWorkPackages = [...workPackages];
 
-                        const selectedMakes =
-                          workPackages
-                            .find((wp) => wp.work_package_name === item.work_package_name)
-                            ?.category_list.list.find((c) => c.name === cat.category_name)?.makes || [];
+        let workPackage = updatedWorkPackages.find((wp) => wp.work_package_name === workPackageName);
 
-                        return (
-                          <div key={cat.name}>
-                            <Separator />
-                            <FormItem className="flex gap-4 items-center p-3">
-                              <FormLabel className="w-[30%]">{cat.category_name}</FormLabel>
-                              <Controller
-                                control={form.control}
-                                name="project_work_packages.work_packages"
-                                render={() => (
-                                  <ReactSelect
-                                    className="w-full"
-                                    placeholder="Select Makes..."
-                                    isMulti
-                                    options={makeOptions}
-                                    value={selectedMakes}
-                                    onChange={(selected) =>
-                                      handleSelectMake(item.work_package_name, cat.category_name, selected)
-                                    }
-                                  />
-                                )}
-                              />
-                            </FormItem>
-                          </div>
-                        );
-                      })}
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            ))}
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-    </div>
-  );
+        if (!workPackage) {
+            const associatedCategories = categoriesList
+                .filter((cat) => cat.work_package === workPackageName)
+                .map((cat) => ({
+                    name: cat.category_name,
+                    makes: [],
+                }));
+
+            workPackage = {
+                work_package_name: workPackageName,
+                category_list: {
+                    list: associatedCategories,
+                },
+            };
+
+            updatedWorkPackages.push(workPackage);
+        }
+
+        const category = workPackage.category_list.list.find((cat) => cat.name === categoryName);
+
+        if (!category) {
+            workPackage.category_list.list.push({
+                name: categoryName,
+                makes: selectedMakes,
+            });
+        } else {
+            category.makes = selectedMakes;
+        }
+
+        form.setValue("project_work_packages.work_packages", updatedWorkPackages);
+    };
+
+
+    if (categoriesListLoading || categoryMakeListLoading) return <div>loading..</div>
+
+    return (
+        <div>
+            <p className="text-sky-600 font-semibold">Package Specification</p>
+            <FormField
+                control={form.control}
+                name="project_work_packages"
+                render={() => (
+                    <FormItem>
+                        <div className="mb-4">
+                            <FormLabel className="text-base flex">
+                                Work Package Selection<sup className="pl-1 text-sm text-red-600">*</sup>
+                            </FormLabel>
+                        </div>
+                        <Checkbox
+                            className="mr-3"
+                            onCheckedChange={handleSelectAll}
+                        /> <span className="text-sm text-red-600 font-bold">Select All</span>
+                        <Separator />
+                        <Separator />
+
+                        {wp_list?.map((item) => (
+                            <Accordion
+                                key={item.work_package_name}
+                                type="single"
+                                collapsible
+                                value={openValue}
+                                onValueChange={setOpenValue}
+                                className="w-full"
+                            >
+                                <AccordionItem value={item.work_package_name}>
+                                    <AccordionTrigger>
+                                        <FormField
+                                            control={form.control}
+                                            name="project_work_packages.work_packages"
+                                            render={({ field }) => (
+                                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                                    <FormControl>
+                                                        <Checkbox
+                                                            checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
+                                                            onCheckedChange={(checked) => {
+                                                                const updatedCategories = categoriesList
+                                                                    .filter((cat) => cat.work_package === item.work_package_name)
+                                                                    .map((cat) => ({
+                                                                        name: cat.category_name,
+                                                                        makes: [],
+                                                                    }));
+
+                                                                const updatedWorkPackages = checked
+                                                                    ? [
+                                                                        ...field.value,
+                                                                        { work_package_name: item.work_package_name, category_list: { list: updatedCategories } },
+                                                                    ]
+                                                                    : field.value.filter((wp) => wp.work_package_name !== item.work_package_name);
+
+                                                                field.onChange(updatedWorkPackages);
+                                                            }}
+                                                        />
+                                                    </FormControl>
+                                                    <FormLabel>{item.work_package_name}</FormLabel>
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </AccordionTrigger>
+                                    <AccordionContent>
+                                        {categoriesList
+                                            ?.filter((cat) => cat.work_package === item.work_package_name)
+                                            ?.map((cat) => {
+                                                const categoryMakeOptions = categoryMakeList?.filter((make) => make.category === cat.name);
+                                                const makeOptions = categoryMakeOptions.map((make) => ({
+                                                    label: make.make,
+                                                    value: make.make,
+                                                }));
+
+                                                const selectedMakes =
+                                                    workPackages
+                                                        .find((wp) => wp.work_package_name === item.work_package_name)
+                                                        ?.category_list.list.find((c) => c.name === cat.category_name)?.makes || [];
+
+                                                return (
+                                                    <div key={cat.name}>
+                                                        <Separator />
+                                                        <FormItem className="flex gap-4 items-center p-3">
+                                                            <FormLabel className="w-[30%]">{cat.category_name}</FormLabel>
+                                                            <Controller
+                                                                control={form.control}
+                                                                name="project_work_packages.work_packages"
+                                                                render={() => (
+                                                                    <ReactSelect
+                                                                        className="w-full"
+                                                                        placeholder="Select Makes..."
+                                                                        isMulti
+                                                                        options={makeOptions}
+                                                                        value={selectedMakes}
+                                                                        onChange={(selected) =>
+                                                                            handleSelectMake(item.work_package_name, cat.category_name, selected)
+                                                                        }
+                                                                    />
+                                                                )}
+                                                            />
+                                                        </FormItem>
+                                                    </div>
+                                                );
+                                            })}
+                                    </AccordionContent>
+                                </AccordionItem>
+                            </Accordion>
+                        ))}
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
+        </div>
+    );
 };

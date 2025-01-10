@@ -48,7 +48,7 @@ export const ProjectPaymentsPaymentWise = () => {
         limit: 1000,
     });
 
-    const {data : projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate} = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
         limit: 10000
     })
@@ -128,8 +128,8 @@ export const ProjectPaymentsPaymentWise = () => {
                 header: "Amount Paid",
                 cell: ({ row }) => {
                     return <div className="font-medium">
-                            {formatToIndianRupee(row.getValue("amount"))}
-                        </div>
+                        {formatToIndianRupee(row.getValue("amount"))}
+                    </div>
                 },
             },
         ],
@@ -147,10 +147,10 @@ export const ProjectPaymentsPaymentWise = () => {
     }
 
     return (
-        <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between space-y-2">
+        <div className="flex-1 space-y-4">
+            {/* <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Project Payments List</h2>
-            </div>
+            </div> */}
             {projectsLoading || vendorsLoading || projectPaymentsLoading ? (
                 <TableSkeleton />
             ) : (

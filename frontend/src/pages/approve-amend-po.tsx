@@ -250,7 +250,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
             <ProcurementActionsHeaderCard orderData={po_data} amend={true} />
 
             {/* Item Comparison Table */}
-            <Card className="mt-4 p-4 shadow overflow-hidden">
+            <Card className="mt-4 p-4 shadow-lg overflow-hidden">
                 <Table>
                     <TableHeader className="bg-red-100 sticky top-0">
                         <TableRow>

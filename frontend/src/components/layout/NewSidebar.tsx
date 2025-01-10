@@ -32,6 +32,7 @@ import {
   Settings,
   Sparkles,
   User2,
+  WalletCards,
 } from "lucide-react";
 import logo from "@/assets/logo-svg.svg";
 import nLogo from "@/assets/LOGO.png";
@@ -596,23 +597,27 @@ export function NewSidebar() {
     ].includes(role) || user_id == "Administrator"
       ? [
           {
-            key: "pe-actions",
+            key: "/procurement-requests",
             icon: List,
             label: "Procurement Requests",
-            children: [
-              {
-                key: "/new-procure-request",
-                label: "New PR Request",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
+            count: role === "Nirmaan Admin Profile" ||
+                    user_id === "Administrator"
                     ? adminApprovedPRCount
                     : approvedPRCount,
-              },
-              { key: "/update-quote", label: "Update Quote" },
-              { key: "/choose-vendor", label: "Choose Vendor" },
-              // {key: '/service-request', label: 'Service Requests'}
-            ],
+            // children: [
+            //   {
+            //     key: "/new-procure-request",
+            //     label: "New PR Request",
+            //     count:
+            //       role === "Nirmaan Admin Profile" ||
+            //       user_id === "Administrator"
+            //         ? adminApprovedPRCount
+            //         : approvedPRCount,
+            //   },
+            //   { key: "/update-quote", label: "Update Quote" },
+            //   { key: "/choose-vendor", label: "Choose Vendor" },
+            //   // {key: '/service-request', label: 'Service Requests'}
+            // ],
           },
         ]
       : []),
@@ -641,21 +646,26 @@ export function NewSidebar() {
             ],
           },
           {
-            key: "pe-po-actions",
+            key: "/purchase-orders",
             icon: ShoppingCart,
             label: "Purchase Orders",
-            children: [
-              {
-                key: "/approved-po",
-                label: "Approved PO",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewPOCount
-                    : newPOCount,
-              },
-              { key: "/released-po", label: "Released PO" },
-            ],
+            count:
+                 role === "Nirmaan Admin Profile" ||
+                 user_id === "Administrator"
+                   ? adminNewPOCount
+                   : newPOCount,
+            // children: [
+            //   {
+            //     key: "/approved-po",
+            //     label: "Approved PO",
+            //     count:
+            //       role === "Nirmaan Admin Profile" ||
+            //       user_id === "Administrator"
+            //         ? adminNewPOCount
+            //         : newPOCount,
+            //   },
+            //   { key: "/released-po", label: "Released PO" },
+            // ],
           },
         ]
       : []),
@@ -699,6 +709,23 @@ export function NewSidebar() {
           },
         ]
       : []),
+      ...(user_id == "Administrator" || role == "Nirmaan Accountant Profile"
+        ? [
+            {
+                key: '/project-payments',
+                icon: WalletCards,
+                label: 'Project Payments',
+                // children: [
+                //     { key: '/projects', label: 'Projects' },
+                //     { key: '/users', label: 'Users' },
+                //     { key: '/items', label: 'Items' },
+                //     { key: '/vendors', label: 'Vendors' },
+                //     { key: '/customers', label: 'Customers' },
+                //     { key: '/procurement-packages', label: 'Procurement Packages' },
+                // ],
+            },
+        ]
+        : [])
   ];
 
   const allKeys = [
@@ -713,11 +740,13 @@ export function NewSidebar() {
     "approve-po",
     "approve-sent-back",
     "approve-amended-po",
-    "new-procure-request",
-    "update-quote",
-    "choose-vendor",
-    "approved-po",
-    "released-po",
+    "procurement-requests",
+    // "new-procure-request",
+    // "update-quote",
+    // "choose-vendor",
+    // "approved-po",
+    // "released-po",
+    "purchase-orders",
     "rejected-sb",
     "delayed-sb",
     "cancelled-sb",
@@ -726,6 +755,7 @@ export function NewSidebar() {
     "choose-service-vendor",
     "approved-sr",
     "notifications",
+    "project-payments",
   ];
 
   const selectedKeys =
@@ -753,31 +783,31 @@ export function NewSidebar() {
         "approve-service-request",
       ].includes(selectedKeys)
     ? "pl-actions"
-    : ["new-procure-request", "update-quote", "choose-vendor"].includes(
+    : ["procurement-requests"].includes(
         selectedKeys
       )
-    ? "pe-actions"
+    ? "/procurement-requests"
     : ["service-requests", "choose-service-vendor", "approved-sr"].includes(
         selectedKeys
       )
     ? "pe-sr-actions"
-    : ["approved-po", "released-po"].includes(selectedKeys)
-    ? "pe-po-actions"
+    : ["purchase-orders"].includes(selectedKeys)
+    ? "/purchase-orders"
     : ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys)
     ? "sent-back-actions"
     : ["service-requests", "choose-service-vendor", "approved-sr"].includes(
         selectedKeys
       )
     ? "pe-sr-actions"
-    : "";
+    : selectedKeys === "project-payments" ? "/project-payments" : "";
 
   const isDefaultOpen = [
     "admin-actions",
     openKey,
     role === "Nirmaan Project Lead Profile"
       ? "pl-actions"
-      : role === "Nirmaan Procurement Executive Profile"
-      ? "pe-actions"
+      // : role === "Nirmaan Procurement Executive Profile"
+      // ? "pe-actions"
       : "",
   ];
 
@@ -827,24 +857,29 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {item?.label === "Dashboard" ? (
+                  {["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments"].includes(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
-                        !openKey && selectedKeys !== "notifications"
+                        ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                           ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
                           : ""
-                      } tracking-tight`}
+                      } tracking-tight relative`}
                       onClick={() => {
                         if (isMobile) {
                           toggleSidebar();
                         }
-                        navigate("/");
+                        navigate(item?.label === "Dashboard" ? "/" : item?.key);
                       }}
                       selectedKeys={selectedKeys}
                       tooltip={item.label}
                     >
                       {item.icon && <item.icon />}
                       <span className="font-medium">{item.label}</span>
+                      {item?.count !== 0 && state === "expanded" && (
+                            <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
+                              {item.count}
+                        </span>
+                      )}
                     </SidebarMenuButton>
                   ) : (
                     <CollapsibleTrigger asChild>
