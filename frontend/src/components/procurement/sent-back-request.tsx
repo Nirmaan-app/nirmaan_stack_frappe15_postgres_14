@@ -19,13 +19,14 @@ type PRTable = {
     category: string
 }
 
-export const SentBackRequest = ({ type }) => {
+export const SentBackRequest = ({type}) => {
+    
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type', 'modified'],
             filters: [["workflow_state", "=", "Pending"], ["type", "=", type]],
             limit: 1000,
-            orderBy: { field: "modified", order: "desc" }
+            orderBy: {field: "modified", order: "desc"}
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -45,11 +46,11 @@ export const SentBackRequest = ({ type }) => {
         return total;
     }
 
-    const { mark_seen_notification, notifications } = useNotificationStore()
+    const {mark_seen_notification, notifications} = useNotificationStore()
 
-    const { db } = useContext(FrappeContext) as FrappeConfig
+    const {db} = useContext(FrappeContext) as FrappeConfig
     const handleNewPRSeen = (notification) => {
-        if (notification) {
+        if(notification) {
             mark_seen_notification(db, notification)
         }
     }
@@ -228,6 +229,6 @@ export const SentBackRequest = ({ type }) => {
                             </tbody>
                         </table>
                     </div> */}
-        </div>
+            </div>
     )
 }

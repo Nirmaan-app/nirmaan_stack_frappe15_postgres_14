@@ -117,7 +117,7 @@ def generate_po_summary(project_id: str):
         "Procurement Orders",
         filters={
             "project": project_id,
-            "merged": ["!=", "true"]
+            "status": ["!=", "Merged"]
         },
         fields=["name", "vendor", "vendor_name", "creation", "procurement_request", "order_list"]
     )

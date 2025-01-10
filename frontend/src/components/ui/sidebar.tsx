@@ -586,6 +586,10 @@ const SidebarMenuButton = React.forwardRef<
       }
     }
 
+    console.log("selectedKeys", selectedKeys)
+
+    console.log("tooltip", tooltip)
+
     return (
       // <Tooltip>
       //   <TooltipTrigger asChild>{button}</TooltipTrigger>
@@ -625,7 +629,13 @@ const SidebarMenuButton = React.forwardRef<
           ))}
         </SidebarMenu>
       ) : (
-        <p className={`${!selectedKeys ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to="/">{tooltip.children}</Link></p>
+        <p 
+        className={`${((!selectedKeys && tooltip?.children === "Dashboard") || 
+          (selectedKeys === "project-payments" && tooltip?.children === "Project Payments") || 
+          (selectedKeys === "purchase-orders" && tooltip?.children === "Purchase Orders") || 
+          (selectedKeys === "procurement-requests" && tooltip?.children === "Procurement Requests")) ? 
+          "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : 
+          "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to={`${tooltip?.children === "Dashboard" ? "/" : tooltip?.children === "Project Payments" ? "/project-payments" : tooltip?.children === "Purchase Orders" ? "/purchase-orders" : tooltip?.children === "Procurement Requests" ? "/procurement-requests" : ""}`}>{tooltip?.children}</Link></p>
       )}
     </TooltipContent>
   </Tooltip>

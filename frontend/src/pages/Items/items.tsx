@@ -34,7 +34,6 @@ import { UserContext } from "@/utils/auth/UserProvider";
 
 export default function Items() {
   const [curItem, setCurItem] = useState("");
-  const [make, setMake] = useState("");
   const [unit, setUnit] = useState("");
   const [category, setCategory] = useState("");
   const [categoryOptions, setCategoryOptions] = useState<
@@ -130,20 +129,20 @@ export default function Items() {
           );
         },
       },
-      {
-        accessorKey: "make_name",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Make" />;
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="font-medium">
-              {row.getValue("make_name") || "--"}
-              {/* `${item.item_name} ${ ? "-" + row.getValue("make_name") : ""}` */}
-            </div>
-          );
-        },
-      },
+      // {
+      //   accessorKey: "make_name",
+      //   header: ({ column }) => {
+      //     return <DataTableColumnHeader column={column} title="Make" />;
+      //   },
+      //   cell: ({ row }) => {
+      //     return (
+      //       <div className="font-medium">
+      //         {row.getValue("make_name") || "--"}
+      //         `${item.item_name} ${ ? "-" + row.getValue("make_name") : ""}`
+      //       </div>
+      //     );
+      //   },
+      // },
       {
         accessorKey: "creation",
         header: ({ column }) => {
@@ -191,7 +190,6 @@ export default function Items() {
       category: category,
       unit_name: unit,
       item_name: curItem,
-      make_name: make,
     };
     createDoc("Items", itemData)
       .then(() => {
@@ -207,7 +205,6 @@ export default function Items() {
         setUnit("");
         setCurItem("");
         setCategory("");
-        setMake("");
         mutate();
       })
       .catch(() => {
@@ -312,7 +309,7 @@ export default function Items() {
                       className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
                   </div>
-                  <div className="flex flex-col items-start">
+                  {/* <div className="flex flex-col items-start">
                     <label
                       htmlFor="makeName"
                       className="block text-sm font-medium text-gray-700"
@@ -326,7 +323,7 @@ export default function Items() {
                       onChange={(e) => setMake(e.target.value)}
                       className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
-                  </div>
+                  </div> */}
                   <div className="flex flex-col items-start">
                     <label
                       htmlFor="itemUnit"
@@ -369,9 +366,6 @@ export default function Items() {
                 <ListChecks className="h-4 w-4" />
                 Submit
               </Button>
-              {/* <DialogClose className="hidden" id="dialogCloseItem">
-                            close
-                        </DialogClose> */}
             </DialogContent>
           </Dialog>
         )}

@@ -13,7 +13,6 @@ import WorkPackages from "./pages/work-packages";
 import Profile from "./pages/users/user-profile";
 import { EditProjectForm } from "./pages/projects/edit-project-form";
 import { ApprovePR } from "./pages/approve-pr";
-import { PRList } from "./components/procurement/procurement-approved";
 import { ProcurementOrder } from "./components/procurement/procurement-vendor";
 import { SelectVendors } from "./components/procurement/select-vendors";
 import { UpdateQuote } from "./components/procurement/update-quote";
@@ -21,8 +20,6 @@ import { SentBackRequest } from "./components/procurement/sent-back-request";
 import { SentBackUpdateQuote } from "./components/procurement/sent-back-update-quote";
 import { SentBackSelectVendor } from "./components/procurement/sent-back-select-vendor";
 import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
-import { QuoteUpdateSelect } from "./components/procurement/quote-update-select";
-import { SelectVendorList } from "./components/procurement/select-vendor-list";
 import { ApproveSelectSentBack } from "./pages/approve-select-sent-back";
 import { PDF } from "./pages/pdf";
 import { ThemeProvider } from "./components/ui/theme-provider";
@@ -49,13 +46,11 @@ import NewMilestones from "./components/updates/NewMilestones";
 import DeliveryNotes from "./pages/DeliveryNotes/deliverynotes";
 import DeliveryNote from "./pages/DeliveryNotes/deliverynote";
 import { ProjectForm } from "./pages/projects/project-form";
-import { ReleasePONew } from "./components/updates/ReleasePONew";
 import { ApprovedQuotationsTable } from "./pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
 import EditUserForm from "./pages/users/EditUserForm";
 import { messaging } from "./firebase/firebaseConfig";
 import { onMessage } from "firebase/messaging";
 import { ApproveSelectAmendPO } from "./pages/approve-select-amend-po";
-import { POSummary } from "./components/POSummary";
 import ListSR from "./components/service-request/list-sr";
 import { ApproveSelectSR } from "./components/service-request/approve-service-request-list";
 import { ApproveServiceRequest } from "./components/service-request/approve-service-request";
@@ -75,6 +70,10 @@ import { EstimatedPriceOverview } from "./components/procurement/EstimatedPriceO
 import { ManPowerOverallSummary } from "./components/ManPowerOverallSummary";
 import { LivePRTrackingTable } from "./components/procurement-request/LivePRTrackingTable";
 import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
+import { ProjectPaymentsList } from "./pages/ProjectPayments/project-payments-list";
+import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
+import { ProcurementRequests } from "./components/procurement/procurement-requests";
+import { RenderProcurementRequest } from "./components/procurement/render-procurement-requests";
 // import { SentBackSummary } from './components/procurement/sent-back-summary'
 // import { ManPowerReport } from './components/ManPowerReport'
 
@@ -109,11 +108,11 @@ const router = createBrowserRouter(
                 />
                 <Route index lazy={() => import("@/components/pr-summary")} />
                 <Route path=":poId">
-                  <Route index element={<POSummary />} />
+                  <Route index lazy={() => import("@/components/POSummary")} />
                 </Route>
                 <Route path="dn">
                   <Route path=":dnId" element={<DeliveryNote />} />
-                  <Route path=":dnId/:poId" element={<POSummary />} />
+                  <Route path=":dnId/:poId" lazy={() => import("@/components/POSummary")} />
                 </Route>
               </Route>
             </Route>
@@ -125,7 +124,7 @@ const router = createBrowserRouter(
                 <Route index element={<DeliveryNote />} />
                 <Route path=":prId">
                   <Route index lazy={() => import("@/components/pr-summary")} />
-                  <Route path=":poId" element={<POSummary />} />
+                  <Route path=":poId" lazy={() => import("@/components/POSummary")} />
                 </Route>
               </Route>
             </Route>
@@ -209,26 +208,33 @@ const router = createBrowserRouter(
             <Route path=":srId" element={<ApprovedSR />} />
           </Route>
 
+          <Route path="procurement-requests">
+            <Route index element={<ProcurementRequests />} />
+            <Route path=":prId" element={<RenderProcurementRequest />} />
+          </Route>
+
           {/* New PR Request Paths  */}
-          <Route path="new-procure-request">
+          {/* <Route path="new-procure-request">
             <Route index element={<PRList />} />
             <Route path=":prId" element={<ProcurementOrder />} />
-          </Route>
+          </Route> */}
 
           {/* Update Quote Paths  */}
-          <Route path="update-quote">
+          {/* <Route path="update-quote">
             <Route index element={<QuoteUpdateSelect />} />
             <Route path=":prId" element={<UpdateQuote />} />
-          </Route>
+          </Route> */}
 
           {/* Select Vendor Paths  */}
-          <Route path="choose-vendor">
+          {/* <Route path="choose-vendor">
             <Route index element={<SelectVendorList />} />
             <Route path=":prId" element={<SelectVendors />} />
-          </Route>
+          </Route> */}
+
+
 
           {/* Approved PO Paths  */}
-          <Route path="approved-po">
+          {/* <Route path="approved-po">
             <Route
               index
               element={<ReleasePOSelect not={false} status="PO Approved" />}
@@ -237,10 +243,10 @@ const router = createBrowserRouter(
             // element={<ReleasePONew not={false} />} 
             element={<PurchaseOrder not={false} />} 
             />
-          </Route>
+          </Route> */}
 
           {/* Released PO Paths  */}
-          <Route path="released-po">
+          {/* <Route path="released-po">
             <Route
               index
               element={<ReleasePOSelect not={true} status="PO Approved" />}
@@ -249,6 +255,11 @@ const router = createBrowserRouter(
             // element={<ReleasePONew not={true} />}
             element={<PurchaseOrder not={true} />} 
             />
+          </Route> */}
+
+          <Route path='purchase-orders'>
+            <Route index element={<ReleasePOSelect />} />
+            <Route path=":poId" element={<PurchaseOrder />} />
           </Route>
 
           {/* Sent Back Paths */}
@@ -311,14 +322,20 @@ const router = createBrowserRouter(
               lazy={() => import("@/components/add-project-estimates")}
             />
             <Route path=":projectId/edit" element={<EditProjectForm />} />
-            <Route path=":projectId/po/:poId" element={<POSummary />} />
+            <Route path=":projectId/po/:poId" lazy={() => import("@/components/POSummary")} />
             <Route path=":projectId/:prId">
               <Route index lazy={() => import("@/components/pr-summary")} />
-              <Route path=":poId" element={<POSummary />} />
+              <Route path=":poId" lazy={() => import("@/components/POSummary")} />
               <Route path="dn">
                 <Route path=":dnId" element={<DeliveryNote />} />
               </Route>
             </Route>
+          </Route>
+
+          <Route
+            path="project-payments">
+            <Route index element={<ProjectPaymentsList />} />
+            <Route path=":id" element={<OrderPaymentSummary />} />
           </Route>
 
           {/* User Paths */}
@@ -341,7 +358,7 @@ const router = createBrowserRouter(
             <Route path="new-vendor" element={<NewVendor />} />
             <Route path=":vendorId">
               <Route index lazy={() => import("@/pages/vendors/vendor")} />
-              <Route path=":poId" element={<POSummary />} />
+              <Route path=":poId" lazy={() => import("@/components/POSummary")} />
               <Route path="edit" element={<EditVendor />} />
             </Route>
           </Route>
@@ -369,7 +386,7 @@ const router = createBrowserRouter(
           <Route path="debug">
             {/* <Route index element={<Debug />} /> */}
             <Route index element={<ApprovedQuotationsTable />} />
-            <Route path=":poId" element={<POSummary />} />
+            <Route path=":poId" lazy={() => import("@/components/POSummary")} />
           </Route>
 
           <Route path="live-pr-tracking">

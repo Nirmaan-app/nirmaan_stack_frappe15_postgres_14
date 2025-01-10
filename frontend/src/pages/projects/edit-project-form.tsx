@@ -5,7 +5,7 @@ import {
   useFrappeGetDoc,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import * as z from "zod";
 import {
   Form,
@@ -74,6 +74,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
+import ReactSelect from "react-select";
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -122,28 +123,25 @@ const projectFormSchema = z.object({
   project_end_date: z.date({
     required_error: "An end date is required.",
   }),
-  // project_lead: z
-  //     .string({
-  //         required_error: "Please select Project Lead"
-  //     }),
-  // project_manager: z
-  //     .string({
-  //         required_error: "Please select Project Manager"
-  //     }),
-  // design_lead: z
-  //     .string({
-  //         required_error: "Please select Design Lead"
-  //     }),
-  // procurement_lead: z
-  //     .string({
-  //         required_error: "Please select Procurement Lead"
-  //     }),
-  project_work_packages: z.object({
-    work_packages: z.array(
-      z.object({
-        work_package_name: z.string(),
-      })
-    ),
+  project_work_packages: z
+          .object({
+              work_packages: z.array(
+                  z.object({
+                      work_package_name: z.string(),
+                      category_list: z
+                      .object({
+                          list: z.array(
+                              z.object({
+                                  name: z.string(),
+                                  makes: z.array(z.object({
+                                      label: z.string(),
+                                      value: z.string()
+                                  }))
+                              })
+                          )
+                      })
+                  })
+              )
   }),
   project_scopes: z.object({
     scopes: z.array(
@@ -177,6 +175,10 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
     `${projectId}`
   );
 
+  // console.log("projectData", data)
+
+  const navigate = useNavigate();
+
   const {
     data: work_package_list,
     isLoading: wp_list_loading,
@@ -184,14 +186,6 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
   } = useFrappeGetDocList("Work Packages", {
     fields: ["work_package_name"],
     limit: 100,
-  });
-  const {
-    data: scope_of_work_list,
-    isLoading: sow_list_loading,
-    error: sow_list_error,
-  } = useFrappeGetDocList("Scopes of Work", {
-    fields: ["scope_of_work_name", "work_package"],
-    limit: 1000,
   });
 
   const {
@@ -261,10 +255,24 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
     },
   });
 
-  //   console.log("formValues", form.getValues());
+  // console.log("formValues", form.getValues())
 
   useEffect(() => {
     if (data && project_address) {
+      const reformattedWorkPackages = JSON.parse(data?.project_work_packages || "{}")?.work_packages?.map((workPackage) => {
+        const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
+          name: category.name,
+          makes: category.makes.map((make) => ({label : make, value : make})), // Extract only the labels
+        }));
+      
+        return {
+          ...workPackage,
+          category_list: {
+            list: updatedCategoriesList,
+          },
+        };
+      });
+      
       form.reset({
         project_name: data?.project_name || "",
         customer: data?.customer || "",
@@ -280,10 +288,8 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         project_end_date: data?.project_end_date
           ? new Date(data?.project_end_date)
           : new Date(),
-        project_work_packages: data?.project_work_packages
-          ? JSON.parse(data?.project_work_packages)
-          : {
-              work_packages: [],
+        project_work_packages: {
+              work_packages: reformattedWorkPackages || [],
             },
         project_scopes: data?.project_scopes
           ? JSON.parse(data?.project_scopes)
@@ -295,19 +301,6 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
       setPincode(project_address.pincode);
     }
   }, [data, project_address, company, project_types]);
-
-  // const getCompanyName = (id) => {
-  //     console.log("running")
-  //     return company?.find((com) => com.name === id)?.name
-  // }
-
-  // const getProjectTypeName = (id) => {
-  //     return project_types?.find((pt) => pt.name === id)?.project_type_name
-  // }
-
-  // useEffect(() => {
-
-  // })
 
   const {
     updateDoc: updateDoc,
@@ -380,6 +373,20 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         values.project_end_date
       );
 
+      const reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
+        const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
+          name: category.name,
+          makes: category.makes.map((make) => make.label), // Extract only the labels
+        }));
+      
+        return {
+          ...workPackage,
+          category_list: {
+            list: updatedCategoriesList,
+          },
+        };
+      });
+
       const changedValues = {};
 
       if (values.project_name !== data?.project_name)
@@ -409,7 +416,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         project_end_date: formatted_end_date,
         project_city: city,
         project_state: state,
-        project_work_packages: values.project_work_packages,
+        project_work_packages: {work_packages: reformattedWorkPackages},
         project_scopes: values.project_scopes,
       });
 
@@ -451,12 +458,6 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
       work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
 
-  const sow_list =
-    scope_of_work_list?.map((item) => ({
-      scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
-      work_package: item.work_package,
-    })) || [];
-
   // console.log("projectData", data)
   // console.log("projectvalues", form.getValues())
 
@@ -467,9 +468,9 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
           event.stopPropagation();
           return form.handleSubmit(onSubmit)(event);
         }}
-        className="flex-1 space-y-4"
+        className="flex-1"
       >
-        <div className=" flex flex-col py-4">
+        <div className="flex flex-col ">
           <p className="text-sky-600 font-semibold pb-2">Project Details</p>
           <div className="flex flex-col gap-4">
             <FormField
@@ -479,8 +480,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                 return (
                   <FormItem className="lg:flex lg:items-center gap-4">
                     <FormLabel className="md:basis-3/12">
-                      Project Name
-                      <sup className="text-sm text-red-600">*</sup>
+                      Project Name<sup className="text-sm text-red-600">*</sup>
                     </FormLabel>
                     <div className="flex flex-col items-start md:basis-2/4">
                       <FormControl>
@@ -677,7 +677,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
               control={form.control}
               name="pin"
               render={({ field }) => (
-                <FormItem className="lg:flex items-start gap-4">
+                <FormItem className="lg:flex gap-4">
                   <FormLabel className="md:basis-3/12">
                     Pin Code<sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
@@ -843,7 +843,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
             />
             <div className="flex items-center">
               <FormLabel className="md:basis-3/12">Duration: </FormLabel>
-              <div className=" pl-4 flex items-center gap-2 ">
+              <div className=" pl-4 flex items-center gap-2">
                 <h1>{duration}</h1>
                 <h1 className="text-sm text-red-600">
                   <sup>*</sup>(Days)
@@ -853,10 +853,10 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
           </div>
 
           <Separator className="my-6" />
-          <p className="text-sky-600 font-semibold pb-6">
+          {/* <p className="text-sky-600 font-semibold pb-6">
             Package Specification
-          </p>
-          <FormField
+          </p> */}
+          {/* <FormField
             control={form.control}
             name="project_work_packages"
             render={() => (
@@ -868,13 +868,13 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                   <Accordion
                     type="single"
                     collapsible
-                    value={
-                      form
-                        .getValues()
-                        .project_work_packages.work_packages.find(
-                          (d) => d.work_package_name === item.work_package_name
-                        )?.work_package_name
-                    }
+                    // value={
+                    //   form
+                    //     .getValues()
+                    //     .project_work_packages.work_packages.find(
+                    //       (d) => d.work_package_name === item.work_package_name
+                    //     )?.work_package_name
+                    // }
                     className="w-full"
                   >
                     <AccordionItem value={item.work_package_name}>
@@ -902,55 +902,23 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                                         item.work_package_name
                                     )}
                                     onCheckedChange={(checked) => {
-                                      if (!checked) {
-                                        const filteredSow = form
-                                          .getValues()
-                                          .project_scopes.scopes.filter(
-                                            (sow) =>
-                                              sow.work_package !=
-                                              item.work_package_name
-                                          );
-                                        form.setValue(
-                                          "project_scopes.scopes",
-                                          filteredSow
-                                        );
-                                      } else {
-                                        const filteredSow = form
-                                          .getValues()
-                                          .project_scopes.scopes.filter(
-                                            (sow) =>
-                                              sow.work_package !=
-                                              item.work_package_name
-                                          );
-
-                                        sow_list?.forEach((sow) => {
-                                          if (
-                                            sow.work_package ===
-                                            item.work_package_name
-                                          ) {
-                                            filteredSow.push(sow);
-                                          }
-                                        });
-                                        form.setValue(
-                                          "project_scopes.scopes",
-                                          filteredSow
-                                        );
-                                      }
+                                      const categoryOptions = []
+                                      const selectedCategories = categoriesList?.filter(cat => cat.work_package === item.work_package_name)
+                                      selectedCategories?.forEach(cat => {
+                                          categoryOptions.push({
+                                              // name: cat.category_name,
+                                              // makes: []
+                                              label: cat.category_name,
+                                              value: cat.category_name
+                                          })
+                                      })
                                       return checked
-                                        ? field.onChange([
-                                            ...field.value,
-                                            {
-                                              work_package_name:
-                                                item.work_package_name,
-                                            },
-                                          ])
-                                        : field.onChange(
-                                            field.value?.filter(
-                                              (value) =>
-                                                value.work_package_name !==
-                                                item.work_package_name
-                                            )
-                                          );
+                                          ? field.onChange([...field.value, { work_package_name: item.work_package_name, category_list : {list : categoryOptions} }])
+                                          : field.onChange(
+                                              field.value?.filter(
+                                                  (value) => value.work_package_name !== item.work_package_name
+                                              )
+                                          )
                                     }}
                                   />
                                 </FormControl>
@@ -963,70 +931,64 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                         />
                       </AccordionTrigger>
                       <AccordionContent>
-                        {sow_list.map((scope) => {
-                          if (scope.work_package === item.work_package_name) {
-                            return (
-                              <div className="">
-                                <Separator />
-                                <FormField
-                                  key={scope.scope_of_work_name}
-                                  control={form.control}
-                                  name="project_scopes.scopes"
-                                  render={({ field }) => (
-                                    <FormItem className="flex flex-row items-center justify-between p-3">
-                                      <FormLabel className="text-sm font-normal">
-                                        <div className="flex">
-                                          <GitCommitVertical className="w-6" />
-                                          <span className="text-sm mt-0.5">
-                                            {scope.scope_of_work_name}
-                                          </span>
-                                        </div>
-                                      </FormLabel>
-                                      <FormControl>
-                                        <Checkbox
-                                          checked={field.value?.some(
-                                            (i) =>
-                                              i.scope_of_work_name ===
-                                              scope.scope_of_work_name
-                                          )}
-                                          onCheckedChange={(checked) => {
-                                            return checked
-                                              ? field.onChange([
-                                                  ...field.value,
-                                                  {
-                                                    scope_of_work_name:
-                                                      scope.scope_of_work_name,
-                                                    work_package:
-                                                      scope.work_package,
-                                                  },
-                                                ])
-                                              : field.onChange(
-                                                  field.value?.filter(
-                                                    (value) =>
-                                                      value.scope_of_work_name !==
-                                                      scope.scope_of_work_name
-                                                  )
-                                                );
-                                          }}
-                                        />
-                                      </FormControl>
-                                    </FormItem>
-                                  )}
-                                />
-                              </div>
-                            );
-                          }
-                        })}
-                      </AccordionContent>
+        <FormField
+          key={`${item.work_package_name}-categories`}
+          control={form.control}
+          name="project_work_packages.work_packages"
+          render={({ field }) => {
+            const selectedWorkPackage = field.value?.find(
+              (wp) => wp.work_package_name === item.work_package_name
+            );
+            const selectedCategories =
+              selectedWorkPackage?.category_list?.list || [];
+            const categoryOptions = categoriesList
+              ?.filter((cat) => cat.work_package === item.work_package_name)
+              .map((cat) => ({
+                label: cat.category_name,
+                value: cat.category_name,
+              }));
+
+            return (
+              <FormItem className="p-3">
+                <ReactSelect
+                  isMulti
+                  options={categoryOptions}
+                  value={selectedCategories}
+                  onChange={(selected) => {
+                    const updatedWorkPackages = [...(field.value || [])];
+                    const workPackageIndex = updatedWorkPackages.findIndex(
+                      (wp) => wp.work_package_name === item.work_package_name
+                    );
+
+                    if (workPackageIndex > -1) {
+                      updatedWorkPackages[workPackageIndex].category_list.list =
+                        selected;
+                    } else {
+                      updatedWorkPackages.push({
+                        work_package_name: item.work_package_name,
+                        category_list: { list: selected },
+                      });
+                    }
+
+                    field.onChange(updatedWorkPackages);
+                  }}
+                />
+              </FormItem>
+            );
+          }}
+        />
+      </AccordionContent>
                     </AccordionItem>
                   </Accordion>
                 ))}
                 <FormMessage />
               </FormItem>
             )}
-          />
-          {/* <Separator className="my-6" /> */}
-          {/* <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p> */}
+          /> */}
+
+          {wp_list?.length > 0 && (
+            <WorkPackageSelection form={form} wp_list={wp_list} />
+          )}
           <div className="my-6">
             {loading ? (
               <ButtonLoading />
@@ -1040,5 +1002,214 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         </div>
       </form>
     </Form>
+  );
+};
+
+
+const WorkPackageSelection = ({form, wp_list}) => {
+
+  const [openValue, setOpenValue] = useState(null);
+
+  const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
+    fields: ["category_name", "work_package", "name"],
+    filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
+    limit: 1000,
+  });
+
+  const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
+    fields: ["make", "category"],
+    limit: 10000,
+  });
+
+  const workPackages = form.watch("project_work_packages.work_packages");
+
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      const allWorkPackages = categoriesList.reduce((acc, category) => {
+        const existingPackage = acc.find((wp) => wp.work_package_name === category.work_package);
+        if (existingPackage) {
+          existingPackage.category_list.list.push({
+            name: category.category_name,
+            makes: [],
+          });
+        } else {
+          acc.push({
+            work_package_name: category.work_package,
+            category_list: {
+              list: [
+                {
+                  name: category.category_name,
+                  makes: [],
+                },
+              ],
+            },
+          });
+        }
+        return acc;
+      }, []);
+
+      form.setValue("project_work_packages.work_packages", allWorkPackages);
+    } else {
+      form.setValue("project_work_packages.work_packages", []);
+    }
+  };
+
+const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
+    const updatedWorkPackages = [...workPackages];
+  
+    let workPackage = updatedWorkPackages.find((wp) => wp.work_package_name === workPackageName);
+  
+    if (!workPackage) {
+      const associatedCategories = categoriesList
+        .filter((cat) => cat.work_package === workPackageName)
+        .map((cat) => ({
+          name: cat.category_name,
+          makes: [],
+        }));
+  
+      workPackage = {
+        work_package_name: workPackageName,
+        category_list: {
+          list: associatedCategories,
+        },
+      };
+  
+      updatedWorkPackages.push(workPackage);
+    }
+
+    const category = workPackage.category_list.list.find((cat) => cat.name === categoryName);
+  
+    if (!category) {
+      workPackage.category_list.list.push({
+        name: categoryName,
+        makes: selectedMakes,
+      });
+    } else {
+      category.makes = selectedMakes;
+    }
+  
+    form.setValue("project_work_packages.work_packages", updatedWorkPackages);
+  };
+  
+
+  if(categoriesListLoading || categoryMakeListLoading) return <div>loading..</div>
+
+  return (
+    <div>
+      {/* <p className="text-sky-600 font-semibold">Package Specification</p> */}
+      <FormField
+        control={form.control}
+        name="project_work_packages"
+        render={() => (
+          <FormItem>
+            <div className="mb-4">
+              <FormLabel className="text-base flex">
+                Work Package Selection<sup className="text-sm text-red-600">*</sup>
+              </FormLabel>
+            </div>
+            <Checkbox
+              className="mr-3"
+              onCheckedChange={handleSelectAll}
+            /> <span className="text-sm text-red-600 font-bold">Select All</span>
+            <Separator />
+            <Separator />
+
+            {wp_list?.map((item) => (
+              <Accordion
+                key={item.work_package_name}
+                type="single"
+                collapsible
+                value={openValue}
+                onValueChange={setOpenValue}
+                className="w-full"
+              >
+                <AccordionItem value={item.work_package_name}>
+                  <AccordionTrigger>
+                    <FormField
+                      control={form.control}
+                      name="project_work_packages.work_packages"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              disabled={
+                                field.value.length === 1 &&
+                                field.value?.[0].work_package_name ===
+                                  item.work_package_name
+                              }
+                              checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
+                              onCheckedChange={(checked) => {
+                                const updatedCategories = categoriesList
+                                  .filter((cat) => cat.work_package === item.work_package_name)
+                                  .map((cat) => ({
+                                    name: cat.category_name,
+                                    makes: [],
+                                  }));
+
+                                const updatedWorkPackages = checked
+                                  ? [
+                                      ...field.value,
+                                      { work_package_name: item.work_package_name, category_list: { list: updatedCategories } },
+                                    ]
+                                  : field.value.filter((wp) => wp.work_package_name !== item.work_package_name);
+
+                                field.onChange(updatedWorkPackages);
+                              }}
+                            />
+                          </FormControl>
+                          <FormLabel>{item.work_package_name}</FormLabel>
+                        </FormItem>
+                      )}
+                    />
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    {categoriesList
+                      ?.filter((cat) => cat.work_package === item.work_package_name)
+                      ?.map((cat) => {
+                        const categoryMakeOptions = categoryMakeList?.filter((make) => make.category === cat.name);
+                        const makeOptions = categoryMakeOptions.map((make) => ({
+                          label: make.make,
+                          value: make.make,
+                        }));
+
+                        const selectedMakes =
+                          workPackages
+                            .find((wp) => wp.work_package_name === item.work_package_name)
+                            ?.category_list.list.find((c) => c.name === cat.category_name)?.makes || [];
+
+                        return (
+                          <div key={cat.name}>
+                            <Separator />
+                            <FormItem className="flex gap-4 items-center p-3">
+                              <FormLabel className="w-[30%]">{cat.category_name}</FormLabel>
+                              <Controller
+                                control={form.control}
+                                name="project_work_packages.work_packages"
+                                render={() => (
+                                  <ReactSelect
+                                    className="w-full"
+                                    placeholder="Select Makes..."
+                                    isMulti
+                                    options={makeOptions}
+                                    value={selectedMakes}
+                                    onChange={(selected) =>
+                                      handleSelectMake(item.work_package_name, cat.category_name, selected)
+                                    }
+                                  />
+                                )}
+                              />
+                            </FormItem>
+                          </div>
+                        );
+                      })}
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            ))}
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </div>
   );
 };

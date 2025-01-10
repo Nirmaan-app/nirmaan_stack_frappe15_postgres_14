@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
+import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -34,6 +34,7 @@ interface DataType {
     amount: number;
     lowest2: string;
     lowest3: string;
+    makes: any[];
     children?: DataType[];
 }
 
@@ -44,6 +45,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
+                <>
                 <div className="inline items-baseline">
                     <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
                         {text}
@@ -61,6 +63,14 @@ const columns: TableColumnsType<DataType> = [
                         </HoverCard>
                     )}
                 </div>
+                {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0 ) && (
+                    <div className="text-xs text-gray-500 lg:ml-10">
+                        <span className='text-primary'>make</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
+                            <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
+                          ))}
+                      </div>
+                )}
+                </>
             )
         }
     },
@@ -68,12 +78,12 @@ const columns: TableColumnsType<DataType> = [
         title: 'Unit',
         dataIndex: 'unit',
         key: 'unit',
-        width: '7%',
+        width: '5%',
     },
     {
-        title: 'Quantity',
+        title: 'Qty',
         dataIndex: 'quantity',
-        width: '7%',
+        width: '5%',
         key: 'quantity',
     },
     {
@@ -90,28 +100,55 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
-        width: '15%',
+        width: '12%',
         key: 'selectedVendor',
     },
     {
         title: 'Amount',
         dataIndex: 'amount',
-        width: '9%',
+        width: '12%',
         key: 'amount',
-        render: (text, record) => (
-            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
-            </span>
-        ),
+        render: (text, record) => {
+
+            const amount = parseFloat(text);
+            const lowest3 = parseFloat(record?.lowest3);
+                
+            // Ensure valid numerical values
+            if (isNaN(amount) || isNaN(lowest3)) {
+              return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>{formatToIndianRupee(amount)}</span>;
+            }
+        
+            const percentageDifference =
+              ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
+        
+            // Determine color and direction
+            const isLessThan = amount < lowest3;
+            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
+            const Icon = isLessThan ? MoveDown : MoveUp;
+
+            return <div className='flex items-center gap-1' style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+            <span>{formatToIndianRupee(amount)}</span>{" "}
+            {record.unit !== null && record?.lowest3 !== 'N/A' && percentageDifference !== 0 && (
+             <div className={`${colorClass} flex items-center`}>
+                <span className={`text-sm`}>
+                  ({isLessThan
+                    ? `${percentageDifference}%`
+                    : `${percentageDifference}%`})
+                </span>
+                <Icon className={`w-4 h-4`} />
+            </div>
+            )}
+          </div>
+        },
     },
     {
         title: 'Lowest Quoted Amount',
         dataIndex: 'lowest2',
-        width: '10%',
+        width: '8%',
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
+                { text === "N/A" ? text : formatToIndianRupee(text) }
             </span>
         ),
     },
@@ -120,11 +157,24 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'lowest3',
         width: '10%',
         key: 'lowest3',
-        render: (text, record) => (
-            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
-            </span>
-        ),
+        render: (text, record) => {
+
+            const amount = parseFloat(record?.amount);
+            const lowest3 = parseFloat(record?.lowest3);
+                
+            // Ensure valid numerical values
+            if (isNaN(amount) || isNaN(lowest3)) {
+              return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>N/A</span>;
+            }
+        
+            // Determine color and direction
+            const isLessThan = amount < lowest3;
+            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
+
+            return  <div style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                        <span className={`${record.unit !== null && colorClass}`}>{formatToIndianRupee(text)}</span>
+                    </div>
+        },
     },
 ];
 
@@ -203,51 +253,37 @@ interface ApproveVendorPageProps {
 }
 
 export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate, usersList }: ApproveVendorPageProps) => {
-    // const { orderId } = useParams<{ orderId: string }>()
+
     const navigate = useNavigate()
-    // const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: procurement_list_mutate } = useFrappeGetDocList("Procurement Requests",
-    //     {
-    //         fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-    //         filters: [['name', '=', orderId]],
-    //         limit: 1000
-    //     });
+
     const { data: vendor_list } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
+
     const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
         fields: ["*"],
         filters: [["reference_name", "=", pr_data.name], ["subject", "=", "pr vendors selected"]]
     })
-    // const { data: project_list } = useFrappeGetDocList("Projects",
-    //     {
-    //         fields: ['name', 'project_name', 'project_address', 'procurement_lead'],
-    //         limit: 1000
-    //     });
+
     const { data: quotation_request_list } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity', 'makes'],
             filters: [["status", "=", "Selected"], ["procurement_task", "=", pr_data?.name]],
             limit: 2000
         });
-    const { data: quotation_request_list2 } = useFrappeGetDocList("Quotation Requests",
-        {
-            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["procurement_task", "=", pr_data?.name]],
-            limit: 2000
-        });
+
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item_id', 'quote'],
+            fields: ['*'],
             limit: 2000
         });
 
-    const { createDoc: createDoc, loading: createLoading } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
+    const { createDoc: createDoc } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc } = useFrappeUpdateDoc()
 
-    const [page, setPage] = useState<string>('approvequotation')
     const [orderData, setOrderData] = useState({
         project: '',
         work_package: '',
@@ -275,8 +311,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     }
 
     useEffect(() => {
-
-        // console.log("calling useEffect 1, priceMap")
         const newPriceMap = new Map<string, string>();
         quotation_request_list?.forEach((item) => {
             const key = generateVendorItemKey(item.vendor, item.item);
@@ -287,9 +321,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     // Setting initial data
     useEffect(() => {
-        // console.log("calling useEffect 2, settingOrderData and updating procurement_list and category_list");
-
-        // if (procurement_request_list) {
         // Initial setup of orderData
         const newOrderData = pr_data;
         // Compute new procurement list and categories
@@ -335,12 +366,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     const getVendorGST = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_gst;
     }
-    // const getProjectName = (projectName: string) => {
-    //     return project_list?.find(project => project.name === projectName)?.project_name;
-    // }
-    // const getProjectAddress = (projectName: string) => {
-    //     return project_list?.find(project => project.name === projectName)?.project_address;
-    // }
+    
     const getTotal = (cat: string) => {
         return orderData.procurement_list?.list
             .filter(item => item.category === cat)
@@ -352,39 +378,49 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     const getLowest = (cat: string) => {
         let price: number = 0;
-        let vendor: string = 'vendor';
-        orderData.procurement_list?.list.map((item) => {
+        orderData.procurement_list?.list.forEach((item) => {
             if (item.category === cat && selectedVendors[item.name]) {
-                const quotesForItem = quotation_request_list2
-                    ?.filter(q => q.item === item.name && q.quote)
+                const quotesForItem = quotation_request_list
+                    ?.filter(q => q.item === item.name && ![null, "0", 0, undefined].includes(q.quote))
                     ?.map(q => q.quote);
                 const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
-                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+                price += parseFloat(minQuote || 0) * item.quantity;
             }
         })
-        return { quote: price, vendor: vendor }
+        return { quote: price }
     }
 
     const getLowest2 = useCallback((item: string) => {
-        const quotesForItem = quotation_request_list2
-            ?.filter(q => q.item === item && q.quote)
+        const quotesForItem = quotation_request_list
+            ?.filter(q => q.item === item && ![null, "0", 0, undefined].includes(q.quote))
             ?.map(q => q.quote);
         return quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
-    }, [quotation_request_list2]);
+    }, [quotation_request_list, orderData.procurement_list]);
 
     const getLowest3 = useCallback((cat: string) => {
         let total: number = 0;
+        // const threeMonthsAgo = new Date();
+        // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
         orderData.procurement_list?.list.forEach((item) => {
             if (item.category === cat && selectedVendors[item.name]) {
+                // const quotesForItem = quote_data?.filter((value) => {
+                //       const modifiedDate = new Date(value.modified);
+                //       return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                //     })
                 const quotesForItem = quote_data
-                    ?.filter(q => q.item_id === item.name && q.quote)
+                    ?.filter(q => q.item_id === item.name && ![null, "0", 0, undefined].includes(q.quote))
                     ?.map(q => q.quote);
                 const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
-                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+                total +=  parseFloat(minQuote || 0) * item.quantity;
             }
         })
         return total;
     }, [quote_data, selectedVendors, orderData.procurement_list]);
+
+    const getItemQuoteMakes = (item: string, category: string, vendor: string) => {
+        return quotation_request_list?.find(i => i.vendor === vendor && i.category === category && i.item === item)?.makes?.list || [];
+    }
 
     useEffect(() => {
         // console.log("calling useEffect 5, setting column data for table")
@@ -393,15 +429,22 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         orderData.category_list?.list.forEach((cat) => {
             const items: DataType[] = [];
 
+            // const threeMonthsAgo = new Date();
+            // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
             orderData.procurement_list?.list.forEach((item) => {
                 if (item.category === cat.name) {
                     if (selectedVendors[item.name]) {
                         const price = Number(getPrice(selectedVendors[item.name], item.name))
+                        // const quotesForItem = quote_data?.filter((value) => {
+                        //     const modifiedDate = new Date(value.modified);
+                        //     return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                        //   })
                         const quotesForItem = quote_data
-                            ?.filter(q => q.item_id === item.name && q.quote)
+                            ?.filter(q => q.item_id === item.name && ![null, "0", 0, undefined].includes(q.quote))
                             ?.map(q => q.quote);
                         let minQuote = quotesForItem?.length ? Math.min(...quotesForItem) : 0;
-                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
+                        minQuote = parseFloat(minQuote || 0) * item.quantity
 
                         items.push({
                             item: item.item,
@@ -411,10 +454,11 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             category: item.category,
                             comment: item.comment,
                             tax: Number(item.tax),
+                            makes: getItemQuoteMakes(item.name, item.category, selectedVendors[item.name]),
                             rate: price,
                             amount: price * item.quantity,
                             selectedVendor: getVendorName(selectedVendors[item.name]),
-                            lowest2: getLowest2(item.name) * item.quantity,
+                            lowest2: getLowest2(item.name) ? getLowest2(item?.name) * item.quantity : "N/A",
                             lowest3: minQuote ? minQuote : "N/A",
                         });
                     }
@@ -428,8 +472,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     unit: null,
                     quantity: null,
                     amount: getTotal(cat.name),
-                    lowest2: getLowest(cat.name).quote,
-                    lowest3: getLowest3(cat.name),
+                    lowest2: getLowest(cat.name).quote || "N/A",
+                    lowest3: getLowest3(cat.name) || "N/A",
                     children: items,
                 };
                 newData.push(node);
@@ -437,7 +481,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         });
         setData(newData)
     }, [orderData, selectedVendors, quote_data]);
-
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
@@ -487,7 +530,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         item: item.item,
                         category: item.category,
                         tax: item.tax,
-                        comment: item.comment
+                        comment: item.comment,
+                        makes: {list : item?.makes || []},
                     });
                 }
             });
@@ -611,8 +655,17 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 };
             });
 
-            const newCategories = Array.from(new Set(itemlist.map(item => item.category)))
-                .map(name => ({ name }));
+            // const newCategories = Array.from(new Set(itemlist.map(item => item.category)))
+            //     .map(name => ({ name }));
+
+            const newCategories: { name: string, makes: string[] }[] = [];
+            itemlist.forEach((item) => {
+                const isDuplicate = newCategories.some((category) => category.name === item.category);
+                if (!isDuplicate) {
+                    const makes = orderData?.category_list?.list?.find((category) => category.name === item.category)?.makes || [];
+                    newCategories.push({ name: item.category, makes });
+                }
+            });
 
             const newSendBack = {
                 procurement_request: pr_data?.name,
@@ -715,7 +768,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         }
     };
 
-
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;
     };
@@ -799,6 +851,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     return "No valid action details available.";
     };
+
 
     return (
         <div className='flex-1 space-y-4'>

@@ -152,7 +152,7 @@ export default function Profile() {
     const address = addressData?.find(
       (add) => add.address_title === projectName
     );
-    const formatAddress = `${address?.city}, ${address?.state}`;
+    const formatAddress = `${address?.city || "--"}, ${address?.state || "--"}`;
     return { projectName, formatAddress };
   };
 

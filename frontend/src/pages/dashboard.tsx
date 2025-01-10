@@ -101,6 +101,7 @@ import { ProjectManager } from "@/components/dashboard-pm";
 import ProcurementDashboard from "@/components/procurement/procurement-dashboard";
 import { EstimatesExecutive } from "@/components/estimates-executive-dashboard";
 import { ProjectLead } from "@/components/dashboard-pl";
+import { Accountant } from "@/components/layout/dashboard-accountant";
 
 export default function Dashboard() { 
 
@@ -129,6 +130,7 @@ export default function Dashboard() {
              {role == 'Nirmaan Project Lead Profile' && <ProjectLead />}
              {role == 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
              {role == 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
+             {role == 'Nirmaan Accountant Profile' && <Accountant />}
              </>
             }   
             </>

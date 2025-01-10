@@ -122,7 +122,7 @@ export const UpdateQuote = () => {
   const [categoryOptions, setCategoryOptions] = useState<
     { label: string; value: string }[]
   >([]);
-  const [page, setPage] = useState<string>("quotation");
+
   const [uniqueVendors, setUniqueVendors] = useState({
     list: [],
   });
@@ -194,12 +194,14 @@ export const UpdateQuote = () => {
     try {
       const promises = [];
       orderData?.procurement_list?.list.forEach((item) => {
+        const makes = orderData?.category_list?.list?.find(i => i?.name ===  item?.category)?.makes?.map(j => ({make: j, enabled : "false"})) || [];
         const newItem = {
           procurement_task: orderData.name,
           category: item.category,
           item: item.name,
           vendor: vendorId,
           quantity: item.quantity,
+          makes: {list : makes}
         };
         promises.push(createDoc("Quotation Requests", newItem));
       });
@@ -210,8 +212,8 @@ export const UpdateQuote = () => {
       await mutate("Vendors");
       await mutate("Quotation Requests");
       await mutate("Vendor Category");
-      vendor_list_mutate();
-      quotation_request_list_mutate();
+      await vendor_list_mutate();
+      await quotation_request_list_mutate();
 
       toast({
         title: "Success!",
@@ -428,7 +430,7 @@ export const UpdateQuote = () => {
     })
       .then(() => {
         console.log("orderId", orderId);
-        navigate(`/choose-vendor/${orderId}`);
+        navigate(`/procurement-requests/${orderId}?tab=Choose Vendor`);
       })
       .catch(() => {
         console.log("submit_error", update_error);
@@ -453,7 +455,6 @@ export const UpdateQuote = () => {
 
   return (
     <>
-      {page == "quotation" && (
         <div className="flex-1 space-y-4">
           <div className="flex items-center">
             {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
@@ -644,7 +645,6 @@ export const UpdateQuote = () => {
             </AccordionItem>
           </Accordion>
         </div>
-      )}
     </>
   );
 };

@@ -8,10 +8,10 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Badge } from "./ui/badge";
-import { ArrowLeft, Building, Calendar, MapPin, Printer, ReceiptIndianRupee, User } from "lucide-react";
+import { ArrowLeft, Building, Calendar, MapPin, MessageCircleMore, Printer, ReceiptIndianRupee, User } from "lucide-react";
 import { Label } from "./ui/label";
 import { useEffect, useRef, useState } from "react";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -38,7 +38,7 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export const POSummary = () => {
+const POSummary = () => {
 
   const [address, setAddress] = useState()
   const { poId: id } = useParams();
@@ -83,6 +83,16 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
   const [afterDelivery, setAfterDelivery] = useState(0)
   const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0)
 
+  const {data : mergedPOs, isLoading: mergedPOsLoading} = useFrappeGetDocList("Procurement Orders", {
+    fields: ["name", "merged"],
+    filters: [["merged", "=", po_data?.name]],
+  })
+
+  const {data : poPayments, isLoading: poPaymentsLoading} = useFrappeGetDocList("Project Payments", {
+    fields: ["amount"],
+    filters: [["document_name", "=", po_data?.name]],
+  })
+
   // const { data: vendorAddress } = useFrappeGetDoc("Address", po_data?.vendor_address);
 
   const categoryTotals = itemsOrderList.reduce((acc, item) => {
@@ -115,19 +125,19 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
     }
   }, [po_data])
 
-  const overallTotal = Object.values(categoryTotals).reduce(
-    (acc, totals) => ({
-      withoutGst: acc.withoutGst + totals.withoutGst,
-      withGst: acc.withGst + totals.withGst,
-    }),
-    { withoutGst: 0, withGst: 0 }
-  );
+  // const overallTotal = Object.values(categoryTotals).reduce(
+  //   (acc, totals) => ({
+  //     withoutGst: acc.withoutGst + totals.withoutGst,
+  //     withGst: acc.withGst + totals.withGst,
+  //   }),
+  //   { withoutGst: 0, withGst: 0 }
+  // );
 
-  const pieChartData = Object.keys(categoryTotals).map((category) => ({
-    name: category,
-    value: categoryTotals[category].withGst,
-    fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
-  }));
+  // const pieChartData = Object.keys(categoryTotals).map((category) => ({
+  //   name: category,
+  //   value: categoryTotals[category].withGst,
+  //   fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+  // }));
 
   const getTotal = () => {
     let total: number = 0;
@@ -140,11 +150,11 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
       total += (price ? parseFloat(price) : 0) * (item.quantity ? parseFloat(item.quantity) : 1);
     })
 
-    const loadingCharges = parseFloat(po_data?.loading_charges)
-    const freightCharges = parseFloat(po_data?.freight_charges)
+    const loadingCharges = parseFloat(po_data?.loading_charges || 0)
+    const freightCharges = parseFloat(po_data?.freight_charges || 0)
 
     total += loadingCharges + freightCharges
-    totalGst += ((loadingCharges) * 0.18) + ((freightCharges) * 0.18)
+    totalGst += (loadingCharges * 0.18) + (freightCharges * 0.18)
 
     return { total, totalGst: totalGst, totalAmt: total + totalGst };
   }
@@ -206,6 +216,33 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                 {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode}
               </span>
             </div>
+            {po_data?.status === "Merged" && (
+              <>
+            <div className="flex items-center gap-2">
+              <Label className="font-light text-red-700">Master PO:</Label>
+              <span>{po_data?.merged}</span>
+            </div>
+              </>
+            )}
+
+          {po_data?.merged === "true" && (
+            <>
+            <div className="flex items-center gap-2">
+              <Label className="font-light text-red-700">Master PO:</Label>
+              <span>Yes</span>
+            </div>
+            <div className="flex gap-2">
+              <Label className="font-light text-red-700 mt-2">Child PO(s):</Label>
+              <ul className="list-disc pl-5">
+              {mergedPOs?.length > 0 ? (
+                mergedPOs?.map((po) => (
+                  <li>{po?.name}</li>
+                ))
+              ) : "--"}
+              </ul>
+            </div>
+            </>
+          )}
           </CardContent>
         </Card>
 
@@ -219,15 +256,15 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span>Total (Excl. GST):</span>
-                <span className="font-semibold">{formatToIndianRupee(overallTotal.withoutGst)}</span>
+                <span className="font-semibold">{formatToIndianRupee(getTotal().total)}</span>
               </div>
-              {parseFloat(po_data?.loading_charges) > 0 && (
+              {parseFloat(po_data?.loading_charges || 0) > 0 && (
                 <div className="flex justify-between">
                   <span>Loading Charges (Inc. GST):</span>
                   <span className="font-semibold">{formatToIndianRupee(po_data?.loading_charges * 1.18)}</span>
                 </div>
               )}
-              {parseFloat(po_data?.freight_charges) > 0 && (
+              {parseFloat(po_data?.freight_charges || 0) > 0 && (
                 <div className="flex justify-between">
                   <span>Freight Charges (Inc. GST):</span>
                   <span className="font-semibold">{formatToIndianRupee(po_data?.freight_charges * 1.18)}</span>
@@ -235,13 +272,16 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
               )}
               <div className="flex justify-between">
                 <span>Total (Incl. GST):</span>
-                <span className="font-semibold">{formatToIndianRupee(overallTotal.withGst + po_data?.loading_charges * 1.18 + po_data?.freight_charges * 1.18)}</span>
+                <span className="font-semibold">{formatToIndianRupee(getTotal().totalAmt)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Total Amt Paid:</span>
+                <span className="font-semibold">{formatToIndianRupee(poPayments?.reduce((acc, i) => acc + parseFloat(i?.amount), 0))}</span>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
-
 
       {/* Order Details and Totals */}
       <Card className="w-full">
@@ -274,7 +314,17 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   <TableBody>
                     {items.map((item) => (
                       <TableRow key={item.name}>
-                        <TableCell>{item.item}</TableCell>
+                        <TableCell>
+                        <span>{item.item} - <span className="text-xs italic font-semibold text-gray-500">{item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</span></span>
+                    {item.comment && (
+                      <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
+                        <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                        <div className="text-xs ">
+                          {item.comment}
+                        </div>
+                      </div>
+                    )}
+                        </TableCell>
                         <TableCell>{item.quantity}</TableCell>
                         <TableCell>{formatToIndianRupee(item.quote)}</TableCell>
                         <TableCell>{item.unit}</TableCell>
@@ -421,12 +471,15 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   return (
                     <tr key={index} className={`${(!parseFloat(po_data?.loading_charges) && !parseFloat(po_data?.freight_charges) && index === length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
                       <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                      <td className="py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                      <td className="py-2 text-sm whitespace-nowrap text-wrap">
+                      {item.item}
+                         <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
+                      </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
+                      <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee((item.quote * item.quantity))}</td>
                     </tr>
                   )
                 })}
@@ -443,28 +496,28 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                                             </tr>
                                         )
                                     )))} */}
-                {parseFloat(po_data?.loading_charges) ?
+                {parseFloat(po_data?.loading_charges || 0) ?
                   <tr className={`${!parseFloat(po_data?.freight_charges) && "border-b border-black"}`}>
                     <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
                     <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseFloat(po_data?.loading_charges))}</td>
+                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(po_data?.loading_charges)}</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseFloat(po_data?.loading_charges)?.toFixed(2))}</td>
+                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(po_data?.loading_charges)}</td>
                   </tr>
                   :
                   <></>
                 }
-                {parseFloat(po_data?.freight_charges) ?
+                {parseFloat(po_data?.freight_charges || 0) ?
                   <tr className={`border-b border-black`}>
                     <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
                     <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseFloat(po_data?.freight_charges))}</td>
+                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(po_data?.freight_charges)}</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseFloat(po_data?.freight_charges)?.toFixed(2))}</td>
+                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(po_data?.freight_charges)}</td>
                   </tr>
                   :
                   <></>
@@ -476,7 +529,7 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                   <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                   <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
-                  <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal().total.toFixed(2))}</td>
+                  <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal().total)}</td>
                 </tr>
                 <tr className="border-none">
                   <td></td>
@@ -491,9 +544,9 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   </td>
 
                   <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                    <div className="ml-4">{formatToIndianRupee((getTotal().totalGst).toFixed(2))}</div>
-                    <div className="ml-4">- {formatToIndianRupee(((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2))}</div>
-                    <div className="ml-4">{formatToIndianRupee((Math.floor(getTotal().totalAmt)).toFixed(2))}</div>
+                    <div className="ml-4">{formatToIndianRupee((getTotal().totalGst))}</div>
+                    <div className="ml-4">- {formatToIndianRupee((getTotal().totalAmt - Math.floor(getTotal().totalAmt)))}</div>
+                    <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal().totalAmt))}</div>
                   </td>
 
                 </tr>
@@ -648,3 +701,4 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
     </div>
   );
 };
+export const Component = POSummary;

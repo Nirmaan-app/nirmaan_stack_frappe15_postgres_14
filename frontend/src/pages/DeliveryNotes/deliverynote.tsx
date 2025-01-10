@@ -510,7 +510,7 @@ export default function DeliveryNote() {
     const [show, setShow] = useState(false)
     const [selectedFile, setSelectedFile] = useState(null);
 
-    const { call, loading : callLoading } = useFrappePostCall('frappe.client.set_value');
+    const { call } = useFrappePostCall('frappe.client.set_value');
     const  {createDoc} = useFrappeCreateDoc()
     const { upload } = useFrappeFileUpload()
 
@@ -849,6 +849,7 @@ export default function DeliveryNote() {
                             </HoverCard>
                           )}
                         </div>
+                        <p className="text-xs italic font-semibold text-gray-500">- {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
                       </TableCell>
                       <TableCell>{item.unit}</TableCell>
                       <TableCell>
