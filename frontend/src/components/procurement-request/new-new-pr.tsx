@@ -167,7 +167,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
     limit: 100,
   });
 
-  const {data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error} = useFrappeGetDocList("Category Makelist", {
+  const { data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
     limit: 10000
   })
@@ -255,7 +255,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           category.name === item?.category && category.status === item.status
       );
       if (!isDuplicate) {
-        if(item.status === "Pending") {
+        if (item.status === "Pending") {
           const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
           newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
         } else {
@@ -286,17 +286,17 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           prevList.map((i) =>
             i?.name === item
               ? {
-                  ...i,
-                  comment: editItem?.comment,
-                  quantity: editItem?.quantity,
-                  unit: editItem?.unit,
-                  item: editItem?.item,
-                  category: editItem?.category,
-                  tax: parseFloat(
-                    category_list?.find((i) => i?.name === editItem?.category)
-                      ?.tax
-                  ),
-                }
+                ...i,
+                comment: editItem?.comment,
+                quantity: editItem?.quantity,
+                unit: editItem?.unit,
+                item: editItem?.item,
+                category: editItem?.category,
+                tax: parseFloat(
+                  category_list?.find((i) => i?.name === editItem?.category)
+                    ?.tax
+                ),
+              }
               : i
           )
         );
@@ -725,7 +725,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
             isNewItemsCreationDisabled={
               category_list?.find((i) => i?.name === curCategory?.value)
                 ?.new_items === "false" &&
-              !["Nirmaan Admin Profile"].includes(userData?.role)
+                !["Nirmaan Admin Profile"].includes(userData?.role)
                 ? true
                 : false
             }
@@ -802,22 +802,21 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
               )}
 
               <div
-                className={`${
-                  universalComments?.length > 0
-                    ? "max-h-[40vh]"
-                    : "max-h-[55vh]"
-                } overflow-y-auto`}
+                className={`${universalComments?.length > 0
+                  ? "max-h-[40vh]"
+                  : "max-h-[55vh]"
+                  } overflow-y-auto`}
               >
                 {
                   // procList.length !== 0 ? (
                   selectedCategories?.filter((i) => i?.status !== "Request")
                     ?.length !== 0 &&
-                    selectedCategories
-                      ?.filter((i) => i?.status !== "Request")
-                      ?.map((cat, index) => {
-                        return (
-                          <div key={index} className="mb-4">
-                            <div className="flex items-center justify-between">
+                  selectedCategories
+                    ?.filter((i) => i?.status !== "Request")
+                    ?.map((cat, index) => {
+                      return (
+                        <div key={index} className="mb-4">
+                          <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4 ml-4">
                               <div className="flex items-center gap-2">
                                 <div className="w-1 h-1 rounded-full bg-black" />
@@ -831,184 +830,184 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                               </h3>
                             </div>
                             <div className="text-sm font-bold text-gray-500">
-                          {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                              {/* {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
                             category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
                               <i>{i?.make}{index < arr.length - 1 && ", "}</i>
                             ))
-                          ) : "--"}
-                          </div>
+                          ) : "--"} */}
                             </div>
-                            <table className="table-auto w-full">
-                              <thead>
-                                <tr className="bg-gray-200">
-                                  <th className="w-[60%] text-left px-4 py-1 text-xs">
-                                    Item Name
-                                  </th>
-                                  <th className="w-[20%] px-4 py-1 text-xs text-center">
-                                    Unit
-                                  </th>
-                                  <th className="w-[10%] px-4 py-1 text-xs text-center">
-                                    Qty
-                                  </th>
-                                  <th className="w-[10%] px-4 py-1 text-xs text-center">
-                                    Edit
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {procList?.map((item) => {
-                                  if (
-                                    item.category === cat?.name &&
-                                    item?.status !== "Request"
-                                  ) {
-                                    return (
-                                      <tr key={item.name}>
-                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
-                                          {item.item}
-                                          {item?.comment && (
-                                            <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
-                                              <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
-                                              <div className="text-xs ">
-                                                {item.comment}
-                                              </div>
+                          </div>
+                          <table className="table-auto w-full">
+                            <thead>
+                              <tr className="bg-gray-200">
+                                <th className="w-[60%] text-left px-4 py-1 text-xs">
+                                  Item Name
+                                </th>
+                                <th className="w-[20%] px-4 py-1 text-xs text-center">
+                                  Unit
+                                </th>
+                                <th className="w-[10%] px-4 py-1 text-xs text-center">
+                                  Qty
+                                </th>
+                                <th className="w-[10%] px-4 py-1 text-xs text-center">
+                                  Edit
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {procList?.map((item) => {
+                                if (
+                                  item.category === cat?.name &&
+                                  item?.status !== "Request"
+                                ) {
+                                  return (
+                                    <tr key={item.name}>
+                                      <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
+                                        {item.item}
+                                        {item?.comment && (
+                                          <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
+                                            <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                                            <div className="text-xs ">
+                                              {item.comment}
                                             </div>
-                                          )}
-                                        </td>
-                                        <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">
-                                          {item.unit}
-                                        </td>
-                                        <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
-                                          {item.quantity}
-                                        </td>
-                                        <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
-                                          <AlertDialog>
-                                            <AlertDialogTrigger
-                                              onClick={() =>
-                                                setEditItem({
-                                                  name: item.name,
-                                                  quantity: item?.quantity,
-                                                  comment: item?.comment,
-                                                  unit: item?.unit,
-                                                  item: item.item,
-                                                  category: item?.category,
-                                                })
-                                              }
-                                            >
-                                              <Pencil className="w-4 h-4 text-black" />
-                                            </AlertDialogTrigger>
-                                            <AlertDialogContent>
-                                              <AlertDialogHeader>
-                                                <AlertDialogTitle className="flex justify-between items-center">
-                                                  Edit Item
-                                                  <AlertDialogCancel className="border-none shadow-none p-0">
-                                                    X
-                                                  </AlertDialogCancel>
-                                                </AlertDialogTitle>
-                                                <AlertDialogDescription className="flex flex-col gap-2">
-                                                  <div className="flex space-x-2">
-                                                    <div className="w-1/2 md:w-2/3">
-                                                      <h5 className="text-base text-gray-400 text-left mb-1">
-                                                        Item Name
-                                                      </h5>
-                                                      <div className="w-full  p-1 text-left">
-                                                        {item.item}
-                                                      </div>
-                                                    </div>
-                                                    <div className="w-[30%]">
-                                                      <h5 className="text-base text-gray-400 text-left mb-1">
-                                                        UOM
-                                                      </h5>
-                                                      <div className=" w-full  p-2 text-center justify-left flex">
-                                                        {item.unit}
-                                                      </div>
-                                                    </div>
-                                                    <div className="w-[25%]">
-                                                      <h5 className="text-base text-gray-400 text-left mb-1">
-                                                        Qty
-                                                      </h5>
-                                                      <Input
-                                                        type="number"
-                                                        value={
-                                                          editItem?.quantity ||
-                                                          ""
-                                                        }
-                                                        onChange={(e) =>
-                                                          setEditItem({
-                                                            ...editItem,
-                                                            quantity:
-                                                              e.target.value ===
-                                                              ""
-                                                                ? 0
-                                                                : parseFloat(
-                                                                    e.target
-                                                                      .value
-                                                                  ),
-                                                          })
-                                                        }
-                                                      />
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">
+                                        {item.unit}
+                                      </td>
+                                      <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                        {item.quantity}
+                                      </td>
+                                      <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                        <AlertDialog>
+                                          <AlertDialogTrigger
+                                            onClick={() =>
+                                              setEditItem({
+                                                name: item.name,
+                                                quantity: item?.quantity,
+                                                comment: item?.comment,
+                                                unit: item?.unit,
+                                                item: item.item,
+                                                category: item?.category,
+                                              })
+                                            }
+                                          >
+                                            <Pencil className="w-4 h-4 text-black" />
+                                          </AlertDialogTrigger>
+                                          <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                              <AlertDialogTitle className="flex justify-between items-center">
+                                                Edit Item
+                                                <AlertDialogCancel className="border-none shadow-none p-0">
+                                                  X
+                                                </AlertDialogCancel>
+                                              </AlertDialogTitle>
+                                              <AlertDialogDescription className="flex flex-col gap-2">
+                                                <div className="flex space-x-2">
+                                                  <div className="w-1/2 md:w-2/3">
+                                                    <h5 className="text-base text-gray-400 text-left mb-1">
+                                                      Item Name
+                                                    </h5>
+                                                    <div className="w-full  p-1 text-left">
+                                                      {item.item}
                                                     </div>
                                                   </div>
-                                                  <div className="flex gap-1 items-center pt-1">
-                                                    <MessageCircleMore className="h-8 w-8" />
-                                                    <textarea
-                                                      // disabled={userData?.role === "Nirmaan Project Manager Profile"}
-                                                      className="block p-2 border-gray-300 border rounded-md w-full"
-                                                      placeholder="Add comment..."
+                                                  <div className="w-[30%]">
+                                                    <h5 className="text-base text-gray-400 text-left mb-1">
+                                                      UOM
+                                                    </h5>
+                                                    <div className=" w-full  p-2 text-center justify-left flex">
+                                                      {item.unit}
+                                                    </div>
+                                                  </div>
+                                                  <div className="w-[25%]">
+                                                    <h5 className="text-base text-gray-400 text-left mb-1">
+                                                      Qty
+                                                    </h5>
+                                                    <Input
+                                                      type="number"
                                                       value={
-                                                        editItem?.comment || ""
+                                                        editItem?.quantity ||
+                                                        ""
                                                       }
                                                       onChange={(e) =>
                                                         setEditItem({
                                                           ...editItem,
-                                                          comment:
-                                                            e.target.value,
+                                                          quantity:
+                                                            e.target.value ===
+                                                              ""
+                                                              ? 0
+                                                              : parseFloat(
+                                                                e.target
+                                                                  .value
+                                                              ),
                                                         })
                                                       }
                                                     />
                                                   </div>
-                                                </AlertDialogDescription>
-                                                <AlertDialogDescription className="flex justify-end">
-                                                  <div className="flex gap-2">
-                                                    <AlertDialogAction
-                                                      onClick={() =>
-                                                        handleDeleteItem(
-                                                          item.name
-                                                        )
-                                                      }
-                                                      className="bg-gray-100 text-black hover:text-white flex items-center gap-1"
-                                                    >
-                                                      <Trash2 className="h-4 w-4" />
-                                                      Delete
-                                                    </AlertDialogAction>
-                                                    <AlertDialogAction
-                                                      className="flex items-center gap-1"
-                                                      disabled={
-                                                        !editItem?.quantity
-                                                      }
-                                                      onClick={() =>
-                                                        handleUpdateItem(
-                                                          item.name
-                                                        )
-                                                      }
-                                                    >
-                                                      <ListChecks className="h-4 w-4" />
-                                                      Update
-                                                    </AlertDialogAction>
-                                                  </div>
-                                                </AlertDialogDescription>
-                                              </AlertDialogHeader>
-                                            </AlertDialogContent>
-                                          </AlertDialog>
-                                        </td>
-                                      </tr>
-                                    );
-                                  }
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        );
-                      })
+                                                </div>
+                                                <div className="flex gap-1 items-center pt-1">
+                                                  <MessageCircleMore className="h-8 w-8" />
+                                                  <textarea
+                                                    // disabled={userData?.role === "Nirmaan Project Manager Profile"}
+                                                    className="block p-2 border-gray-300 border rounded-md w-full"
+                                                    placeholder="Add comment..."
+                                                    value={
+                                                      editItem?.comment || ""
+                                                    }
+                                                    onChange={(e) =>
+                                                      setEditItem({
+                                                        ...editItem,
+                                                        comment:
+                                                          e.target.value,
+                                                      })
+                                                    }
+                                                  />
+                                                </div>
+                                              </AlertDialogDescription>
+                                              <AlertDialogDescription className="flex justify-end">
+                                                <div className="flex gap-2">
+                                                  <AlertDialogAction
+                                                    onClick={() =>
+                                                      handleDeleteItem(
+                                                        item.name
+                                                      )
+                                                    }
+                                                    className="bg-gray-100 text-black hover:text-white flex items-center gap-1"
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                    Delete
+                                                  </AlertDialogAction>
+                                                  <AlertDialogAction
+                                                    className="flex items-center gap-1"
+                                                    disabled={
+                                                      !editItem?.quantity
+                                                    }
+                                                    onClick={() =>
+                                                      handleUpdateItem(
+                                                        item.name
+                                                      )
+                                                    }
+                                                  >
+                                                    <ListChecks className="h-4 w-4" />
+                                                    Update
+                                                  </AlertDialogAction>
+                                                </div>
+                                              </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                          </AlertDialogContent>
+                                        </AlertDialog>
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })
                 }
                 {
                   // procList.length !== 0 ? (
@@ -1254,9 +1253,9 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                                   .value === ""
                                                                   ? 0
                                                                   : parseFloat(
-                                                                      e.target
-                                                                        .value
-                                                                    ),
+                                                                    e.target
+                                                                      .value
+                                                                  ),
                                                             })
                                                           }
                                                         />
@@ -1380,9 +1379,8 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                 <DialogTrigger asChild>
                   <Button
                     disabled={!procList.length}
-                    variant={`${
-                      !procList.length ? "secondary" : "destructive"
-                    }`}
+                    variant={`${!procList.length ? "secondary" : "destructive"
+                      }`}
                     className="h-8 mt-4 w-full"
                   >
                     <div className="flex items-center gap-1">
@@ -1398,19 +1396,18 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                       {resolve
                         ? "Click on Confirm to resolve and send the PR for Approval"
                         : edit
-                        ? "Click on Confirm to update and send the PR for Approval"
-                        : "If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?"}
+                          ? "Click on Confirm to update and send the PR for Approval"
+                          : "If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?"}
                     </DialogDescription>
                   </DialogHeader>
                   <textarea
                     className="w-full border rounded-lg p-2 min-h-12"
-                    placeholder={`${
-                      resolve
-                        ? "Write Resolving Comments here..."
-                        : edit
+                    placeholder={`${resolve
+                      ? "Write Resolving Comments here..."
+                      : edit
                         ? "Write Editing Comments here..."
                         : "Write Comments here..."
-                    }`}
+                      }`}
                     value={newPRComment}
                     onChange={(e) => setNewPRComment(e.target.value)}
                   />
@@ -1612,53 +1609,53 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                               <li
                                 key={item.item_name}
                                 className="p-2 hover:bg-gray-100 flex justify-between items-center cursor-pointer"
-                                // onMouseDown={() => {
-                                //   setCurCategory({
-                                //     label: item?.category,
-                                //     value: item?.category,
-                                //     tax: parseFloat(
-                                //       category_list?.find(
-                                //         (i) => i?.name === item?.category
-                                //       )?.tax
-                                //     ),
-                                //   });
-                                //   setCurItem({
-                                //     label: item.item_name,
-                                //     value: item?.name,
-                                //     unit: item?.unit_name,
-                                //   });
-                                //   toggleRequestItemDialog();
-                                // }}
+                              // onMouseDown={() => {
+                              //   setCurCategory({
+                              //     label: item?.category,
+                              //     value: item?.category,
+                              //     tax: parseFloat(
+                              //       category_list?.find(
+                              //         (i) => i?.name === item?.category
+                              //       )?.tax
+                              //     ),
+                              //   });
+                              //   setCurItem({
+                              //     label: item.item_name,
+                              //     value: item?.name,
+                              //     unit: item?.unit_name,
+                              //   });
+                              //   toggleRequestItemDialog();
+                              // }}
                               >
                                 <p className="flex justify-between items-center">
-                              <strong>{item?.item_name}</strong>
-                              <span className="text-gray-500">
-                                {" "}
-                                - {item?.matchPercentage}% match
-                              </span>
-                            </p>
-                            <div className="flex justify-between items-center">
-                              <p className="text-gray-400 font-semibold">{item?.category}</p>
-                              <p
-                               onMouseDown={() => {
-                                  setCurCategory({
-                                    label: item?.category,
-                                    value: item?.category,
-                                    tax: parseFloat(
-                                      category_list?.find(
-                                        (i) => i?.name === item?.category
-                                      )?.tax
-                                    ),
-                                  });
-                                  setCurItem({
-                                    label: item.item_name,
-                                    value: item?.name,
-                                    unit: item?.unit_name,
-                                  });
-                                  toggleRequestItemDialog();
-                                }}
-                               className="text-primary font-bold text-xs cursor-pointer">Add Item</p>
-                            </div>
+                                  <strong>{item?.item_name}</strong>
+                                  <span className="text-gray-500">
+                                    {" "}
+                                    - {item?.matchPercentage}% match
+                                  </span>
+                                </p>
+                                <div className="flex justify-between items-center">
+                                  <p className="text-gray-400 font-semibold">{item?.category}</p>
+                                  <p
+                                    onMouseDown={() => {
+                                      setCurCategory({
+                                        label: item?.category,
+                                        value: item?.category,
+                                        tax: parseFloat(
+                                          category_list?.find(
+                                            (i) => i?.name === item?.category
+                                          )?.tax
+                                        ),
+                                      });
+                                      setCurItem({
+                                        label: item.item_name,
+                                        value: item?.name,
+                                        unit: item?.unit_name,
+                                      });
+                                      toggleRequestItemDialog();
+                                    }}
+                                    className="text-primary font-bold text-xs cursor-pointer">Add Item</p>
+                                </div>
                                 {/* <span>
                                   <strong>{item.item_name}</strong>
                                   <span className="text-gray-500">
@@ -1803,9 +1800,8 @@ const CustomMenuList = (props) => {
         <div>{children}</div>
       </components.MenuList>
       <div
-        className={`sticky top-0 z-10 bg-white ${
-          isNewItemsCreationDisabled ? "py-2" : ""
-        } border-primary border `}
+        className={`sticky top-0 z-10 bg-white ${isNewItemsCreationDisabled ? "py-2" : ""
+          } border-primary border `}
       >
         {isNewItemsCreationDisabled ? (
           <Button
