@@ -23,6 +23,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ProjectPaymentsPaymentWise } from "./project-payments-payment-wise";
 import { ConfigProvider, Menu, MenuProps, Radio } from "antd";
+import { debounce } from "lodash"; 
 
 export const ProjectPaymentsList = () => {
 
@@ -35,6 +36,8 @@ export const ProjectPaymentsList = () => {
     const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
 
     const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+
+    const [warning, setWarning] = useState("");
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
@@ -153,13 +156,16 @@ export const ProjectPaymentsList = () => {
     const getTotalAmount = (order, type: "Purchase Order" | "Service Order") => {
         if (type === "Purchase Order") {
             let total = 0;
+            let totalWithTax = 0;
             const orderData = order.order_list;
             orderData?.list.forEach((item) => {
-                const price = parseFloat(item?.quote) || 0;
-                const quantity = parseFloat(item?.quantity) || 1;
+                const price = parseFloat(item?.quote || 0);
+                const quantity = parseFloat(item?.quantity || 1);
+                const tax = parseFloat(item?.tax || 0);
+                totalWithTax += price * quantity * (1 + tax / 100);
                 total += price * quantity;
             });
-            return total;
+            return {total, totalWithTax};
         }
         if (type === "Service Order") {
             let total = 0;
@@ -169,7 +175,7 @@ export const ProjectPaymentsList = () => {
                 const quantity = parseFloat(item?.quantity) || 1;
                 total += price * quantity;
             });
-            return total;
+            return {total, totalWithTax : total * 1.18};
         }
         return 0;
     };
@@ -250,6 +256,47 @@ export const ProjectPaymentsList = () => {
         }
     }
 
+    const validateAmount = debounce((amount) => {
+        const order =
+          newPayment?.doctype === "Procurement Orders"
+            ? purchaseOrders?.find((i) => i?.name === newPayment?.docname)
+            : serviceOrders?.find((i) => i?.name === newPayment?.docname);
+    
+        if (!order) {
+          setWarning(""); // Clear warning if no order is found
+          return;
+        }
+    
+        const { total, totalWithTax } = getTotalAmount(
+          order,
+          newPayment?.doctype === "Procurement Orders" ? "Purchase Order" : "Service Order"
+        );
+    
+        const compareAmount =
+          newPayment?.doctype === "Procurement Orders"
+            ? totalWithTax // Always compare with totalWithTax for Purchase Orders
+            : order.gst === "true" // Check GST field for Service Orders
+            ? totalWithTax
+            : total;
+    
+        if (parseFloat(amount) > compareAmount) {
+          setWarning(
+            `Entered amount exceeds the total amount ${
+              newPayment?.doctype === "Procurement Orders" ? "including" : order.gst === "true" ? "including" : "excluding"
+            } GST: ${formatToIndianRupee(compareAmount)}`
+          );
+        } else {
+          setWarning(""); // Clear warning if within the limit
+        }
+      }, 300);
+    
+      // Handle input change
+      const handleAmountChange = (e) => {
+        const amount = e.target.value;
+        setNewPayment({ ...newPayment, amount });
+        validateAmount(amount);
+      };
+
     const columns = useMemo(
         () => [
             {
@@ -308,11 +355,24 @@ export const ProjectPaymentsList = () => {
                 }
             },
             {
-                accessorKey: "total",
-                header: "Total PO Amt",
+                id: "total",
+                header: "PO Amt excl. Tax",
                 cell: ({ row }) => (
                     <div className="font-medium">
-                        {formatToIndianRupee(getTotalAmount(row.original, row.original.type))}
+                        {formatToIndianRupee(getTotalAmount(row.original, row.original.type)?.total)}
+                    </div>
+                ),
+            },
+            {
+                id: "totalWithTax",
+                header: "PO Amt incl. Tax",
+                cell: ({ row }) => (
+                    <div className="font-medium">
+                        {row.original.type === "Service Order" ? (
+                            row.original.gst === "true" ? formatToIndianRupee(getTotalAmount(row.original, row.original.type)?.totalWithTax)
+                            : "--"
+                        ) : formatToIndianRupee(getTotalAmount(row.original, row.original.type)?.totalWithTax)
+                        }
                     </div>
                 ),
             },
@@ -341,7 +401,8 @@ export const ProjectPaymentsList = () => {
 
                     return <div className="font-medium">
                         <SquarePlus onClick={() => {
-                            setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : doc.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id })
+                            setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" })
+                            setWarning("")
                             toggleNewPaymentDialog()
                         }} className="w-5 h-5 text-red-500 cursor-pointer" />
                     </div>
@@ -407,7 +468,7 @@ export const ProjectPaymentsList = () => {
 
             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                    <AlertDialogHeader className="text-start">
+                    <AlertDialogHeader className="text-start ">
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">Project:</Label>
                             <span className="">{newPayment?.project}</span>
@@ -416,20 +477,52 @@ export const ProjectPaymentsList = () => {
                             <Label className=" text-red-700">Vendor:</Label>
                             <span className="">{newPayment?.vendor}</span>
                         </div>
+                        <div className="flex items-center justify-between">
+                            <Label className=" text-red-700">PO Amt excl. Tax:</Label>
+                            <span className="">{newPayment?.doctype === "Procurement Orders" ? (
+                                formatToIndianRupee(getTotalAmount(purchaseOrders?.find(i => i?.name === newPayment?.docname), "Purchase Order")?.total)
+                            ) : newPayment?.doctype === "Service Requests" ? (
+                                formatToIndianRupee(getTotalAmount(serviceOrders?.find(i => i?.name === newPayment?.docname), "Service Order")?.total)
+                            ) : ""}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                            <span className="">{newPayment?.doctype === "Procurement Orders" ? (
+                                formatToIndianRupee(getTotalAmount(purchaseOrders?.find(i => i?.name === newPayment?.docname), "Purchase Order")?.totalWithTax)
+                            ) : newPayment?.doctype === "Service Requests" ? (
+                                formatToIndianRupee(getTotalAmount(serviceOrders?.find(i => i?.name === newPayment?.docname), "Service Order")?.totalWithTax)
+                            ) : ""}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <Label className=" text-red-700">Amt Paid Till Now:</Label>
+                            <span className="">{formatToIndianRupee(getTotalAmountPaid(newPayment?.docname))}</span>
+                        </div>
 
-                        <div className="flex justify-between pt-4">
-                            <div className="flex flex-col">
-                                <Label className="py-4">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
-                                {/* <Label className="py-4">Date(of Transaction):</Label> */}
-                                <Label className="py-4">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                            </div>
-                            <div className="flex flex-col gap-4" >
+                        <div className="flex flex-col gap-4 pt-4">
+                            <div className="flex gap-4 w-full">
+                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                <div className="w-full">
                                 <Input
                                     type="number"
                                     placeholder="Enter Amount"
                                     value={newPayment.amount}
-                                    onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
+                                    onChange={(e) => handleAmountChange(e)}
                                 />
+                                    {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                </div> 
+                            </div>
+                            <div className="flex gap-4 w-full">
+                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                <Input
+                                    type="text"
+                                    placeholder="Enter UTR"
+                                    value={newPayment.utr}
+                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                />
+                            </div>
+                            {/* <div className="flex flex-col gap-4" > */}
 
                                 {/* <Input
                                         type="date"
@@ -438,14 +531,8 @@ export const ProjectPaymentsList = () => {
                                         onChange={(e) => setNewPayment({...newPayment, transaction_date: e.target.value})}
                                      /> */}
 
-                                <Input
-                                    type="text"
-                                    placeholder="Enter UTR"
-                                    value={newPayment.utr}
-                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                />
 
-                            </div>
+                            {/* </div> */}
                         </div>
 
                         <div className="flex flex-col gap-2">

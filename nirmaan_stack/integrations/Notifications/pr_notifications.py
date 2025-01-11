@@ -111,6 +111,34 @@ def get_allowed_manager_users(doc):
         manager_admin_users = manager_users + admin_users
         return manager_admin_users
 
+def get_allowed_accountants(doc):
+    allowed_users = frappe.db.get_list(
+            'Nirmaan User Permissions',
+            filters={'for_value': doc.project},
+            fields=['user']
+        )
+    accountant_user_ids = [pm['user'] for pm in allowed_users]
+
+    accountant_users = frappe.db.get_list(
+        'Nirmaan Users',
+        filters={
+            'name': ['in', accountant_user_ids],
+            'role_profile': 'Nirmaan Accountant Profile',
+        },
+        fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+    )
+    
+    # admin_users = frappe.db.get_list(
+    #     'Nirmaan Users',
+    #     filters={
+    #         'role_profile': 'Nirmaan Admin Profile',
+    #     },
+    #     fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+    # )
+    # accountant_admin_users = accountant_users + admin_users
+    
+    return accountant_users
+
 
 def send_firebase_notification(fcm_token, title, body, click_action_url):
     """Sends a push notification using Firebase Admin SDK."""

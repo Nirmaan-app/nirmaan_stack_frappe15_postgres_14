@@ -429,7 +429,7 @@ export const SelectVendors = () => {
                         description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
                         variant: "default",
                     });
-                    navigate(`/procurement-requests?tab=New+PR+Request`);
+                    navigate(`/procurement-requests?tab=New PR Request`);
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -457,7 +457,7 @@ export const SelectVendors = () => {
                         description: `Items Sent for Approval`,
                         variant: "success",
                     });
-                    navigate(`/procurement-requests?tab=New+PR+Request`);
+                    navigate(`/procurement-requests?tab=New PR Request`);
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }

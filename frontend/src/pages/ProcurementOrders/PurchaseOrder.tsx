@@ -34,7 +34,7 @@ export const PurchaseOrder = () => {
 
   const [searchParams] = useSearchParams();
 
-  const tab = searchParams.get("tab") || "Approved";
+  const tab = searchParams.get("tab") || "Approved PO";
 
   const poId = id?.replaceAll("&=", "/")
 
@@ -752,15 +752,15 @@ export const PurchaseOrder = () => {
     prLoading
   )
     return (
-      <div className="flex items-center h-full w-full justify-center">
+      <div className="flex items-center h-[90vh] w-full justify-center">
         <TailSpin color={"red"} />{" "}
       </div>
     );
   if (associated_po_list_error || vendor_address_error || project_address_error || usersListError || prError || poError)
     return <h1>Error</h1>;
-  if (tab === "Approved" && !["PO Approved", "Merged"].includes(po?.status))
+  if (tab === "Approved PO" && !["PO Approved", "Merged"].includes(po?.status))
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-[90vh]">
         <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
           <h2 className="text-2xl font-semibold text-gray-800">Heads Up!</h2>
           <p className="text-gray-600 text-lg">

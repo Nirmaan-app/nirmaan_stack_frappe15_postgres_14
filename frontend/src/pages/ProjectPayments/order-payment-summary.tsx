@@ -15,6 +15,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger,
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
 import { TailSpin } from "react-loader-spinner";
+import { debounce } from "lodash"; 
 
 const OrderPaymentSummary = () => {
     const { id } = useParams<{ id: string }>();
@@ -22,6 +23,8 @@ const OrderPaymentSummary = () => {
     const navigate = useNavigate();
 
     const {createDoc, loading: createLoading} = useFrappeCreateDoc()
+
+    const [warning, setWarning] = useState("");
     
     const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
 
@@ -211,6 +214,40 @@ const OrderPaymentSummary = () => {
 
     const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
+    const validateAmount = debounce((amount) => {
+    
+        if (!documentData) {
+          setWarning(""); // Clear warning if no order is found
+          return;
+        }
+    
+        const { total, totalWithGST } = totals
+    
+        const compareAmount =
+          isPO
+            ? totalWithGST // Always compare with totalWithTax for Purchase Orders
+            : documentData?.gst === "true" // Check GST field for Service Orders
+            ? totalWithGST
+            : total;
+    
+        if (parseFloat(amount) > compareAmount) {
+          setWarning(
+            `Entered amount exceeds the total amount ${
+                isPO ? "including" : documentData?.gst === "true" ? "including" : "excluding"
+            } GST: ${formatToIndianRupee(compareAmount)}`
+          );
+        } else {
+          setWarning(""); // Clear warning if within the limit
+        }
+      }, 300);
+    
+      // Handle input change
+      const handleAmountChange = (e) => {
+        const amount = e.target.value;
+        setNewPayment({ ...newPayment, amount });
+        validateAmount(amount);
+      };
+
     return (
         <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
@@ -303,11 +340,48 @@ const OrderPaymentSummary = () => {
                                     <Label className=" text-red-700">Vendor:</Label>
                                     <span className="">{vendorData?.vendor_name}</span>
                                 </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">PO Amt excl. Tax:</Label>
+                                    <span className="">{formatToIndianRupee(totals.total)}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                                    <span className="">{formatToIndianRupee(totals.totalWithGST)}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Amt Paid Till Now:</Label>
+                                    <span className="">{getTotalAmtPaid(poId) ? formatToIndianRupee(getTotalAmtPaid(poId)) : "--"}</span>
+                                </div>
 
-                                <div className="flex justify-between pt-4">
+                                <div className="flex flex-col gap-4 pt-4">
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <div className="w-full">
+                                                                <Input
+                                                                    type="number"
+                                                                    placeholder="Enter Amount"
+                                                                    value={newPayment.amount}
+                                                                    onChange={(e) => handleAmountChange(e)}
+                                                                />
+                                                                    {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                                                </div> 
+                                                            </div>
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Input
+                                                                    type="text"
+                                                                    placeholder="Enter UTR"
+                                                                    value={newPayment.utr}
+                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                                                />
+                                                            </div>
+
+                                                        </div>
+
+                                {/* <div className="flex justify-between pt-4">
                                 <div className="flex flex-col">
                                     <Label className="py-4">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
-                                    {/* <Label className="py-4">Date(of Transaction):</Label> */}
+                                    <Label className="py-4">Date(of Transaction):</Label>
                                     <Label className="py-4">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                 </div>
                                 <div className="flex flex-col gap-4" >
@@ -318,12 +392,12 @@ const OrderPaymentSummary = () => {
                                         onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
                                      />
 
-                                    {/* <Input
+                                    <Input
                                         type="date"
                                         value={newPayment.transaction_date}
                                         placeholder="DD/MM/YYYY"
                                         onChange={(e) => setNewPayment({...newPayment, transaction_date: e.target.value})}
-                                     /> */}
+                                     />
 
                                      <Input
                                         type="text"
@@ -333,7 +407,7 @@ const OrderPaymentSummary = () => {
                                      />
 
                                 </div>
-                                </div>
+                                </div> */}
 
                                 <div className="flex flex-col gap-2">
                                     <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}

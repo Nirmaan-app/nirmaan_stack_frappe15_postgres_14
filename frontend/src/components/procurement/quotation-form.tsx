@@ -10,9 +10,10 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 import { ListChecks, MessageCircleMore, Paperclip } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { toast } from "../ui/use-toast";
-import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
 import { Label } from "../ui/label";
-import ReactSelect from 'react-select';
+import ReactSelect, { components } from 'react-select';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Badge } from "../ui/badge";
 
 interface Category {
   name: string;
@@ -464,15 +465,16 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                         )}
                       </div>
                       <div className="text-sm flex-1">
-                        {q?.makes?.list?.length > 0 ? (
+                        {/* {q?.makes?.list?.length > 0 ? ( */}
                           <MakesSelection
                             q={q}
+                            quotation_request_list_mutate={quotation_request_list_mutate}
                             quotationData={quotationData}
                             handleMakeChange={handleMakeChange}
                           />
-                        ) : (
+                        {/* ) : (
                           <span className="text-gray-500 bg-gray-100 rounded-md px-3 py-1 shadow-sm">Make(s) not specified!</span>
-                        )}
+                        )} */}
                       </div>
                     </div>
 
@@ -528,40 +530,39 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 }
 
 
-const MakesSelection = ({ q, quotationData, handleMakeChange }) => {
-  // Prepare options for React Select
-  const editMakeOptions = q?.makes?.list?.map((i) => ({
-    value: i?.make,
-    label: i?.make,
-    isEnabled: i?.enabled === "true",
-  }));
+// const MakesSelection = ({ q, quotationData, handleMakeChange }) => {
+//   // Prepare options for React Select
+//   const editMakeOptions = q?.makes?.list?.map((i) => ({
+//     value: i?.make,
+//     label: i?.make,
+//   }));
 
-  // Get the selected make dynamically based on quotationData
-  const selectedMake = quotationData?.list
-    ?.find((j) => j?.qr_id === q?.name)
-    ?.makes?.find((m) => m?.enabled === "true");
+//   // Get the selected make dynamically based on quotationData
+//   const selectedMake = quotationData?.list
+//     ?.find((j) => j?.qr_id === q?.name)
+//     ?.makes?.find((m) => m?.enabled === "true");
 
-  // React Select expects the value as an object
-  const selectedMakeValue = selectedMake
-    ? { value: selectedMake?.make, label: selectedMake?.make }
-    : null;
+//   const selectedMakefromq = q?.makes?.list?.find(m => m?.enabled === "true")
 
-  return q?.makes?.list?.length > 0 ? (
-    <div className="w-full">
-      <ReactSelect
-        className="w-full"
-        placeholder="Select Make..."
-        value={selectedMakeValue}
-        options={editMakeOptions}
-        onChange={(selectedOption) =>
-          handleMakeChange(q?.name, q?.makes?.list, selectedOption?.value, true)
-        }
-      />
-    </div>
-  ) : (
-    <span>make(s) not specified!</span>
-  );
-};
+//   // React Select expects the value as an object
+//   const selectedMakeValue = selectedMake
+//     ? { value: selectedMake?.make, label: selectedMake?.make }
+//     : selectedMakefromq ? { value: selectedMakefromq?.make, label: selectedMakefromq?.make } : null;
+
+//   return (
+//     <div className="w-full">
+//       <ReactSelect
+//         className="w-full"
+//         placeholder="Select Make..."
+//         value={selectedMakeValue}
+//         options={editMakeOptions}
+//         onChange={(selectedOption) =>
+//           handleMakeChange(q?.name, q?.makes?.list, selectedOption?.value, true)
+//         }
+//       />
+//     </div>
+//   )
+// };
 
 
 
@@ -765,3 +766,158 @@ const MakesSelection = ({ q, quotationData, handleMakeChange }) => {
 //         </div>
 //     );
 // }
+
+const MakesSelection = ({ q, quotationData, handleMakeChange, quotation_request_list_mutate }) => {
+
+  const [showAlert, setShowAlert] = useState(false);
+
+  const [makeOptions, setMakeOptions] = useState([]);
+
+  const [newSelectedMakes, setNewSelectedMakes] = useState([]);
+  
+  const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc()
+
+  const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList("Category Makelist", {
+    fields: ["*"],
+    limit: 10000,
+  })
+
+  useEffect(() => {
+    if (categoryMakeList?.length > 0) {
+      const categoryMakes = categoryMakeList?.filter((i) => i?.category === q.category);
+      const makeOptionsList = categoryMakes?.map((i) => ({ label: i?.make, value: i?.make })) || [];
+      const filteredOptions = makeOptionsList?.filter(i => !q?.makes?.list?.some(j => j?.make === i?.value))
+      setMakeOptions(filteredOptions)
+    }
+
+  }, [categoryMakeList, q, quotation_request_list_mutate])
+
+  const toggleShowAlert = () => {
+    setShowAlert((prevState) => !prevState);
+  };
+
+  const editMakeOptions = q?.makes?.list?.map((i) => ({
+    value: i?.make,
+    label: i?.make,
+  }));
+
+  const selectedMake = quotationData?.list
+    ?.find((j) => j?.qr_id === q?.name)
+    ?.makes?.find((m) => m?.enabled === "true");
+
+  const selectedMakefromq = q?.makes?.list?.find((m) => m?.enabled === "true");
+
+  const selectedMakeValue = selectedMake
+    ? { value: selectedMake?.make, label: selectedMake?.make }
+    : selectedMakefromq
+    ? { value: selectedMakefromq?.make, label: selectedMakefromq?.make }
+    : null;
+
+  const handleSumbit = async () => {
+    try {
+      const reFormattedMakes = newSelectedMakes?.map(i => ({ make: i?.value, enabled: "false" }))
+
+      const combinedMakes = [...q?.makes?.list, ...reFormattedMakes]
+
+      await updateDoc("Quotation Requests", q?.name , {
+        makes: {list : combinedMakes}
+      })
+
+      await quotation_request_list_mutate()
+
+      toggleShowAlert()
+
+      setNewSelectedMakes([])
+
+      toast({
+        title: "Success!",
+        description: `Makes updated successfully!`,
+        variant: "success",
+      });
+      
+    } catch (error) {
+      console.log("error while adding new makes to the item", error)
+      toast({
+        title: "Failed!",
+        description: `Failed to update makes!`,
+        variant: "destructive",
+      });
+    }
+  }
+
+  const CustomMenu = (props) => {
+    const { MenuList } = components;
+
+    return (
+      <MenuList {...props}>
+        {props.children}
+        <div
+          className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
+          onClick={() => toggleShowAlert()}
+        >
+          <strong>Add New Make</strong>
+        </div>
+      </MenuList>
+    );
+  };
+
+  return (
+    <>
+    <div className="w-full">
+      <ReactSelect
+        className="w-full"
+        placeholder="Select Make..."
+        value={selectedMakeValue}
+        options={editMakeOptions}
+        onChange={(selectedOption) => handleMakeChange(q?.name, q?.makes?.list, selectedOption?.value, true)}
+        components={{ MenuList: CustomMenu }}
+      />
+    </div>
+
+    <Dialog open={showAlert} onOpenChange={toggleShowAlert}>
+      <DialogContent className="text-start">
+        <DialogHeader>
+          <DialogTitle>Add New Makes</DialogTitle>
+        </DialogHeader>
+        <DialogDescription>
+        <div className="flex gap-1 flex-wrap mb-4">
+          {editMakeOptions?.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h2 className="font-semibold">Existing Makes for this item:</h2>
+              <div className="flex gap-1 flex-wrap">
+              {editMakeOptions?.map((i) => (
+                <Badge>{i?.value}</Badge>
+              ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="mb-4">
+          <Label>
+            Select New Make
+          </Label>
+          {categoryMakeList && (
+            <ReactSelect options={makeOptions} value={newSelectedMakes} isMulti onChange={(selectedOptions) => setNewSelectedMakes(selectedOptions)} />
+          )}
+        </div>
+        <div className="flex justify-end gap-2 items-center">
+          {updateLoading ? (
+            <TailSpin color="red" height={30} width={30} />
+          ) : (
+            <>
+            <DialogClose asChild>
+            <Button variant="secondary">Cancel</Button>
+          </DialogClose>
+          <Button onClick={handleSumbit} disabled={!newSelectedMakes?.length} className="flex items-center gap-1">
+            <ListChecks className="h-4 w-4" />
+            Confirm
+          </Button>
+          </>
+          )}
+        </div>
+        </DialogDescription>
+      </DialogContent>
+    </Dialog>
+    </>
+  );
+};

@@ -1,5 +1,5 @@
 import frappe
-from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users
+from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users, get_allowed_accountants
 from frappe import _
 
 def on_trash(doc, method):
@@ -91,22 +91,27 @@ def on_update(doc, method):
 
     if doc.status == "Approved":
         proc_admin_users = get_allowed_procurement_users(doc)
-        if proc_admin_users:
-            for user in proc_admin_users:
+        accountant_users = get_allowed_accountants(doc)
+        proc_admin_accountant_users = proc_admin_users + accountant_users
+        if proc_admin_accountant_users:
+            for user in proc_admin_accountant_users:
                 if user["push_notification"] == "true":
-                    # Dynamically generate notification title/body for each lead
+
                     notification_title = f"Vendors Approved for SR: {doc.name}"
                     notification_body = (
                             f"Hi {user['full_name']}, Vendors have been approved for the {doc.name} Service Request. "
                             "click here to take action."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approved-sr"
-                    # Send notification for each lead
+                    if user['role_profile'] != "Nirmaan Accountant Profile":
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/approved-sr"
+                    else:
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments"
+
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
                     print(f"push notifications were not enabled for user: {user['full_name']}")
         else:
-            print("No Proc Execs or admins found with push notifications enabled.")
+            print("No Proc Execs, Accountants or Admins found with push notifications enabled.")
 
         message = {
             "title": _("SR Approved"),
@@ -117,7 +122,7 @@ def on_update(doc, method):
             "docname": doc.name
         }
         # Emit the event to the allowed users
-        for user in proc_admin_users:
+        for user in proc_admin_accountant_users:
             new_notification_doc = frappe.new_doc('Nirmaan Notifications')
             new_notification_doc.recipient = user['name']
             new_notification_doc.recipient_role = user['role_profile']
@@ -132,7 +137,10 @@ def on_update(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "sr:approved"
-            new_notification_doc.action_url = f"approved-sr/{doc.name}"
+            if user['role_profile'] != "Nirmaan Accountant Profile":
+                new_notification_doc.action_url = f"approved-sr/{doc.name}"
+            else:
+                new_notification_doc.action_url = f"project-payments/{doc.name}"
             new_notification_doc.insert()
             frappe.db.commit()
 
