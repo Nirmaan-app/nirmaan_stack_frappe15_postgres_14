@@ -26,7 +26,7 @@ import logo from "@/assets/logo-svg.svg"
 
 const SrSummary = () => {
 
-    const { id } = useParams<{ id: any }>();
+    const { srId: id } = useParams<{ srId: any }>();
 
     const [project, setProject] = useState<string | undefined>()
 
@@ -106,8 +106,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
             // setPhoneNumber(doc2?.phone || "")
             // setEmail(doc2?.email_id || "")
         }
-        if(sr_data) {
-            if(sr_data?.gst === "true") {
+        if (sr_data) {
+            if (sr_data?.gst === "true") {
                 setGstEnabled(true)
             } else {
                 setGstEnabled(false)
@@ -154,7 +154,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 description: `SR: ${sr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            navigate("/service-request")
+            navigate("/service-requests")
         } catch (error) {
             console.log("error while deleting SR", error)
             toast({
@@ -194,42 +194,42 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
     // console.log("sr_data", sr_data)
 
     return (
-        <div className="flex-1 space-y-2 md:space-y-4">
+        <div className="flex-1 space-y-4">
             {
                 page === "Summary" && (
                     <>
                         <div className="flex items-center justify-between">
-                            <div className="flex gap-2 items-center">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                                    <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
-                                    <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
-                                </div>
+                            <div className="flex items-center gap-1 flex-wrap">
+                                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
+                                <h2 className="text-xl max-md:text-lg font-bold tracking-tight text-pageheader">Summary</h2>
+                                {/* <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span> */}
                             </div>
                             <div className="flex gap-4 items-center">
-                                {sr_data?.status === "Approved" && 
-                                <div>
-                                    <Button className='flex items-center gap-2' onClick={handlePrint}>
-                                         <Printer className='h-4 w-4' />
-                                         Print
-                                     </Button>
-                                </div>
-                                // <div className="flex max-sm:flex-col gap-2 items-center">
-                                //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
-                                //         <Printer className='h-4 w-4' />
-                                //         Print inc. Tax
-                                //     </Button>
-                                //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(false)}>
-                                //         <Printer className='h-4 w-4' />
-                                //         Print exc. Tax
-                                //     </Button>
-                                // </div>
+                                {sr_data?.status === "Approved" &&
+                                    <div>
+                                        <Button className='flex items-center gap-2' onClick={handlePrint}>
+                                            <Printer className='h-4 w-4' />
+                                            Print
+                                        </Button>
+                                    </div>
+                                    // <div className="flex max-sm:flex-col gap-2 items-center">
+                                    //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
+                                    //         <Printer className='h-4 w-4' />
+                                    //         Print inc. Tax
+                                    //     </Button>
+                                    //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(false)}>
+                                    //         <Printer className='h-4 w-4' />
+                                    //         Print exc. Tax
+                                    //     </Button>
+                                    // </div>
                                 }
-                                {sr_data?.status === "Rejected" && (
-                                    <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
-                                        <Settings2 className="h-4 w-4" />
-                                        Resolve</Button>
-                                )}
+                                {
+                                    sr_data?.status === "Rejected" && (
+                                        <Button onClick={() => navigate("resolve-sr")} className="flex items-center gap-1">
+                                            <Settings2 className="h-4 w-4" />
+                                            Resolve</Button>
+                                    )
+                                }
                                 {
                                     ["Created", "Rejected", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
                                         <AlertDialog>
@@ -304,7 +304,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                 <p className="font-semibold">GST {sr_data?.gst === "true" ? "Enabled" : "Disabled"}</p>
                                             </div>
                                         </>
-                                        )}
+                                    )}
 
                                     <div className="space-y-1 flex flex-col items-start justify-start">
                                         <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
@@ -490,15 +490,15 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     {gstEnabled && <td></td>}
                                                     <td></td>
                                                     <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                                                    {gstEnabled && <div>Total Tax(GST):</div>}
+                                                        {gstEnabled && <div>Total Tax(GST):</div>}
                                                         <div>Round Off:</div>
                                                         <div>Total:</div>
                                                     </td>
 
                                                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                                    {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div> }
-                                                    <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)).toFixed(2) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
-                                                    <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                        {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>}
+                                                        <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                        <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
                                                     </td>
 
                                                 </tr>
@@ -622,18 +622,19 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                             </div>
                         </div>
 
-                        {sr_data?.status === "Created" &&
+                        {
+                            sr_data?.status === "Created" &&
                             <div className="text-right">
-                                <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
+                                <Button onClick={() => navigate(`/choose-service-vendor/${sr_data?.name}`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
                             </div>
                         }
                     </>
                 )
             }
-            {page === "Resolve" && (
+            {/* {page === "Resolve" && (
                 <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
-            )}
-        </div>
+            )} */}
+        </div >
     )
 }
 

@@ -179,24 +179,18 @@ export default function Customers() {
     )
 
     return (
-        <div className="flex-1 space-y-2 md:space-y-4">
-            <div className="flex items-center justify-between">
+        <div className="flex-1 space-y-4">
+            {/* <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
                     <Link to="/">
                         <ArrowLeft className="" />
                     </Link>
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Customers Dashboard</h2>
                 </div>
-                <Button asChild>
-                    <Link to="new">
-                        <CirclePlus className="w-5 h-5 pr-1 " />
-                        Add <span className="hidden md:flex pl-1"> New Customer</span>
-                    </Link>
-                </Button>
-            </div>
+            </div> */}
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                <Card className="hover:animate-shadow-drop-center">
+            <div className="flex justify-between">
+                <Card className="hover:animate-shadow-drop-center w-[60%]">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
                         <User className="h-4 w-4 text-muted-foreground" />
@@ -220,6 +214,12 @@ export default function Customers() {
                         </div>
                     </CardContent>
                 </Card>
+                {/* <Button asChild>
+                    <Link to="new">
+                        <CirclePlus className="w-5 h-5 pr-1 " />
+                        Add <span className="hidden md:flex pl-1"> New Customer</span>
+                    </Link>
+                </Button> */}
             </div>
 
             <div className="pl-0 pr-2">

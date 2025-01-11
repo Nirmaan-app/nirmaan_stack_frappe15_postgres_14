@@ -65,9 +65,9 @@ export const UserForm = () => {
     );
     const options: SelectOption[] = role_profile_list?.map(item => ({
         label: item?.role_profile
-        .split(' ')
-        .filter((word) => word !== 'Nirmaan' && word !== 'Profile')
-        .join(' '),
+            .split(' ')
+            .filter((word) => word !== 'Nirmaan' && word !== 'Profile')
+            .join(' '),
         value: item.name
     })) || [];
 
@@ -110,7 +110,7 @@ export const UserForm = () => {
     return (
         <div className="flex-1">
             <div className="flex gap-2">
-                <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
+                {/* <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} /> */}
                 <div className="flex flex-col">
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Add New User</h2>
                     <p className="text-muted-foreground">
@@ -119,7 +119,7 @@ export const UserForm = () => {
                 </div>
             </div>
 
-            <Separator className="my-6 max-md:my-2" />
+            <Separator className="my-4 max-md:my-2" />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();

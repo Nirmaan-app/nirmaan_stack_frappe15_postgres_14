@@ -33,6 +33,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTrigger } from "./ui/sheet";
 
 export const ManPowerReport = () => {
   const [project, setProject] = useState(null);
@@ -133,13 +134,13 @@ Project - ${projectData?.project_name}
 Date - ${new Date().toLocaleDateString()}
 
 ${filteredDetails
-  .map(
-    (item, index) =>
-      `${index + 1}. ${item.role} - ${item.count
-        .toString()
-        .padStart(2, "0")} Nos.`
-  )
-  .join("\n")}
+        .map(
+          (item, index) =>
+            `${index + 1}. ${item.role} - ${item.count
+              .toString()
+              .padStart(2, "0")} Nos.`
+        )
+        .join("\n")}
 
 Total - ${total.toString().padStart(2, "0")} Nos.
     `.trim();
@@ -151,6 +152,12 @@ Total - ${total.toString().padStart(2, "0")} Nos.
         variant: "success",
       });
     }
+  };
+
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const toggleSheet = () => {
+    setSheetOpen((prevState) => !prevState);
   };
 
   const handleSave = async () => {
@@ -175,6 +182,8 @@ Total - ${total.toString().padStart(2, "0")} Nos.
       });
 
       await manpowerMutate();
+
+      toggleSheet();
 
       toast({
         title: "Success!",
@@ -229,15 +238,7 @@ Total - ${total.toString().padStart(2, "0")} Nos.
   return (
     <>
       {page === "list" && (
-        <div className="flex-1 space-y-2 md:space-y-4">
-          <div className="flex items-center ">
-            <Link to="/prs&milestones">
-              <ArrowLeft className="" />
-            </Link>
-            <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">
-              MANPOWER REPORT
-            </h2>
-          </div>
+        <div className="flex-1 space-y-4 min-h-[50vh]">
           <div className="flex items-center gap-2">
             <div className="flex-1">
               <ProjectSelect onChange={handleChange} />
@@ -332,12 +333,12 @@ Total - ${total.toString().padStart(2, "0")} Nos.
                                                   ...prevState.report.data,
                                                 ];
                                                 updatedData[existingItemIndex] =
-                                                  {
-                                                    ...updatedData[
-                                                      existingItemIndex
-                                                    ],
-                                                    count: newValue,
-                                                  };
+                                                {
+                                                  ...updatedData[
+                                                  existingItemIndex
+                                                  ],
+                                                  count: newValue,
+                                                };
                                                 return {
                                                   ...prevState,
                                                   report: {
@@ -409,21 +410,85 @@ Total - ${total.toString().padStart(2, "0")} Nos.
                 </TableBody>
               </Table>
               <div className="flex items-center justify-end py-6">
-                <Button
+              <Button
                   disabled={manpowerData?.some(
                     (i) => formatDate(i?.creation) === formatDate(new Date())
                   )}
-                  onClick={() => setPage("create")}
+                  onClick={() => toggleSheet()}
                   className="max-sm:text-xs"
                 >
                   Create New Manpower Report
                 </Button>
+                <Sheet open={sheetOpen} onOpenChange={toggleSheet}>
+                  <SheetContent>
+                  <div className="flex-1 space-y-2 md:space-y-4">
+          <div className="flex items-center ">
+            {/* <div onClick={() => setPage("list")} className="cursor-pointer">
+              <ArrowLeft className="" />
+            </div> */}
+            <h2 className="pl-2 text-lg md:text-xl font-bold tracking-tight">
+              NEW MANPOWER REPORT
+            </h2>
+          </div>
+          {project && (
+            <Card>
+              <CardContent>
+                <div className="flex flex-col gap-4 py-2 max-md:text-sm">
+                  {/* <div>
+                    <strong>Project:</strong> {projectData?.project_name}
+                  </div> */}
+                  <div className="flex flex-col gap-2">
+                    <strong>Work Packages:</strong>
+                    <div className="flex gap-1 flex-wrap">
+                      {JSON.parse(
+                        projectData?.project_work_packages
+                      ).work_packages?.map((item: any) => (
+                        <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
+                          {item.work_package_name}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <strong>Date:</strong> {new Date().toLocaleDateString()}
+                  </div>
+                  {manpowerDetails.map((item, index) => (
+                    <div key={index} className="flex items-center gap-4">
+                      <label className="w-40">{item.role}:</label>
+                      <input
+                        type="number"
+                        value={item.count}
+                        onChange={(e) =>
+                          handleInputChange(index, e.target.value)
+                        }
+                        className="border border-gray-300 w-full rounded-md px-2 py-1"
+                      />
+                    </div>
+                  ))}
+                  <Button
+                    onClick={handleSave}
+                    disabled={createLoading}
+                    className="flex items-center justify-center"
+                  >
+                    {createLoading ? (
+                      <TailSpin width={20} height={20} color="white" />
+                    ) : (
+                      "Save & Copy Message"
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+                  </div>
+                  </SheetContent>
+                </Sheet>
               </div>
             </div>
           )}
         </div>
       )}
-      {page === "create" && (
+      {/* {page === "create" && (
         <div className="flex-1 space-y-2 md:space-y-4">
           <div className="flex items-center ">
             <div onClick={() => setPage("list")} className="cursor-pointer">
@@ -435,6 +500,7 @@ Total - ${total.toString().padStart(2, "0")} Nos.
           </div>
           {project && (
             <Card>
+              <CardHeader>
               <CardContent>
                 <div className="flex flex-col gap-4">
                   <div>
@@ -481,10 +547,11 @@ Total - ${total.toString().padStart(2, "0")} Nos.
                   </Button>
                 </div>
               </CardContent>
+              </CardHeader>
             </Card>
           )}
         </div>
-      )}
+      )} */}
     </>
   );
 };

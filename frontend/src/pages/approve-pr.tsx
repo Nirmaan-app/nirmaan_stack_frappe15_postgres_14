@@ -61,7 +61,7 @@ export const ApprovePR = () => {
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
         orderData?.list?.filter((i) => i.status !== "Request")?.map((item: any) => {
             const quotesForItem = quote_data
-                ?.filter(value => value.item_id === item.name && value.quote != null)
+                ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                 ?.map(value => value.quote);
             let minQuote;
             if (quotesForItem && quotesForItem.length > 0) {
@@ -106,7 +106,7 @@ export const ApprovePR = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`/approve-order/${prId}`}
+                                to={`/approve-new-pr/${prId}`}
                             >
                                 {prId?.slice(-4)}
                             </Link>
@@ -229,9 +229,9 @@ export const ApprovePR = () => {
     }
     return (
         <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between space-y-2 pl-2">
+            {/* <div className="flex items-center justify-between space-y-2 pl-2">
                 <h2 className="text-lg font-bold tracking-tight">Approve New PR</h2>
-            </div>
+            </div> */}
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
 
             {projects_loading || procurement_request_list_loading ? (<TableSkeleton />)

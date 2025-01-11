@@ -81,14 +81,13 @@ interface SelectOption {
 }
 
 export const EditVendor = ({ toggleEditSheet }) => {
-  const { vendorId: id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { vendorId: id } = useParams<{ vendorId: string }>();
   const { data, mutate: vendorMutate } = useFrappeGetDoc(
     "Vendors",
     `${id}`,
     `Vendors ${id}`
   );
-
-  console.log("id", id);
 
   const {
     data: vendorAddress,
@@ -235,6 +234,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
         description: `Vendor: ${id} updated successfully!`,
         variant: "success",
       });
+      // navigate(`/vendors/${id}`)
 
       toggleEditSheet();
     } catch (error) {
@@ -248,19 +248,14 @@ export const EditVendor = ({ toggleEditSheet }) => {
   };
 
   return (
-    <div className="flex-1 md:space-y-4">
-      <div className="space-y-0.5">
-        <div className="flex space-x-2 items-center">
-          {/* <ArrowLeft
-            className="cursor-pointer"
-            onClick={() => navigate(`/vendors/${id}`)}
-          /> */}
-          <h2 className="text-2xl font-bold tracking-tight">
-            Edit: <span className="text-red-700">{id}</span>
-          </h2>
-        </div>
-      </div>
-      <Separator className="my-6 max-md:my-2" />
+    <div className="flex-1 space-y-4">
+      {/* <div className="space-y-0.5">
+                <div className="flex space-x-2 items-center ml-6">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} />
+                    <h2 className="text-2xl font-bold tracking-tight">Edit: <span className="text-red-700">{id}</span></h2>
+                </div>
+            </div>
+            <Separator className="my-6 max-md:my-2" /> */}
       <Form {...form}>
         <form
           onSubmit={(event) => {

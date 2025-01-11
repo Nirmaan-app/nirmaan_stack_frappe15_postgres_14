@@ -1,13 +1,15 @@
 import frappe
 from frappe import _
-from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users
+from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users, get_allowed_accountants
 from .procurement_requests import get_user_name
 
 def after_insert(doc, method):
         proc_admin_users = get_allowed_procurement_users(doc)
+        accountant_users = get_allowed_accountants(doc)
+        proc_admin_account_users = proc_admin_users + accountant_users
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
-        if proc_admin_users:
-            for user in proc_admin_users:
+        if proc_admin_account_users:
+            for user in proc_admin_account_users:
                 if user["push_notification"] == "true":
                     # Dynamically generate notification title/body for each lead
                     notification_title = f"New PO for Project {doc.project}"
@@ -15,13 +17,17 @@ def after_insert(doc, method):
                         f"Hi {user['full_name']}, a new purchase order for the {pr.work_package} "
                         f"work package has been approved and created by {get_user_name(frappe.session.user)}, click here to take action."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/release-po"
+                    if user['role_profile'] != "Nirmaan Accountant Profile":
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders"
+                    else:
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
                     print(f"push notifications were not enabled for user: {user['full_name']}")
         else:
-            print("No Proc Execs or admins found with push notifications enabled.")
+            print("No Proc Execs, Accountants or Admins found with push notifications enabled.")
+        
 
         message = {
             "title": _("New Purchase Order"),
@@ -32,7 +38,7 @@ def after_insert(doc, method):
             "docname": doc.name
         }
         # Emit the event to the allowed users
-        for user in proc_admin_users:
+        for user in proc_admin_account_users:
             new_notification_doc = frappe.new_doc('Nirmaan Notifications')
             new_notification_doc.recipient = user['name']
             new_notification_doc.recipient_role = user['role_profile']
@@ -48,7 +54,10 @@ def after_insert(doc, method):
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "po:new"
             action_url = doc.name.replace("/", "&=")
-            new_notification_doc.action_url = f"release-po/{action_url}"
+            if user['role_profile'] != "Nirmaan Accountant Profile":
+                new_notification_doc.action_url = f"purchase-orders/{action_url}?tab=Approved PO"
+            else:
+                new_notification_doc.action_url = f"project-payments/{action_url}"
             new_notification_doc.insert()
             frappe.db.commit()
 

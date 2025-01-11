@@ -1,7 +1,7 @@
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Skeleton } from "./ui/skeleton";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Trash } from "lucide-react";
@@ -26,6 +26,7 @@ import {
     ChartTooltip,
     ChartTooltipContent,
 } from "@/components/ui/chart";
+import { Badge } from "./ui/badge";
 
 const chartConfig = {
     visitors: {
@@ -46,7 +47,7 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 
-const AddProjectEstimates = () => {
+const AddProjectEstimates = ({ projectTab = false }) => {
     const { projectId } = useParams()
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", projectId)
     const { data: estimates_data, isLoading: estimates_loading, error: estimates_error, mutate: estimates_data_mutate } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
@@ -58,7 +59,7 @@ const AddProjectEstimates = () => {
         <div>
             {(project_loading || estimates_loading) && <Skeleton className="w-[30%] h-10" />}
             {(project_error || estimates_error) && <h1>Error</h1>}
-            {(project_data && estimates_data) && <AddProjectEstimatesPage project_data={project_data} estimates_data={estimates_data} estimates_data_mutate={estimates_data_mutate} />}
+            {(project_data && estimates_data) && <AddProjectEstimatesPage project_data={project_data} projectTab={projectTab} estimates_data={estimates_data} estimates_data_mutate={estimates_data_mutate} />}
         </div>
     )
 }
@@ -80,7 +81,7 @@ type WorkPackageCategoryList = {
     [workPackage: string]: Category[];
 };
 
-const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_mutate }: AddProjectEstimatesPageProps) => {
+const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_mutate, projectTab }: AddProjectEstimatesPageProps) => {
     const navigate = useNavigate()
     const [defaultValues, setDefaultValues] = useState<null | string[]>(null)
     const [workPackageCategoryList, setWorkPackageCategoryList] = useState<WorkPackageCategoryList>({});
@@ -103,10 +104,31 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [serviceUnit, setServiceUnit] = useState(null)
     const [loadingState, setLoadingState] = useState(null)
     const [options, setOptions] = useState(null)
-    const [selectedPackage, setSelectedPackage] = useState("")
     const [categoryTotals, setCategoryTotals] = useState({})
     const [overAllCategoryTotals, setOverAllCategoryTotals] = useState({})
     const [categoryWisePieChartData, setCategoryWisePieChartData] = useState([])
+    const [searchParams] = useSearchParams(); // Only for initialization
+    const [selectedPackage, setSelectedPackage] = useState(searchParams.get("eTab") || "All")
+
+    const updateURL = (key, value) => {
+        const url = new URL(window.location);
+        url.searchParams.set(key, value);
+        window.history.pushState({}, "", url);
+    };
+
+    const handleSetSelectedPackage = (value) => {
+        if (selectedPackage === value) return
+        setSelectedPackage(value)
+        setCurCategory({ [value]: null })
+        setSelectedItem({ [value]: null })
+        updateURL("eTab", value)
+    }
+
+    useEffect(() => {
+        const currentTab = searchParams.get("eTab") || "All";
+        setSelectedPackage(currentTab);
+        updateURL("eTab", currentTab)
+    }, []);
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -235,13 +257,13 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                 if (a.label === "All") return -1;
                 if (b.label === "All") return 1;
                 return a.label.localeCompare(b.label);
-              });
+            });
 
             //   options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
             //   options?.push({ label: "Services", value: "Services" })
 
             setOptions(options)
-            setSelectedPackage("All")
+            // setSelectedPackage("All")
         }
     }, [project_data])
 
@@ -640,13 +662,13 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     return (
         <>
             <div className="flex-1 md:space-y-4 pb-10">
-                <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${project_data?.name}`)} />
+                <div className="flex items-center pt-1 max-md:pb-4">
+                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${project_data?.name}`)} /> */}
                     <h3 className="text-base pl-2 font-bold tracking-tight">
                         {/* <span className="text-primary">{project_data?.project_name}</span>  */} Estimations Overview</h3>
                 </div>
                 <div className="space-y-4">
-                    <Card className="flex flex-col">
+                    {!projectTab && <Card className="flex flex-col">
                         <CardHeader>
                             <CardTitle>
                                 <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
@@ -768,211 +790,211 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                 </CardContent>
                             )
                         )}
-                    </Card>
+                    </Card>}
 
                     {
                         options && (
                             <Radio.Group
                                 block
                                 options={options}
+                                value={selectedPackage}
                                 defaultValue="All"
                                 optionType="button"
                                 buttonStyle="solid"
-                                onChange={(e) => {
-                                    setSelectedPackage(e.target.value)
-                                    setCurCategory({[e.target.value] : null})
-                                    setSelectedItem({[e.target.value] : null})
-                                }}
+                                onChange={(e) => handleSetSelectedPackage(e.target.value)}
                             />
                         )
                     }
                     {(defaultValues && selectedPackage === "All") ?
                         (
-                            <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues?.slice(0, 2) || []}>
-                                {allWorkPackages?.sort((a,b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
-                                    <AccordionItem key={wp.work_package_name} value={wp.work_package_name} className="border-b rounded-lg shadow">
-                                        <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-                                            <div className="flex space-x-4 text-sm text-gray-600">
-                                                <span className="font-semibold">{wp.work_package_name}:</span>
-                                                <span>Total Estd Amount: {formatToIndianRupee(workPackageTotals[wp.work_package_name]?.withoutGst)}</span>
-                                            </div>
-                                        </AccordionTrigger>
-                                        <AccordionContent className="p-4">
-                                            <div className="flex flex-col gap-6">
-                                                <div className=" overflow-x-auto border-b border-gray-100">
-                                                    <ConfigProvider
-                                                        theme={{
-                                                            components: {
-                                                                Table: {
-                                                                }
-                                                            }
-                                                        }}
-                                                    >
-                                                        <Table
-                                                            dataSource={((categorizedData[wp.work_package_name] && Object.keys(categorizedData[wp.work_package_name])) || []).map((key) => ({
-                                                                key,
-                                                                category: key,
-                                                                items: categorizedData[wp.work_package_name][key],
-                                                            }))}
-                                                            columns={columns}
-                                                            expandable={{
-                                                                expandedRowRender: (record) => (
-                                                                    <Table
-                                                                        dataSource={record.items}
-                                                                        columns={innerColumns}
-                                                                        pagination={false}
-                                                                        rowKey={(item) => item.name}
-                                                                    />
-                                                                ),
-                                                            }}
-                                                            rowKey="category"
-                                                        />
-                                                    </ConfigProvider>
-                                                </div>
-                                                {/* <Separator /> */}
-                                                <div className="flex flex-col gap-2">
-                                                    <h2 className="font-semibold text-base underline">Submit New Estimation</h2>
-                                                    <div className="flex justify-between items-end">
-                                                        <div className="flex gap-2 items-end flex-wrap">
-                                                            <div className="flex flex-col gap-2">
-                                                                <h3 className="text-gray-500">Select Associated Category<sup className="text-sm text-red-600">*</sup></h3>
-                                                                <ReactSelect
-                                                                    className="w-64"
-                                                                    value={curCategory[wp.work_package_name]}
-                                                                    options={workPackageCategoryList[wp.work_package_name]}
-                                                                    onChange={(value) => handleCategoryChange(wp.work_package_name, value)} />
-                                                            </div>
-                                                            {wp?.work_package_name !== "Services" ? (
-                                                                <div className="flex flex-col gap-2">
-                                                                    <h3 className="text-gray-500">Select Item<sup className="text-sm text-red-600">*</sup></h3>
-                                                                    <ReactSelect
-                                                                        className="w-64"
-                                                                        value={selectedItem[wp.work_package_name]}
-                                                                        options={categoryItemList[curCategory[wp.work_package_name]?.value]}
-                                                                        onChange={(value) => handleItemChange(wp.work_package_name, curCategory[wp.work_package_name], value)}
-                                                                        isDisabled={!curCategory[wp.work_package_name]}
-                                                                    />
-                                                                </div>
-                                                            ) : (
-                                                                <div className="flex flex-col gap-2">
-                                                                    <h3 className="text-gray-500">Description (optional)</h3>
-                                                                    <Textarea
-                                                                        placeholder={`Add Description...`}
-                                                                        id="description"
-                                                                        className="w-64"
-                                                                        disabled={!curCategory[wp.work_package_name]}
-                                                                        onChange={(e) => setServiceDesc(e.target.value)}
-                                                                        value={serviceDesc || ''}
-                                                                    />
-                                                                </div>
-                                                            )}
-                                                            <div className="flex flex-col gap-2">
-                                                                <h3 className="text-gray-500">Qty<sup className="text-sm text-red-600">*</sup></h3>
-                                                                <Input type="number" placeholder="Enter Estimated Qty"
-                                                                    className="w-20"
-                                                                    value={enteredQuantities[wp.work_package_name]}
-                                                                    onChange={(e) => handleQuantityChange(wp.work_package_name, curCategory[wp.work_package_name], e.target.value)}
-                                                                    disabled={wp?.work_package_name === "Services" ? !curCategory[wp.work_package_name] : !selectedItem[wp.work_package_name]}
-                                                                />
-                                                            </div>
+                            // <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues?.slice(0, 2) || []}>
+                            //     {allWorkPackages?.sort((a,b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
+                            //         <AccordionItem key={wp.work_package_name} value={wp.work_package_name} className="border-b rounded-lg shadow">
+                            //             <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                            //                 <div className="flex space-x-4 text-sm text-gray-600">
+                            //                     <span className="font-semibold">{wp.work_package_name}:</span>
+                            //                     <span>Total Estd Amount: {formatToIndianRupee(workPackageTotals[wp.work_package_name]?.withoutGst)}</span>
+                            //                 </div>
+                            //             </AccordionTrigger>
+                            //             <AccordionContent className="p-4">
+                            //                 <div className="flex flex-col gap-6">
+                            //                     <div className=" overflow-x-auto border-b border-gray-100">
+                            //                         <ConfigProvider
+                            //                             theme={{
+                            //                                 components: {
+                            //                                     Table: {
+                            //                                     }
+                            //                                 }
+                            //                             }}
+                            //                         >
+                            //                             <Table
+                            //                                 dataSource={((categorizedData[wp.work_package_name] && Object.keys(categorizedData[wp.work_package_name])) || []).map((key) => ({
+                            //                                     key,
+                            //                                     category: key,
+                            //                                     items: categorizedData[wp.work_package_name][key],
+                            //                                 }))}
+                            //                                 columns={columns}
+                            //                                 expandable={{
+                            //                                     expandedRowRender: (record) => (
+                            //                                         <Table
+                            //                                             dataSource={record.items}
+                            //                                             columns={innerColumns}
+                            //                                             pagination={false}
+                            //                                             rowKey={(item) => item.name}
+                            //                                         />
+                            //                                     ),
+                            //                                 }}
+                            //                                 rowKey="category"
+                            //                             />
+                            //                         </ConfigProvider>
+                            //                     </div>
 
-                                                            <div className="flex flex-col gap-2">
-                                                                <h3 className="text-gray-500">Unit{wp?.work_package_name === "Services" ? "(Opt)" : <sup className="text-sm text-red-600">*</sup>}</h3>
-                                                                <Input type="text"
-                                                                    className="w-20"
-                                                                    value={wp?.work_package_name !== "Services" ? selectedItem[wp.work_package_name]?.unit : (serviceUnit || "")}
-                                                                    onChange={(e) => handleUnitChange(e.target.value)}
-                                                                    disabled={wp?.work_package_name !== "Services"}
-                                                                />
-                                                            </div>
+                            //                     <div className="flex flex-col gap-2">
+                            //                         <h2 className="font-semibold text-base underline">Submit New Estimation</h2>
+                            //                         <div className="flex justify-between items-end">
+                            //                             <div className="flex gap-2 items-end flex-wrap">
+                            //                                 <div className="flex flex-col gap-2">
+                            //                                     <h3 className="text-gray-500">Select Associated Category<sup className="text-sm text-red-600">*</sup></h3>
+                            //                                     <ReactSelect
+                            //                                         className="w-64"
+                            //                                         value={curCategory[wp.work_package_name]}
+                            //                                         options={workPackageCategoryList[wp.work_package_name]}
+                            //                                         onChange={(value) => handleCategoryChange(wp.work_package_name, value)} />
+                            //                                 </div>
+                            //                                 {wp?.work_package_name !== "Services" ? (
+                            //                                     <div className="flex flex-col gap-2">
+                            //                                         <h3 className="text-gray-500">Select Item<sup className="text-sm text-red-600">*</sup></h3>
+                            //                                         <ReactSelect
+                            //                                             className="w-64"
+                            //                                             value={selectedItem[wp.work_package_name]}
+                            //                                             options={categoryItemList[curCategory[wp.work_package_name]?.value]}
+                            //                                             onChange={(value) => handleItemChange(wp.work_package_name, curCategory[wp.work_package_name], value)}
+                            //                                             isDisabled={!curCategory[wp.work_package_name]}
+                            //                                         />
+                            //                                     </div>
+                            //                                 ) : (
+                            //                                     <div className="flex flex-col gap-2">
+                            //                                         <h3 className="text-gray-500">Description (optional)</h3>
+                            //                                         <Textarea
+                            //                                             placeholder={`Add Description...`}
+                            //                                             id="description"
+                            //                                             className="w-64"
+                            //                                             disabled={!curCategory[wp.work_package_name]}
+                            //                                             onChange={(e) => setServiceDesc(e.target.value)}
+                            //                                             value={serviceDesc || ''}
+                            //                                         />
+                            //                                     </div>
+                            //                                 )}
+                            //                                 <div className="flex flex-col gap-2">
+                            //                                     <h3 className="text-gray-500">Qty<sup className="text-sm text-red-600">*</sup></h3>
+                            //                                     <Input type="number" placeholder="Enter Estimated Qty"
+                            //                                         className="w-20"
+                            //                                         value={enteredQuantities[wp.work_package_name]}
+                            //                                         onChange={(e) => handleQuantityChange(wp.work_package_name, curCategory[wp.work_package_name], e.target.value)}
+                            //                                         disabled={wp?.work_package_name === "Services" ? !curCategory[wp.work_package_name] : !selectedItem[wp.work_package_name]}
+                            //                                     />
+                            //                                 </div>
 
-                                                            {wp?.work_package_name === "Services" && (
-                                                                <>
-                                                                    <div className="flex flex-col gap-2">
-                                                                        <h3 className="text-gray-500">Rate<sup className="text-sm text-red-600">*</sup></h3>
-                                                                        <Input type="number" placeholder="Enter Estimated Rate"
-                                                                            value={rateInput}
-                                                                            onChange={(e) => handleRateChange(e.target.value)}
-                                                                            disabled={!enteredQuantities[wp.work_package_name]}
-                                                                        />
-                                                                    </div>
-                                                                    <div className="flex flex-col gap-4">
-                                                                        <h3 className="text-gray-500">Amount</h3>
-                                                                        <p className="text-primary">{formatToIndianRupee((enteredQuantities["Services"] || 0) * (rateInput || 0))}</p>
-                                                                    </div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                        <Button
-                                                            onClick={() => handleSubmit(wp.work_package_name)}
-                                                            disabled={!curCategory[wp.work_package_name] || (wp?.work_package_name !== "Services" && !selectedItem[wp.work_package_name]) || (wp?.work_package_name === "Services" && !rateInput) || !enteredQuantities[wp.work_package_name] || loadingState === wp.work_package_name}>
-                                                            {loadingState === wp.work_package_name ? "Submitting.." : "Submit"}
-                                                        </Button>
-                                                        <AlertDialog open={showRateDialog} onOpenChange={setShowRateDialog}>
-                                                            <AlertDialogContent>
-                                                                <AlertDialogHeader>
-                                                                    <AlertDialogTitle>
-                                                                        No Quotes Found
-                                                                    </AlertDialogTitle>
-                                                                </AlertDialogHeader>
-                                                                <AlertDialogDescription>
-                                                                    <p>No quotes found for the item: <span className="text-primary italic">{errorItem?.item_name}</span> in the system. Please provide a rate:</p>
-                                                                    <div className="flex items-center gap-6">
-                                                                        <div className="flex flex-col gap-2">
-                                                                            <h3 className="text-gray-500">Qty</h3>
-                                                                            <Input type="number" placeholder="Enter Estimated Qty"
-                                                                                value={errorItem?.quantity_estimate}
-                                                                                onChange={(e) => setErrorItem({ ...errorItem, quantity_estimate: e.target.value })}
-                                                                            />
-                                                                        </div>
-                                                                        <div className="flex flex-col gap-2">
-                                                                            <h3 className="text-gray-500">Unit</h3>
-                                                                            <Input type="text"
-                                                                                value={errorItem?.uom}
-                                                                                disabled
-                                                                            />
-                                                                        </div>
-                                                                    </div>
+                            //                                 <div className="flex flex-col gap-2">
+                            //                                     <h3 className="text-gray-500">Unit{wp?.work_package_name === "Services" ? "(Opt)" : <sup className="text-sm text-red-600">*</sup>}</h3>
+                            //                                     <Input type="text"
+                            //                                         className="w-20"
+                            //                                         value={wp?.work_package_name !== "Services" ? selectedItem[wp.work_package_name]?.unit : (serviceUnit || "")}
+                            //                                         onChange={(e) => handleUnitChange(e.target.value)}
+                            //                                         disabled={wp?.work_package_name !== "Services"}
+                            //                                     />
+                            //                                 </div>
 
-                                                                    <div className="flex items-center gap-6 mt-4">
-                                                                        <div className="flex flex-col gap-2">
-                                                                            <h3 className="text-gray-500">Rate</h3>
-                                                                            <Input
-                                                                                type="number"
-                                                                                placeholder="Enter Rate"
-                                                                                value={rateInput}
-                                                                                onChange={(e) => handleRateChange(e.target.value)}
-                                                                                disabled={!errorItem?.quantity_estimate}
-                                                                            />
-                                                                        </div>
-                                                                        <div className="flex flex-col gap-4">
-                                                                            <h3 className="text-gray-500">Amount</h3>
-                                                                            <p className="text-primary">{formatToIndianRupee((errorItem?.quantity_estimate || 0) * (rateInput || 0))}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="flex items-center justify-end gap-2 mt-4">
-                                                                        <AlertDialogCancel>
-                                                                            Cancel
-                                                                        </AlertDialogCancel>
-                                                                        <AlertDialogAction asChild>
-                                                                            <Button
-                                                                                disabled={!rateInput || !errorItem?.quantity_estimate}
-                                                                                onClick={handleAlertSubmit}
-                                                                            >
-                                                                                {create_loading ? "Submitting.." : "Submit"}
-                                                                            </Button>
-                                                                        </AlertDialogAction>
-                                                                    </div>
-                                                                </AlertDialogDescription>
-                                                            </AlertDialogContent>
-                                                        </AlertDialog>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </AccordionContent>
-                                    </AccordionItem>
-                                ))}
-                            </Accordion>
+                            //                                 {wp?.work_package_name === "Services" && (
+                            //                                     <>
+                            //                                         <div className="flex flex-col gap-2">
+                            //                                             <h3 className="text-gray-500">Rate<sup className="text-sm text-red-600">*</sup></h3>
+                            //                                             <Input type="number" placeholder="Enter Estimated Rate"
+                            //                                                 value={rateInput}
+                            //                                                 onChange={(e) => handleRateChange(e.target.value)}
+                            //                                                 disabled={!enteredQuantities[wp.work_package_name]}
+                            //                                             />
+                            //                                         </div>
+                            //                                         <div className="flex flex-col gap-4">
+                            //                                             <h3 className="text-gray-500">Amount</h3>
+                            //                                             <p className="text-primary">{formatToIndianRupee((enteredQuantities["Services"] || 0) * (rateInput || 0))}</p>
+                            //                                         </div>
+                            //                                     </>
+                            //                                 )}
+                            //                             </div>
+                            //                             <Button
+                            //                                 onClick={() => handleSubmit(wp.work_package_name)}
+                            //                                 disabled={!curCategory[wp.work_package_name] || (wp?.work_package_name !== "Services" && !selectedItem[wp.work_package_name]) || (wp?.work_package_name === "Services" && !rateInput) || !enteredQuantities[wp.work_package_name] || loadingState === wp.work_package_name}>
+                            //                                 {loadingState === wp.work_package_name ? "Submitting.." : "Submit"}
+                            //                             </Button>
+                            //                             <AlertDialog open={showRateDialog} onOpenChange={setShowRateDialog}>
+                            //                                 <AlertDialogContent>
+                            //                                     <AlertDialogHeader>
+                            //                                         <AlertDialogTitle>
+                            //                                             No Quotes Found
+                            //                                         </AlertDialogTitle>
+                            //                                     </AlertDialogHeader>
+                            //                                     <AlertDialogDescription>
+                            //                                         <p>No quotes found for the item: <span className="text-primary italic">{errorItem?.item_name}</span> in the system. Please provide a rate:</p>
+                            //                                         <div className="flex items-center gap-6">
+                            //                                             <div className="flex flex-col gap-2">
+                            //                                                 <h3 className="text-gray-500">Qty</h3>
+                            //                                                 <Input type="number" placeholder="Enter Estimated Qty"
+                            //                                                     value={errorItem?.quantity_estimate}
+                            //                                                     onChange={(e) => setErrorItem({ ...errorItem, quantity_estimate: e.target.value })}
+                            //                                                 />
+                            //                                             </div>
+                            //                                             <div className="flex flex-col gap-2">
+                            //                                                 <h3 className="text-gray-500">Unit</h3>
+                            //                                                 <Input type="text"
+                            //                                                     value={errorItem?.uom}
+                            //                                                     disabled
+                            //                                                 />
+                            //                                             </div>
+                            //                                         </div>
+
+                            //                                         <div className="flex items-center gap-6 mt-4">
+                            //                                             <div className="flex flex-col gap-2">
+                            //                                                 <h3 className="text-gray-500">Rate</h3>
+                            //                                                 <Input
+                            //                                                     type="number"
+                            //                                                     placeholder="Enter Rate"
+                            //                                                     value={rateInput}
+                            //                                                     onChange={(e) => handleRateChange(e.target.value)}
+                            //                                                     disabled={!errorItem?.quantity_estimate}
+                            //                                                 />
+                            //                                             </div>
+                            //                                             <div className="flex flex-col gap-4">
+                            //                                                 <h3 className="text-gray-500">Amount</h3>
+                            //                                                 <p className="text-primary">{formatToIndianRupee((errorItem?.quantity_estimate || 0) * (rateInput || 0))}</p>
+                            //                                             </div>
+                            //                                         </div>
+                            //                                         <div className="flex items-center justify-end gap-2 mt-4">
+                            //                                             <AlertDialogCancel>
+                            //                                                 Cancel
+                            //                                             </AlertDialogCancel>
+                            //                                             <AlertDialogAction asChild>
+                            //                                                 <Button
+                            //                                                     disabled={!rateInput || !errorItem?.quantity_estimate}
+                            //                                                     onClick={handleAlertSubmit}
+                            //                                                 >
+                            //                                                     {create_loading ? "Submitting.." : "Submit"}
+                            //                                                 </Button>
+                            //                                             </AlertDialogAction>
+                            //                                         </div>
+                            //                                     </AlertDialogDescription>
+                            //                                 </AlertDialogContent>
+                            //                             </AlertDialog>
+                            //                         </div>
+                            //                     </div>
+                            //                 </div>
+                            //             </AccordionContent>
+                            //         </AccordionItem>
+                            //     ))}
+                            // </Accordion>
+
+                            <AllTab allWorkPackages={allWorkPackages} workPackageTotals={workPackageTotals} handleSetSelectedPackage={handleSetSelectedPackage} />
+
                         ) : (
                             <CategoryWiseEstimateCard selectedPackage={selectedPackage} categorizedData={categorizedData} columns={columns} innerColumns={innerColumns}
                                 curCategory={curCategory} workPackageCategoryList={workPackageCategoryList} handleCategoryChange={handleCategoryChange} selectedItem={selectedItem} categoryItemList={categoryItemList} handleItemChange={handleItemChange}
@@ -1008,7 +1030,7 @@ export const CategoryWiseEstimateCard = ({ selectedPackage, categorizedData, col
                     }}
                 >
                     <Table
-                        dataSource={((categorizedData[selectedPackage] && Object.keys(categorizedData[selectedPackage])?.sort((a,b) => a?.localeCompare(b)) ) || []).map((key) => ({
+                        dataSource={((categorizedData[selectedPackage] && Object.keys(categorizedData[selectedPackage])?.sort((a, b) => a?.localeCompare(b))) || []).map((key) => ({
                             key,
                             category: key,
                             items: categorizedData[selectedPackage][key],
@@ -1167,6 +1189,56 @@ export const CategoryWiseEstimateCard = ({ selectedPackage, categorizedData, col
                     </AlertDialog>
                 </div>
             </div>
+        </div>
+    )
+}
+
+export const AllTab = ({ allWorkPackages, workPackageTotals, handleSetSelectedPackage }) => {
+
+    const columns = [
+        {
+            title: "Work Package",
+            dataIndex: "work_package",
+            key: "work_package",
+            width: "40%",
+            render: (text) => <strong onClick={() => handleSetSelectedPackage(text)} className="text-primary underline cursor-pointer">{text}</strong>,
+        },
+        {
+            title: "Total Estd. Amount (exc. GST)",
+            dataIndex: "total_estimated_amount",
+            key: "total_estimated_amount",
+            width: "30%",
+            render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+        },
+    ];
+
+    return (
+        <div className="w-full">
+            {allWorkPackages?.length > 0 ? (
+                <div className="overflow-x-auto">
+                    <ConfigProvider>
+                        <Table
+                            dataSource={allWorkPackages
+                                ?.sort((a, b) =>
+                                    a?.work_package_name?.localeCompare(b?.work_package_name)
+                                )
+                                ?.map((key) => {
+                                    return {
+                                        key: key?.work_package_name,
+                                        total_estimated_amount: workPackageTotals[key?.work_package_name]?.withoutGst,
+                                        work_package: key?.work_package_name,
+                                    }
+                                })?.
+                                sort((a, b) => (b?.total_estimated_amount || 0) - (a?.total_estimated_amount || 0))}
+                            columns={columns}
+                        />
+                    </ConfigProvider>
+                </div>
+            ) : (
+                <div className="h-[10vh] flex items-center justify-center">
+                    No Results.
+                </div>
+            )}
         </div>
     )
 }

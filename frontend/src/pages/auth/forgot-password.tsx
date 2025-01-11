@@ -14,10 +14,11 @@ import { UserContext } from "@/utils/auth/UserProvider";
 
 export default function ForgotPassword() {
 
-const [loadingState, setLoadingState] = useState(false)
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<{ userId: string }>();
+  const [loadingState, setLoadingState] = useState(false)
 
-  const {currentUser} = useContext(UserContext)
+  const { currentUser } = useContext(UserContext)
+
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<{ userId: string }>();
 
   const { call } = useContext(FrappeContext) as FrappeConfig
 
@@ -25,39 +26,38 @@ const [loadingState, setLoadingState] = useState(false)
 
   async function onSubmit(values: { userId: string }) {
     try {
-        setLoadingState(true);
+      setLoadingState(true);
 
-        await call.post('frappe.core.doctype.user.user.reset_password', {
-            user: values.userId
-        })
+      await call.post('frappe.core.doctype.user.user.reset_password', {
+        user: values.userId
+      })
 
-        toast({
-            title: "Success!",
-            description: "Password Reset Email has been sent!",
-            variant: "success"
-        });
-        
+      toast({
+        title: "Success!",
+        description: "Password Reset Email has been sent!",
+        variant: "success"
+      });
+
     } catch (error) {
-        console.log("error", error)
-        toast({
-            title: "Failed!",
-            description: `Unable to Send Email Reset Link, ${error?.message}`,
-            variant: "destructive"
-        });
+      console.log("error", error)
+      toast({
+        title: "Failed!",
+        description: `Unable to Send Email Reset Link, ${error?.message}`,
+        variant: "destructive"
+      });
     } finally {
-        setLoadingState(false)
+      setLoadingState(false)
     }
   }
 
-  if(!currentUser) {
-
+  if (!currentUser) {
     return (
       <div className="flex h-screen w-full items-center justify-center px-4">
         <Card className="mx-auto max-w-sm">
-        <CardDescription className="flex items-center gap-1 my-4 pl-2 pb-0">
-                  <ArrowLeft className="cursor-pointer hover:text-black" onClick={() => navigate("/login")} />
-                  Go Back
-              </CardDescription>
+          <CardDescription className="flex items-center gap-1 my-4 pl-2 pb-0">
+            <ArrowLeft className="cursor-pointer hover:text-black" onClick={() => navigate("/login")} />
+            Go Back
+          </CardDescription>
           <CardHeader className="space-y-1 pt-0">
             <CardTitle className="text-2xl font-bold">Forgot Password</CardTitle>
             <CardDescription>Enter your User ID to reset the password</CardDescription>
@@ -79,13 +79,13 @@ const [loadingState, setLoadingState] = useState(false)
                 type="submit"
                 disabled={loadingState}
               >
-                  {loadingState ? <TailSpin height={20} width={20} color="white" /> : "Reset Password"}
+                {loadingState ? <TailSpin height={20} width={20} color="white" /> : "Reset Password"}
               </Button>
             </form>
           </CardContent>
         </Card>
       </div>
     );
-
-  } else return <Navigate to="/" />
+  }
+  else return <Navigate to="/" />
 }

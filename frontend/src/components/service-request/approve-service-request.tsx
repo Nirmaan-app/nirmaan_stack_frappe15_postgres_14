@@ -14,7 +14,7 @@ import { TailSpin } from "react-loader-spinner"
 import { ProcurementActionsHeaderCard } from "../ui/ProcurementActionsHeaderCard"
 
 export const ApproveServiceRequest = () => {
-    const { id } = useParams<{ id: string }>()
+    const { srId: id } = useParams<{ srId: string }>()
     const navigate = useNavigate()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
@@ -221,7 +221,7 @@ export const ApproveServiceRequest = () => {
 
 
     if (service_request?.status !== "Vendor Selected") return (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-screen">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!
@@ -251,10 +251,10 @@ export const ApproveServiceRequest = () => {
 
     return (
         <>
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft onClick={() => { navigate('/approve-service-request') }} />
-                    <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">SR-{service_request?.name?.slice(-4)}</span></h2>
+            <div className="flex-1 space-y-4">
+                <div className="flex items-center">
+                    {/* <ArrowLeft onClick={() => { navigate('/approve-service-request') }} /> */}
+                    <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
                 </div>
                 {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                     <div className="border-0 flex flex-col justify-center max-sm:hidden">
@@ -275,9 +275,8 @@ export const ApproveServiceRequest = () => {
                     </div>
                 </Card> */}
                 <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
-            </div>
 
-            <div className="pt-6 overflow-x-auto">
+            <div className="overflow-x-auto">
                 <ConfigProvider
                     theme={{
                         components: {
@@ -330,7 +329,7 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogTrigger>
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogTitle>Are you Sure?</AlertDialogTitle>
                             <AlertDialogDescription>
                                 Add Comments and Reject.
                                 <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
@@ -344,7 +343,7 @@ export const ApproveServiceRequest = () => {
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "rejectSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                            <AlertDialogFooter>
+                            <AlertDialogFooter className="flex flex-row justify-center gap-2 items-center">
                                 <AlertDialogCancel className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
@@ -369,13 +368,13 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogTrigger>
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogTitle>Are you Sure?</AlertDialogTitle>
                             <AlertDialogDescription>
                                 Click on Confirm to Approve.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "approveSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                            <AlertDialogFooter>
+                            <AlertDialogFooter className="flex flex-row justify-center gap-2 items-center">
                                 <AlertDialogCancel className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
@@ -392,6 +391,8 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
+            </div>
         </>
+
     )
 }

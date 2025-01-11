@@ -48,17 +48,17 @@ export function DataTableFacetedFilter<TData, TValue>({
 
     // const handleSelect = (option) => {
     //     const newSelectedValues = new Set(selectedValues);
-    
+
     //     if (newSelectedValues.has(option.value)) {
     //         newSelectedValues.delete(option.value);
     //     } else {
     //         newSelectedValues.add(option.value);
     //     }
     //     setSelectedValues(newSelectedValues);
-    
+
     //     const filterValues = Array.from(newSelectedValues);
     //     column?.setFilterValue(filterValues.length ? filterValues : undefined);
-    
+
     //     useFilterStore.getState().setFilters(currentRoute, title, filterValues);
     // };
 
@@ -69,11 +69,58 @@ export function DataTableFacetedFilter<TData, TValue>({
     // };
 
     const [selectedValues, setSelectedValues] = React.useState<Set<string>>(new Set());
-    const [searchParams, setSearchParams] = useSearchParams();
+    // const [searchParams, setSearchParams] = useSearchParams();
 
     // Initialize selected values from URL parameters
+    // React.useEffect(() => {
+    //     const filterParam = searchParams.get(title);
+    //     if (filterParam) {
+    //         const values = new Set(filterParam.split(","));
+    //         setSelectedValues(values);
+    //         column?.setFilterValue(Array.from(values));
+    //     } else {
+    //         setSelectedValues(new Set());
+    //         column?.setFilterValue(undefined);
+    //     }
+    // }, [searchParams, title, column]);
+
+    // const handleSelect = (option: { value: string }) => {
+    //     const newSelectedValues = new Set(selectedValues);
+
+    //     if (newSelectedValues.has(option.value)) {
+    //         newSelectedValues.delete(option.value);
+    //     } else {
+    //         newSelectedValues.add(option.value);
+    //     }
+
+    //     setSelectedValues(newSelectedValues);
+
+    //     const filterValues = Array.from(newSelectedValues);
+    //     column?.setFilterValue(filterValues.length ? filterValues : undefined);
+
+    //     // Update URL parameters
+    //     const newSearchParams = new URLSearchParams(searchParams);
+    //     if (filterValues.length) {
+    //         newSearchParams.set(title, filterValues.join(","));
+    //     } else {
+    //         newSearchParams.delete(title);
+    //     }
+    //     setSearchParams(newSearchParams);
+    // };
+
+    // const clearFilters = () => {
+    //     setSelectedValues(new Set());
+    //     column?.setFilterValue(undefined);
+
+    //     // Remove filter from URL parameters
+    //     const newSearchParams = new URLSearchParams(searchParams);
+    //     newSearchParams.delete(title);
+    //     setSearchParams(newSearchParams);
+    // };
+
     React.useEffect(() => {
-        const filterParam = searchParams.get(title);
+        const urlParams = new URLSearchParams(window.location.search);
+        const filterParam = urlParams.get(title);
         if (filterParam) {
             const values = new Set(filterParam.split(","));
             setSelectedValues(values);
@@ -82,7 +129,17 @@ export function DataTableFacetedFilter<TData, TValue>({
             setSelectedValues(new Set());
             column?.setFilterValue(undefined);
         }
-    }, [searchParams, title, column]);
+    }, [title, column]);
+
+    const updateURL = (key: string, value: string[] | undefined) => {
+        const url = new URL(window.location.href);
+        if (value && value.length) {
+            url.searchParams.set(key, value.join(","));
+        } else {
+            url.searchParams.delete(key);
+        }
+        window.history.pushState({}, "", url);
+    };
 
     const handleSelect = (option: { value: string }) => {
         const newSelectedValues = new Set(selectedValues);
@@ -93,29 +150,20 @@ export function DataTableFacetedFilter<TData, TValue>({
             newSelectedValues.add(option.value);
         }
 
-        setSelectedValues(newSelectedValues);
-
         const filterValues = Array.from(newSelectedValues);
+        setSelectedValues(newSelectedValues);
         column?.setFilterValue(filterValues.length ? filterValues : undefined);
 
         // Update URL parameters
-        const newSearchParams = new URLSearchParams(searchParams);
-        if (filterValues.length) {
-            newSearchParams.set(title, filterValues.join(","));
-        } else {
-            newSearchParams.delete(title);
-        }
-        setSearchParams(newSearchParams);
+        updateURL(title, filterValues.length ? filterValues : undefined);
     };
 
     const clearFilters = () => {
         setSelectedValues(new Set());
         column?.setFilterValue(undefined);
 
-        // Remove filter from URL parameters
-        const newSearchParams = new URLSearchParams(searchParams);
-        newSearchParams.delete(title);
-        setSearchParams(newSearchParams);
+        // Clear filter from URL parameters
+        updateURL(title, undefined);
     };
 
 
@@ -126,7 +174,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                     {selectedValues.size > 0 ? (
                         <FilterX className={`text-primary h-4 w-4 ${selectedValues.size > 0 && "animate-bounce"}`} />
                     ) : (
-                        <Filter  className="text-primary h-4 w-4" />
+                        <Filter className="text-primary h-4 w-4" />
                     )}
                     {/* Filter by {title} */}
                     {/* {selectedValues?.size > 0 && (
@@ -181,7 +229,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                 <Command>
                     <CommandInput placeholder={`Search ${title}..`} />
                     <div className="relative">
-                        <CommandList  className={`overflow-y-auto ${selectedValues.size > 0 && "mb-10"}`}> {/* Adjust max height as needed */}
+                        <CommandList className={`overflow-y-auto ${selectedValues.size > 0 && "mb-10"}`}> {/* Adjust max height as needed */}
                             <CommandEmpty>{"No Filter results"}</CommandEmpty>
                             <CommandGroup>
                                 {options.map((option) => {

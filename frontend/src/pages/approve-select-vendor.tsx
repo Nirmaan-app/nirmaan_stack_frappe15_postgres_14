@@ -101,7 +101,7 @@ export const ApproveSelectVendor = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`/approve-vendor/${prId}`}
+                                to={`/approve-po/${prId}`}
                             >
                                 {prId?.slice(-4)}
                             </Link>
@@ -214,9 +214,9 @@ export const ApproveSelectVendor = () => {
 
     return (
         <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between space-y-2 pl-2">
+            {/* <div className="flex items-center justify-between space-y-2 pl-2">
                 <h2 className="text-lg font-bold tracking-tight">Approve PO</h2>
-            </div>
+            </div> */}
             {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
             )}
@@ -234,7 +234,7 @@ export const ApproveSelectVendor = () => {
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {procurement_request_lists?.map(item => (
                                     <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-vendor/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-po/${item.name}`}>{item.name.slice(-4)}</Link></td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {item.creation.split(" ")[0]}
                                         </td>

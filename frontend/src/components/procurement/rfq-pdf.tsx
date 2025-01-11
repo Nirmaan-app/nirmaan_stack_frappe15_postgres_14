@@ -97,7 +97,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'quantity', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            fields: ['name', 'quantity', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'makes'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 2000
         });
@@ -309,6 +309,18 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                     <tr className="">
                                     <td className="px-6 py-2 text-sm">
                                         {i.item}
+                                        {quotation_request_list?.find(q => q?.item === i?.name)?.makes?.list?.length > 0 ? (
+                                            <div>
+                                                        <span className="text-primary">makes- </span>
+                                                {quotation_request_list?.find(q => q?.item === i?.name)?.makes?.list?.map((i, index, arr) => (
+                                                    
+                                                        <div className="text-sm font-bold text-gray-500 inline">
+                                                            <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                                                        </div>
+                                                    
+                                                ))}
+                                            </div>
+                                            ) : null }
                                         {(i.comment && includeComments) &&
                                             <div className="flex gap-1 items-start block p-1">
                                                 <MessageCircleMore className="w-4 h-4 flex-shrink-0" />

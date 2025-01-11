@@ -72,7 +72,7 @@ def after_insert(doc, method):
                         f"Hi {user['full_name']}, a new procurement request for the {doc.work_package} "
                         f"work package has been submitted and is awaiting your review."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-order"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-new-pr"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -104,7 +104,7 @@ def after_insert(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "pr:new"
-            new_notification_doc.action_url = f"approve-order/{doc.name}"
+            new_notification_doc.action_url = f"approve-new-pr/{doc.name}"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -133,7 +133,7 @@ def on_update(doc, method):
                             f"Hi {user['full_name']}, Vendors have been selected for the {doc.work_package} work package. "
                             "Please review the selection and proceed with approval or rejection."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-vendor"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-po"
                     print(f"click_action_url: {click_action_url}")
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -162,7 +162,7 @@ def on_update(doc, method):
                 new_notification_doc.seen = "false"
                 new_notification_doc.type = "info"
                 new_notification_doc.event_id = "pr:vendorSelected"
-                new_notification_doc.action_url = f"approve-vendor/{doc.name}"
+                new_notification_doc.action_url = f"approve-po/{doc.name}"
                 new_notification_doc.insert()
                 frappe.db.commit()
 
@@ -189,7 +189,7 @@ def on_update(doc, method):
                         f"Hi {user['full_name']}, a new procurement request for the {doc.work_package} "
                         f"work package has been approved by {get_user_name(frappe.session.user)}, click here to take action."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/procure-request"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/procurement-requests"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -221,7 +221,7 @@ def on_update(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "pr:approved"
-            new_notification_doc.action_url = f"procure-request/{doc.name}"
+            new_notification_doc.action_url = f"procurement-requests/{doc.name}?tab=New PR Request"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -246,7 +246,7 @@ def on_update(doc, method):
                         f"Hi {user['full_name']}, the procurement request: {doc.name} for the {doc.work_package} "
                         f"work package has been rejected by {get_user_name(frappe.session.user)}, click here to resolve."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/prs&milestones/procurement-request/{doc.name}"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/prs&milestones/procurement-requests/{doc.name}"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -278,7 +278,7 @@ def on_update(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "pr:rejected"
-            new_notification_doc.action_url = f"prs&milestones/procurement-request/{doc.name}"
+            new_notification_doc.action_url = f"prs&milestones/procurement-requests/{doc.name}"
             new_notification_doc.insert()
             frappe.db.commit()
 

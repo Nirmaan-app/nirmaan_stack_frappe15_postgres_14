@@ -156,7 +156,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                     variant: "success",
                 });
 
-                await navigate(`/service-request/${res.name}`);
+                await navigate(`/service-requests/${res.name}`);
             } catch (error) {
                 console.log("submit_error", error);
                 toast({
@@ -176,11 +176,11 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
         }
     };
 
-    // console.log("order", orderList)
+    console.log("order", orderList)
 
     return (
         <>
-            {(page == 'categorylist') && <div className="flex-1 md:space-y-4">
+            {(page == 'categorylist') && <div className="flex-1 md:space-y-4 px-4">
                 <div className="flex items-center pt-1 pb-4">
                     <Dialog>
                         <DialogTrigger asChild>
@@ -211,8 +211,8 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 </div>
             </div>}
             {/* {page === 'order' && (categories.list.map((item) => { return (<div>Hello <b>{item.name}</b></div>) }))} */}
-            {page == 'orderlist' && <div className="flex-1 space-y-2 md:space-y-4">
-                <div className="flex items-center gap-1 pb-4">
+            {page == 'orderlist' && <div className="flex-1 space-y-2 md:space-y-4 px-4">
+                {/* <div className="flex items-center gap-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
                         setCurEntry({ description: "", uom: "", quantity: "" });
                         setPage('categorylist');
@@ -220,8 +220,8 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
 
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Services</h2>
 
-                </div>
-                <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40">
+                </div> */}
+                {/* <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
                         <h3 className=" font-semibold text-sm md:text-lg">{project && project?.project_name}</h3>
@@ -230,8 +230,8 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                         <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
                         <h3 className=" font-semibold text-sm md:text-lg">Services</h3>
                     </div>
-                </div>
-                <div className="flex justify-between">
+                </div> */}
+                {/* <div className="flex justify-between">
                     <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => {
                         setCurEntry({ description: "", uom: "", quantity: "" });
                         setPage('categorylist');
@@ -239,44 +239,51 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                         <Replace className="w-5 h-5" />
                         {curCategory && curCategory !== "" ? "Change Category" : "Choose Category"}
                     </button>
-                </div>
+                </div> */}
                 {curCategory && curCategory !== "" && (
                     <>
-                        <h3 className="font-bold">{curCategory}</h3>
-                        <div className="flex w-full items-center gap-4">
-                            <div className="w-[70%]">
-                                <Label htmlFor="description">Service Description</Label>
-                                <Textarea
-                                    placeholder={`Add ${curCategory} Description...`}
-                                    id="description"
-                                    onChange={(e) => setCurEntry({ ...curEntry, description: e.target.value })}
-                                    value={curEntry.description}
-                                />
-                            </div>
-                            <div className="w-[15%]">
+                        <div className="flex items-center gap-1">
+                            <h3 className="font-bold">{curCategory}</h3>
+                            <Pencil className="w-4 h-4 text-blue-600 cursor-pointer"
+                                onClick={() => {
+                                    setCurEntry({ description: "", uom: "", quantity: "" });
+                                    setPage('categorylist');
+                                }}
+                            />
+                        </div>
+                        <div className="">
+                            <Label htmlFor="description">Service Description</Label>
+                            <Textarea
+                                placeholder={`Add ${curCategory} Description...`}
+                                id="description"
+                                onChange={(e) => setCurEntry({ ...curEntry, description: e.target.value })}
+                                value={curEntry.description}
+                            />
+                        </div>
+                        <div className="flex w-full items-end justify-between">
+                            <div className="w-[30%]">
                                 <Label htmlFor="uom">Unit</Label>
                                 <Input
                                     placeholder="Enter Unit"
                                     id="uom"
+                                    type="text"
                                     onChange={(e) => setCurEntry({ ...curEntry, uom: e.target.value })}
                                     value={curEntry.uom}
                                 />
                             </div>
-                            <div className="w-[15%]">
+                            <div className="w-[30%]">
                                 <Label htmlFor="quantity">Quantity</Label>
                                 <Input
                                     placeholder="Enter Quantity"
                                     id="quantity"
+                                    type="number"
                                     onChange={(e) => setCurEntry({ ...curEntry, quantity: e.target.value })}
                                     value={curEntry.quantity}
                                 />
                             </div>
-                        </div>
-
-                        <div className="flex justify-end mt-2">
                             <Button
                                 variant="default"
-                                className="flex items-center gap-1"
+                                className="flex items-center gap-1 "
                                 onClick={handleAdd}
                                 disabled={!curEntry.description || !curEntry.uom || !curEntry.quantity}
                             >
@@ -313,7 +320,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                             <table className="table-auto md:w-full">
                                 <thead>
                                     <tr className="bg-gray-200">
-                                        <th className="w-[15%] text-left px-4 py-1 text-xs">Category</th>
+                                        {/* <th className="w-[15%] text-left px-4 py-1 text-xs">Category</th> */}
                                         <th className="w-[70%] px-4 py-1 text-xs text-left">Service Description</th>
                                         <th className="w-[5%] px-4 py-1 text-xs text-center">Unit</th>
                                         <th className="w-[5%] px-4 py-1 text-xs text-center">Qty</th>
@@ -321,12 +328,22 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {orderList?.list?.map((item) => (
+                                    {orderList?.list?.map((item, index) => (
                                         <tr key={item.id} >
-                                            <td className="w-[15%] text-left border-b-2 px-4 py-1 text-sm">
+                                            {/* <td className="w-[15%] text-left border-b-2 px-4 py-1 text-sm">
                                                 {item.category}
                                             </td>
-                                            <td className="w-[70%] border-b-2 px-4 py-1 text-sm text-left whitespace-pre-wrap">{item.description}</td>
+                                            <td className="w-[70%] border-b-2 px-4 py-1 text-sm text-left">{item.description}</td> */}
+                                            <td className="px-4 py-2 border-b-2 text-sm whitespace-nowrap text-wrap w-[80%]">
+                                                <div className="flex items-center gap-4 mb-1">
+                                                    <div className='flex items-center gap-2'>
+                                                        <div className='w-1 h-1 rounded-full bg-black' />
+                                                        <p className='text-sm font-semibold'>{index > 9 ? '' : 0}{index + 1}</p>
+                                                    </div>
+                                                    <p className="font-semibold">{item?.category}</p>
+                                                </div>
+                                                <span className="whitespace-pre-wrap">{item?.description}</span>
+                                            </td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">{item.uom}</td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">

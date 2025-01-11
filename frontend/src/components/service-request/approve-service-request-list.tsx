@@ -25,7 +25,7 @@ export const ApproveSelectSR = () => {
             fields: ["*"],
             filters: [["status", "=", "Vendor Selected"]],
             limit: 1000,
-            orderBy: {field: "creation", order : "desc"}
+            orderBy: { field: "creation", order: "desc" }
         }
     );
 
@@ -54,12 +54,12 @@ export const ApproveSelectSR = () => {
         return total;
     }
 
-    const {notifications, mark_seen_notification} = useNotificationStore()
+    const { notifications, mark_seen_notification } = useNotificationStore()
 
-    const {db} = useContext(FrappeContext) as FrappeConfig
+    const { db } = useContext(FrappeContext) as FrappeConfig
 
     const handleNewPRSeen = (notification) => {
-        if(notification) {
+        if (notification) {
             mark_seen_notification(db, notification)
         }
     }
@@ -188,13 +188,13 @@ export const ApproveSelectSR = () => {
 
 
     return (
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2 pl-2">
+        <div className="flex-1 md:space-y-4">
+            {/* <div className="flex items-center justify-between space-y-2 pl-2">
                     <h2 className="text-lg font-bold tracking-tight">Approve Service Request</h2>
-                </div>
-                {(service_request_list_loading || projects_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={service_request_list || []} project_values={project_values} />
-                )}
-            </div>
+                </div> */}
+            {(service_request_list_loading || projects_loading) ? (<TableSkeleton />) : (
+                <DataTable columns={columns} data={service_request_list || []} project_values={project_values} />
+            )}
+        </div>
     )
 }

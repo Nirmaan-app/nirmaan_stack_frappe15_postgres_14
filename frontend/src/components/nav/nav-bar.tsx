@@ -12,6 +12,7 @@ import {
     Shapes,
     ShoppingCart,
     SquareSquare,
+    WalletCards,
 } from "lucide-react";
 import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
@@ -300,7 +301,7 @@ export const NavBar = () => {
                         serviceWorkerRegistration: registration
                     });
                     if (data?.fcm_token !== token) {
-                        // console.log("running fcm token updating")
+                        console.log("running fcm token updating")
                         // Update token if it's different from the stored one
                         await updateDoc("Nirmaan Users", user_id, {
                             fcm_token: token,
@@ -406,7 +407,6 @@ export const NavBar = () => {
                         { key: '/items', label: 'Items' },
                         { key: '/vendors', label: 'Vendors' },
                         { key: '/customers', label: 'Customers' },
-                        { key: '/procurement-packages', label: 'Procurement Packages' },
                     ],
                 },
             ]
@@ -420,7 +420,7 @@ export const NavBar = () => {
                     children: [
                         { key: '/prs&milestones', label: 'PRs & Milestones' },
                         {
-                            key: '/approve-order',
+                            key: '/approve-new-pr',
                             label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PR
@@ -443,7 +443,7 @@ export const NavBar = () => {
                             ),
                         },
                         {
-                            key: '/approve-vendor', label: (
+                            key: '/approve-po', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PO
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovePRCount && adminApprovePRCount !== 0 ? (
@@ -541,37 +541,56 @@ export const NavBar = () => {
         ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
             ? [
                 {
-                    key: 'pe-actions',
+                    key: '/procurement-requests',
                     icon: <List className="h-4 w-4" />,
-                    label: 'Procurement Requests',
-                    children: [
-                        {
-                            key: '/procure-request', label: (
-                                <div className="flex justify-between items-center relative">
-                                    New PR Request
-                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
-                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                            <span className="text-white text-xs font-bold">
-                                                {adminApprovedPRCount}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        (approvedPRCount && approvedPRCount !== 0) ? (
-                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                <span className="text-white text-xs font-bold">
-                                                    {approvedPRCount}
-                                                </span>
-                                            </div>
-                                        ) : ""
-                                    )}
+                    label: (
+                        <div className="flex justify-between items-center relative">
+                            Procurement Requests
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminApprovedPRCount}
+                                    </span>
                                 </div>
+                            ) : (
+                                (approvedPRCount && approvedPRCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {approvedPRCount}
+                                        </span>
+                                    </div>
+                                ) : ""
+                            )}
+                        </div>
+                    )
+                    // children: [
+                    //     {
+                    //         key: '/procure-request', label: (
+                    //             <div className="flex justify-between items-center relative">
+                    //                 New PR Request
+                    //                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
+                    //                     <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                    //                         <span className="text-white text-xs font-bold">
+                    //                             {adminApprovedPRCount}
+                    //                         </span>
+                    //                     </div>
+                    //                 ) : (
+                    //                     (approvedPRCount && approvedPRCount !== 0) ? (
+                    //                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                    //                             <span className="text-white text-xs font-bold">
+                    //                                 {approvedPRCount}
+                    //                             </span>
+                    //                         </div>
+                    //                     ) : ""
+                    //                 )}
+                    //             </div>
 
-                            )
-                        },
-                        { key: '/update-quote', label: 'Update Quote' },
-                        { key: '/select-vendor-list', label: 'Choose Vendor' },
-                        // {key: '/service-request', label: 'Service Requests'}
-                    ],
+                    //         )
+                    //     },
+                    //     { key: '/update-quote', label: 'Update Quote' },
+                    //     { key: '/choose-vendor', label: 'Choose Vendor' },
+                    //     // {key: '/service-request', label: 'Service Requests'}
+                    // ],
                 },
             ]
             : []),
@@ -611,36 +630,55 @@ export const NavBar = () => {
                 },
 
                 {
-                    key: 'pe-po-actions',
+                    key: '/purchase-orders',
                     icon: <ShoppingCart className="h-4 w-4" />,
-                    label: 'Purchase Orders',
-                    children: [
-                        {
-                            key: '/release-po', label: (
-                                <div className="flex justify-between items-center relative">
-                                    Approved PO
-                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
-                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                            <span className="text-white text-xs font-bold">
-                                                {adminNewPOCount}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        (newPOCount && newPOCount !== 0) ? (
-                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                <span className="text-white text-xs font-bold">
-                                                    {newPOCount}
-                                                </span>
-                                            </div>
-                                        ) : ""
-                                    )}
+                    label: (
+                        <div className="flex justify-between items-center relative">
+                            Purchase Orders
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewPOCount}
+                                    </span>
                                 </div>
+                            ) : (
+                                (newPOCount && newPOCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {newPOCount}
+                                        </span>
+                                    </div>
+                                ) : ""
+                            )}
+                        </div>
+                    ),
+                    // children: [
+                    //     {
+                    //         key: '/release-po', label: (
+                    //             <div className="flex justify-between items-center relative">
+                    //                 Approved PO
+                    //                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                    //                     <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                    //                         <span className="text-white text-xs font-bold">
+                    //                             {adminNewPOCount}
+                    //                         </span>
+                    //                     </div>
+                    //                 ) : (
+                    //                     (newPOCount && newPOCount !== 0) ? (
+                    //                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                    //                             <span className="text-white text-xs font-bold">
+                    //                                 {newPOCount}
+                    //                             </span>
+                    //                         </div>
+                    //                     ) : ""
+                    //                 )}
+                    //             </div>
 
-                            ),
+                    //         ),
 
-                        },
-                        { key: '/released-po', label: 'Released PO' }
-                    ]
+                    //     },
+                    //     { key: '/released-po', label: 'Released PO' }
+                    // ]
                 }
             ]
             : []),
@@ -723,22 +761,30 @@ export const NavBar = () => {
                 }
             ] : []
         ),
+        ...(user_id == "Administrator" || role == "Nirmaan Accountant Profile"
+            ? [
+                {
+                    key: '/project-payments',
+                    icon: <WalletCards className="h-4 w-4" />,
+                    label: 'Project Payments',
+                },
+            ]
+            : [])
     ];
 
     const allKeys = [
         "projects", "users", "items", "vendors", "customers",
-        "prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-request", "approve-service-request", "select-service-vendor", "approved-sr", "procurement-packages"
+        "prs&milestones", "approve-new-pr", "approve-po",
+        "approve-sent-back", "approve-amended-po", "purchase-orders", "rejected-sb", "delayed-sb", "cancelled-sb",
+        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr", "procurement-packages",
+        "project-payments", "procurement-requests"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
-            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" :
-        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" :
+        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : selectedKeys === "project-payments" ? "project-payments" : selectedKeys === "procurement-requests" ? "procurement-requests" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)

@@ -71,6 +71,7 @@ import { TailSpin } from "react-loader-spinner";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { v4 as uuidv4 } from "uuid"; // Import uuid for unique IDs
 import Fuse from "fuse.js";
+import { Badge } from "../ui/badge";
 
 const NewPR = () => {
   const { id } = useParams<{ id: string }>();
@@ -115,13 +116,18 @@ export const NewPRPage = ({
     filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]],
   });
 
+  const {data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error} = useFrappeGetDocList("Category Makelist", {
+    fields: ["*"],
+    limit: 10000
+  })
+
   const [page, setPage] = useState<string>("wplist");
   const [curItem, setCurItem] = useState<string>("");
   const [curCategory, setCurCategory] = useState<string>("");
   const [unit, setUnit] = useState<string>("");
   const [quantity, setQuantity] = useState<number | null | string>(null);
   // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-  const [make, setMake] = useState("");
+  // const [make, setMake] = useState("");
   const [tax, setTax] = useState<number | null>(null);
   const [comments, setComments] = useState({});
   const [universalComment, setUniversalComment] = useState<string | null>(null);
@@ -136,7 +142,6 @@ export const NewPRPage = ({
   const [requestCategory, setRequestCategory] = useState("");
   const [fuzzyMatches, setFuzzyMatches] = useState([]);
   const [matchFound, setMatchFound] = useState(false);
-  const [activeAccordion, setActiveAccordion] = useState(null);
   const [isFocused, setIsFocused] = useState(false);
 
   const toggleRequestItemDialog = () => {
@@ -257,6 +262,7 @@ export const NewPRPage = ({
     isCompleted: submit_complete,
     error: submit_error,
   } = useFrappeCreateDoc();
+
   const {
     updateDoc,
     loading: updateLoading,
@@ -271,7 +277,12 @@ export const NewPRPage = ({
           category.name === item.category && category.status === item.status
       );
       if (!isDuplicate) {
-        newCategories.push({ name: item.category, status: item.status });
+        if(item.status === "Pending") {
+          const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+          newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+        } else {
+          newCategories.push({ name: item.category, status: item.status });
+        }
       }
     });
     setOrderData((prevState) => ({
@@ -333,15 +344,13 @@ export const NewPRPage = ({
     setPage("additem");
   };
 
-  const item_options: string[] = [];
+  const item_options: any[] = [];
   if (curCategory) {
     item_list?.map((item) => {
       if (item.category === curCategory)
         item_options.push({
           value: item.item_name,
-          label: `${item.item_name}${
-            item.make_name ? "-" + item.make_name : ""
-          }`,
+          label: item?.item_name,
         });
     });
   }
@@ -353,7 +362,7 @@ export const NewPRPage = ({
     item_list?.map((item) => {
       if (item.item_name == selectedItem.value) {
         setUnit(item.unit_name);
-        setMake(item.make_name);
+        // setMake(item.make_name);
       }
     });
   };
@@ -364,27 +373,25 @@ export const NewPRPage = ({
       (request && requestItem.name && requestItem.unit && requestItem.quantity)
     ) {
       let itemIdToUpdate = null;
-      let itemMake = null;
+      // let itemMake = null;
 
       // Find item ID and make
       if (!request) {
         item_list.forEach((item) => {
           if (item.item_name === curItem) {
             itemIdToUpdate = item.name;
-            itemMake = item.make_name;
+            // itemMake = item.make_name;
           }
         });
       } else {
         itemIdToUpdate = uuidv4();
-        itemMake = "";
+        // itemMake = "";
       }
 
       if (itemIdToUpdate) {
         const curRequest = [...orderData.procurement_list.list];
         const curValue = {
-          item: `${request ? requestItem.name : curItem}${
-            itemMake ? "-" + itemMake : ""
-          }`,
+          item: `${request ? requestItem.name : curItem}`,
           name: itemIdToUpdate,
           unit: request ? requestItem.unit : unit,
           quantity: request
@@ -444,7 +451,7 @@ export const NewPRPage = ({
           setQuantity("");
           setCurItem("");
           setUnit("");
-          setMake("");
+          // setMake("");
         }
       }
     }
@@ -594,7 +601,7 @@ export const NewPRPage = ({
       category: curCategory,
       unit_name: unit,
       item_name: curItem,
-      make_name: make,
+      // make_name: make,
     };
     // console.log("itemData", itemData)
     createDoc("Items", itemData)
@@ -602,7 +609,7 @@ export const NewPRPage = ({
         // console.log(itemData)
         setUnit("");
         setCurItem("");
-        setMake("");
+        // setMake("");
         setPage("itemlist");
         item_list_mutate();
       })
@@ -614,7 +621,7 @@ export const NewPRPage = ({
   const handleCreateItem = () => {
     setUnit("");
     setCurItem("");
-    setMake("");
+    // setMake("");
     setPage("additem");
   };
 
@@ -804,6 +811,8 @@ export const NewPRPage = ({
     }
   };
 
+  // console.log("fuzzyMatches", fuzzyMatches)
+
   // console.log("orderData", orderData);
 
   // console.log("userData", userData)
@@ -928,7 +937,7 @@ export const NewPRPage = ({
                 className="cursor-pointer"
                 onClick={() => {
                   setCurItem("");
-                  setMake("");
+                  // setMake("");
                   setQuantity(null);
                   setPage("categorylist");
                 }}
@@ -938,7 +947,7 @@ export const NewPRPage = ({
                 className="cursor-pointer"
                 onClick={() => {
                   setCurItem("");
-                  setMake("");
+                  // setMake("");
                   setQuantity(null);
                   setSection("pr-summary");
                 }}
@@ -1007,7 +1016,7 @@ export const NewPRPage = ({
               className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1"
               onClick={() => {
                 setCurItem("");
-                setMake("");
+                // setMake("");
                 setQuantity(null);
                 setPage("categorylist");
               }}
@@ -1016,14 +1025,14 @@ export const NewPRPage = ({
               Change Category
             </button>
           </div>
-          <h3 className="font-bold">{curCategory}</h3>
+            <h3 className="font-bold">{curCategory}</h3>
           <div className="flex space-x-2">
             <div className="w-1/2 md:w-2/3">
               <h5 className="text-xs text-gray-400">Items</h5>
               <ReactSelect
                 value={{
                   value: curItem,
-                  label: `${curItem}${make ? "-" + make : ""}`,
+                  label: curItem,
                 }}
                 options={item_options}
                 onChange={handleChange}
@@ -1238,11 +1247,12 @@ export const NewPRPage = ({
             onOpenChange={toggleRequestItemDialog}
           >
             <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex justify-between">
+              <AlertDialogHeader className="text-start">
+                <AlertDialogTitle>
                   Request New Item
                 </AlertDialogTitle>
                 <AlertDialogDescription className="flex flex-col gap-4">
+                  <div className="space-y-1">
                   <label
                     htmlFor="itemName"
                     className="block text-sm font-medium text-gray-700"
@@ -1263,8 +1273,9 @@ export const NewPRPage = ({
                       }));
                       handleFuzzySearch(e.target.value);
                     }}
-                    className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   />
+                  </div>
 
                   {/* Matching Items Accordion */}
                   {/* {fuzzyMatches.length > 0 ? (
@@ -1330,37 +1341,48 @@ export const NewPRPage = ({
                         {fuzzyMatches.slice(0, 5).map((item, index) => (
                           <li
                             key={item.item_name}
-                            className="p-2 hover:bg-gray-100 flex justify-between items-center cursor-pointer"
-                            onMouseDown={() => {
-                              setCurCategory(item.category);
-                              setCurItem(item.item_name);
-                              setUnit(item.unit_name);
-                              toggleRequestItemDialog();
-                            }}
+                            className="p-2 hover:bg-gray-100 flex flex-col gap-1 border-b"
+                            // onMouseDown={() => {
+                            //   setCurCategory(item.category);
+                            //   setCurItem(item.item_name);
+                            //   setUnit(item.unit_name);
+                            //   toggleRequestItemDialog();
+                            // }}
                           >
-                            <span>
-                              <strong>{item.item_name}</strong>
+                            <p className="flex justify-between items-center">
+                              <strong>{item?.item_name}</strong>
                               <span className="text-gray-500">
                                 {" "}
-                                - {item.matchPercentage}% match
+                                - {item?.matchPercentage}% match
                               </span>
-                            </span>
-                            {item.matchPercentage > 60 && index === 0 && (
+                            </p>
+                            <div className="flex justify-between items-center">
+                              <p className="text-gray-400 font-semibold">{item?.category}</p>
+                              <p
+                               onMouseDown={() => {
+                                 setCurCategory(item.category);
+                                 setCurItem(item.item_name);
+                                 setUnit(item.unit_name);
+                                 toggleRequestItemDialog();
+                               }}
+                               className="text-primary font-bold text-xs cursor-pointer">Add Item</p>
+                            </div>
+                            {/* {item.matchPercentage > 60 && index === 0 && (
                               <div className="flex items-center gap-2 px-2 py-1 bg-blue-100 rounded-md shadow">
                                 <Sparkles className="w-4 h-4" />
                                 <p className="text-blue-700">
                                   <strong>Recommended</strong>
                                 </p>
                               </div>
-                            )}
+                            )} */}
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between mt-4">
-                    <div>
+                  <div className="flex items-center gap-6">
+                    <div className="flex-1 space-y-1">
                       <label
                         htmlFor="itemUnit"
                         className="block text-sm font-medium text-gray-700"
@@ -1377,7 +1399,7 @@ export const NewPRPage = ({
                         }
                         disabled={!matchFound && !requestItem.name.trim()}
                       >
-                        <SelectTrigger className="w-[180px]">
+                        <SelectTrigger className="">
                           <SelectValue
                             className="text-gray-200"
                             placeholder="Select Unit"
@@ -1403,7 +1425,7 @@ export const NewPRPage = ({
                       </Select>
                     </div>
 
-                    <div>
+                    <div className="flex-1 space-y-1">
                       <label
                         htmlFor="quantity"
                         className="block text-sm font-medium text-gray-700"
@@ -1423,7 +1445,7 @@ export const NewPRPage = ({
                           }))
                         }
                         value={requestItem.quantity || ""}
-                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                         disabled={!matchFound && !requestItem.name.trim()}
                       />
                     </div>
@@ -1555,9 +1577,18 @@ export const NewPRPage = ({
                   ?.map((cat) => {
                     return (
                       <div>
-                        <h3 className="text-sm font-semibold py-2">
-                          {cat.name}
-                        </h3>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold py-2">
+                            {cat.name}
+                          </h3>
+                          <div className="text-sm font-bold text-gray-500">
+                          {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                            category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
+                              <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))
+                          ) : "--"}
+                          </div>
+                        </div>
                         <table className="table-auto md:w-full">
                           <thead>
                             <tr className="bg-gray-200">
@@ -2184,7 +2215,7 @@ export const NewPRPage = ({
               className="cursor-pointer"
               onClick={() => {
                 setCurItem("");
-                setMake("");
+                // setMake("");
                 setQuantity(null);
                 setPage("itemlist");
               }}
@@ -2219,7 +2250,7 @@ export const NewPRPage = ({
               onChange={(e) => setCurItem(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             />
-            <label
+            {/* <label
               htmlFor="makeName"
               className="block text-sm font-medium text-gray-700 mt-2"
             >
@@ -2233,7 +2264,7 @@ export const NewPRPage = ({
               placeholder="disabled"
               onChange={(e) => setMake(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            />
+            /> */}
           </div>
           <div className="mb-4">
             <label

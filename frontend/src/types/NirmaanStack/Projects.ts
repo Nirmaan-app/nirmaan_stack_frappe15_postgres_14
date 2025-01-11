@@ -34,6 +34,8 @@ export interface Projects{
 	design_lead?: string
 	/**	Project Manager : Data	*/
 	project_manager?: string
+	/**	Estimates Executive : Data	*/
+	estimates_exec?: string
 	/**	Status : Data	*/
 	status?: string
 	/**	Project Work Packages : JSON	*/

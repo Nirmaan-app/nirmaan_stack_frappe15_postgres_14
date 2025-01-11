@@ -207,23 +207,27 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 const promises = [];
                 if (sentBackData) {
                     sentBackData?.item_list?.list.forEach((item) => {
+                        const makes = sentBackData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
                         const newItem = {
                             procurement_task: sentBackData.procurement_request,
                             category: item.category,
                             item: item.name,
                             vendor: vendorDoc.name,
-                            quantity: item.quantity
+                            quantity: item.quantity,
+                            makes: { list: makes }
                         };
                         promises.push(createDoc("Quotation Requests", newItem));
                     });
                 } else if (prData) {
                     prData?.procurement_list?.list.forEach((item) => {
+                        const makes = prData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
                         const newItem = {
                             procurement_task: prData.name,
                             category: item.category,
                             item: item.name,
                             vendor: vendorDoc.name,
-                            quantity: item.quantity
+                            quantity: item.quantity,
+                            makes: { list: makes }
                         };
                         promises.push(createDoc("Quotation Requests", newItem));
                     });
@@ -232,12 +236,11 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 await Promise.all(promises);
 
                 // Mutate the vendor-related data
-                if(service) {
+                if (service) {
                     await mutate("Service Vendors");
                 } else {
                     await mutate("Material Vendors");
                 }
-                
                 await mutate("Quotation Requests");
                 if (prData) {
                     await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
@@ -323,15 +326,9 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         <>
             <div className={`flex-1 space-x-2 ${navigation ? "flex-1 md:space-y-4" : ""} `}>
                 {navigation && (
-                    <div className="flex gap-1">
-                        <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
-                        <div>
-                            <h2 className="text-2xl font-bold tracking-tight">Add New Vendor</h2>
-                            <p className="text-muted-foreground">
-                                Fill all the marked fields to create a new Vendor
-                            </p>
-                        </div>
-                    </div>
+                    <p className="text-muted-foreground max-md:ml-4 ml-8">
+                        Fill all the marked fields to create a new Vendor
+                    </p>
                 )}
 
                 <div className="flex flex-col items-start mt-2 px-6 max-md:px-2 space-y-2">

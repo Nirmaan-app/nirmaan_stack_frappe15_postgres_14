@@ -26,7 +26,7 @@ import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActions
 
 const ApproveAmendPO = () => {
 
-    const { po } = useParams<{ po: string }>()
+    const { poId: po } = useParams<{ poId: string }>()
     const orderId = po?.replaceAll("&=", "/")
 
     const [project, setProject] = useState<String | undefined>()
@@ -63,10 +63,10 @@ const ApproveAmendPO = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (po_error || project_error || owner_error || versionsError) return <h1>Error</h1>
     if (po_data?.status !== "PO Amendment") return (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-screen">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!
@@ -159,8 +159,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
         }
     }, [versionsData]);
 
-    // console.log("previousOrderList", previousOrderList)
-
 
     // console.log("comment", comment)
 
@@ -225,11 +223,11 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
     )
 
     return (
-        <div className="flex-1 md:space-y-4">
+        <div className="flex-1 space-y-4">
             {/* PO Details Card */}
-            <div className="flex items-center pt-1  pb-4">
-                <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} />
-                <h2 className="text-base pl-2 font-bold tracking-tight">Amended PO: <span className="text-red-700">{po_data?.name}</span></h2>
+            <div className="flex items-center">
+                {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} /> */}
+                <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Revert Amendments</h2>
             </div>
             {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <div className="border-0 flex flex-col justify-center max-sm:hidden">
@@ -276,6 +274,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                                             {renderCell("Category", item.category, item.category !== amendedItem?.category)}
                                             {renderCell("Tax", `${item.tax}%`, item.tax !== amendedItem?.tax)}
                                             {renderCell("Unit", item.unit, item.unit !== amendedItem?.unit)}
+                                            {renderCell("Make", item.makes?.list?.find(i => i?.enabled === "true")?.make, item.makes?.list?.find(i => i?.enabled === "true")?.make !== amendedItem?.makes?.list?.find(i => i?.enabled === "true")?.make)}
                                         </div>
                                     </TableCell>
 
@@ -289,6 +288,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                                                     {renderCell("Category", amendedItem.category, item.category !== amendedItem.category)}
                                                     {renderCell("Tax", `${amendedItem.tax}%`, item.tax !== amendedItem.tax)}
                                                     {renderCell("Unit", amendedItem.unit, item.unit !== amendedItem.unit)}
+                                            {renderCell("Make", amendedItem.makes?.list?.find(i => i?.enabled === "true")?.make, item.makes?.list?.find(i => i?.enabled === "true")?.make !== amendedItem?.makes?.list?.find(i => i?.enabled === "true")?.make)}
                                                 </>
                                             ) : (
                                                 <p className="text-red-500">Deleted</p>

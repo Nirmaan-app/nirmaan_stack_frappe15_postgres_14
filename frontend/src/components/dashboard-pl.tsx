@@ -11,10 +11,10 @@ export const ProjectLead = () => {
     return (
         <div className="flex-1 space-y-4">
             <div className="flex justify-between gap-2 max-sm:flex-col">
-                <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
+                {/* <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2> */}
                 <div className="flex gap-2">
-                    <Button onClick={() => navigate("/prs&milestones/procurement-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
-                    <Button onClick={() => navigate("/service-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
+                    <Button onClick={() => navigate("/prs&milestones/procurement-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
+                    <Button onClick={() => navigate("/service-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
                 </div>
             </div>
             <div className=" space-y-2">
@@ -27,7 +27,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/approve-order">
+                        <Link to="/approve-new-pr">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PR</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                                 {pendingPRCount || 0}
@@ -35,7 +35,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/approve-vendor">
+                        <Link to="/approve-po">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                                 {approvePRCount || 0}
