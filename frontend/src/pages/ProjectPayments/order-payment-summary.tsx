@@ -201,6 +201,14 @@ const OrderPaymentSummary = () => {
                 description: "Payment added successfully!",
                 variant: "success",
               });
+
+              setNewPayment({
+                amount: "",
+                transaction_date: "",
+                utr: ""
+            })
+
+            setPaymentScreenshot(null)
             
         } catch (error) {
             console.log("error", error)
@@ -252,9 +260,9 @@ const OrderPaymentSummary = () => {
         <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
                 <div className="flex items-center flex-wrap gap-2">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                    <h2 className="text-xl max-sm:text-lg font-bold tracking-tight">Overview:</h2>
-                    <span className="text-red-500 text-2xl max-sm:text-lg">{poId}</span>
+                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
+                    <h2 className="text-xl max-sm:text-lg font-bold tracking-tight">Overview</h2>
+                    {/* <span className="text-red-500 text-2xl max-sm:text-lg">{poId}</span> */}
                 </div>
                 <Button onClick={handlePrint} className="flex items-center gap-1">
                     <Printer className="h-4 w-4" />

@@ -702,7 +702,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                 )}
               </div>
             </div>
-            <div className="w-[45%] max-sm:text-sm">
+            <div className="w-[60%] max-sm:text-sm">
               <ReactSelect
                 isDisabled={!selectedWP}
                 value={curCategory}
@@ -768,7 +768,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           >
             Add Item
           </Button>
-          <div className="flex flex-col justify-between h-[65vh]">
+          <div className="flex flex-col justify-between h-[65vh] max-sm:h-[60vh]">
             <div>
               <div className="flex justify-between items-center max-md:py-2 py-4">
                 <h2 className="font-semibold">Order List</h2>
@@ -1608,7 +1608,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             {fuzzyMatches.slice(0, 5).map((item, index) => (
                               <li
                                 key={item.item_name}
-                                className="p-2 hover:bg-gray-100 flex justify-between items-center cursor-pointer"
+                                className="p-2 hover:bg-gray-100 flex flex-col"
                               // onMouseDown={() => {
                               //   setCurCategory({
                               //     label: item?.category,
@@ -1654,7 +1654,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                       });
                                       toggleRequestItemDialog();
                                     }}
-                                    className="text-primary font-bold text-xs cursor-pointer">Add Item</p>
+                                    className="text-primary bg-gray-300 rounded-md p-1 font-bold text-xs cursor-pointer">Add Item</p>
                                 </div>
                                 {/* <span>
                                   <strong>{item.item_name}</strong>
@@ -1801,13 +1801,14 @@ const CustomMenuList = (props) => {
       </components.MenuList>
       <div
         className={`sticky top-0 z-10 bg-white ${isNewItemsCreationDisabled ? "py-2" : ""
-          } border-primary border `}
+          } border-primary border`}
       >
         {isNewItemsCreationDisabled ? (
           <Button
             variant={"ghost"}
             className="w-full rounded-none text-sm py-2 px-0 md:text-lg text-blue-300 flex flex-col items-center justify-center hover:bg-white"
             onClick={onRequestItemClick}
+            onTouchStart={onRequestItemClick}
           >
             <p className="flex items-center gap-1">
               <CirclePlus className="w-4 h-4" />
@@ -1824,6 +1825,8 @@ const CustomMenuList = (props) => {
             variant={"ghost"}
             className="w-full rounded-none flex items-center justify-center gap-1"
             onClick={onAddItemClick}
+            onTouchStart={onAddItemClick}
+
           >
             <CirclePlus className="w-4 h-4" />
             Create New Item

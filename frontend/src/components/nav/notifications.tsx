@@ -103,8 +103,9 @@ export function Notifications({ isMobileMain = false }) {
                 )} */}
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        className="w-80 overflow-y-auto max-h-[36rem] min-w-56 rounded-lg"
-        side={isMobile ? "bottom" : "right"}
+        className="w-80 overflow-y-auto max-h-[36rem] min-w-56 rounded-lg touch-auto"
+        style={{ WebkitOverflowScrolling: "touch" }}
+        side={isMobile ? "top" : "right"}
         align="end"
         sideOffset={4}
       >
