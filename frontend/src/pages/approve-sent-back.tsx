@@ -107,37 +107,53 @@ const columns: TableColumnsType<DataType> = [
         width: '12%',
         key: 'amount',
         render: (text, record) => {
-
             const amount = parseFloat(text);
             const lowest3 = parseFloat(record?.lowest3);
-
+          
             // Ensure valid numerical values
             if (isNaN(amount) || isNaN(lowest3)) {
-                return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>{formatToIndianRupee(amount)}</span>;
+              return (
+                <span
+                  style={{
+                    fontWeight: record.unit === null ? 'bold' : 'normal',
+                  }}
+                >
+                  {formatToIndianRupee(amount)}
+                </span>
+              );
             }
-
-            const percentageDifference =
-                ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
-
+          
+            const percentageDifference = (
+              (Math.abs(amount - lowest3) / lowest3) * 100
+            ).toFixed(0);
+          
             // Determine color and direction
             const isLessThan = amount < lowest3;
+            const isEqual = amount === lowest3; // New condition to check if the price matches
             const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
             const Icon = isLessThan ? MoveDown : MoveUp;
-
-            return <div className='flex items-center gap-1' style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                <span>{formatToIndianRupee(amount)}</span>{" "}
-                {record.unit !== null && record?.lowest3 !== 'N/A' && percentageDifference !== 0 && (
+          
+            return (
+              <div
+                className="flex items-center gap-1"
+                style={{
+                  fontWeight: record.unit === null ? 'bold' : 'normal',
+                }}
+              >
+                <span>{formatToIndianRupee(amount)}</span>
+                {record.unit !== null &&
+                  record?.lowest3 !== 'N/A' &&
+                  !isEqual && ( // Don't show anything if prices match
                     <div className={`${colorClass} flex items-center`}>
-                        <span className={`text-sm`}>
-                            ({isLessThan
-                                ? `${percentageDifference}%`
-                                : `${percentageDifference}%`})
-                        </span>
-                        <Icon className={`w-4 h-4`} />
+                      <span className="text-sm">
+                        ({`${percentageDifference}%`})
+                      </span>
+                      <Icon className="w-4 h-4" />
                     </div>
-                )}
-            </div>
-        },
+                  )}
+              </div>
+            );
+          },
     },
     {
         title: '3 months Lowest Amount',
