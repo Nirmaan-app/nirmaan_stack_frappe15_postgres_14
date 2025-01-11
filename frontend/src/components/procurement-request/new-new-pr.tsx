@@ -829,15 +829,14 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                 {cat.name}
                               </h3>
                             </div>
-                            {/* <div className="text-sm font-bold text-gray-500">
-                          {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                            
+                          {/* {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
                             category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
                               <i>{i?.make}{index < arr.length - 1 && ", "}</i>
                             ))
-                          ) : "--"}
-                          </div> */}
-                            </div>
+                          ) : "--"} */}
                           </div>
+
                           <table className="table-auto w-full">
                             <thead>
                               <tr className="bg-gray-200">
