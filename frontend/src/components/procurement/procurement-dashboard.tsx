@@ -18,7 +18,7 @@ export default function ProcurementDashboard() {
     return (
         <div className="flex-1 space-y-4">
             <div className="flex justify-between items-center space-y-2">
-                <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Procurement Dashboard</h2>
+                {/* <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Procurement Dashboard</h2> */}
                 <div className="flex gap-2 max-sm:flex-col">
                     <Button onClick={() => navigate("/prs&milestones/procurement-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
                     <Button onClick={() => navigate("/service-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>

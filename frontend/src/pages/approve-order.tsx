@@ -1500,7 +1500,7 @@ const ApprovePRListPage = ({
                                       </td>
                                       <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center ">
                                         <div className="flex items-center gap-1">
-                                          <AlertDialog open={requestItemDialog} onClose={toggleRequestItemDialog}>
+                                          <AlertDialog open={requestItemDialog} onOpenChange={toggleRequestItemDialog}>
                                             <AlertDialogTrigger
                                               onClick={() => {
                                                 handleFuzzySearch(item.item);

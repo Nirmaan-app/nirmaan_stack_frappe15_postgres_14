@@ -246,6 +246,20 @@ export const ProjectPaymentsList = () => {
                 variant: "success",
             });
 
+            setNewPayment({
+                docname: "",
+                doctype: "",
+                project: "",
+                project_id: "",
+                vendor: "",
+                vendor_id: "",
+                amount: "",
+                transaction_date: "",
+                utr: ""
+            })
+
+            setPaymentScreenshot(null)
+
         } catch (error) {
             console.log("error", error)
             toast({

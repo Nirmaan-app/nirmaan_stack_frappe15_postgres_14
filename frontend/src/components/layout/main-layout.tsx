@@ -422,14 +422,14 @@ export const MainLayout = () => {
               </Button>
             ) : (
               projectData && (
-                <Badge className="sm:mr-4 mr-2 max-sm:text-[11px]">
+                <Badge className={`sm:mr-4 mr-2 ${projectData?.project_name?.length > 24 ? "max-sm:text-[9px]" : "max-sm:text-[11px]"}`}>
                   {projectData?.project_name}
                 </Badge>
               )
             )}
           </header>
           <main
-            className={`pb-4 px-2 transition-all duration-300 ease-in-out overflow-auto  max-h-[93vh]`}
+            className={`pb-4 px-2 transition-all duration-300 ease-in-out overflow-auto  max-h-[90vh]`}
           >
             <ErrorBoundaryWithNavigationReset>
               <ScrollToTop />
