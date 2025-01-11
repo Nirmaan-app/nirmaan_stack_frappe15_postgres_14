@@ -68,7 +68,7 @@ const columns: TableColumnsType<DataType> = [
                     </div>
                     {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0 && record?.rate !== "Delayed") && (
                         <div className="text-xs text-gray-500 lg:ml-10">
-                            <span className='text-primary'>makes</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
+                            <span className='text-primary'>Make</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
                                 <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
                             ))}
                         </div>
