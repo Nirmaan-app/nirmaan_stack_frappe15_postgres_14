@@ -727,7 +727,7 @@ export const SelectVendors = () => {
                                                                                     {getItemQuoteMakes(item?.name, curCategory, ven)?.filter(k => k?.enabled === "true")?.length > 0 ?
                                                                                         (
                                                                                             <div>
-                                                                                                <h2 className='font-bold text-primary mb-2'>Selected Makes:</h2>
+                                                                                                <h2 className='font-bold text-primary mb-2'>Selected Make:</h2>
                                                                                                 <ul className='list-disc pl-4'>
                                                                                                     {
                                                                                                         getItemQuoteMakes(item?.name, curCategory, ven)?.map(m => {
@@ -738,7 +738,7 @@ export const SelectVendors = () => {
                                                                                                     }
                                                                                                 </ul>
                                                                                             </div>
-                                                                                        ) : <strong>No selected makes found for this item!</strong>}
+                                                                                        ) : <strong>No make selected for this item!</strong>}
                                                                                 </HoverCardContent>
                                                                             </HoverCard>
                                                                         )}

@@ -33,6 +33,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { EditVendor } from "./edit-vendor";
+import { Badge } from "@/components/ui/badge";
 
 // const Vendor = () => {
 
@@ -166,9 +167,17 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     "Procurement Requests",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     `Procurement Requests`
+  );
+
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments",
+    {
+      fields: ["*"],
+      limit: 10000,
+      filters: [["vendor", "=", vendorId]]
+    }
   );
 
   type MenuItem = Required<MenuProps>["items"][number];
@@ -221,14 +230,53 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     list: Item[];
   }
 
-  const getTotal = (ol: OrderList) => {
-    return useMemo(
-      () =>
-        ol.list.reduce((total: number, item) => {
-          return total + item.quantity * item.quote;
-        }, 0),
-      [ol]
-    );
+  //   const getTotal = (ol: OrderList) => {
+  //     return useMemo(
+  //       () =>
+  //         ol.list.reduce((total: number, item) => {
+  //           return total + item.quantity * item.quote;
+  //         }, 0),
+  //       [ol]
+  //     );
+  //   };
+
+  //   const getTotalAmountPaid = (id) => {
+  //     const payments = projectPayments?.filter((payment) => payment.document_name === id);
+
+
+  //     return payments?.reduce((acc, payment) => {
+  //         const amount = parseFloat(payment.amount || 0)
+  //         return acc + amount;
+  //     }, 0);
+  // }
+
+  const getTotal = (ol, id) => {
+    return useMemo(() => {
+      // Calculate PO Amount without GST
+      const poAmountWithoutGST = ol.list.reduce((total, item) => {
+        return total + item.quantity * item.quote;
+      }, 0);
+
+      // Calculate PO Amount with GST
+      const poAmountWithGST = ol.list.reduce((total, item) => {
+        const itemTotal = item.quantity * item.quote;
+        const taxAmount = (item.tax || 0) / 100 * itemTotal;
+        return total + itemTotal + taxAmount;
+      }, 0);
+
+      // Calculate Total Amount Paid
+      const payments = projectPayments?.filter((payment) => payment.document_name === id);
+      const totalAmountPaid = payments?.reduce((acc, payment) => {
+        const amount = parseFloat(payment.amount || 0);
+        return acc + amount;
+      }, 0) || 0;
+
+      return {
+        poAmountWithoutGST,
+        poAmountWithGST,
+        totalAmountPaid,
+      };
+    }, [ol, id, projectPayments]);
   };
 
   type ExpandedPackagesState = {
@@ -303,6 +351,25 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
               >
                 {row.getValue("name").split("/")[1]}
               </Link>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="Status"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div>
+              <Badge>{row.getValue("status")}</Badge>
             </div>
           );
         },
@@ -424,21 +491,24 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         },
         cell: ({ row }) => {
           return (
-            <div className="text-[#11050599]">
-              {getTotal(row.getValue("order_list")).toFixed(2)}
+            <div className="flex flex-col gap-2 text-[#11050599]">
+              <Badge>PO Value (Excl. GST): Rs. {getTotal(row.getValue("order_list"), row.getValue('name'),).poAmountWithoutGST.toFixed(2)}</Badge>
+              <Badge>PO Value (Incl. GST): Rs. {getTotal(row.getValue("order_list")).poAmountWithGST.toFixed(2)}</Badge>
+              <Badge>Amount Paid: Rs. {getTotal(row.getValue("order_list")).totalAmountPaid.toFixed(2)}</Badge>
             </div>
           );
         },
       },
     ],
-    [procurementOrders, procurementRequests]
+    [procurementOrders, procurementRequests, projectPayments]
   );
 
   if (
     error ||
     vendorAddressError ||
     procurementOrdersError ||
-    procurementRequestsError
+    procurementRequestsError ||
+    projectPaymentsError
   )
     return (
       <h1 className="text-red-700">
