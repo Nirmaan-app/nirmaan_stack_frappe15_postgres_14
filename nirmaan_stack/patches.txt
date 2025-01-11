@@ -23,3 +23,4 @@ nirmaan_stack.patches.v1_10.rebuild_merged_pos
 nirmaan_stack.patches.v1_10.merge_po_patch2
 nirmaan_stack.patches.v1_10.extend_wp_for_projects
 nirmaan_stack.patches.v1_10.add_makes_to_pr
+nirmaan_stack.patches.v2_0.quotation_request_make_fill
