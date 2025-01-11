@@ -189,7 +189,7 @@ def on_update(doc, method):
                         f"Hi {user['full_name']}, a new procurement request for the {doc.work_package} "
                         f"work package has been approved by {get_user_name(frappe.session.user)}, click here to take action."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/new-procure-request"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/procurement-requests"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -221,7 +221,7 @@ def on_update(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "pr:approved"
-            new_notification_doc.action_url = f"new-procure-request/{doc.name}"
+            new_notification_doc.action_url = f"procurement-requests/{doc.name}?tab=New PR Request"
             new_notification_doc.insert()
             frappe.db.commit()
 

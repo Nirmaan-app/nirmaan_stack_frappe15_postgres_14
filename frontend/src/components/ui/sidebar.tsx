@@ -586,10 +586,6 @@ const SidebarMenuButton = React.forwardRef<
       }
     }
 
-    console.log("selectedKeys", selectedKeys)
-
-    console.log("tooltip", tooltip)
-
     return (
       // <Tooltip>
       //   <TooltipTrigger asChild>{button}</TooltipTrigger>

@@ -14,9 +14,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useEffect } from "react";
 import { toast } from "@/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useUserData } from "@/hooks/useUserData";
 
 const UserFormSchema = z.object({
   first_name: z
@@ -41,14 +43,24 @@ const UserFormSchema = z.object({
       required_error: "Must Provide Email",
     })
     .email({ message: "Invalid email address" }),
+  role_profile_name: z
+    .string({
+      required_error: "Please select associated Role Profile."
+    }),
 });
 
 type UserFormValues = z.infer<typeof UserFormSchema>;
 
-const EditUserForm = ({ toggleEditSheet }) => {
-  const navigate = useNavigate();
+interface SelectOption {
+  label: string;
+  value: string;
+}
+
+const EditUserForm = ({ toggleEditSheet }: any) => {
 
   const { userId: id } = useParams();
+
+  const { role: role, user_id: actual_user_id } = useUserData()
 
   const { data, mutate } = useFrappeGetDoc(
     "Nirmaan Users",
@@ -56,7 +68,21 @@ const EditUserForm = ({ toggleEditSheet }) => {
     id ? `Nirmaan Users ${id}` : null
   );
 
-  // console.log("data", data)
+  const { data: role_profile_list, isLoading: role_profile_list_loading, error: role_profile_list_error } = useFrappeGetDocList("Role Profile",
+    {
+      fields: ["*"],
+    },
+    "Role Profile"
+  );
+
+  const options: SelectOption[] = role_profile_list?.map(item => ({
+    label: item?.role_profile
+      .split(' ')
+      .filter((word: string) => word !== 'Nirmaan' && word !== 'Profile')
+      .join(' '),
+    value: item.name
+  })) || [];
+
   const { updateDoc, loading } = useFrappeUpdateDoc();
 
   const hasChanges = () => {
@@ -66,6 +92,7 @@ const EditUserForm = ({ toggleEditSheet }) => {
       last_name: data?.last_name || "",
       email: data?.email || "",
       mobile_no: data?.mobile_no || "",
+      role_profile_name: data?.role_profile || ""
     };
     return JSON.stringify(values) !== JSON.stringify(originalValues);
   };
@@ -77,6 +104,7 @@ const EditUserForm = ({ toggleEditSheet }) => {
       last_name: data?.last_name || "",
       email: data?.email || "",
       mobile_no: data?.mobile_no || "",
+      role_profile_name: data?.role_profile || ""
     },
     mode: "onBlur",
   });
@@ -88,6 +116,7 @@ const EditUserForm = ({ toggleEditSheet }) => {
         last_name: data.last_name,
         email: data.email,
         mobile_no: data.mobile_no,
+        role_profile_name: data.role_profile
       });
     }
   }, [data]);
@@ -106,7 +135,7 @@ const EditUserForm = ({ toggleEditSheet }) => {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: `${error?._debug_messages}`,
+        description: error?._debug_messages,
         variant: "destructive",
       });
       console.log("error", error);
@@ -116,7 +145,7 @@ const EditUserForm = ({ toggleEditSheet }) => {
   return (
     <div className="flex-1">
       {/* <div className="flex items-center gap-2">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/users/${id}`)} />
+                <ArrowLeft className="cursor-pointer" onClick={() => navigate(/users/${id})} />
                 <h2 className="text-xl md:text-2xl font-bold tracking-tight">Edit User: <span className="text-primary">{id}</span></h2>
             </div>
 
@@ -198,6 +227,37 @@ const EditUserForm = ({ toggleEditSheet }) => {
               </FormItem>
             )}
           />
+          {(role === "Nirmaan Admin Profile" || actual_user_id !== data.email) && <FormField
+            control={form.control}
+            name="role_profile_name"
+            render={({ field }) => (
+              <FormItem className="lg:flex lg:items-center gap-4">
+                <FormLabel className="md:basis-3/12">Role Profile<sup>*</sup></FormLabel>
+                <div className=" lg:w-1/2">
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <div className="flex flex-col items-start">
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a role" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <FormMessage />
+                    </div>
+                    <SelectContent>
+                      {role_profile_list_loading && <div>Loading...</div>}
+                      {role_profile_list_error && <div>Error: {role_profile_list_error.message}</div>}
+                      {options.map(option => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+
+                    </SelectContent>
+                  </Select>
+                </div>
+              </FormItem>
+            )}
+          />}
           <div className="flex items-center gap-2 justify-end lg:w-[68%]">
             <Button
               type="button"
