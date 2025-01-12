@@ -1915,7 +1915,11 @@ export const PurchaseOrder = () => {
                     {index + 1}
                   </td>
                   <td className="w-[50%] text-left py-1">
-                    <span>{item.item} - <span className="text-xs italic font-semibold text-gray-500">{item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</span></span>
+                    <span>{item.item} {item?.makes?.list?.length > 0 && (
+  <span className="text-xs italic font-semibold text-gray-500">
+    - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
+  </span>
+)}</span>
                     {item.comment && (
                       <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
                         <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
@@ -2747,8 +2751,11 @@ export const PurchaseOrder = () => {
                           </td>
                           <td className="py-2 text-sm whitespace-nowrap text-wrap">
                             {item.item}
-                            <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
-                            {item.comment && includeComments && (
+                            {item?.makes?.list?.length > 0 && (
+  <p className="text-xs italic font-semibold text-gray-500">
+    - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
+  </p>
+)}{item.comment && includeComments && (
                               <div className="flex gap-1 items-start block p-1">
                                 <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
                                 <div className="text-xs text-gray-400">
