@@ -15,6 +15,7 @@ def after_insert(doc, method):
                                          fields=['name', 'project', 'work_package', 'owner', 'workflow_state', 'procurement_list', 'category_list'],
                                          order_by='creation desc'
                                          )
+    project_data = frappe.get_doc("Projects", doc.project)
     if(len(last_prs)>1):
         last_pr = last_prs[1]
         new_item_ids = [item['name'] for item in doc.procurement_list['list']]
@@ -41,7 +42,8 @@ def after_insert(doc, method):
                 for category in new_categories
             )
             if not is_duplicate:
-                new_categories.append({"name": item["category"], "status": item["status"]})
+                makes = get_makes_for_category(project_data, item["category"])
+                new_categories.append({"name": item["category"], "status": item["status"], "makes": makes})
             
         # doc.category_list = new_category_list
         # doc.save(ignore_permissions=True)
@@ -290,6 +292,29 @@ def on_update(doc, method):
                 message=message,
                 user=user['name']  # Notify only specific users
             )
+
+def get_makes_for_category(project, category):
+    # Parse project_work_packages if it's a string
+    project_work_packages = project.get('project_work_packages', "[]")
+    if isinstance(project_work_packages, str):
+        try:
+            project_work_packages = json.loads(project_work_packages)
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in project_work_packages")
+
+    # Flatten all category lists across work packages
+    all_categories = [
+        cat for wp in project_work_packages.get('work_packages', [])
+        for cat in wp.get('category_list', {}).get('list', [])
+    ]
+
+    # Filter categories matching the given category name
+    matching_categories = [cat for cat in all_categories if cat.get('name') == category]
+
+    # Extract and flatten makes for the matched categories
+    makes = [make for cat in matching_categories for make in cat.get('makes', [])]
+
+    return makes
         
 
 def get_user_name(id):

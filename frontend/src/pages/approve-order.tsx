@@ -267,10 +267,10 @@ const ApprovePRListPage = ({
 
   // console.log("universalCOmment", universalComments)
 
-  const { data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error } = useFrappeGetDocList("Category Makelist", {
-    fields: ["*"],
-    limit: 10000
-  })
+  // const { data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error } = useFrappeGetDocList("Category Makelist", {
+  //   fields: ["*"],
+  //   limit: 10000
+  // })
 
   const {
     createDoc: createDoc,
@@ -449,7 +449,12 @@ const ApprovePRListPage = ({
         );
         if (!isDuplicate) {
           if (item.status === "Pending") {
-            const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+            const makes = project_data.project_work_packages
+            ? JSON.parse(project_data.project_work_packages).work_packages
+                .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+                .filter((cat) => cat.name === item.category) // Filter categories matching item.category
+                .flatMap((cat) => cat.makes || []) // Extract and flatten makes
+            : []; // Return an empty array if project_work_packages is not defined 
             newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
           } else {
             newCategories.push({ name: item.category, status: item.status });
@@ -462,7 +467,12 @@ const ApprovePRListPage = ({
           (category) => category.name === item.category
         );
         if (!isDuplicate) {
-          const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+          const makes = project_data.project_work_packages
+  ? JSON.parse(project_data.project_work_packages).work_packages
+      .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+      .filter((cat) => cat.name === item.category) // Filter categories matching item.category
+      .flatMap((cat) => cat.makes || []) // Extract and flatten makes
+  : []; // Return an empty array if project_work_packages is not defined
           newCategories.push({ name: item.category, makes: makes || [] });
         }
       });
@@ -1277,11 +1287,19 @@ const ApprovePRListPage = ({
                               )}
                             </div>
                             <div className="text-sm font-bold text-gray-500">
-                              {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
-                                category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
-                                  <i>{i?.make}{index < arr.length - 1 && ", "}</i>
-                                ))
-                              ) : "--"}
+                            {JSON.parse(project_data.project_work_packages).work_packages
+  .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+  .filter((category) => category?.name === cat?.name)?.length > 0 ? (
+    JSON.parse(project_data.project_work_packages).work_packages
+      .flatMap((wp) => wp.category_list?.list || [])
+      .filter((category) => category?.name === cat?.name)
+      .flatMap((category) => category.makes || [])
+      .map((make, index, arr) => (
+        <i key={index}>{make}{index < arr.length - 1 && ", "}</i>
+      ))
+  ) : (
+    "--"
+  )}
                             </div>
                           </div>
                           <table className="table-auto w-full">
