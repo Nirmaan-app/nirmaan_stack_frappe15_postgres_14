@@ -443,7 +443,7 @@ export const ApprovedSR = () => {
                                 <DialogContent className="overflow-auto max-h-[80vh] w-full">
                                     {gstEnabled !== null && (
                                         <div className="flex flex-col gap-2 py-6 border-b border-gray-200">
-                                            <p className="font-semibold">Enable/Disable Tax Calculation</p>
+                                            <p className="font-semibold">GST?</p>
                                             <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)} />
                                         </div>
                                     )}
