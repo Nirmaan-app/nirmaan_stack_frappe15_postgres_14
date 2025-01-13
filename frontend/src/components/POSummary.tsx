@@ -315,7 +315,13 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                     {items.map((item) => (
                       <TableRow key={item.name}>
                         <TableCell>
-                          <span>{item.item} - <span className="text-xs italic font-semibold text-gray-500">{item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</span></span>
+                          <span>{item.item}
+                          {item?.makes?.list?.length > 0 && (
+  <span className="text-xs italic font-semibold text-gray-500">
+    - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
+  </span>
+)}
+                          </span>
                           {item.comment && (
                             <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
                               <MessageCircleMore className="w-4 h-4 flex-shrink-0" />

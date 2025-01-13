@@ -709,7 +709,7 @@ export function NewSidebar() {
           },
         ]
       : []),
-      ...(user_id == "Administrator" || role == "Nirmaan Accountant Profile"
+      ...(user_id == "Administrator" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Admin Profile"
         ? [
             {
                 key: '/project-payments',

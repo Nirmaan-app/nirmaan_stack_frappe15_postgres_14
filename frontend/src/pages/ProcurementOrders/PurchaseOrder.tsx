@@ -2929,7 +2929,7 @@ export const PurchaseOrder = () => {
                                 } else if (afterDelivery === 100) {
                                   return `${afterDelivery}% after delivery to the site`;
                                 } else if (xDaysAfterDelivery === 100) {
-                                  return `${xDaysAfterDelivery}% after 30 days of delivering the material(s)`;
+                                  return `${xDaysAfterDelivery}% after ${xDays} days of delivering the material(s)`;
                                 }
 
                                 // If none of the variables is 100, render non-zero values
@@ -2949,7 +2949,7 @@ export const PurchaseOrder = () => {
                                 }
                                 if (xDaysAfterDelivery > 0) {
                                   parts.push(
-                                    `${xDaysAfterDelivery}% after 30 days of delivering the material(s)`
+                                    `${xDaysAfterDelivery}% after ${xDays} days of delivering the material(s)`
                                   );
                                 }
 
