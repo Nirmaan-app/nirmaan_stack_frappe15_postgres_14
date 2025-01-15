@@ -255,17 +255,17 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           category.name === item?.category && category.status === item.status
       );
       if (!isDuplicate) {
-        if (item.status === "Pending") {
-          const makes = project.project_work_packages
-  ? JSON.parse(project.project_work_packages).work_packages
-      .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-      .filter((cat) => cat.name === item.category) // Filter categories matching item.category
-      .flatMap((cat) => cat.makes || []) // Extract and flatten makes
-  : []; // Return an empty array if project_work_packages is not defined
-          newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
-        } else {
+  //       if (item.status === "Pending") {
+  //         const makes = project.project_work_packages
+  // ? JSON.parse(project.project_work_packages).work_packages
+  //     .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+  //     .filter((cat) => cat.name === item.category) // Filter categories matching item.category
+  //     .flatMap((cat) => cat.makes || []) // Extract and flatten makes
+  // : []; // Return an empty array if project_work_packages is not defined
+  //         newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+  //       } else {
           newCategories.push({ name: item.category, status: item.status });
-        }
+        // }
       }
     });
 
@@ -639,12 +639,14 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
             <div>
               <Alert variant="warning" className="">
                 <AlertTitle className="text-sm flex items-center gap-2">
-                  <MessageCircleWarning className="h-4 w-4" />
+                  <MessageCircleWarning className="h-4 w-4 text-sm" />
                   Heads Up
                 </AlertTitle>
-                <AlertDescription className="py-2 px-4 flex justify-between items-center">
+                <AlertDescription className="py-2 px-2 flex justify-between items-center text-xs">
+                  <span className="mr-2">
                   This PR is now marked as "Draft", please either cancel or
                   update!
+                  </span>
                   <Button
                     disabled={updateLoading}
                     onClick={handleCancelDraft}
@@ -1386,7 +1388,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                     disabled={!procList.length}
                     variant={`${!procList.length ? "secondary" : "destructive"
                       }`}
-                    className="h-8 mt-4 w-full"
+                    className="h-8 mb-40 w-full"
                   >
                     <div className="flex items-center gap-1">
                       <ListChecks className="h-4 w-4" />
