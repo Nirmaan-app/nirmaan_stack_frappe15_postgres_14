@@ -119,7 +119,7 @@ const OrderPaymentSummary = () => {
         let totalWithGST = 0;
 
         if (isPO) {
-            JSON.parse(documentData.order_list).list.forEach((item) => {
+            JSON.parse(documentData?.order_list).list.forEach((item) => {
                 const price = parseFloat(item?.quote || 0);
                 const quantity = parseFloat(item?.quantity || 1);
                 const tax = parseFloat(item?.tax || 0);
@@ -132,7 +132,7 @@ const OrderPaymentSummary = () => {
             total += loadingCharges + freightCharges;
             totalWithGST += loadingCharges * 0.18 + freightCharges * 0.18;
         } else {
-            JSON.parse(documentData.service_order_list).list.forEach((item) => {
+            JSON.parse(documentData?.service_order_list).list.forEach((item) => {
                 const price = parseFloat(item?.rate || 0);
                 const quantity = parseFloat(item?.quantity || 1);
                 total += price * quantity;
@@ -650,7 +650,7 @@ const OrderPaymentSummary = () => {
                             </TableHeader>
                             <TableBody>
                                 {isPO
-                                    ? JSON.parse(documentData.order_list).list.map((item, index) => (
+                                    ? JSON.parse(documentData?.order_list).list.map((item, index) => (
                                         <TableRow key={index}>
                                             <TableCell>{item?.item}</TableCell>
                                             <TableCell>{item?.unit}</TableCell>
@@ -660,7 +660,7 @@ const OrderPaymentSummary = () => {
                                             <TableCell>{formatToIndianRupee(item?.quantity * item?.quote)}</TableCell>
                                         </TableRow>
                                     ))
-                                    : JSON.parse(documentData.service_order_list).list.map((item, index) => (
+                                    : JSON.parse(documentData?.service_order_list).list.map((item, index) => (
                                         <TableRow key={index}>
                                             <td className="w-[65%] text-left py-1">
                                                 <p className="font-semibold">{item?.category}</p>
@@ -1507,16 +1507,32 @@ const OrderPaymentSummary = () => {
                             <tr className="end-of-page page-break-inside-avoid" >
                                 <td colSpan={6}>
 
-                                    {JSON.parse(documentData?.notes).length > 0 && (
-                                        <div className="mb-2">
-                                            <div className="text-gray-400 text-sm py-2">Notes</div>
-                                            <ul className="list-[number]">
-                                                {JSON.parse(documentData?.notes).map((note) => (
-                                                    <li key={documentData?.note?.id} className="text-sm text-gray-900 ml-4">{documentData?.note?.note}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
+                                {(() => {
+  try {
+    const notes = documentData?.notes ? JSON.parse(documentData.notes) : null;
+
+    // Check if notes is a valid object and has a non-empty `list`
+    if (notes?.list?.length > 0) {
+      return (
+        <div className="mb-2">
+          <div className="text-gray-400 text-sm py-2">Notes</div>
+          <ul className="list-[number]">
+            {notes.list.map((note: { id: string; note: string }) => (
+              <li key={note.id} className="text-sm text-gray-900 ml-4">
+                {note.note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+
+    return null; // No notes to display
+  } catch (error) {
+    console.error("Failed to parse notes:", error);
+    return null; // Fallback in case of invalid JSON
+  }
+})()}
 
                                     {/* <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                    <div className="text-sm text-gray-900">
