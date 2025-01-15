@@ -41,7 +41,7 @@ export const ProjectPaymentsList = () => {
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
-        filters: [["status", "not in", ["Cancelled"]]],
+        filters: [["status", "not in", ["Cancelled", "Merged"]]],
         limit: 10000,
         orderBy: { field: "modified", order: "desc" },
     });
