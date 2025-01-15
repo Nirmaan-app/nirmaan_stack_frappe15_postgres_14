@@ -255,17 +255,17 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           category.name === item?.category && category.status === item.status
       );
       if (!isDuplicate) {
-        if (item.status === "Pending") {
-          const makes = project.project_work_packages
-  ? JSON.parse(project.project_work_packages).work_packages
-      .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-      .filter((cat) => cat.name === item.category) // Filter categories matching item.category
-      .flatMap((cat) => cat.makes || []) // Extract and flatten makes
-  : []; // Return an empty array if project_work_packages is not defined
-          newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
-        } else {
+  //       if (item.status === "Pending") {
+  //         const makes = project.project_work_packages
+  // ? JSON.parse(project.project_work_packages).work_packages
+  //     .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+  //     .filter((cat) => cat.name === item.category) // Filter categories matching item.category
+  //     .flatMap((cat) => cat.makes || []) // Extract and flatten makes
+  // : []; // Return an empty array if project_work_packages is not defined
+  //         newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+  //       } else {
           newCategories.push({ name: item.category, status: item.status });
-        }
+        // }
       }
     });
 
