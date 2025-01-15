@@ -388,12 +388,13 @@ export default function QuotationForm({ vendor_id, pr_id }) {
           <CardHeader className="bg-gray-100 border-b">
             <CardTitle className="text-lg font-medium flex items-center justify-between">
               <span>Category: {cat.name}</span>
-              <div className="text-sm text-gray-400">
+              <div>
                 {cat?.makes?.length > 0 ? (
-                  cat?.makes?.map((i, index, arr) => (
-                    <i>{i}{index < arr.length - 1 && ", "}</i>
-                  ))
-                ) : "--"}
+                  <Badge className="text-xs">TDS ~    
+                  {cat?.makes?.map((i, index, arr) => (
+                    <i className="">{i}{index < arr.length - 1 && ", "}</i>
+                  ))}</Badge>
+                ) : ""}
               </div>
             </CardTitle>
           </CardHeader>
@@ -466,15 +467,18 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                       </div>
                       <div className="text-sm flex-1">
                         {/* {q?.makes?.list?.length > 0 ? ( */}
+                        <div className="flex flex-row">
                           <MakesSelection
                             q={q}
                             quotation_request_list_mutate={quotation_request_list_mutate}
                             quotationData={quotationData}
                             handleMakeChange={handleMakeChange}
                           />
+                          {q?.makes?.list?.length > 0 ? <sup>*</sup> : null}
                         {/* ) : (
                           <span className="text-gray-500 bg-gray-100 rounded-md px-3 py-1 shadow-sm">Make(s) not specified!</span>
                         )} */}
+                        </div>
                       </div>
                     </div>
 
@@ -494,7 +498,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                           className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
                         />
                       </div>
-                      <div className="w-1/2">
+                      <div className="w-1/2 flex flex-row">
                         <Input
                           type="number"
                           placeholder="Enter Price"
@@ -504,6 +508,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                           }
                           className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
                         />
+                        <sup>*</sup>
                       </div>
                     </div>
                   </div>
