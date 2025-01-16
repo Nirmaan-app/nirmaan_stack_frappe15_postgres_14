@@ -13,12 +13,10 @@ export const ProtectedRoute = () => {
                     <TailSpin visible={true} height="100" width="100" color="#D03B45" ariaLabel="tail-spin-loading" />
                 </div>)
     }
-    else if (!currentUser || currentUser === 'Guest') {
+    if (!currentUser || currentUser === 'Guest') {
         return <Navigate to="/login" />
     }
-    return (
-        <Outlet />
-    )
+    return <Outlet />
 }
 
 export const AdminRoute = () => {
