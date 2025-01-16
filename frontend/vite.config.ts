@@ -5,7 +5,8 @@ import proxyOptions from './proxyOptions';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  base: mode === "production" ? "/frontend/" : "/", // Use correct base for production
   plugins: [
     react(),
     VitePWA({
@@ -49,4 +50,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
