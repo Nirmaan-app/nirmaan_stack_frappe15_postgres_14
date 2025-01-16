@@ -12,7 +12,7 @@
 // import { useUserData } from "@/hooks/useUserData";
 
 // import { RocketIcon } from "@radix-ui/react-icons"
- 
+
 // import {
 //   Alert,
 //   AlertDescription,
@@ -86,11 +86,11 @@
 
 
 import { RocketIcon } from "@radix-ui/react-icons"
- 
+
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
+    Alert,
+    AlertDescription,
+    AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
@@ -103,35 +103,37 @@ import { EstimatesExecutive } from "@/components/estimates-executive-dashboard";
 import { ProjectLead } from "@/components/dashboard-pl";
 import { Accountant } from "@/components/layout/dashboard-accountant";
 
-export default function Dashboard() { 
+export default function Dashboard() {
 
-    const {role, has_project, user_id} = useUserData()
+    const { role, has_project, user_id } = useUserData()
     const { logout } = useContext(UserContext)
 
-    if (has_project === "false" && role !== "Nirmaan Admin Profile") {
-      return (
-          <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
-              <div className="flex gap-2 items-center">
-                  <RocketIcon className="h-4 w-4" />
-                  <AlertTitle>Oops !!!</AlertTitle>
-              </div>
-              <AlertDescription className="flex justify-between items-center">
-                  You are not Assigned to any project.
-                  <Button onClick={logout}>Log Out</Button>
-              </AlertDescription>
-          </Alert>
-      );
-  }
 
-  return (
-      <>
-          {role === "Nirmaan Admin Profile" || user_id === "Administrator" ? <Default /> : null}
-          {role === "Nirmaan Project Manager Profile" && <ProjectManager />}
-          {role === "Nirmaan Project Lead Profile" && <ProjectLead />}
-          {role === "Nirmaan Procurement Executive Profile" && <ProcurementDashboard />}
-          {role === "Nirmaan Estimates Executive Profile" && <EstimatesExecutive />}
-          {role === "Nirmaan Accountant Profile" && <Accountant />}
-      </>
-  );
+    return (
+        <>
+
+            {(role == 'Nirmaan Admin Profile' || user_id === "Administrator") && <Default />}
+            {(has_project === "false" && role !== "Nirmaan Admin Profile") ?
+                <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
+                    <div className="flex gap-2 items-center">
+                        <RocketIcon className="h-4 w-4" />
+                        <AlertTitle>Oops !!!</AlertTitle>
+                    </div>
+
+                    <AlertDescription className="flex justify-between items-center">
+                        You are not Assigned to any project.
+                        <Button onClick={logout}>Log Out</Button>
+                    </AlertDescription>
+                </Alert>
+                :
+                <>{role == 'Nirmaan Project Manager Profile' && <ProjectManager />}
+                    {role == 'Nirmaan Project Lead Profile' && <ProjectLead />}
+                    {role == 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
+                    {role == 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
+                    {role == 'Nirmaan Accountant Profile' && <Accountant />}
+                </>
+            }
+        </>
+    )
 
 }

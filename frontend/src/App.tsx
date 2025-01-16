@@ -83,7 +83,7 @@ const router = createBrowserRouter(
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/" element={<ProtectedRoute />}>
-        <Route element={<MainLayout />}>
+        <Route path="/" element={<MainLayout />}>
           <Route index element={<Dashboard />} />
 
           {/* PRs & Milestones Paths */}

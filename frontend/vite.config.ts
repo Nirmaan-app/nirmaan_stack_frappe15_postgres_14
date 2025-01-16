@@ -5,8 +5,7 @@ import proxyOptions from './proxyOptions';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
-  base: mode === "production" ? "/frontend/" : "/", // Use correct base for production
+export default defineConfig({
   plugins: [
     react(),
     VitePWA({
@@ -19,12 +18,12 @@ export default defineConfig(({ mode }) => ({
   ],
   optimizeDeps: {
     include: ["@radix-ui/react-radio-group"],
-    // exclude: [
-    //   "chunk-OZV37PLF.js?v=193dfd67",
-    //   "chunk-JEJO5SLT.js?v=161aa362",
-    //   "chunk-RSVB25KO.js?v=161aa362",
-    //   "chunk-VWGPU4LS.js?v=161aa362",
-    // ],
+    exclude: [
+      "chunk-OZV37PLF.js?v=193dfd67",
+      "chunk-JEJO5SLT.js?v=161aa362",
+      "chunk-RSVB25KO.js?v=161aa362",
+      "chunk-VWGPU4LS.js?v=161aa362",
+    ],
   },
   server: {
     port: 8080,
@@ -50,4 +49,4 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-}));
+});

@@ -86,10 +86,10 @@ export const MainLayout = () => {
   const { data: projectData } = useFrappeGetDoc(
     "Projects",
     project ||
-      prData?.project ||
-      poData?.project ||
-      sbData?.project ||
-      srData?.project,
+    prData?.project ||
+    poData?.project ||
+    sbData?.project ||
+    srData?.project,
     project || prData || poData || sbData || srData ? undefined : null
   );
 
@@ -163,8 +163,8 @@ export const MainLayout = () => {
               {item?.includes("%20")
                 ? item?.replace(/%20/g, " ")?.toUpperCase()
                 : item?.includes("PO&=")
-                ? item?.replace(/&=/g, "/")?.toUpperCase()
-                : item?.toUpperCase()}
+                  ? item?.replace(/&=/g, "/")?.toUpperCase()
+                  : item?.toUpperCase()}
             </Link>
           ),
           key: String(index),
@@ -187,8 +187,8 @@ export const MainLayout = () => {
         ? locations[locations?.length - 1]?.replace(/%20/g, " ")?.toUpperCase()
         : locations[locations?.length - 1]?.includes("PO&=") ||
           locations[locations?.length - 1]?.includes("DN&=")
-        ? locations[locations?.length - 1]?.replace(/&=/g, "/")?.toUpperCase()
-        : locations[locations?.length - 1]?.toUpperCase()) || "DASHBOARD"
+          ? locations[locations?.length - 1]?.replace(/&=/g, "/")?.toUpperCase()
+          : locations[locations?.length - 1]?.toUpperCase()) || "DASHBOARD"
     );
 
     const project = locationsArray?.find((i) => i?.includes("PROJ"));
@@ -271,14 +271,12 @@ export const MainLayout = () => {
         <NewSidebar />
         <div className="w-full h-auto overflow-auto">
           <header
-            className={`${
-              !isMobile && state === "collapsed" ? "mt-1" : ""
-            } flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}
+            className={`${!isMobile && state === "collapsed" ? "mt-1" : ""
+              } flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}
           >
             <div
-              className={`${
-                isMobile ? "ml-2" : ""
-              } flex items-center gap-2 px-4`}
+              className={`${isMobile ? "ml-2" : ""
+                } flex items-center gap-2 px-4`}
             >
               {/* {isMobile && (
                         <>
