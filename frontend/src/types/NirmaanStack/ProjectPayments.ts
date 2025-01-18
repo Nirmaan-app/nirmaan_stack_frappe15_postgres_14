@@ -24,4 +24,6 @@ export interface ProjectPayments{
 	payment_attachment?: string
 	/**	Amount : Data	*/
 	amount?: string
+	/**	TDS : Data	*/
+	tds?: string
 }

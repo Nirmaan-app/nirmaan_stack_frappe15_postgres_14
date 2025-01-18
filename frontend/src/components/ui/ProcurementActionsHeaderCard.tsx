@@ -158,7 +158,7 @@ export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend
         <HoverCard>
           <HoverCardTrigger>
             <p className="text-left font-bold py-1 text-base text-black underline cursor-pointer">
-              {orderData?.owner}
+              {orderData?.modified_by}
             </p>
           </HoverCardTrigger>
           <HoverCardContent className="p-4 shadow-lg rounded-lg bg-white w-72 border border-gray-200">

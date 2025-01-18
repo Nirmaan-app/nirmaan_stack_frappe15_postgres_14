@@ -130,7 +130,8 @@ export const ProjectPaymentsList = () => {
         vendor_id: "",
         amount: "",
         transaction_date: "",
-        utr: ""
+        utr: "",
+        tds: ""
     });
 
     const [paymentScreenshot, setPaymentScreenshot] = useState(null);
@@ -218,6 +219,7 @@ export const ProjectPaymentsList = () => {
                 vendor: newPayment?.vendor_id,
                 utr: newPayment?.utr,
                 amount: newPayment?.amount,
+                tds: newPayment?.tds,
             })
 
             const fileArgs = {
@@ -397,7 +399,6 @@ export const ProjectPaymentsList = () => {
                     const data = row.original
                     const amountPaid = getTotalAmountPaid(data?.name);
                     const { project, vendor, vendor_id, project_id, document_type, document_name } = getDataAttributes(data)
-
                     return <div onClick={() => {
                         setCurrentPayments({ project, vendor, vendor_id, project_id, document_type, document_name })
                         toggleCurrentPaymentsDialog()
@@ -412,10 +413,9 @@ export const ProjectPaymentsList = () => {
                 cell: ({ row }) => {
                     const data = row.original
                     const { project, vendor, vendor_id, project_id } = getDataAttributes(data)
-
                     return <div className="font-medium">
                         <SquarePlus onClick={() => {
-                            setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" })
+                            setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" , tds: ""})
                             setWarning("")
                             toggleNewPaymentDialog()
                         }} className="w-5 h-5 text-red-500 cursor-pointer" />
@@ -536,6 +536,20 @@ export const ProjectPaymentsList = () => {
                                     onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
                                 />
                             </div>
+                            {(newPayment?.doctype === "Service Requests" && serviceOrders?.find(i => i?.name === newPayment?.docname).gst === "true") && <div className="flex gap-4 w-full">
+                                <Label className="w-[40%]">TDS Amount</Label>
+                                <div className="w-full">
+                                <Input
+                                    type="number"
+                                    placeholder="Enter TDS Amount"
+                                    value={newPayment.tds}
+                                    onChange={(e) => {
+                                        const tdsValue = e.target.value;
+                                        setNewPayment({ ...newPayment, tds: e.target.value })
+                                    }}
+                                />
+                                </div>
+                            </div>}
                             {/* <div className="flex flex-col gap-4" > */}
 
                                 {/* <Input
