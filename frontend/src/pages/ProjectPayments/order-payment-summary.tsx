@@ -19,6 +19,7 @@ import { debounce } from "lodash";
 import logo from "@/assets/logo-svg.svg"
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@/components/ui/sheet"; 
+import { AddressView } from "@/components/address-view";
 
 const OrderPaymentSummary = () => {
     const { id } = useParams<{ id: string }>();
@@ -36,8 +37,8 @@ const OrderPaymentSummary = () => {
 
     const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
 
-    const [vendorAddress, setVendorAddress] = useState<string | null>(null);
-    const [projectAddress, setProjectAddress] = useState<string | null>(null);
+    // const [vendorAddress, setVendorAddress] = useState<string | null>(null);
+    // const [projectAddress, setProjectAddress] = useState<string | null>(null);
 
     const [advance, setAdvance] = useState(0)
     const [materialReadiness, setMaterialReadiness] = useState(0)
@@ -73,13 +74,13 @@ const OrderPaymentSummary = () => {
 
     const {data : prData} = useFrappeGetDoc("Procurement Requests", documentData?.procurement_request, documentData?.procurement_request ? `Procurement Requests ${documentData?.procurement_request}` : null)
 
-    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-            {
-                fields: ["*"],
-                limit: 1000
-            },
-            "Address"
-        );
+    // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+    //         {
+    //             fields: ["*"],
+    //             limit: 1000
+    //         },
+    //         "Address"
+    //     );
 
     const {data : vendorData} = useFrappeGetDoc("Vendors", documentData?.vendor, documentData ? `Vendors ${documentData?.vendor}` : null)
 
@@ -90,16 +91,16 @@ const OrderPaymentSummary = () => {
             limit: 10000
      })
 
-    useEffect(() => {
-        if (endpoint && documentData && projectData && vendorData) {
-            const doc = address_list?.find(item => item.name == projectData?.project_address);
-            const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
-            setProjectAddress(address)
-            const doc2 = address_list?.find(item => item.name == vendorData?.vendor_address);
-            const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
-            setVendorAddress(address2)
-        }
-    }, [endpoint, documentData, projectData, vendorData]);
+    // useEffect(() => {
+    //     if (endpoint && documentData && projectData && vendorData) {
+    //         const doc = address_list?.find(item => item.name == projectData?.project_address);
+    //         const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+    //         setProjectAddress(address)
+    //         const doc2 = address_list?.find(item => item.name == vendorData?.vendor_address);
+    //         const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
+    //         setVendorAddress(address2)
+    //     }
+    // }, [endpoint, documentData, projectData, vendorData]);
 
     useEffect(() => {
         if(endpoint === "Procurement Orders" && documentData) {
@@ -740,7 +741,8 @@ const OrderPaymentSummary = () => {
                             {documentData?.vendor_name}
                           </div>
                           <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                            {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode}
+                            {/* {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode} */}
+                            <AddressView id={documentData.vendor_address} />
                           </div>
                           <div className="text-sm font-medium text-gray-900 text-left">
                             GSTIN: {documentData?.vendor_gst}
@@ -752,7 +754,8 @@ const OrderPaymentSummary = () => {
                               Delivery Location
                             </h3>
                             <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                              {projectAddress?.address_line1}, {projectAddress?.address_line2}, {projectAddress?.city}, {projectAddress?.state}-{projectAddress?.pincode}
+                              {/* {projectAddress?.address_line1}, {projectAddress?.address_line2}, {projectAddress?.city}, {projectAddress?.state}-{projectAddress?.pincode} */}
+                              <AddressView id={documentData.project_address} />
                             </div>
                           </div>
                           <div className="pt-2">
@@ -1416,17 +1419,17 @@ const OrderPaymentSummary = () => {
                                         <div>
                                             <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
                                             <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{vendorData?.vendor_name}</div>
-                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
+                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={vendorData?.vendor_address}/></div>
                                             <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {vendorData?.vendor_gst || "N/A"}</div>
                                         </div>
                                         <div>
                                             <div>
                                                 <h3 className="text-gray-500 text-sm pb-2 text-left">Service Location</h3>
-                                                <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
+                                                <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={projectData?.project_address}/></div>
                                             </div>
                                             <div className="pt-2">
                                                 <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{documentData?.modified?.split(" ")[0]}</i></div>
-                                                <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{documentData?.project}</i></div>
+                                                <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{projectData?.project_name}</i></div>
                                             </div>
                                         </div>
                                     </div>

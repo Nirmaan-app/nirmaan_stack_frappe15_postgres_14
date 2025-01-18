@@ -26,7 +26,9 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Tree } from "antd";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
-import ReactSelect from 'react-select'
+import ReactSelect from 'react-select';
+import { AddressView } from '@/components/address-view'
+
 
 export const PurchaseOrder = () => {
 
@@ -139,9 +141,9 @@ export const PurchaseOrder = () => {
 
   const { data: pr, isLoading: prLoading, error: prError } = useFrappeGetDoc("Procurement Requests", po?.procurement_request)
 
-  const { data: vendor_address, isLoading: vendor_address_loading, error: vendor_address_error } = useFrappeGetDoc("Address", po?.vendor_address, po ? undefined : null)
+  // const { data: vendor_address, isLoading: vendor_address_loading, error: vendor_address_error } = useFrappeGetDoc("Address", po?.vendor_address, po ? undefined : null)
 
-  const { data: project_address, isLoading: project_address_loading, error: project_address_error } = useFrappeGetDoc("Address", po?.project_address, po ? undefined : null)
+  // const { data: project_address, isLoading: project_address_loading, error: project_address_error } = useFrappeGetDoc("Address", po?.project_address, po ? undefined : null)
 
   const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["name", "full_name"],
@@ -745,8 +747,8 @@ export const PurchaseOrder = () => {
 
   if (
     poLoading ||
-    vendor_address_loading ||
-    project_address_loading ||
+    // vendor_address_loading ||
+    // project_address_loading ||
     usersListLoading ||
     associated_po_list_loading ||
     prLoading
@@ -756,7 +758,14 @@ export const PurchaseOrder = () => {
         <TailSpin color={"red"} />{" "}
       </div>
     );
-  if (associated_po_list_error || vendor_address_error || project_address_error || usersListError || prError || poError)
+  if (
+    associated_po_list_error || 
+    // vendor_address_error || 
+    // project_address_error || 
+    usersListError || 
+    prError || 
+    poError
+  )
     return <h1>Error</h1>;
   if (tab === "Approved PO" && !["PO Approved", "Merged"].includes(po?.status))
     return (
@@ -1123,7 +1132,8 @@ export const PurchaseOrder = () => {
                 <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
               </div>
               <span className="font-light">
-                {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode}
+                {/* {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode} */}
+                <AddressView id={po?.vendor_address}/>
               </span>
             </div>
             <div className="flex items-start justify-between">
@@ -1132,7 +1142,8 @@ export const PurchaseOrder = () => {
                 <Label className="ml-1 font-light text-red-700">Project Address:</Label>
               </div>
               <span className="font-light">
-                {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode}
+                {/* {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode} */}
+                <AddressView id={po?.project_address}/>
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -2605,7 +2616,8 @@ export const PurchaseOrder = () => {
                               {po?.vendor_name}
                             </div>
                             <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                              {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode}
+                              {/* {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode} */}
+                              <AddressView id={po?.vendor_address}/>
                             </div>
                             <div className="text-sm font-medium text-gray-900 text-left">
                               GSTIN: {po?.vendor_gst}
@@ -2617,7 +2629,8 @@ export const PurchaseOrder = () => {
                                 Delivery Location
                               </h3>
                               <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                                {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode}
+                                {/* {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode} */}
+                                <AddressView id={po?.project_address}/>
                               </div>
                             </div>
                             <div className="pt-2">
