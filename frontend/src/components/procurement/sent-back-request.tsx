@@ -27,7 +27,9 @@ export const SentBackRequest = ({ type }) => {
             filters: [["workflow_state", "=", "Pending"], ["type", "=", type]],
             limit: 1000,
             orderBy: { field: "modified", order: "desc" }
-        });
+        },
+        type ? `${type} Sent Back Category` : null
+    );
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],

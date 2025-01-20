@@ -53,6 +53,8 @@ export const ProjectPaymentsList = () => {
         orderBy: { field: "modified", order: "desc" },
     });
 
+    console.log("serviceRequests", serviceOrders)
+
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
@@ -65,7 +67,7 @@ export const ProjectPaymentsList = () => {
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
-        limit: 10000
+        limit: 100000
     })
 
     useEffect(() => {
@@ -187,6 +189,7 @@ export const ProjectPaymentsList = () => {
 
         return payments?.reduce((acc, payment) => {
             const amount = parseFloat(payment.amount || 0)
+            const tds = parseFloat(payment.tds || 0)
             return acc + amount;
         }, 0);
     }
@@ -199,14 +202,17 @@ export const ProjectPaymentsList = () => {
     const getDataAttributes = (data) => {
         let project = ""
         let vendor = ""
+        let gst = ""
         if (data?.type === "Purchase Order") {
             project = data?.project_name
             vendor = data?.vendor_name
+            gst = "true"
         } else {
             project = projects?.find(i => i?.name === data?.project)?.project_name
             vendor = vendors?.find(i => i?.name === data?.vendor)?.vendor_name
+            gst = data?.gst
         }
-        return { project, vendor, vendor_id: data?.vendor, project_id: data?.project, document_type: data?.type, document_name: data?.name }
+        return { project, vendor, vendor_id: data?.vendor, project_id: data?.project, document_type: data?.type, document_name: data?.name, gst }
     }
 
     const AddPayment = async () => {
@@ -287,17 +293,19 @@ export const ProjectPaymentsList = () => {
           order,
           newPayment?.doctype === "Procurement Orders" ? "Purchase Order" : "Service Order"
         );
+
+        const totalAmountPaid = getTotalAmountPaid(order?.name)
     
         const compareAmount =
           newPayment?.doctype === "Procurement Orders"
-            ? totalWithTax // Always compare with totalWithTax for Purchase Orders
+            ? (totalWithTax - totalAmountPaid) // Always compare with totalWithTax for Purchase Orders
             : order.gst === "true" // Check GST field for Service Orders
-            ? totalWithTax
-            : total;
+            ? (totalWithTax - totalAmountPaid)
+            : (total - totalAmountPaid);
     
         if (parseFloat(amount) > compareAmount) {
           setWarning(
-            `Entered amount exceeds the total amount ${
+            `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${
               newPayment?.doctype === "Procurement Orders" ? "including" : order.gst === "true" ? "including" : "excluding"
             } GST: ${formatToIndianRupee(compareAmount)}`
           );
@@ -398,9 +406,9 @@ export const ProjectPaymentsList = () => {
                 cell: ({ row }) => {
                     const data = row.original
                     const amountPaid = getTotalAmountPaid(data?.name);
-                    const { project, vendor, vendor_id, project_id, document_type, document_name } = getDataAttributes(data)
+                    const { project, vendor, vendor_id, project_id, document_type, document_name, gst } = getDataAttributes(data)
                     return <div onClick={() => {
-                        setCurrentPayments({ project, vendor, vendor_id, project_id, document_type, document_name })
+                        setCurrentPayments({ project, vendor, vendor_id, project_id, document_type, document_name, gst })
                         toggleCurrentPaymentsDialog()
                     }} className="font-medium cursor-pointer underline">
                         {formatToIndianRupee(amountPaid)}
@@ -437,6 +445,8 @@ export const ProjectPaymentsList = () => {
     }
 
     const siteUrl = `${window.location.protocol}//${window.location.host}`;
+
+    console.log("currentPaymentsDialog", currentPayments)
 
     return (
         <div className="flex-1 space-y-4">
@@ -545,7 +555,7 @@ export const ProjectPaymentsList = () => {
                                     value={newPayment.tds}
                                     onChange={(e) => {
                                         const tdsValue = e.target.value;
-                                        setNewPayment({ ...newPayment, tds: e.target.value })
+                                        setNewPayment({ ...newPayment, tds: tdsValue })
                                     }}
                                 />
                                 </div>
@@ -599,7 +609,7 @@ export const ProjectPaymentsList = () => {
                                     </AlertDialogCancel>
                                     <Button
                                         onClick={AddPayment}
-                                        disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr}
+                                        disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || warning}
                                         className="flex-1">Add Payment
                                     </Button>
                                 </>
@@ -633,6 +643,9 @@ export const ProjectPaymentsList = () => {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Amount</TableHead>
+                                    {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && (
+                                        <TableHead>TDS Amt</TableHead>
+                                    )}
                                     <TableHead>UTR No.</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -643,6 +656,9 @@ export const ProjectPaymentsList = () => {
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && (
+                                                    <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
+                                                )}
                                                 <TableCell className="font-semibold text-blue-500 underline">
                                                     {import.meta.env.MODE === "development" ? (
                                                         <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">

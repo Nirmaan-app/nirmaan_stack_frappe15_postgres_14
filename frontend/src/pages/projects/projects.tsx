@@ -13,6 +13,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import { useUserData } from "@/hooks/useUserData";
 import { Badge } from "@/components/ui/badge";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 export default function Projects() {
   const navigate = useNavigate();
@@ -57,6 +58,41 @@ export default function Projects() {
     }
   );
 
+  const {data : po_item_data} = useFrappeGetDocList("Procurement Orders",
+    {
+      fields: ["*"],
+      filters: [["status", "!=", "Merged"]],
+      limit: 100000,
+      orderBy: { field: "creation", order: "desc" },
+    }
+  );
+
+  const getPOTotalWithGST = (projectId) => {
+    // Ensure the po_item_data is fetched
+    if (!po_item_data || !po_item_data.length) {
+      return 0;
+    }
+
+    const filteredOrders = po_item_data.filter(order => order.project === projectId);
+  
+    // Calculate the total amount including GST
+    const totalAmount = filteredOrders.reduce((total, order) => {
+      if (order.order_list && Array.isArray(order.order_list?.list)) {
+        // Sum the total amount for each order's items
+        const orderTotal = order.order_list?.list.reduce((orderSum, item) => {
+          const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
+          const taxAmount = (parseFloat(item.tax) / 100) * itemTotal; // Calculate GST based on tax percentage
+          return orderSum + itemTotal + taxAmount; // Add GST to the item total
+        }, 0);
+        return total + orderTotal;
+      }
+      return total;
+    }, 0);
+  
+    return totalAmount;
+  };
+  
+
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList(
     "Procurement Orders",
     {
@@ -66,6 +102,40 @@ export default function Projects() {
       orderBy: { field: "creation", order: "desc" },
     }
   );
+
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+          fields: ["*"],
+          limit: 100000
+  })
+
+  const getTotalAmountPaid = (id) => {
+    const payments = projectPayments?.filter((payment) => payment.project === id);
+    return payments?.reduce((acc, payment) => {
+        const amount = parseFloat(payment.amount || 0)
+        const tds = parseFloat(payment.tds || 0)
+        return acc + amount;
+    }, 0);
+}
+
+const {
+    data: project_estimates,
+    isLoading: project_estimates_loading,
+    error: project_estimates_error,
+  } = useFrappeGetDocList("Project Estimates", {
+    fields: ["*"],
+    limit: 100000,
+  });
+
+  const getTotalEstimateAmt = (projectId) => {
+    const estimates = project_estimates?.filter(i => i?.project === projectId)
+    return estimates?.reduce(
+      (acc, i) =>
+        acc +
+        parseFloat(i?.quantity_estimate || 0) *
+        parseFloat(i?.rate_estimate || 0),
+      0
+    );
+  }
 
   const projectTypeOptions = projectTypesList?.map((pt) => ({
     label: pt.name,
@@ -223,54 +293,92 @@ export default function Projects() {
           return <DataTableColumnHeader column={column} title="Location" />;
         },
       },
+      // {
+      //   accessorKey: "name",
+      //   id: "statusCount",
+      //   header: ({ column }) => {
+      //     return <DataTableColumnHeader column={column} title="Status Count" />;
+      //   },
+      //   cell: ({ row }) => {
+      //     const projectName = row.getValue("name");
+      //     const statusCounts = projectStatusCounts[projectName] || {};
+
+      //     return (
+      //       <div className="font-medium flex flex-col gap-1">
+      //         {/* {Object.entries(statusCounts).map(([status, count]) => ( */}
+      //         <Badge
+      //           onClick={() =>
+      //             navigate(`${projectName}?page=prsummary&Status=New+PR`)
+      //           }
+      //           className="flex justify-between cursor-pointer"
+      //         >
+      //           <span>New PR:</span> <span>{statusCounts["New PR"] || 0}</span>
+      //         </Badge>
+      //         <Badge
+      //           onClick={() =>
+      //             navigate(`${projectName}?page=prsummary&Status=Open+PR`)
+      //           }
+      //           variant={"yellow"}
+      //           className="flex justify-between cursor-pointer"
+      //         >
+      //           <span>Open PR:</span>{" "}
+      //           <span>{statusCounts["Open PR"] || 0}</span>
+      //         </Badge>
+      //         <Badge
+      //           onClick={() =>
+      //             navigate(`${projectName}?page=prsummary&Status=Approved+PO`)
+      //           }
+      //           variant={"green"}
+      //           className="flex justify-between cursor-pointer"
+      //         >
+      //           <span>Apprd PO:</span>{" "}
+      //           <span>{statusCounts["Approved PO"] || 0}</span>
+      //         </Badge>
+      //         {/* ))} */}
+      //       </div>
+      //     );
+      //   },
+      // },
       {
-        accessorKey: "name",
-        id: "statusCount",
+        id: "project_financials",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Status Count" />;
+          return <DataTableColumnHeader column={column} title="Project Financials" />;
         },
         cell: ({ row }) => {
-          const projectName = row.getValue("name");
-          const statusCounts = projectStatusCounts[projectName] || {};
+          const data = row.original
 
-          return (
-            <div className="font-medium flex flex-col gap-1">
-              {/* {Object.entries(statusCounts).map(([status, count]) => ( */}
-              <Badge
-                onClick={() =>
-                  navigate(`${projectName}?page=prsummary&Status=New+PR`)
-                }
-                className="flex justify-between cursor-pointer"
-              >
-                <span>New PR:</span> <span>{statusCounts["New PR"] || 0}</span>
-              </Badge>
-              <Badge
-                onClick={() =>
-                  navigate(`${projectName}?page=prsummary&Status=Open+PR`)
-                }
-                variant={"yellow"}
-                className="flex justify-between cursor-pointer"
-              >
-                <span>Open PR:</span>{" "}
-                <span>{statusCounts["Open PR"] || 0}</span>
-              </Badge>
-              <Badge
-                onClick={() =>
-                  navigate(`${projectName}?page=prsummary&Status=Approved+PO`)
-                }
-                variant={"green"}
-                className="flex justify-between cursor-pointer"
-              >
-                <span>Apprd PO:</span>{" "}
-                <span>{statusCounts["Approved PO"] || 0}</span>
-              </Badge>
-              {/* ))} */}
-            </div>
-          );
+          const totalPOAmt = getPOTotalWithGST(data?.name)
+          const amountPaid = getTotalAmountPaid(data?.name);
+          const totalEstimateAmt = getTotalEstimateAmt(data?.name)
+
+       return (
+         <div className="font-medium flex flex-col gap-1 min-w-[180px]">
+           <Badge
+             className="flex justify-between"
+           >
+             <span>Total inc. GST:</span> <span>{formatToIndianRupee(totalPOAmt)}</span>
+           </Badge>
+           <Badge
+             variant={"yellow"}
+             className="flex justify-between"
+           >
+             <span>Total Estimates Amt:</span>{" "}
+             <span>{formatToIndianRupee(totalEstimateAmt)}</span>
+           </Badge>
+           <Badge
+             variant={"green"}
+             className="flex justify-between"
+           >
+             <span>Total Amt Paid:</span>{" "}
+             <span>{formatToIndianRupee(amountPaid)}</span>
+           </Badge>
+         </div>
+       );
         },
-      },
+
+      }
     ],
-    [projectStatusCounts]
+    [projectStatusCounts, project_estimates, projectPayments, po_item_data]
   );
 
   // console.log("projectStatusCounts", projectStatusCounts)

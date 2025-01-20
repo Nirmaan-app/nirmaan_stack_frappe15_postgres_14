@@ -427,7 +427,7 @@ export const MainLayout = () => {
             )}
           </header>
           <main
-            className={`pb-4 px-2 transition-all duration-300 ease-in-out overflow-auto  max-h-[90vh]`}
+            className={`pb-4 px-2 transition-all duration-300 ease-in-out overflow-auto md:max-h-[92vh] 2xl:max-h-[93vh] max-md:max-h-[90vh]`}
           >
             <ErrorBoundaryWithNavigationReset>
               <ScrollToTop />

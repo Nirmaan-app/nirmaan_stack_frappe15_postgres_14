@@ -82,6 +82,8 @@ export const PurchaseOrder = () => {
 
   const [selectedMake, setSelectedMake] = useState(null)
 
+  const [amendEditItem, setAmendEditItem] = useState("")
+
   const [poPdfSheet, setPoPdfSheet] = useState(false)
 
   const togglePoPdfSheet = () => {
@@ -122,6 +124,12 @@ export const PurchaseOrder = () => {
 
   const toggleUnMergeDialog = () => {
     setUnMergeDialog((prevState) => !prevState)
+  }
+
+  const [amendEditItemDialog, setAmendEditItemDialog] = useState(false)
+
+  const toggleAmendEditItemDialog = () => {
+    setAmendEditItemDialog((prevState) => !prevState)
   }
 
   const { updateDoc, error: update_submit_error, loading: update_loading } = useFrappeUpdateDoc()
@@ -663,6 +671,8 @@ export const PurchaseOrder = () => {
       list: curRequest,
     });
     setQuantity("");
+
+    toggleAmendEditItemDialog()
   };
 
   const handleDelete = (item: string) => {
@@ -683,6 +693,7 @@ export const PurchaseOrder = () => {
     });
 
     setQuantity("");
+    toggleAmendEditItemDialog()
   };
 
   const UndoDeleteOperation = () => {
@@ -734,6 +745,14 @@ export const PurchaseOrder = () => {
       })),
     },
   ];
+
+  // useEffect(() => {
+  //   if (amendPOSheet) {
+  //     const firstFocusable = document.querySelector('.focusable-class');
+  //     firstFocusable?.focus();
+  //   }
+  // }, [amendPOSheet]);
+  
 
   const getUserName = (id) => {
     if (usersList) {
@@ -832,7 +851,7 @@ export const PurchaseOrder = () => {
                     </Button>
                   </SheetTrigger>
                   <SheetContent className="overflow-auto">
-                    <div className="p-6">
+                    <div className="md:p-6">
                       <h2 className="text-2xl font-bold mb-4">
                         Merge Purchase Orders
                       </h2>
@@ -1772,11 +1791,11 @@ export const PurchaseOrder = () => {
                           </div>
                         </div>
                       </CardContent>
-                      <CardFooter className="bg-gray-50 flex justify-between p-4">
+                      <CardFooter className="bg-gray-50 flex justify-between p-4 max-md:flex-col max-md:items-start max-md:gap-4">
                         <p className="text-sm text-gray-600 italic">
                           Check all details before sending this PO.
                         </p>
-                        <div className="space-x-2">
+                        <div className="space-x-2 space-y-2 max-md:text-end max-md:w-full">
                           <Button
                             variant="outline"
                             onClick={togglePoPdfSheet}
@@ -2202,138 +2221,24 @@ export const PurchaseOrder = () => {
                               {item.quantity}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
-                              <AlertDialog>
-                                <AlertDialogTrigger
-                                  onClick={() => {
+                              <div className="flex items-center justify-center">
+                              <Pencil
+                                    onClick={() => {
                                     const options = item?.makes?.list?.map(i => ({ label: i?.make, value: i?.make })) || []
                                     const selected = item?.makes?.list?.find(i => i?.enabled === "true")
 
                                     setQuantity(
                                       parseFloat(item.quantity)
                                     )
+                                    setAmendEditItem(item)
                                     setEditMakeOptions(options)
                                     setSelectedMake({ label: selected?.make, value: selected?.make })
+                                    toggleAmendEditItemDialog()
                                   }
                                   }
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </AlertDialogTrigger>
-                                <AlertDialogContent className="max-w-3xl">
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle className="flex justify-between">
-                                      Edit Item
-                                      <AlertDialogCancel
-                                        onClick={() =>
-                                          setQuantity("")
-                                        }
-                                        className="border-none shadow-none p-0"
-                                      >
-                                        X
-                                      </AlertDialogCancel>
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription className="flex flex-col gap-2">
-                                      <div className="flex space-x-2 max-md:flex-col space-y-2">
-                                        <div className="w-full md:w-2/3">
-                                          <h5 className="text-base text-gray-400 text-left mb-1">
-                                            Item Name
-                                          </h5>
-                                          <div className="w-full  p-1 text-left">
-                                            {item.item}
-                                          </div>
-                                        </div>
-                                        <div className="flex space-x-2 w-full">
-                                          <div className="w-[60%]">
-                                            <h5 className="text-base text-gray-400 text-left mb-1">
-                                              Make
-                                            </h5>
-                                            <div className="w-full">
-                                              {/* {item.unit} */}
-                                              <ReactSelect className="w-full" placeholder="Select Make..." value={selectedMake} options={editMakeOptions}
-                                                onChange={(e) => setSelectedMake(e)}
-                                              />
-                                            </div>
-                                          </div>
-                                          <div className="w-[30%]">
-                                            <h5 className="text-base text-gray-400 text-left mb-1">
-                                              UOM
-                                            </h5>
-                                            <div className=" w-full  p-2 text-center justify-left flex">
-                                              {item.unit}
-                                            </div>
-                                          </div>
-                                          <div className="w-[25%]">
-                                            <h5 className="text-base text-gray-400 text-left mb-1">
-                                              Qty
-                                            </h5>
-                                            <input
-                                              type="number"
-                                              defaultValue={
-                                                item.quantity
-                                              }
-                                              className=" rounded-lg w-full border p-2"
-                                              onChange={(e) =>
-                                                setQuantity(
-                                                  e.target.value !==
-                                                    ""
-                                                    ? parseFloat(
-                                                      e.target
-                                                        .value
-                                                    )
-                                                    : null
-                                                )
-                                              }
-                                            />
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </AlertDialogDescription>
-                                    <AlertDialogDescription className="flex justify-end">
-                                      <div className="flex gap-2">
-                                        {orderData?.list
-                                          ?.length === 1 ? (
-                                          <Button className="flex items-center gap-1" disabled>
-                                            <Trash2 className="h-4 w-4" />
-                                            Delete
-                                          </Button>
-                                        ) : (
-                                          <AlertDialogAction
-                                            onClick={() =>
-                                              handleDelete(
-                                                item.item
-                                              )
-                                            }
-                                            asChild
-                                          >
-                                            <Button className="flex gap-1 items-center bg-gray-100 text-black hover:text-white">
-                                              <Trash2 className="h-4 w-4" />
-                                              Delete
-                                            </Button>
-                                          </AlertDialogAction>
-                                        )}
-                                        <AlertDialogAction
-                                          disabled={!quantity}
-                                          onClick={() =>
-                                            handleSave(
-                                              item.item,
-                                              quantity,
-                                              selectedMake
-                                            )
-                                          }
-                                          asChild
-                                        >
-                                          <Button
-                                            variant={"outline"}
-                                            className="flex gap-1 items-center"
-                                          >
-                                            <ListChecks className="h-4 w-4" />
-                                            Save
-                                          </Button>
-                                        </AlertDialogAction>
-                                      </div>
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                </AlertDialogContent>
-                              </AlertDialog>
+                                   className="w-4 h-4 cursor-pointer" />
+
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2433,6 +2338,115 @@ export const PurchaseOrder = () => {
                     </AlertDialog>
                   )}
                 </div>
+                <Dialog open={amendEditItemDialog} onOpenChange={toggleAmendEditItemDialog}>
+                                <DialogContent className="max-w-3xl">
+                                  <DialogHeader>
+                                    <DialogTitle className="flex justify-between">
+                                      Edit Item
+                                      {/* <AlertDialogCancel
+                                        onClick={() => {
+                                          setQuantity("")
+                                          setAmendEditItem("")
+                                        }
+                                        }
+                                        className="border-none shadow-none p-0"
+                                      >
+                                        X
+                                      </AlertDialogCancel> */}
+                                    </DialogTitle>
+                                  </DialogHeader>
+                                    <DialogDescription className="flex flex-col gap-2">
+                                      <div className="flex space-x-2 max-md:flex-col space-y-2">
+                                        <div className="w-full md:w-2/3">
+                                          <h5 className="text-base text-gray-400 text-left mb-1">
+                                            Item Name
+                                          </h5>
+                                          <div className="w-full  p-1 text-left">
+                                            {amendEditItem?.item}
+                                          </div>
+                                        </div>
+                                        <div className="flex space-x-2 w-full">
+                                          <div className="w-[60%]">
+                                            <h5 className="text-base text-gray-400 text-left mb-1">
+                                              Make
+                                            </h5>
+                                            <div className="w-full">
+                                              {/* {item.unit} */}
+                                              <ReactSelect className="w-full" placeholder="Select Make..." value={selectedMake} options={editMakeOptions}
+                                                onChange={(e) => setSelectedMake(e)}
+                                              />
+                                            </div>
+                                          </div>
+                                          <div className="w-[30%]">
+                                            <h5 className="text-base text-gray-400 text-left mb-1">
+                                              UOM
+                                            </h5>
+                                            <div className=" w-full  p-2 text-center justify-left flex">
+                                              {amendEditItem?.unit}
+                                            </div>
+                                          </div>
+                                          <div className="w-[25%]">
+                                            <h5 className="text-base text-gray-400 text-left mb-1">
+                                              Qty
+                                            </h5>
+                                            <Input
+                                              type="number"
+                                              value={quantity || ""}
+                                              onChange={(e) =>
+                                                setQuantity(
+                                                  e.target.value !==
+                                                    ""
+                                                    ? parseFloat(
+                                                      e.target
+                                                        .value
+                                                    )
+                                                    : null
+                                                )
+                                              }
+                                              disabled={false}
+                                              readOnly={false}
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </DialogDescription>
+                                    <DialogDescription className="flex justify-end">
+                                      <div className="flex gap-2">
+                                        {orderData?.list
+                                          ?.length === 1 ? (
+                                          <Button className="flex items-center gap-1" disabled>
+                                            <Trash2 className="h-4 w-4" />
+                                            Delete
+                                          </Button>
+                                        ) : (
+                                            <Button  onClick={() =>
+                                              handleDelete(
+                                                amendEditItem.item
+                                              )
+                                            } className="flex gap-1 items-center bg-gray-100 text-black hover:text-white">
+                                              <Trash2 className="h-4 w-4" />
+                                              Delete
+                                            </Button>
+                                        )}
+                                          <Button
+                                            disabled={!quantity}
+                                            onClick={() =>
+                                              handleSave(
+                                                amendEditItem.item,
+                                                quantity,
+                                                selectedMake
+                                              )
+                                            }
+                                            variant={"outline"}
+                                            className="flex gap-1 items-center"
+                                          >
+                                            <ListChecks className="h-4 w-4" />
+                                            Save
+                                          </Button>
+                                      </div>
+                                    </DialogDescription>
+                                </DialogContent>
+                              </Dialog>
               </>
             </SheetContent>
           </Sheet>
@@ -2557,7 +2571,7 @@ export const PurchaseOrder = () => {
       {/* PO Pdf  */}
 
       <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
-        <SheetContent className="overflow-y-auto min-w-[700px]">
+        <SheetContent className="overflow-y-auto md:min-w-[700px]">
           <Button onClick={handlePrint} className="flex items-center gap-1">
             <Printer className="h-4 w-4" />
             Print
