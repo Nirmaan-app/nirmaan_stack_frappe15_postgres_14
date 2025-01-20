@@ -389,6 +389,22 @@ const ProjectView = ({
     `User Permission, filters(for_value),=,${projectId}`
   );
 
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    fields: ["*"],
+    filters : [['project', '=', projectId]],
+    limit: 100
+  })
+
+  const getTotalAmountPaid = () => {
+    return projectPayments?.reduce((acc, payment) => {
+        const amount = parseFloat(payment.amount || 0)
+        const tds = parseFloat(payment.tds || 0)
+        return acc + amount;
+    }, 0);
+  }
+
+  console.log("projectPayments", projectPayments)
+
   const {
     data: usersList,
     isLoading: usersListLoading,
@@ -1138,6 +1154,17 @@ const ProjectView = ({
       value: wp?.work_package_name,
     }));
 
+    const getTotalAmountPaidPOWise = (id) => {
+      const payments = projectPayments?.filter((payment) => payment.document_name === id);
+
+
+      return payments?.reduce((acc, payment) => {
+          const amount = parseFloat(payment.amount || 0)
+          const tds = parseFloat(payment.tds || 0)
+          return acc + amount;
+      }, 0);
+  }
+
   // console.log("wpOtions", wpOptions)
 
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
@@ -1266,8 +1293,19 @@ const ProjectView = ({
           );
         },
       },
+      {
+        id: "Amount_paid",
+        header: "Amt Paid",
+        cell: ({ row }) => {
+            const data = row.original
+            const amountPaid = getTotalAmountPaidPOWise(data?.name);
+            return <div className="font-medium">
+                {formatToIndianRupee(amountPaid)}
+            </div>
+        },
+    },
     ],
-    [projectId, po_data_for_posummary, data]
+    [projectId, po_data_for_posummary, data, projectPayments]
   );
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
@@ -2152,6 +2190,12 @@ const ProjectView = ({
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
                           ₹{totalAmountWithoutTax.toLocaleString()}
+                        </span>
+                      </p>
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total Amt Paid:</span>{" "}
+                        <span className="text-blue-600">
+                          ₹{getTotalAmountPaid()?.toLocaleString()}
                         </span>
                       </p>
                     </div>

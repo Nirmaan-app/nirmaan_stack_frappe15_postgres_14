@@ -40,6 +40,10 @@ export const ReleasePOSelect = () => {
         },
     );
 
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+            fields: ["*"],
+            limit: 100000
+        })
     // console.log("data", procurement_order_list)
 
     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
@@ -85,6 +89,17 @@ export const ReleasePOSelect = () => {
         };
     };
 
+
+    const getTotalAmountPaid = (id) => {
+        const payments = projectPayments?.filter((payment) => payment.document_name === id);
+
+
+        return payments?.reduce((acc, payment) => {
+            const amount = parseFloat(payment.amount || 0)
+            const tds = parseFloat(payment.tds || 0)
+            return acc + amount;
+        }, 0);
+    }
 
     const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount } = useDocCountStore()
 
@@ -299,14 +314,25 @@ export const ReleasePOSelect = () => {
                 }
             },
             {
-                accessorKey: 'order_list',
-                header: ({ column }) => {
-                    return <h1 className="hidden">:</h1>
+                id: "Amount_paid",
+                header: "Amt Paid",
+                cell: ({ row }) => {
+                    const data = row.original
+                    const amountPaid = getTotalAmountPaid(data?.name);
+                    return <div className="font-medium">
+                        {formatToIndianRupee(amountPaid)}
+                    </div>
                 },
-                cell: ({ row }) => <span className="hidden">hh</span>
-            }
+            },
+            // {
+            //     accessorKey: 'order_list',
+            //     header: ({ column }) => {
+            //         return <h1 className="hidden">:</h1>
+            //     },
+            //     cell: ({ row }) => <span className="hidden">hh</span>
+            // }
         ],
-        [project_values, procurement_order_list]
+        [project_values, procurement_order_list, projectPayments]
     )
 
     const { toast } = useToast()

@@ -24,7 +24,6 @@ import { AddressView } from "@/components/address-view";
 const OrderPaymentSummary = () => {
     const { id } = useParams<{ id: string }>();
     const poId = id?.replace(/&=/g, "/");
-    const navigate = useNavigate();
 
     const [poPdfSheet, setPoPdfSheet] = useState(false); // State for PO PDF Sheet
     const [srPdfSheet, setSrPdfSheet] = useState(false); // State for SR PDF Sheet
@@ -57,7 +56,8 @@ const OrderPaymentSummary = () => {
     const [newPayment, setNewPayment] = useState({
             amount: "",
             transaction_date: "",
-            utr: ""
+            utr: "",
+            tds: ""
     });
     
     const [paymentScreenshot, setPaymentScreenshot] = useState(null);
@@ -153,7 +153,7 @@ const OrderPaymentSummary = () => {
         if(projectPayments) {
             const payments = projectPayments?.filter((i) => i?.document_name === id);
 
-            return payments?.reduce((acc, i) => acc + parseFloat(i?.amount), 0);
+            return payments?.reduce((acc, i) => acc + parseFloat(i?.amount || 0), 0);
         }
 
         return 0;
@@ -248,17 +248,19 @@ const OrderPaymentSummary = () => {
         }
     
         const { total, totalWithGST } = totals
+
+        const totalAmountPaid = getTotalAmtPaid(documentData?.name)
     
         const compareAmount =
           isPO
-            ? totalWithGST // Always compare with totalWithTax for Purchase Orders
+            ? (totalWithGST - totalAmountPaid) // Always compare with totalWithTax for Purchase Orders
             : documentData?.gst === "true" // Check GST field for Service Orders
-            ? totalWithGST
-            : total;
+            ? (totalWithGST - totalAmountPaid)
+            : (total - totalAmountPaid);
     
         if (parseFloat(amount) > compareAmount) {
           setWarning(
-            `Entered amount exceeds the total amount ${
+            `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${
                 isPO ? "including" : documentData?.gst === "true" ? "including" : "excluding"
             } GST: ${formatToIndianRupee(compareAmount)}`
           );
@@ -401,6 +403,20 @@ const OrderPaymentSummary = () => {
                                                                     onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
                                                                 />
                                                             </div>
+                                                            {(!isPO && documentData.gst === "true") && <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">TDS Amount</Label>
+                                                                <div className="w-full">
+                                                                <Input
+                                                                    type="number"
+                                                                    placeholder="Enter TDS Amount"
+                                                                    value={newPayment.tds}
+                                                                    onChange={(e) => {
+                                                                        const tdsValue = e.target.value;
+                                                                        setNewPayment({ ...newPayment, tds: tdsValue })
+                                                                    }}
+                                                                />
+                                                                </div>
+                                                            </div>}
 
                                                         </div>
 
@@ -471,7 +487,7 @@ const OrderPaymentSummary = () => {
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr}
+                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -489,6 +505,9 @@ const OrderPaymentSummary = () => {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Amount</TableHead>
+                                    {!isPO && documentData?.gst === "true" && (
+                                        <TableHead>TDS Amt</TableHead>
+                                    )}
                                     <TableHead>UTR No.</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -499,6 +518,9 @@ const OrderPaymentSummary = () => {
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                {!isPO && documentData?.gst === "true" && (
+                                                    <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
+                                                )}
                                                 <TableCell className="font-semibold text-blue-500 underline">
                                                 {import.meta.env.MODE === "development" ? (
                                                     <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
