@@ -1,6 +1,6 @@
 import { ArrowBigUpDash, ArrowLeft, CheckCheck, Info, MessageCircleMore, Pencil, Undo2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { formatDate } from '@/utils/FormatDate';
@@ -150,6 +150,8 @@ export const SentBackSelectVendor = () => {
     const navigate = useNavigate()
 
     const userData = useUserData()
+
+    const {mutate} = useSWRConfig()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -352,52 +354,113 @@ export const SentBackSelectVendor = () => {
         return () => handleRadioChange(item, vendor);
     };
 
-    const handleSubmit = () => {
-        quotation_request_list?.map((item) => {
-            if (selectedVendors[item.item] === item.vendor && orderData?.procurement_request === item.procurement_task) {
-                updateDoc('Quotation Requests', item.name, {
-                    status: "Selected",
-                })
-                    .then(() => {
-                        console.log("item", item.name)
-                    }).catch(() => {
-                        console.log(update_submit_error)
-                    })
-            }
-        })
-        updateDoc('Sent Back Category', id, {
-            workflow_state: "Vendor Selected",
-            item_list: orderData.item_list,
-        })
-            .then(() => {
-                if (comment) {
-                    createDoc("Nirmaan Comments", {
-                        comment_type: "Comment",
-                        reference_doctype: "Sent Back Category",
-                        reference_name: id,
-                        comment_by: userData?.user_id,
-                        content: comment,
-                        subject: "sr vendors selected"
-                    })
-                }
-            }).then(() => {
+    // const handleSubmit = () => {
+    //     quotation_request_list?.map((item) => {
+    //         if (selectedVendors[item.item] === item.vendor && orderData?.procurement_request === item.procurement_task) {
+    //             updateDoc('Quotation Requests', item.name, {
+    //                 status: "Selected",
+    //             })
+    //                 .then(() => {
+    //                     console.log("item", item.name)
+    //                 }).catch(() => {
+    //                     console.log(update_submit_error)
+    //                 })
+    //         }
+    //     })
+    //     updateDoc('Sent Back Category', id, {
+    //         workflow_state: "Vendor Selected",
+    //         item_list: orderData.item_list,
+    //     })
+    //         .then(() => {
+    //             if (comment) {
+    //                 createDoc("Nirmaan Comments", {
+    //                     comment_type: "Comment",
+    //                     reference_doctype: "Sent Back Category",
+    //                     reference_name: id,
+    //                     comment_by: userData?.user_id,
+    //                     content: comment,
+    //                     subject: "sr vendors selected"
+    //                 })
+    //             }
+    //         }).then(() => {
 
-                toast({
-                    title: "Success!",
-                    description: `Sent Back: ${id} sent for Approval!`,
-                    variant: "success"
-                })
-                navigate(-2)
-            })
-            .catch((error) => {
-                toast({
-                    title: "Failed!",
-                    description: `Failed to send Sent Back: ${id} for Approval.`,
-                    variant: "destructive"
-                })
-                console.log("submit_error", submit_error, error)
-            })
-    }
+    //             toast({
+    //                 title: "Success!",
+    //                 description: `Sent Back: ${id} sent for Approval!`,
+    //                 variant: "success"
+    //             })
+
+    //             if(orderData?.type === "Rejected") {
+    //                 navigate("/rejected-sb")
+    //             } else if(orderData?.type === "Delayed") {
+    //                 navigate("/delayed-sb")
+    //             } else {
+    //                 navigate("/cancelled-sb")
+    //             }
+    //         })
+    //         .catch((error) => {
+    //             toast({
+    //                 title: "Failed!",
+    //                 description: `Failed to send Sent Back: ${id} for Approval.`,
+    //                 variant: "destructive"
+    //             })
+    //             console.log("submit_error", submit_error, error)
+    //         })
+    // }
+
+    const handleSubmit = async () => {
+        try {
+            for (const item of quotation_request_list || []) {
+                if (
+                    selectedVendors[item.item] === item.vendor &&
+                    orderData?.procurement_request === item.procurement_task
+                ) {
+                    try {
+                        await updateDoc('Quotation Requests', item.name, {
+                            status: "Selected",
+                        });
+                        console.log("item", item.name);
+                    } catch (error) {
+                        console.log("update_submit_error", error);
+                    }
+                }
+            }
+    
+            await updateDoc('Sent Back Category', id, {
+                workflow_state: "Vendor Selected",
+                item_list: orderData.item_list,
+            });
+    
+            if (comment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Sent Back Category",
+                    reference_name: id,
+                    comment_by: userData?.user_id,
+                    content: comment,
+                    subject: "sr vendors selected",
+                });
+            }
+    
+            toast({
+                title: "Success!",
+                description: `Sent Back: ${id} sent for Approval!`,
+                variant: "success",
+            });
+
+            await mutate(`${orderData?.type} Sent Back Category`)
+
+            navigate(`/${orderData?.type?.toLowerCase()}-sb`)
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `Failed to send Sent Back: ${id} for Approval.`,
+                variant: "destructive",
+            });
+            console.log("submit_error", error);
+        }
+    };
+    
 
     const handleUpdateOrderData = () => {
         setPage('approvequotation')
@@ -645,7 +708,7 @@ export const SentBackSelectVendor = () => {
                     })}
                     {/* <div className="pt-10"></div> */}
                     <div className='pt-6 flex justify-between'>
-                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => navigate(-1)}>
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => navigate(`/${orderData?.type?.toLowerCase()}-sb/${orderData?.name}/update-quote`)}>
                             <Pencil className='w-4 h-4' />
                             Edit Price
                         </Button>

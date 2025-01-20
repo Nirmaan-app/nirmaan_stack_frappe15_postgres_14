@@ -112,8 +112,8 @@ export default function Dashboard() {
     return (
         <>
 
-            {(role == 'Nirmaan Admin Profile' || user_id === "Administrator") && <Default />}
-            {(has_project === "false" && role !== "Nirmaan Admin Profile") ?
+            {(role === 'Nirmaan Admin Profile' || user_id === "Administrator") && <Default />}
+            {(has_project === "false" && role !== "Nirmaan Admin Profile" && user_id !== "Administrator") ?
                 <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
                     <div className="flex gap-2 items-center">
                         <RocketIcon className="h-4 w-4" />
@@ -126,11 +126,11 @@ export default function Dashboard() {
                     </AlertDescription>
                 </Alert>
                 :
-                <>{role == 'Nirmaan Project Manager Profile' && <ProjectManager />}
-                    {role == 'Nirmaan Project Lead Profile' && <ProjectLead />}
-                    {role == 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
-                    {role == 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
-                    {role == 'Nirmaan Accountant Profile' && <Accountant />}
+                <>{role === 'Nirmaan Project Manager Profile' && <ProjectManager />}
+                    {role === 'Nirmaan Project Lead Profile' && <ProjectLead />}
+                    {role === 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
+                    {role === 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
+                    {role === 'Nirmaan Accountant Profile' && <Accountant />}
                 </>
             }
         </>

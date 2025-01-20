@@ -506,7 +506,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                           onChange={(e) =>
                             handlePriceChange(q.name, Number(e.target.value))
                           }
-                          className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
+                          className="w-full text-gray-700 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
                         />
                         <sup>*</sup>
                       </div>
