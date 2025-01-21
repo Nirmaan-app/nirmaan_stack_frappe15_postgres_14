@@ -124,11 +124,11 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         updateURL("eTab", value)
     }
 
-    useEffect(() => {
-        const currentTab = searchParams.get("eTab") || "All";
-        setSelectedPackage(currentTab);
-        updateURL("eTab", currentTab)
-    }, []);
+    // useEffect(() => {
+    //     const currentTab = searchParams.get("eTab") || "All";
+    //     setSelectedPackage(currentTab);
+    //     // updateURL("eTab", currentTab)
+    // }, []);
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {

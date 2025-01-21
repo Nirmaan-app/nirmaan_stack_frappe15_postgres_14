@@ -26,7 +26,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Tree } from "antd";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
-import ReactSelect from 'react-select';
+import ReactSelect, { components } from 'react-select';
 import { AddressView } from '@/components/address-view'
 
 
@@ -130,6 +130,12 @@ export const PurchaseOrder = () => {
 
   const toggleAmendEditItemDialog = () => {
     setAmendEditItemDialog((prevState) => !prevState)
+  }
+
+  const [showAddNewMake, setShowAddNewMake] = useState(false)
+
+  const toggleAddNewMake = () => {
+    setShowAddNewMake((prevState) => !prevState)
   }
 
   const { updateDoc, error: update_submit_error, loading: update_loading } = useFrappeUpdateDoc()
@@ -675,6 +681,8 @@ export const PurchaseOrder = () => {
     toggleAmendEditItemDialog()
   };
 
+  console.log("orderList", orderData?.list)
+
   const handleDelete = (item: string) => {
     let curRequest = orderData?.list;
     let itemToPush = curRequest.find((curValue) => curValue.item === item);
@@ -1145,22 +1153,22 @@ export const PurchaseOrder = () => {
               </div>
               <span className="font-light">{po?.vendor_gst}</span>
             </div>
-            <div className="flex items-start justify-between">
-              <div className="w-[100%]">
+            <div className="flex flex-col">
+              <div>
                 <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
                 <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
               </div>
-              <span className="font-light">
+              <span className="font-light pl-6">
                 {/* {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode} */}
                 <AddressView id={po?.vendor_address}/>
               </span>
             </div>
-            <div className="flex items-start justify-between">
-              <div className="w-[100%]">
+            <div className="flex flex-col">
+              <div>
                 <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
                 <Label className="ml-1 font-light text-red-700">Project Address:</Label>
               </div>
-              <span className="font-light">
+              <span className="font-light pl-6">
                 {/* {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode} */}
                 <AddressView id={po?.project_address}/>
               </span>
@@ -2279,8 +2287,8 @@ export const PurchaseOrder = () => {
                       </HoverCardContent>
                     </HoverCard>
                   ) : (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
+                    <Dialog>
+                      <DialogTrigger asChild>
                         <Button
                           variant="outline"
                           className="border-primary flex items-center gap-1"
@@ -2288,17 +2296,17 @@ export const PurchaseOrder = () => {
                           <CheckCheck className="h-4 w-4" />
                           Confirm
                         </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>
                             <h1 className="justify-center text-center">
                               Are you sure you want to amend this
                               PO?
                             </h1>
-                          </AlertDialogTitle>
+                          </DialogTitle>
 
-                          <AlertDialogDescription className="flex flex-col text-center gap-1">
+                          <DialogDescription className="flex flex-col text-center gap-1">
                             Amending this PO will send this to
                             Project Lead for approval. Continue?
                             <div className="flex flex-col gap-2 mt-2">
@@ -2319,10 +2327,10 @@ export const PurchaseOrder = () => {
                               </div>
                             ) : (
                               <div className="flex gap-2 items-center justify-center pt-2">
-                                <AlertDialogCancel className="flex items-center gap-1">
+                                {/* <DialogClose className="flex items-center gap-1">
                                   <Undo2 className="h-4 w-4" />
                                   Cancel
-                                </AlertDialogCancel>
+                                </DialogClose> */}
                                 <Button
                                   onClick={handleAmendPo}
                                   className="flex items-center gap-1"
@@ -2332,10 +2340,10 @@ export const PurchaseOrder = () => {
                                 </Button>
                               </div>
                             )}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                          </DialogDescription>
+                        </DialogHeader>
+                      </DialogContent>
+                    </Dialog>
                   )}
                 </div>
                 <Dialog open={amendEditItemDialog} onOpenChange={toggleAmendEditItemDialog}>
@@ -2372,9 +2380,10 @@ export const PurchaseOrder = () => {
                                             </h5>
                                             <div className="w-full">
                                               {/* {item.unit} */}
-                                              <ReactSelect className="w-full" placeholder="Select Make..." value={selectedMake} options={editMakeOptions}
+                                              {/* <ReactSelect className="w-full" placeholder="Select Make..." value={selectedMake} options={editMakeOptions}
                                                 onChange={(e) => setSelectedMake(e)}
-                                              />
+                                              /> */}
+                                              <MakesSelection selectedMake={selectedMake} setSelectedMake={setSelectedMake} editMakeOptions={editMakeOptions} toggleAddNewMake={toggleAddNewMake} amendEditItem={amendEditItem} />
                                             </div>
                                           </div>
                                           <div className="w-[30%]">
@@ -2409,6 +2418,8 @@ export const PurchaseOrder = () => {
                                           </div>
                                         </div>
                                       </div>
+
+                                      {showAddNewMake && <AddNewMakes orderData={orderData?.list} setOrderData={setOrderData} editMakeOptions={editMakeOptions} amendEditItem={amendEditItem} toggleAddNewMake={toggleAddNewMake} setEditMakeOptions={setEditMakeOptions} />}
                                     </DialogDescription>
                                     <DialogDescription className="flex justify-end">
                                       <div className="flex gap-2">
@@ -3269,5 +3280,124 @@ export const PurchaseOrder = () => {
         </SheetContent>
       </Sheet>
     </div>
+  )
+}
+
+const MakesSelection = ({ selectedMake, setSelectedMake, editMakeOptions, amendEditItem, toggleAddNewMake }) => {
+
+  const CustomMenu = (props) => {
+    const { MenuList } = components;
+
+    return (
+      <MenuList {...props}>
+        {props.children}
+        <div
+          className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
+          onClick={() => toggleAddNewMake()}
+        >
+          <strong>Add New Make</strong>
+        </div>
+      </MenuList>
+    );
+  };
+
+  return (
+    <>
+    <div className="w-full">
+      <ReactSelect
+        className="w-full"
+        placeholder="Select Make..."
+        value={selectedMake}
+        options={editMakeOptions}
+        onChange={(selectedOption) => setSelectedMake(selectedOption)}
+        components={{ MenuList: CustomMenu }}
+      />
+    </div>
+    </>
+  );
+};
+
+
+const AddNewMakes = ({orderData, setOrderData, editMakeOptions, amendEditItem, toggleAddNewMake, setEditMakeOptions}) => {
+
+  const [makeOptions, setMakeOptions] = useState([]);
+
+  const [newSelectedMakes, setNewSelectedMakes] = useState([]);
+
+  const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList("Category Makelist", {
+    fields: ["*"],
+    limit: 10000,
+  })
+
+  useEffect(() => {
+    if (categoryMakeList?.length > 0) {
+      const categoryMakes = categoryMakeList?.filter((i) => i?.category === amendEditItem.category);
+      const makeOptionsList = categoryMakes?.map((i) => ({ label: i?.make, value: i?.make })) || [];
+      const filteredOptions = makeOptionsList?.filter(i => !editMakeOptions?.some(j => j?.value === i?.value))
+      setMakeOptions(filteredOptions)
+    }
+
+  }, [categoryMakeList, editMakeOptions, amendEditItem])
+
+  const handleSumbit = () => {
+
+    const allOptions = [...editMakeOptions, ...newSelectedMakes]
+
+    const currentMakes = editMakeOptions?.map(j => ({make : j?.value, enabled : "false"}))
+
+    const reformattedNewMakes = newSelectedMakes?.map(i => ({make : i?.value, enabled : "false"}))
+
+    const combinedMakes = [...currentMakes, ...reformattedNewMakes]
+
+    const curRequest = orderData.map((curValue) => {
+      if (curValue.item === amendEditItem?.item) {
+        return { ...curValue, makes: { list: combinedMakes } };
+      }
+      return curValue;
+    });
+
+    setOrderData({
+      list: curRequest,
+    });
+
+    setEditMakeOptions(allOptions)
+
+    toggleAddNewMake()
+  }
+
+  return (
+      <Card className="w-full bg-gray-100 my-2">
+          <CardContent className="py-2">
+          <div className="flex flex-col gap-2">
+            <h2 className="font-semibold">Existing Makes for this item:</h2>
+            {editMakeOptions?.length > 0 ? (
+              <div className="flex gap-1 flex-wrap">
+              {editMakeOptions?.map((i) => (
+                <Badge>{i?.value}</Badge>
+              ))}
+              </div>
+            ) : "--"}
+          </div>
+          <div className="flex gap-4 items-end my-4">
+          <div className="w-[70%]">
+            <Label>
+              Select New Make
+            </Label>
+            {categoryMakeList && (
+              <ReactSelect options={makeOptions} value={newSelectedMakes} isMulti onChange={(selectedOptions) => setNewSelectedMakes(selectedOptions)} />
+            )}
+          </div>
+
+          <div className="flex gap-2 items-center">
+            <Button onClick={() => toggleAddNewMake()} variant="outline">Cancel</Button>
+            <Button onClick={handleSumbit} disabled={!newSelectedMakes?.length} className="flex items-center gap-1">
+              <ListChecks className="h-4 w-4" />
+              Confirm
+            </Button>
+          </div>
+
+          </div>
+          </CardContent>
+      </Card>
   )
 }

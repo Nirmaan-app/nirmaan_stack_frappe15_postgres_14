@@ -16,7 +16,7 @@ def execute():
         },
         "pr:approved": {
             "old_pattern": "procure-request",
-            "new_pattern": "new-procure-request"
+            "new_pattern": "procurement-requests"
         },
         "pr:vendorSelected": {
             "old_pattern": "approve-vendor",
@@ -24,7 +24,19 @@ def execute():
         },
         "po:new": {
             "old_pattern": "release-po",
-            "new_pattern": "approved-po"
+            "new_pattern": "purchase-orders"
+        },
+        "Rejected-sb:new": {
+            "old_pattern": "rejected-sb",
+            "new_pattern": "sent-back-requests"
+        },
+        "Delayed-sb:new": {
+            "old_pattern": "delayed-sb",
+            "new_pattern": "sent-back-requests"
+        },
+        "Cancelled-sb:new": {
+            "old_pattern": "cancelled-sb",
+            "new_pattern": "sent-back-requests"
         },
     }
 

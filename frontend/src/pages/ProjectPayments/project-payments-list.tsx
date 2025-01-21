@@ -53,8 +53,6 @@ export const ProjectPaymentsList = () => {
         orderBy: { field: "modified", order: "desc" },
     });
 
-    console.log("serviceRequests", serviceOrders)
-
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
@@ -70,11 +68,11 @@ export const ProjectPaymentsList = () => {
         limit: 100000
     })
 
-    useEffect(() => {
-        const currentTab = searchParams.get("tab") || "PO Wise";
-        setTab(currentTab);
-        updateURL("tab", currentTab);
-    }, []);
+    // useEffect(() => {
+    //     const currentTab = searchParams.get("tab") || "PO Wise";
+    //     setTab(currentTab);
+    //     updateURL("tab", currentTab);
+    // }, []);
 
     const updateURL = (key, value) => {
         const url = new URL(window.location);
@@ -445,8 +443,6 @@ export const ProjectPaymentsList = () => {
     }
 
     const siteUrl = `${window.location.protocol}//${window.location.host}`;
-
-    console.log("currentPaymentsDialog", currentPayments)
 
     return (
         <div className="flex-1 space-y-4">

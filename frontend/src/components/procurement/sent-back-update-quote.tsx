@@ -194,13 +194,14 @@ export const SentBackUpdateQuote = () => {
   const location = useLocation();
 
   const handleUpdateQuote = () => {
-    if (location.pathname.includes("cancelled-sb")) {
-      navigate(`/cancelled-sb/${id}/update-quote/choose-vendor`);
-    } else if (location.pathname.includes("rejected-sb")) {
-      navigate(`/rejected-sb/${id}/update-quote/choose-vendor`);
-    } else {
-      navigate(`/delayed-sb/${id}/update-quote/choose-vendor`);
-    }
+    // if (location.pathname.includes("cancelled-sb")) {
+    //   navigate(`/cancelled-sb/${id}/update-quote/choose-vendor`);
+    // } else if (location.pathname.includes("rejected-sb")) {
+    //   navigate(`/rejected-sb/${id}/update-quote/choose-vendor`);
+    // } else {
+    //   navigate(`/delayed-sb/${id}/update-quote/choose-vendor`);
+    // }
+    navigate("choose-vendor")
   };
 
   const isButtonDisabled = useCallback(

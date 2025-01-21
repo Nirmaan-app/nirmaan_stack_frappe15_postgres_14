@@ -1965,18 +1965,11 @@ const ApprovePRListPage = ({
                               <span className="text-red-700 pr-1 font-extrabold">
                                 {cat.name}
                               </span>
-                              ({JSON.parse(project_data.project_work_packages).work_packages
-  .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-  .filter((category) => category?.name === cat?.name)?.length > 0 ? (
-    JSON.parse(project_data.project_work_packages).work_packages
-      .flatMap((wp) => wp.category_list?.list || [])
-      .filter((category) => category?.name === cat?.name)
-      .flatMap((category) => category.makes || [])
-      .map((make, index, arr) => (
-        <i key={index}>{make}{index < arr.length - 1 && ", "}</i>
-      ))
-  ) : (
-    "--")})
+                              {cat?.makes?.length > 0 ? (cat?.makes?.map((make, index, arr) => (
+                                  <i key={index}>{make}{index < arr.length - 1 && ", "}</i>
+                                ))
+                            ) : (
+                              "- no makes specified")}
                             </div>
                             {uploadedFiles[cat.name] && (
                               <div className="flex gap-1 items-end">

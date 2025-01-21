@@ -38,6 +38,7 @@ import { ConfigProvider, Dropdown, Menu, Space } from "antd";
 import svg from "@/assets/Vector.svg";
 import { Button } from "../ui/button";
 import { UserContext } from "@/utils/auth/UserProvider";
+import { useUserData } from "@/hooks/useUserData";
 
 export const MainLayout = () => {
   const {
@@ -54,6 +55,8 @@ export const MainLayout = () => {
   const navigate = useNavigate();
 
   const { selectedProject, toggleNewItemDialog } = useContext(UserContext);
+
+  const {role} = useUserData()
 
   // console.log("selectedProject", selectedProject)
 
@@ -286,11 +289,15 @@ export const MainLayout = () => {
                           <Separator orientation="vertical" className="mr-1 h-4" />
                         </>
                       )} */}
-              <ArrowLeft
+              {location.pathname !== "/" && (
+                <>
+                <ArrowLeft
                 onClick={() => navigate(-1)}
                 className="text-primary cursor-pointer"
               />
               <Separator orientation="vertical" className="mr-1 h-4" />
+                </>
+              )}
               {/* <Breadcrumb>
                           <BreadcrumbList>
                             {locationsPaths?.length > (isMobile ? 1 : 2) ? (
@@ -418,7 +425,21 @@ export const MainLayout = () => {
                 <CirclePlus className="w-5 h-5 pr-1" />
                 Add <span className="hidden md:flex pl-1">New Item</span>
               </Button>
-            ) : (
+            ) : location.pathname === "/" && ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button className="sm:mr-4 mr-2">
+                    <CirclePlus className="w-5 h-5 pr-1" />
+                    Add
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>Urgent PR</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate("/service-requests")}>Service Request</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+            : (
               projectData && (
                 <Badge className={`sm:mr-4 mr-2 ${projectData?.project_name?.length > 24 ? "max-sm:text-[9px]" : "max-sm:text-[11px]"}`}>
                   {projectData?.project_name}

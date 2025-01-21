@@ -450,7 +450,8 @@ export const SentBackSelectVendor = () => {
 
             await mutate(`${orderData?.type} Sent Back Category`)
 
-            navigate(`/${orderData?.type?.toLowerCase()}-sb`)
+            // navigate(`/${orderData?.type?.toLowerCase()}-sb`)
+            navigate(`/sent-back-requests?type=${orderData?.type}+SB`)
         } catch (error) {
             toast({
                 title: "Failed!",
@@ -708,7 +709,10 @@ export const SentBackSelectVendor = () => {
                     })}
                     {/* <div className="pt-10"></div> */}
                     <div className='pt-6 flex justify-between'>
-                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => navigate(`/${orderData?.type?.toLowerCase()}-sb/${orderData?.name}/update-quote`)}>
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => {
+                            // navigate(`/${orderData?.type?.toLowerCase()}-sb/${orderData?.name}/update-quote`)
+                            navigate(`/sent-back-requests/${orderData?.name}/update-quote`)
+                        }}>
                             <Pencil className='w-4 h-4' />
                             Edit Price
                         </Button>
@@ -789,7 +793,7 @@ export const SentBackSelectVendor = () => {
                 <>
                     <div className="flex-1 space-y-4">
                         <div className="flex items-center">
-                            <ArrowLeft onClick={() => setPage('updatequotation')} />
+                            <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} sentBack />

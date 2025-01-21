@@ -528,6 +528,7 @@ export function NewSidebar() {
               { key: "/vendors", label: "Vendors" },
               { key: "/customers", label: "Customers" },
               { key: "/procurement-packages", label: "Procurement Packages" },
+              { key: "/approved-quotes", label: "Approved Quotations" },
             ],
           },
         ]
@@ -673,39 +674,49 @@ export function NewSidebar() {
     user_id == "Administrator" ||
     role == "Nirmaan Admin Profile"
       ? [
+          // {
+          //   key: "sent-back-actions",
+          //   icon: SendToBack,
+          //   label: "Sent Back Requests",
+          //   children: [
+          //     {
+          //       key: "/rejected-sb",
+          //       label: "Rejected Sent Back",
+          //       count:
+          //         role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //           ? adminNewSBCounts.rejected
+          //           : newSBCounts.rejected,
+          //     },
+          //     {
+          //       key: "/delayed-sb",
+          //       label: "Delayed Sent Back",
+          //       count:
+          //         role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //           ? adminNewSBCounts.delayed
+          //           : newSBCounts.delayed,
+          //     },
+          //     {
+          //       key: "/cancelled-sb",
+          //       label: "Cancelled Sent Back",
+          //       count:
+          //         role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //           ? adminNewSBCounts.cancelled
+          //           : newSBCounts.cancelled,
+          //     },
+          //   ],
+          // },
           {
-            key: "sent-back-actions",
+            key: "/sent-back-requests",
             icon: SendToBack,
             label: "Sent Back Requests",
-            children: [
-              {
-                key: "/rejected-sb",
-                label: "Rejected Sent Back",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewSBCounts.rejected
-                    : newSBCounts.rejected,
-              },
-              {
-                key: "/delayed-sb",
-                label: "Delayed Sent Back",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewSBCounts.delayed
-                    : newSBCounts.delayed,
-              },
-              {
-                key: "/cancelled-sb",
-                label: "Cancelled Sent Back",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewSBCounts.cancelled
-                    : newSBCounts.cancelled,
-              },
-            ],
+            count:
+                 role === "Nirmaan Admin Profile" ||
+                 user_id === "Administrator"
+                   ? adminNewSBCounts.rejected + adminNewSBCounts.cancelled + adminNewSBCounts.delayed
+                   : newSBCounts.rejected + newSBCounts.cancelled + newSBCounts.delayed,
           },
         ]
       : []),
@@ -735,6 +746,7 @@ export function NewSidebar() {
     "vendors",
     "customers",
     "procurement-packages",
+    "approved-quotes",
     "prs&milestones",
     "approve-new-pr",
     "approve-po",
@@ -747,9 +759,10 @@ export function NewSidebar() {
     // "approved-po",
     // "released-po",
     "purchase-orders",
-    "rejected-sb",
-    "delayed-sb",
-    "cancelled-sb",
+    // "rejected-sb",
+    // "delayed-sb",
+    // "cancelled-sb",
+    "sent-back-requests",
     "service-requests",
     "approve-service-request",
     "choose-service-vendor",
@@ -772,6 +785,7 @@ export function NewSidebar() {
     "vendors",
     "customers",
     "procurement-packages",
+    "approved-quotes",
   ].includes(selectedKeys)
     ? "admin-actions"
     : [
@@ -793,8 +807,8 @@ export function NewSidebar() {
     ? "pe-sr-actions"
     : ["purchase-orders"].includes(selectedKeys)
     ? "/purchase-orders"
-    : ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys)
-    ? "sent-back-actions"
+    : ["sent-back-requests"].includes(selectedKeys)
+    ? "/sent-back-requests"
     : ["service-requests", "choose-service-vendor", "approved-sr"].includes(
         selectedKeys
       )
@@ -857,7 +871,7 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments"].includes(item?.label) ? (
+                  {["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests"].includes(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
                         ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)

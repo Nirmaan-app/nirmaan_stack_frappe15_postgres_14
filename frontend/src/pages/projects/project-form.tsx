@@ -12,7 +12,7 @@ import ProjectTypeForm from "../../components/project-type-form"
 import { Separator } from "../../components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { cn } from "@/lib/utils"
-import { ArrowLeft, BadgeIndianRupee, CalendarIcon, CirclePlus, GitCommitVertical, ListChecks, Undo2 } from "lucide-react"
+import { ArrowLeft, BadgeIndianRupee, CalendarIcon, CirclePlus, GitCommitVertical, ListChecks, Pencil, Undo2 } from "lucide-react"
 import { Calendar } from "../../components/ui/calendar"
 import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../components/ui/accordion"
@@ -159,18 +159,6 @@ const projectFormSchema = z.object({
             )
         }),
 })
-// project_work_milestones: z
-//     .object({
-//         name: z.string(),
-//         isChecked: z.boolean(),
-//         scopes: z.object({
-//             name: z.string(),
-//             scope_of_work_name: z.string(),
-//             isSelected: z.boolean()
-//         }).array()
-//     })
-//     .array()
-//})
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>
 
@@ -185,23 +173,6 @@ interface sowType {
     scope_of_work_name: string;
     work_package: string;
 }
-
-// interface PWM {
-//     name: string
-//     scopes: string[]
-// }
-
-// interface WorkPackages {
-//     name: string
-//     isChecked: boolean
-//     scopes: Scopes[]
-// }
-
-// interface Scopes {
-//     name: string
-//     scope_of_work_name: string
-//     isSelected: boolean
-// }
 
 export const ProjectForm = () => {
 
@@ -289,6 +260,7 @@ export const ProjectForm = () => {
         "projectTimeline",
         "projectAssignees",
         "packageSelection",
+        "reviewDetails"
     ];
 
     const sectionTitles = {
@@ -297,6 +269,7 @@ export const ProjectForm = () => {
         projectTimeline: "Project Timeline",
         projectAssignees: "Project Assignees",
         packageSelection: "Package Selection",
+        reviewDetails: "Review Details"
     };
 
     const [pincode, setPincode] = useState("")
@@ -332,13 +305,13 @@ export const ProjectForm = () => {
         let reformattedWorkPackages = []
         try {
             if (values.project_city === "Not Found" || values.project_state === "Not Found") {
-                throw new Error('City and State are "Not Found", Please Enter a Valid Pincode')
+                throw new Error('City and State are "Not Found", Please Enter a Valid Pincode!')
             }
             if (!values.project_end_date) {
-                throw new Error('Project_End_Date Must not be empty')
+                throw new Error('Project_End_Date Must not be empty!')
             }
             if (!values.project_work_packages.work_packages.length) {
-                throw new Error('Please select atleast one work package associated with this project')
+                throw new Error('Please select atleast one work package associated with this project!')
             } else {
                 reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
                     const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
@@ -510,7 +483,15 @@ export const ProjectForm = () => {
             return
         }
 
-        // console.log("isValid", isValid)
+        if(section === "packageSelection" && !form.getValues("project_work_packages.work_packages").length) {
+            toast({
+                title: "Failed!",
+                description: "Non Procurement Package Selected!",
+                variant: "destructive"
+            })
+            return
+        }
+        
         const nextSec = nextSection(section)
         const nextIndex = currentStep + 1
 
@@ -549,6 +530,8 @@ export const ProjectForm = () => {
                 return "projectAssignees";
             case "projectAssignees":
                 return "packageSelection";
+            case "packageSelection":
+                return "reviewDetails"
             default:
                 return "projectDetails";
         }
@@ -1463,9 +1446,23 @@ export const ProjectForm = () => {
                         {section === "packageSelection" && (
                             <>
                                 {wp_list?.length > 0 && (<WorkPackageSelection form={form} wp_list={wp_list} />)}
-                                <div className="pt-2 flex items-center justify-end gap-2">
+                                <div className="flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectAssignees")
+                                        setCurrentStep(prevStep => prevStep - 1)
+                                    }}>Previous</Button>
+                                    <Button onClick={goToNextSection}>Next</Button>
+                                </div>
+                            </>)}
+
+                            {section === "reviewDetails" && (
+                                <>
+
+                                <ReviewDetails form={form} duration={duration} setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} />
+
+                                <div className="pt-2 flex items-center justify-end gap-2">
+                                    <Button variant={"outline"} onClick={() => {
+                                        setSection("packageSelection")
                                         setCurrentStep(prevStep => prevStep - 1)
                                     }}>Previous</Button>
                                     {(loading) ?
@@ -1475,38 +1472,40 @@ export const ProjectForm = () => {
                                             Submit</Button>
                                     }
                                 </div>
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <button className="hidden" id="alertOpenProject" >Trigger Dialog</button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader className="flex items-center justify-center">
-                                            <AlertDialogTitle className="text-green-500">
-                                                Project Created Successfully! You can start adding project estimates.
-                                            </AlertDialogTitle>
-                                            <div className="flex gap-2">
-                                                <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
-                                                    <Undo2 className="h-4 w-4" />
-                                                    Go Back
-                                                </AlertDialogAction>
-                                                <AlertDialogAction onClick={() => {
-                                                    form.reset()
-                                                    form.clearErrors()
-                                                }}
-                                                    className="flex items-center gap-1"
-                                                >
-                                                    <CirclePlus className="h-4 w-4" />
-                                                    Create New</AlertDialogAction>
-                                                <AlertDialogAction onClick={() => navigate(`/projects/${newProjectId}/add-estimates`)} className="flex items-center gap-1 bg-gray-100 text-black">
-                                                    <BadgeIndianRupee className="h-4 w-4" />
-                                                    Next: Fill Estimates
-                                                </AlertDialogAction>
-                                            </div>
-                                        </AlertDialogHeader>
 
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            </>)}
+                                <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <button className="hidden" id="alertOpenProject" >Trigger Dialog</button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader className="flex items-center justify-center">
+                                        <AlertDialogTitle className="text-green-500">
+                                            Project Created Successfully! You can start adding project estimates.
+                                        </AlertDialogTitle>
+                                        <div className="flex gap-2">
+                                            <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
+                                                <Undo2 className="h-4 w-4" />
+                                                Go Back
+                                            </AlertDialogAction>
+                                            <AlertDialogAction onClick={() => {
+                                                form.reset()
+                                                form.clearErrors()
+                                            }}
+                                                className="flex items-center gap-1"
+                                            >
+                                                <CirclePlus className="h-4 w-4" />
+                                                Create New</AlertDialogAction>
+                                            <AlertDialogAction onClick={() => navigate(`/projects/${newProjectId}/add-estimates`)} className="flex items-center gap-1 bg-gray-100 text-black">
+                                                <BadgeIndianRupee className="h-4 w-4" />
+                                                Next: Fill Estimates
+                                            </AlertDialogAction>
+                                        </div>
+                                    </AlertDialogHeader>
+
+                                </AlertDialogContent>
+                            </AlertDialog>
+                                </>
+                            )}
                     </div>
                 </form >
             </Form >
@@ -1715,3 +1714,122 @@ const WorkPackageSelection = ({ form, wp_list }) => {
         </div>
     );
 };
+
+
+const ReviewDetails = ({ form, duration, setSection, sections, setCurrentStep, sectionTitles }) => {
+    console.log("subdivisions", form.getValues("sub-divisions"))
+    return (
+      <div className="p-6 bg-white shadow rounded-lg">
+        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey="projectDetails">
+          <Detail label="Project Name" value={form.getValues("project_name")} />
+          <Detail label="Customer" value={form.getValues("customer")} />
+          <Detail label="Project Type" value={form.getValues("project_type")} />
+        </Section>
+  
+        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey="projectAddressDetails">
+          <Detail label="Address Line 1" value={form.getValues("address_line_1")} />
+          <Detail label="Address Line 2" value={form.getValues("address_line_2")} />
+          <Detail label="City" value={form.getValues("project_city")} />
+          <Detail label="State" value={form.getValues("project_state")} />
+          <Detail label="Pincode" value={form.getValues("pin")} />
+          <Detail label="Email" value={form.getValues("email")} />
+          <Detail label="Phone" value={form.getValues("phone")} />
+        </Section>
+  
+        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey="projectTimeline">
+          <Detail
+            label="Start Date"
+            value={form.getValues("project_start_date")?.toLocaleDateString()}
+          />
+          <Detail
+            label="End Date"
+            value={form.getValues("project_end_date")?.toLocaleDateString()}
+          />
+          <Detail
+            label="Duration"
+            value={`${duration} days`}
+          />
+        </Section>
+  
+        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey={"projectAssignees"}>
+          <Detail label="Project Lead" value={form.getValues("project_lead")} />
+          <Detail label="Project Manager" value={form.getValues("project_manager")} />
+          <Detail label="Design Lead" value={form.getValues("design_lead")} />
+          <Detail label="Procurement Lead" value={form.getValues("procurement_lead")} />
+          <Detail label="Estimates Executive" value={form.getValues("estimates_exec")} />
+          <Detail label="Accountant" value={form.getValues("accountant")} />
+        </Section>
+  
+        {/* <Section title="Package Selection">
+          <Detail
+            label="Work Packages"
+            value={JSON.stringify(form.getValues("project_work_packages.work"), null, 2)}
+          />
+          <Detail
+            label="Project Scopes"
+            value={JSON.stringify(form.getValues("project_scopes"), null, 2)}
+          />
+        </Section> */}
+
+<div>
+    <div className="flex gap-1 items-center mb-4">
+        <h2 className="text-lg font-semibold text-sky-600">Package Selection</h2>
+        <Pencil className="w-4 h-4 text-sky-600 cursor-pointer" onClick={() => {
+             setSection("packageSelection")
+             setCurrentStep(4)
+        }} />
+    </div>
+  <div className="space-y-4 grid grid-cols-2">
+    {form
+      .getValues("project_work_packages")?.work_packages?.map((workPackage, index) => (
+        <div key={index} className="border-b pb-4">
+          <p className="text-md font-medium text-gray-700">
+            {workPackage.work_package_name}
+          </p>
+          <ul className="pl-4 mt-2 space-y-2">
+            {workPackage.category_list?.list.map((category, idx) => (
+              <li key={idx} className="text-sm text-gray-600">
+                <span className="font-semibold">- {category.name}:</span>{" "}
+                {category.makes.length > 0
+                  ? category.makes.map((make) => make.label).join(", ")
+                  : "N/A"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )) || (
+      <p className="text-sm text-gray-600">No packages selected</p>
+    )}
+  </div>
+</div>
+
+      </div>
+    );
+  };
+  
+  const Section = ({ sectionKey, children, sectionTitles, setSection, sections, setCurrentStep }) => {
+
+    const handleClick = () => {
+        setSection(sectionKey)
+        const index = sections.findIndex((val) => val === sectionKey)
+        setCurrentStep(index)
+    }
+
+    return (
+    <div className="mb-8">
+        <div className="flex gap-1 items-center mb-4">
+             <h2 className="text-lg font-semibold text-sky-600">{sectionTitles[sectionKey]}</h2>
+            <Pencil className="w-4 h-4 text-sky-600 cursor-pointer" onClick={handleClick} />
+        </div>
+        <div className="grid grid-cols-2 gap-4">{children}</div>
+      </div>
+    )
+  };
+  
+  const Detail = ({ label, value }) => (
+    <div className="flex justify-between items-start border-b pb-2 mb-2">
+      <p className="text-sm text-gray-600 font-semibold">{label}</p>
+      <p className="text-sm text-gray-800 italic">{value || "N/A"}</p>
+    </div>
+  );
+  
