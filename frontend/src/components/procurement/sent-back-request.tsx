@@ -1,6 +1,6 @@
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useContext, useMemo } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useContext, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -10,6 +10,9 @@ import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useUserData } from "@/hooks/useUserData";
+import { Radio } from "antd";
 
 
 type PRTable = {
@@ -19,7 +22,11 @@ type PRTable = {
     category: string
 }
 
-export const SentBackRequest = ({ type }) => {
+export const SentBackRequest = () => {
+
+    const [searchParams] = useSearchParams();
+
+    const [type, setType] = useState<string>(searchParams.get("type") || "Rejected");
 
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
@@ -48,6 +55,10 @@ export const SentBackRequest = ({ type }) => {
         return total;
     }
 
+    const { role, user_id } = useUserData()
+
+    const { newSBCounts, adminNewSBCounts } = useDocCountStore()
+
     const { mark_seen_notification, notifications } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
@@ -56,6 +67,59 @@ export const SentBackRequest = ({ type }) => {
             mark_seen_notification(db, notification)
         }
     }
+        
+    const updateURL = (key, value) => {
+        const url = new URL(window.location);
+        url.searchParams.set(key, value);
+        window.history.pushState({}, "", url);
+    };
+
+
+    const onClick = (value) => {
+
+        if (type === value) return; // Prevent redundant updates
+
+        const newTab = value;
+        setType(newTab);
+        updateURL("type", newTab);
+
+    };
+
+    const items = [
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Rejected</span>
+                    <span className="ml-2 text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.rejected : newSBCounts.rejected}
+                    </span>
+                </div>
+            ),
+            value: "Rejected",
+        },
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Delayed</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.delayed : newSBCounts.delayed}
+                    </span>
+                </div>
+            ),
+            value: "Delayed",
+        },
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Cancelled</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}
+                    </span>
+                </div>
+            ),
+            value: "Cancelled",
+        },
+    ];
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -101,22 +165,6 @@ export const SentBackRequest = ({ type }) => {
                     )
                 }
             },
-            // {
-            //     accessorKey: "type",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="Type" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         const type = row.getValue("type")
-            //         return (
-            //             <div className="font-medium">
-            //                 <Badge variant={type === "Rejected" ? "destructive" : type === "Delayed" ? "orange" : "gray"}>{type ? type : "Rejected"}</Badge>
-            //             </div>
-            //         )
-            //     }
-            // },
             {
                 accessorKey: "creation",
                 header: ({ column }) => {
@@ -195,6 +243,17 @@ export const SentBackRequest = ({ type }) => {
                     <h2 className="text-lg font-bold tracking-tight">{type} Sent Back PR</h2>
                 </div> */}
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
+            {items && (
+                    <Radio.Group
+                        block
+                        options={items}
+                        defaultValue="Approved PO"
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={type}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
             {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
             )}
