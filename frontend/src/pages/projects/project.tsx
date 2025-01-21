@@ -272,20 +272,20 @@ const ProjectView = ({
   const [searchParams] = useSearchParams(); // Only for initialization
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "All");
   const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
-  const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || "");
+  const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || makeOptions?.[0]?.value);
 
   // Synchronize state with search parameters on initial load
-  useEffect(() => {
-    const currentTab = searchParams.get("tab") || "All";
-    const currentPage = searchParams.get("page") || "overview";
+  // useEffect(() => {
+  //   const currentTab = searchParams.get("tab") || "All";
+  //   const currentPage = searchParams.get("page") || "overview";
 
-    setActiveTab(currentTab);
-    setActivePage(currentPage);
+  //   setActiveTab(currentTab);
+  //   setActivePage(currentPage);
 
-    const MakesTab = makeOptions?.[0]?.value
-    const currentMakesTab = searchParams.get("makesTab") || MakesTab;
-    setMakesTab(currentMakesTab);
-  }, []);
+  //   const MakesTab = makeOptions?.[0]?.value
+  //   const currentMakesTab = searchParams.get("makesTab") || MakesTab;
+  //   setMakesTab(currentMakesTab);
+  // }, []);
 
   const updateURL = (key, value) => {
     const url = new URL(window.location);

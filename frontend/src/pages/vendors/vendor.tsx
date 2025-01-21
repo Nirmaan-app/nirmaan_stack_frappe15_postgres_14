@@ -34,6 +34,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { EditVendor } from "./edit-vendor";
 import { Badge } from "@/components/ui/badge";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 // const Vendor = () => {
 
@@ -189,16 +190,22 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     },
     data?.vendor_type === "Material"
       ? {
-        label: "Previous Orders",
-        key: "previousOrders",
+        label: "Orders",
+        key: "orders",
       }
       : null,
-    data?.vendor_type === "Material"
-      ? {
-        label: "Open Orders",
-        key: "openOrders",
-      }
-      : null,
+    // data?.vendor_type === "Material"
+    //   ? {
+    //     label: "Previous Orders",
+    //     key: "previousOrders",
+    //   }
+    //   : null,
+    // data?.vendor_type === "Material"
+    //   ? {
+    //     label: "Open Orders",
+    //     key: "openOrders",
+    //   }
+    //   : null,
     data?.vendor_type === "Service"
       ? {
         label: "Service Orders",
@@ -491,10 +498,10 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         },
         cell: ({ row }) => {
           return (
-            <div className="flex flex-col gap-2 text-[#11050599]">
-              <Badge>PO Value (Excl. GST): Rs. {getTotal(row.getValue("order_list"), row.getValue('name'),).poAmountWithoutGST.toFixed(2)}</Badge>
-              <Badge>PO Value (Incl. GST): Rs. {getTotal(row.getValue("order_list")).poAmountWithGST.toFixed(2)}</Badge>
-              <Badge>Amount Paid: Rs. {getTotal(row.getValue("order_list")).totalAmountPaid.toFixed(2)}</Badge>
+            <div className="flex flex-col gap-2 text-[#11050599] min-w-[200px]">
+              <Badge>PO Value (Excl. GST): {formatToIndianRupee(getTotal(row.getValue("order_list"), row.getValue('name'),).poAmountWithoutGST)}</Badge>
+              <Badge>PO Value (Incl. GST): {formatToIndianRupee(getTotal(row.getValue("order_list")).poAmountWithGST)}</Badge>
+              <Badge>Amount Paid: {formatToIndianRupee(getTotal(row.getValue("order_list")).totalAmountPaid)}</Badge>
             </div>
           );
         },
@@ -703,9 +710,20 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
           </div>
         ))}
 
+
+    {current === "orders" &&
+        (procurementOrdersLoading || procurementRequestsLoading ? (
+          <TableSkeleton />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={procurementOrders || []}
+          />
+        ))}
+
       {/* Previous Orders Section  */}
 
-      {current === "previousOrders" &&
+      {/* {current === "previousOrders" &&
         (procurementOrdersLoading || procurementRequestsLoading ? (
           <TableSkeleton />
         ) : (
@@ -717,11 +735,11 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
               )
             )}
           />
-        ))}
+        ))} */}
 
       {/* Open Orders Section  */}
 
-      {current === "openOrders" &&
+      {/* {current === "openOrders" &&
         (procurementOrdersLoading || procurementRequestsLoading ? (
           <TableSkeleton />
         ) : (
@@ -731,7 +749,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
               ["PO Approved", "PO Sent", "PO Amendment"].includes(po.status)
             )}
           />
-        ))}
+        ))} */}
 
       {/* Transactions Section  */}
 

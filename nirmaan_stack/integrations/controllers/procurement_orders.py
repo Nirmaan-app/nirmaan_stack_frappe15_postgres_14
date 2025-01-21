@@ -92,6 +92,11 @@ def on_update(doc, method):
                     aq.quantity=order['quantity']
                     aq.quote=order['quote']
                     aq.tax=order['tax']
+                    enabled_make = next(
+                        (make['make'] for make in order['makes']['list'] if make['enabled'] == "true"), 
+                        None
+                    )
+                    aq.make = enabled_make
                     aq.city=vendor.vendor_city
                     aq.state=vendor.vendor_state
                     aq.insert()

@@ -1954,8 +1954,6 @@ const ApprovePRListPage = ({
                   console.error("Error parsing category_list JSON:", e);
                 }
 
-                console.log("categories", categories)
-
                 return categories?.map((cat) => (
                   <div className="">
                     {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
