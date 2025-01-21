@@ -112,11 +112,11 @@ export const ReleasePOSelect = () => {
         }
     }
 
-    useEffect(() => {
-        const currentTab = searchParams.get("tab") || "Approved PO";
-        setTab(currentTab);
-        updateURL("tab", currentTab);
-    }, []);
+    // useEffect(() => {
+    //     const currentTab = searchParams.get("tab") || "Approved PO";
+    //     setTab(currentTab);
+    //     updateURL("tab", currentTab);
+    // }, []);
 
     const updateURL = (key, value) => {
         const url = new URL(window.location);

@@ -31,7 +31,7 @@ export const Accountant = () => {
                     <DashboardCard
                         title="Project Payments"
                         icon={<WalletCards className="h-8 w-8 text-white" />}
-                        onClick={() => navigate("/project-payments?tab=PO Wise")}
+                        onClick={() => navigate("/project-payments")}
                         className="bg-red-600"
                     />
                 </div>

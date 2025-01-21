@@ -86,11 +86,11 @@ export const ProcurementRequests = () => {
         }
     }
 
-    useEffect(() => {
-        const currentTab = searchParams.get("tab") || "New PR Request";
-        setTab(currentTab);
-        updateURL("tab", currentTab);
-    }, []);
+    // useEffect(() => {
+    //     const currentTab = searchParams.get("tab") || "New PR Request";
+    //     setTab(currentTab);
+    //     updateURL("tab", currentTab);
+    // }, []);
 
     const updateURL = (key, value) => {
         const url = new URL(window.location);

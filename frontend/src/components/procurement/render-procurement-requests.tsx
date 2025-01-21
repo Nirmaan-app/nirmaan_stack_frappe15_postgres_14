@@ -7,7 +7,7 @@ export const RenderProcurementRequest = () => {
 
     const [searchParams] = useSearchParams();
 
-   const tab = searchParams.get("tab")
+   const tab = searchParams.get("tab") || "New PR Request"
 
     if(tab === "New PR Request") {
         return <ProcurementOrder />
