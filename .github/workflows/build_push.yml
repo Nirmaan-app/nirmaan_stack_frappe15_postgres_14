@@ -21,10 +21,6 @@ jobs:
       run: |
         export APPS_JSON='[
           {
-            "url": "https://github.com/The-Commit-Company/frappe-types.git",
-            "branch": "main"
-          },
-          {
             "url": "https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git",
             "branch": "${{ env.RELEASE_VERSION }}"
           },
@@ -50,7 +46,7 @@ jobs:
       uses: docker/build-push-action@v6
       with:
         context: .
-        file: images/custom/Containerfile
+        file: images/layered/Containerfile
         platforms: linux/amd64
         push: true
         tags: asia-south1-docker.pkg.dev/nirmaan-stack/nirmaan-project-stack/nirmaan-project-stack:${{ env.RELEASE_VERSION }}
@@ -59,8 +55,6 @@ jobs:
         build-args: |
           FRAPPE_PATH=https://github.com/frappe/frappe
           FRAPPE_BRANCH=version-15
-          PYTHON_VERSION=3.11.6
-          NODE_VERSION=18.17.0
           APPS_JSON_BASE64=${{ env.APPS_JSON_BASE64 }}
           
           
