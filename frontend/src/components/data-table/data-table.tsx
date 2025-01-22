@@ -31,6 +31,7 @@ import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { useFilterStore } from "@/zustand/useFilterStore";
 import { useSearchParams } from "react-router-dom";
 import { Input } from "../ui/input";
+import { debounce } from "lodash";
 
 type ProjectOptions = {
   label: string;
@@ -53,16 +54,6 @@ interface DataTableProps<TData, TValue> {
   approvedQuotesVendors?: any;
   itemOptions?: any;
   wpOptions?: any;
-}
-
-function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => {
-      func(...args);
-    }, wait);
-  };
 }
 
 export function DataTable<TData, TValue>({

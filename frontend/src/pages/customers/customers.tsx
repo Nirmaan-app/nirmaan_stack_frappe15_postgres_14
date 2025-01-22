@@ -189,9 +189,8 @@ export default function Customers() {
                 </div>
             </div> */}
 
-            <div className="flex justify-between">
-                <Card className="hover:animate-shadow-drop-center w-[60%]">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
+                    <CardHeader className="flex flex-row items-center justify-between">
                         <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
                         <User className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
@@ -214,17 +213,8 @@ export default function Customers() {
                         </div>
                     </CardContent>
                 </Card>
-                {/* <Button asChild>
-                    <Link to="new">
-                        <CirclePlus className="w-5 h-5 pr-1 " />
-                        Add <span className="hidden md:flex pl-1"> New Customer</span>
-                    </Link>
-                </Button> */}
-            </div>
 
-            <div className="pl-0 pr-2">
                 {isLoading ? <TableSkeleton /> : <DataTable columns={columns} data={data || []} />}
-            </div>
         </div>
     );
 }

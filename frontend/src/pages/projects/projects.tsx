@@ -404,9 +404,8 @@ const {
                 </div>
 
             </div> */}
-      <div className="flex justify-between">
-        <Card className="hover:animate-shadow-drop-center w-[60%]">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">
               Total Projects
             </CardTitle>
@@ -430,14 +429,8 @@ const {
               )}
               {error && <p>Error</p>}
             </div>
-            {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
           </CardContent>
         </Card>
-        {/* {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
-                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
-                </Button>} */}
-      </div>
-      <div className="pl-0 pr-2">
         {isLoading || projectTypesListLoading ? (
           <TableSkeleton />
         ) : (
@@ -447,7 +440,6 @@ const {
             projectTypeOptions={projectTypeOptions}
           />
         )}
-      </div>
     </div>
   );
 }
