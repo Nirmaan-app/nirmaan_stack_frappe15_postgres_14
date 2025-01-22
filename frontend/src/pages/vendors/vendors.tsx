@@ -6,7 +6,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, Ellipsis, CirclePlus, Package } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { TailSpin } from "react-loader-spinner";
@@ -14,16 +14,22 @@ import { formatDate } from "@/utils/FormatDate";
 import { Badge } from "@/components/ui/badge"
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
+import {Radio} from 'antd'
+
 export default function Vendors() {
 
+  const [searchParams] = useSearchParams();
+  
+  const [type, setType] = useState<string>(searchParams.get("type") || "Material");
+
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
+
   const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList("Vendors", {
     fields: ["*"],
     limit: 1000,
     orderBy: { field: "creation", order: "desc" }
   },
     "vendors"
-
   )
 
   const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
@@ -48,6 +54,48 @@ export default function Vendors() {
       return { city: vendor?.vendor_city, state: vendor?.vendor_state };
     }
   };
+
+  const updateURL = (key, value) => {
+    const url = new URL(window.location);
+    url.searchParams.set(key, value);
+    window.history.pushState({}, "", url);
+};
+
+const onClick = (value) => {
+
+    if (type === value) return; // Prevent redundant updates
+
+    const newTab = value;
+    setType(newTab);
+    updateURL("type", newTab);
+
+};
+
+const items = [
+    {
+        label: (
+            <div className="flex items-center">
+                <span>Material</span>
+                <span className="ml-2 text-xs font-bold">
+                    {data?.filter(i => i?.vendor_type === "Material").length}
+                </span>
+            </div>
+        ),
+        value: "Material",
+    },
+    {
+        label: (
+            <div className="flex items-center">
+                <span>Service</span>
+                <span className="ml-2 rounded text-xs font-bold">
+                  {data?.filter(i => i?.vendor_type === "Service").length}
+                </span>
+            </div>
+        ),
+        value: "Service",
+    },
+];
+
 
   const columns: ColumnDef<VendorsType>[] = useMemo(
     () => [
@@ -201,20 +249,19 @@ export default function Vendors() {
       <h1>{category_error?.message}</h1>
     );
   return (
-    <div className="flex-1 space-y-2 md:space-y-4">
+    <div className="flex-1 space-y-4">
       {/* <div className="flex items-center justify-between">
                 <div className="flex gap-1 items-center">
                     <Link to="/"><ArrowLeft className="" /></Link>
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
                 </div>
             </div> */}
-      <div className="flex justify-between">
-        <Card className="hover:animate-shadow-drop-center w-[60%]">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">Total Vendors</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex justify-between items-center">
             <div className="text-2xl font-bold">
               {isLoading ? (
                 <TailSpin
@@ -230,26 +277,34 @@ export default function Vendors() {
               ) : (
                 data?.length
               )}
-              {/* {error && <p>Error</p>} */}
             </div>
-            {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
+            <div className="flex items-center gap-1 text-sm font-semibold">
+              <span>Material : {data?.filter(i => i?.vendor_type === "Material").length}</span>
+              <span>|</span>
+              <span>Service : {data?.filter(i => i?.vendor_type === "Service").length}</span>
+            </div>
           </CardContent>
         </Card>
-        {/* <Button asChild>
-                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
-                </Button> */}
-      </div>
-      <div className="pl-0 pr-2">
+            {items && (
+                    <Radio.Group
+                        block
+                        options={items}
+                        defaultValue="Material"
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={type}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
         {isLoading || category_loading ? (
           <TableSkeleton />
         ) : (
           <DataTable
             columns={columns}
-            data={data || []}
+            data={data?.filter(i => i?.vendor_type === type) || []}
             category_options={categoryOptions}
           />
         )}
-      </div>
     </div>
   );
 }

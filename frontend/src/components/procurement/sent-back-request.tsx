@@ -247,7 +247,7 @@ export const SentBackRequest = () => {
                     <Radio.Group
                         block
                         options={items}
-                        defaultValue="Approved PO"
+                        defaultValue="Rejected"
                         optionType="button"
                         buttonStyle="solid"
                         value={type}

@@ -138,6 +138,12 @@ export const PurchaseOrder = () => {
     setShowAddNewMake((prevState) => !prevState)
   }
 
+  const [revertDialog, setRevertDialog] = useState(false)
+
+  const toggleRevertDialog = () => {
+    setRevertDialog((prevState) => !prevState)
+  }
+
   const { updateDoc, error: update_submit_error, loading: update_loading } = useFrappeUpdateDoc()
 
   const { createDoc, error: create_submit_error, loading: create_loading } = useFrappeCreateDoc()
@@ -446,7 +452,9 @@ export const PurchaseOrder = () => {
 
       toggleMergeSheet()
 
-      navigate(-1);
+      const navigatePOId = newDoc?.name?.replaceAll("/", "&=")
+
+      navigate(`/purchase-orders/${navigatePOId}?tab=Approved+PO`);
 
     } catch (error) {
       console.log("error while creating the master po", error);
@@ -480,7 +488,7 @@ export const PurchaseOrder = () => {
         variant: "success",
       });
 
-      navigate(-1);
+      navigate("/purchase-orders");
     } catch (error) {
       console.log("error while unmerging po's", error);
     } finally {
@@ -504,13 +512,14 @@ export const PurchaseOrder = () => {
 
       await poMutate();
 
-      navigate(-1);
-
       toast({
         title: "Success!",
         description: `PO: ${poId} status updated to 'Dispatched' successfully!`,
         variant: "success",
       });
+
+      navigate(`/purchase-orders/${id}?tab=Released+PO`);
+
     } catch (error) {
       console.log(
         "error while updating the status of the PO to dispatch",
@@ -525,6 +534,48 @@ export const PurchaseOrder = () => {
       setLoadingFuncName("");
     }
   };
+
+  const handleRevertPO = async () => {
+    setLoadingFuncName("handleRevertPO");
+    try {
+      await updateDoc("Procurement Orders", poId, {
+        status: "PO Approved",
+        delivery_contact: null
+      });
+
+      if (comment) {
+        await createDoc("Nirmaan Comments", {
+          comment_type: "Comment",
+          reference_doctype: "Procurement Orders",
+          reference_name: poId,
+          comment_by: userData?.user_id,
+          content: comment,
+          subject: "reverting po",
+        });
+      }
+
+      await poMutate()
+
+      toast({
+        title: "Success!",
+        description: `PO: ${poId} Reverted back to PO Approved!`,
+        variant: "success",
+      });
+
+      navigate(`/purchase-orders/${id}?tab=Approved+PO`);
+
+    } catch (error) {
+
+      toast({
+        title: "Failed!",
+        description: `PO: ${poId} Revert Failed!`,
+        variant: "destructive",
+      });
+
+    } finally {
+      setLoadingFuncName("");
+    }
+  }
 
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
@@ -549,7 +600,9 @@ export const PurchaseOrder = () => {
         description: `${poId} amended and sent to Project Lead!`,
         variant: "success",
       });
-      navigate(-1);
+
+      navigate("/purchase-orders");
+      
     } catch (error) {
       console.log("Error while cancelling po", error);
       toast({
@@ -607,7 +660,7 @@ export const PurchaseOrder = () => {
         description: `Cancelled Po & New Sent Back: ${newSentBack.name} created successfully!`,
         variant: "success",
       });
-      navigate(-1);
+      navigate("/purchase-orders");
     } catch (error) {
       console.log("Error while cancelling po", error);
       toast({
@@ -680,8 +733,6 @@ export const PurchaseOrder = () => {
 
     toggleAmendEditItemDialog()
   };
-
-  console.log("orderList", orderData?.list)
 
   const handleDelete = (item: string) => {
     let curRequest = orderData?.list;
@@ -1104,19 +1155,54 @@ export const PurchaseOrder = () => {
             </Alert>
           </>
         )}
-      <div className="grid gap-6 grid-cols-1 md:grid-cols-5">
-        <Card className="rounded-sm shadow-m md:col-span-2 overflow-x-auto">
+      <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+        <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
           <CardHeader>
             <CardTitle className="text-xl text-red-600 flex items-center justify-between">
               PO Details
+              <div className="flex items-center gap-2">
+                {po?.status === "Dispatched" && (
+                  <button onClick={toggleRevertDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
+                    <Undo2 className="w-4 h-4" />
+                    Revert
+                  </button>
+                )}
               {po?.status !== "PO Approved" && (
-                <Button onClick={togglePoPdfSheet} className="text-xs flex items-center gap-1">
+                <button onClick={togglePoPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
                   <Eye className="w-4 h-4" />
                   Preview
-                </Button>
+                </button>
               )}
+              </div>
             </CardTitle>
           </CardHeader>
+          <Dialog open={revertDialog} onOpenChange={toggleRevertDialog}>
+            <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    Are you sure?
+                  </DialogTitle>
+                </DialogHeader>
+
+                <DialogDescription>
+                  Clicking on Confirm will revert this PO's status back to <span className="text-primary">PO Approved</span>.
+                </DialogDescription>
+
+                <div className="flex items-center justify-end gap-2">
+                {loadingFuncName === "handleRevertPO" ? <TailSpin color="red" height={40} width={40} /> : (
+                  <>
+                  <DialogClose asChild>
+                    <Button variant={"outline"}>Cancel</Button>
+                  </DialogClose>
+                  <Button onClick={handleRevertPO}>
+                    Confirm
+                  </Button>
+                  </>
+                )}
+                </div>
+
+            </DialogContent>
+          </Dialog>
           <CardContent className="flex flex-col gap-4 max-sm:text-sm w-full">
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-1">
@@ -1230,7 +1316,7 @@ export const PurchaseOrder = () => {
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
+        <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
           <CardHeader>
             <CardTitle className="text-xl text-red-600 flex items-center justify-between">
               PO Options

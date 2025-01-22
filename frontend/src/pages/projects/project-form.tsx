@@ -19,7 +19,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "..
 import { Checkbox } from "../../components/ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "../../components/ui/sheet"
 import { useNavigate } from "react-router-dom"
-import { useEffect, useState, useCallback } from "react"
+import React, { useEffect, useState, useCallback } from "react"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { useToast } from "../../components/ui/use-toast"
 import NewCustomer from "@/pages/customers/add-new-customer"
@@ -27,6 +27,7 @@ import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
 import { Steps } from "antd"
 import { FormSkeleton } from "@/components/ui/skeleton"
 import ReactSelect from "react-select";
+import useSectionContext, { SectionProvider } from "./SectionContext"
 
 
 const { Step } = Steps;
@@ -1458,7 +1459,7 @@ export const ProjectForm = () => {
                             {section === "reviewDetails" && (
                                 <>
 
-                                <ReviewDetails form={form} duration={duration} setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} />
+                                <ReviewDetails company={company} user={user} form={form} duration={duration} setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} />
 
                                 <div className="pt-2 flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
@@ -1716,27 +1717,30 @@ const WorkPackageSelection = ({ form, wp_list }) => {
 };
 
 
-const ReviewDetails = ({ form, duration, setSection, sections, setCurrentStep, sectionTitles }) => {
-    console.log("subdivisions", form.getValues("sub-divisions"))
+const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
+
+    const {setSection, setCurrentStep} = sectionProps
+
     return (
-      <div className="p-6 bg-white shadow rounded-lg">
-        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey="projectDetails">
+    <SectionProvider value={sectionProps}>
+        <div className="p-6 bg-white shadow rounded-lg">
+        <Section sectionKey="projectDetails">
           <Detail label="Project Name" value={form.getValues("project_name")} />
-          <Detail label="Customer" value={form.getValues("customer")} />
           <Detail label="Project Type" value={form.getValues("project_type")} />
+          <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
         </Section>
   
-        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey="projectAddressDetails">
+        <Section sectionKey="projectAddressDetails">
           <Detail label="Address Line 1" value={form.getValues("address_line_1")} />
-          <Detail label="Address Line 2" value={form.getValues("address_line_2")} />
           <Detail label="City" value={form.getValues("project_city")} />
+          <Detail label="Address Line 2" value={form.getValues("address_line_2")} />
           <Detail label="State" value={form.getValues("project_state")} />
           <Detail label="Pincode" value={form.getValues("pin")} />
-          <Detail label="Email" value={form.getValues("email")} />
           <Detail label="Phone" value={form.getValues("phone")} />
+          <Detail label="Email" value={form.getValues("email")} />
         </Section>
   
-        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey="projectTimeline">
+        <Section sectionKey="projectTimeline">
           <Detail
             label="Start Date"
             value={form.getValues("project_start_date")?.toLocaleDateString()}
@@ -1751,80 +1755,85 @@ const ReviewDetails = ({ form, duration, setSection, sections, setCurrentStep, s
           />
         </Section>
   
-        <Section setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} sectionKey={"projectAssignees"}>
-          <Detail label="Project Lead" value={form.getValues("project_lead")} />
-          <Detail label="Project Manager" value={form.getValues("project_manager")} />
-          <Detail label="Design Lead" value={form.getValues("design_lead")} />
-          <Detail label="Procurement Lead" value={form.getValues("procurement_lead")} />
-          <Detail label="Estimates Executive" value={form.getValues("estimates_exec")} />
-          <Detail label="Accountant" value={form.getValues("accountant")} />
+        <Section sectionKey={"projectAssignees"}>
+         <Detail label="Project Lead" value={form.getValues("project_lead") ? user?.find(u => u.name === form.getValues("project_lead"))?.full_name : ""} />
+         <Detail label="Procurement Lead" value={form.getValues("procurement_lead") ? user?.find(u => u.name === form.getValues("procurement_lead"))?.full_name : ""} />
+         <Detail label="Project Manager" value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""} />
+         <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} />
+         <Detail label="Accountant" value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""} />
+         <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} />
         </Section>
-  
-        {/* <Section title="Package Selection">
-          <Detail
-            label="Work Packages"
-            value={JSON.stringify(form.getValues("project_work_packages.work"), null, 2)}
-          />
-          <Detail
-            label="Project Scopes"
-            value={JSON.stringify(form.getValues("project_scopes"), null, 2)}
-          />
-        </Section> */}
 
-<div>
-    <div className="flex gap-1 items-center mb-4">
-        <h2 className="text-lg font-semibold text-sky-600">Package Selection</h2>
-        <Pencil className="w-4 h-4 text-sky-600 cursor-pointer" onClick={() => {
-             setSection("packageSelection")
-             setCurrentStep(4)
-        }} />
-    </div>
-  <div className="space-y-4 grid grid-cols-2">
-    {form
-      .getValues("project_work_packages")?.work_packages?.map((workPackage, index) => (
-        <div key={index} className="border-b pb-4">
-          <p className="text-md font-medium text-gray-700">
-            {workPackage.work_package_name}
-          </p>
-          <ul className="pl-4 mt-2 space-y-2">
-            {workPackage.category_list?.list.map((category, idx) => (
-              <li key={idx} className="text-sm text-gray-600">
-                <span className="font-semibold">- {category.name}:</span>{" "}
-                {category.makes.length > 0
-                  ? category.makes.map((make) => make.label).join(", ")
-                  : "N/A"}
-              </li>
-            ))}
-          </ul>
+        <div>
+            <div className="flex gap-1 items-center mb-4">
+                <h2 className="text-lg font-semibold text-sky-600">Selected Packages</h2>
+                <Pencil className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600" onClick={() => {
+                     setSection("packageSelection")
+                     setCurrentStep(4)
+                }} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {form
+                .getValues("project_work_packages")?.work_packages?.map((workPackage, index) => (
+                  <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} border-b pb-4`}>
+                    <p className="text-md font-medium text-gray-700">
+                      {workPackage.work_package_name}
+                    </p>
+                    <ul className="pl-4 mt-2 space-y-2">
+                      {workPackage.category_list?.list.map((category, idx) => (
+                        <li key={idx} className="text-sm text-gray-600">
+                          <span className="font-semibold">- {category.name}:</span>{" "}
+                          {category.makes.length > 0
+                            ? category.makes.map((make) => make.label).join(", ")
+                            : "N/A"}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )) || (
+                <p className="text-sm text-gray-600">No packages selected</p>
+              )}
+            </div>
+            </div>
         </div>
-      )) || (
-      <p className="text-sm text-gray-600">No packages selected</p>
-    )}
-  </div>
-</div>
+    </SectionProvider>
+    );
+  };
+  
+const Section = ({ sectionKey, children }) => {
+    const { setSection, sections, setCurrentStep, sectionTitles } = useSectionContext();
+  
+    // Flatten children to handle fragments and arrays of elements
+    // const flattenedChildren = React.Children.toArray(children).flat();
 
+    console.log("children", children)
+  
+    const handleClick = () => {
+      setSection(sectionKey);
+      const index = sections.findIndex((val) => val === sectionKey);
+      setCurrentStep(index);
+    };
+  
+    return (
+      <div className="mb-8">
+        <div className="flex gap-1 items-center mb-4">
+          <h2 className="text-lg font-semibold text-sky-600">{sectionTitles[sectionKey]}</h2>
+          <Pencil
+            className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600"
+            onClick={handleClick}
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {children.map((child, index) => (
+            <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} h-full`}>
+              {child}
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
   
-  const Section = ({ sectionKey, children, sectionTitles, setSection, sections, setCurrentStep }) => {
-
-    const handleClick = () => {
-        setSection(sectionKey)
-        const index = sections.findIndex((val) => val === sectionKey)
-        setCurrentStep(index)
-    }
-
-    return (
-    <div className="mb-8">
-        <div className="flex gap-1 items-center mb-4">
-             <h2 className="text-lg font-semibold text-sky-600">{sectionTitles[sectionKey]}</h2>
-            <Pencil className="w-4 h-4 text-sky-600 cursor-pointer" onClick={handleClick} />
-        </div>
-        <div className="grid grid-cols-2 gap-4">{children}</div>
-      </div>
-    )
-  };
   
   const Detail = ({ label, value }) => (
     <div className="flex justify-between items-start border-b pb-2 mb-2">

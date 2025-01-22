@@ -267,15 +267,14 @@ export const MainLayout = () => {
     <>
       <div className="flex w-full relative h-auto">
         {isMobile && (
-          <div className="absolute top-[15px] -left-2 shadow-2xl">
+          <div className="absolute top-[10px] -left-2 shadow-2xl">
             <SidebarTrigger />
           </div>
         )}
         <NewSidebar />
         <div className="w-full h-auto overflow-auto">
           <header
-            className={`${!isMobile && state === "collapsed" ? "mt-1" : ""
-              } flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}
+            className={`flex justify-between h-12 shrink-0 items-center pt-2 gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}
           >
             <div
               className={`${isMobile ? "ml-2" : ""
@@ -448,7 +447,8 @@ export const MainLayout = () => {
             )}
           </header>
           <main
-            className={`pb-4 px-2 transition-all duration-300 ease-in-out overflow-auto md:max-h-[92vh] 2xl:max-h-[93vh] max-md:max-h-[90vh]`}
+            className={`pb-4 px-2 transition-all ${!isMobile && state === "expanded" ? "" : ""
+              } duration-300 ease-in-out overflow-auto md:max-h-[94vh] 2xl:max-h-[95vh] max-md:max-h-[91vh]`}
           >
             <ErrorBoundaryWithNavigationReset>
               <ScrollToTop />

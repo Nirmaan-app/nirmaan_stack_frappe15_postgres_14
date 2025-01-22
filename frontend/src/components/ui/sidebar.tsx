@@ -630,9 +630,10 @@ const SidebarMenuButton = React.forwardRef<
           (selectedKeys === "project-payments" && tooltip?.children === "Project Payments") || 
           (selectedKeys === "purchase-orders" && tooltip?.children === "Purchase Orders") || 
           (selectedKeys === "procurement-requests" && tooltip?.children === "Procurement Requests") || 
-          (selectedKeys === "sent-back-requests" && tooltip?.children === "Sent Back Requests")) ? 
+          (selectedKeys === "sent-back-requests" && tooltip?.children === "Sent Back Requests") || 
+          (selectedKeys === "projects" && tooltip?.children === "Projects")) ? 
           "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : 
-          "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to={`${tooltip?.children === "Dashboard" ? "/" : tooltip?.children === "Project Payments" ? "/project-payments" : tooltip?.children === "Purchase Orders" ? "/purchase-orders" : tooltip?.children === "Procurement Requests" ? "/procurement-requests" : tooltip?.children === "Sent Back Requests" ? "/sent-back-requests" : ""}`}>{tooltip?.children}</Link></p>
+          "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to={`${tooltip?.children === "Dashboard" ? "/" : tooltip?.children === "Project Payments" ? "/project-payments" : tooltip?.children === "Purchase Orders" ? "/purchase-orders" : tooltip?.children === "Procurement Requests" ? "/procurement-requests" : tooltip?.children === "Sent Back Requests" ? "/sent-back-requests" : tooltip?.children === "Projects" ? "/projects" : ""}`}>{tooltip?.children}</Link></p>
       )}
     </TooltipContent>
   </Tooltip>

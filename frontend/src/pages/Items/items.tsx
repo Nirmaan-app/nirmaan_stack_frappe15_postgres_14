@@ -229,9 +229,8 @@ export default function Items() {
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
                 </div>
             </div> */}
-      <div className="flex justify-between">
-        <Card className="hover:animate-shadow-drop-center w-[60%]">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">Total Items</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -369,8 +368,6 @@ export default function Items() {
               </DialogContent>
             </Dialog>
           )}
-      </div>
-      <div className="pl-0 pr-2">
         {isLoading || category_loading ? (
           <TableSkeleton />
         ) : (
@@ -380,7 +377,6 @@ export default function Items() {
             category_options={categoryOptions}
           />
         )}
-      </div>
     </div>
   );
 }
