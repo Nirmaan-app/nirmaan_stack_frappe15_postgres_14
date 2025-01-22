@@ -362,6 +362,8 @@ const ProjectView = ({
     }
   );
 
+  const {data: projectType} = useFrappeGetDoc("Project Types", data?.project_type)
+
   const {
     data: project_estimates,
     isLoading: project_estimates_loading,
@@ -396,14 +398,22 @@ const ProjectView = ({
   })
 
   const getTotalAmountPaid = () => {
-    return projectPayments?.reduce((acc, payment) => {
+    const poAmount =  projectPayments?.filter(i => i?.document_type === "Procurement Orders")?.reduce((acc, payment) => {
         const amount = parseFloat(payment.amount || 0)
         const tds = parseFloat(payment.tds || 0)
         return acc + amount;
     }, 0);
+
+    const srAmount = projectPayments?.filter(i => i?.document_type === "Service Requests")?.reduce((acc, payment) => {
+      const amount = parseFloat(payment.amount || 0)
+      const tds = parseFloat(payment.tds || 0)
+      return acc + amount;
+  }, 0);
+
+  return {poAmount, srAmount, totalAmount : poAmount + srAmount}
   }
 
-  console.log("projectPayments", projectPayments)
+  // console.log("projectPayments", projectPayments)
 
   const {
     data: usersList,
@@ -437,7 +447,7 @@ const ProjectView = ({
       fields: ["*"],
       filters: [
         ["project", "=", projectId],
-        ["merged", "!=", "true"],
+        ["status", "!=", "Merged"],
       ], // removed ["status", "!=", "PO Approved"] for now
       limit: 1000,
       orderBy: { field: "creation", order: "desc" },
@@ -1112,6 +1122,17 @@ const ProjectView = ({
           );
         },
       },
+      {
+        id: "Amount_paid",
+        header: "Amt Paid",
+        cell: ({ row }) => {
+            const data = row.original
+            const amountPaid = getTotalAmountPaidPOWise(data?.name);
+            return <div className="font-medium">
+                {formatToIndianRupee(amountPaid)}
+            </div>
+        },
+    },
     ],
     [projectId, allServiceRequestsData]
   );
@@ -1705,20 +1726,20 @@ const ProjectView = ({
 
   return (
     <div className="flex-1 space-y-4">
-      <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
+      <div className="flex items-center justify-between max-md:flex-col max-md:gap-2 max-md:items-start">
         {/* <div className="flex items-center">
            <ArrowLeft
             className="cursor-pointer mr-1"
             onClick={() => navigate("/projects")}
           /> */}
         <div className="inline-block">
-          <span className="text-xl md:text-3xl font-bold tracking-tight text-wrap mr-1">
+          <span className="text-xl md:text-3xl font-bold tracking-tight text-wrap mr-1 md:ml-2">
             {data?.project_name.toUpperCase()}
           </span>
           {role === "Nirmaan Admin Profile" && (
             <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
               <SheetTrigger>
-                <FilePenLine className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3" />
+                <FilePenLine className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3 max-md:-mt-1" />
               </SheetTrigger>
               <SheetContent className="overflow-auto">
                 <EditProjectForm toggleEditSheet={toggleEditSheet} />
@@ -1799,7 +1820,7 @@ const ProjectView = ({
               </AlertDialog>
             </>
           )}
-          <div className="flex flex-col items-start ml-2">
+          <div className="flex flex-col items-start ml-2 text-sm max-sm:text-xs">
             <CustomHoverCard
               totalPosRaised={totalPosRaised}
               totalServiceOrdersAmt={totalServiceOrdersAmt}
@@ -1813,6 +1834,12 @@ const ProjectView = ({
                   const amount = i?.quantity_estimate * i?.rate_estimate;
                   return acc + parseFloat(amount);
                 }, 0))}
+              </span>
+            </div>
+            <div>
+              <span className="whitespace-nowrap">Total Amt Paid: </span>
+              <span className="max-sm:text-end max-sm:w-full text-primary">
+                {formatToIndianRupee(getTotalAmountPaid()?.totalAmount)}
               </span>
             </div>
           </div>
@@ -1856,7 +1883,8 @@ const ProjectView = ({
               <CardHeader>
                 <CardTitle>
                   <div className="flex justify-between items-center">
-                    {data?.project_name}
+                    {/* {data?.project_name} */}
+                    <div />
                     <Button onClick={() => navigate("add-estimates")}>
                       <CirclePlus className="h-4 w-4 mr-2" /> Add Project
                       Estimates
@@ -1867,10 +1895,10 @@ const ProjectView = ({
               <CardContent className="flex flex-col gap-10 w-full">
                 <div className="flex max-lg:flex-col max-lg:gap-10">
                   <div className="space-y-4 lg:w-[50%]">
-                    <CardDescription className="space-y-2">
+                    {/* <CardDescription className="space-y-2">
                       <span>Project Id</span>
                       <p className="font-bold text-black">{data?.name}</p>
-                    </CardDescription>
+                    </CardDescription> */}
 
                     <CardDescription className="space-y-2">
                       <span>Start Date</span>
@@ -1890,6 +1918,14 @@ const ProjectView = ({
                       <span>Estimated Completion Date</span>
                       <p className="font-bold text-black">
                         {formatDate(data?.project_end_date)}
+                      </p>
+                    </CardDescription>
+                    <CardDescription className="space-y-2">
+                      <span>Project Type</span>
+                      <p className="font-bold text-black">
+                        {data?.project_type ? (
+                          `${data?.project_type} - ${projectType?.standard_project_duration} days`
+                        ) : "--"}
                       </p>
                     </CardDescription>
                   </div>
@@ -2195,7 +2231,7 @@ const ProjectView = ({
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{getTotalAmountPaid()?.toLocaleString()}
+                          ₹{getTotalAmountPaid()?.poAmount?.toLocaleString()}
                         </span>
                       </p>
                     </div>
@@ -2441,10 +2477,44 @@ const ProjectView = ({
       )}
 
       {activePage === "SRSummary" && (
-        <DataTable
+        <>
+        <Card>
+            <CardContent className="flex flex-row items-center justify-between p-4">
+              <CardDescription>
+                <h3 className="text-lg font-semibold text-gray-700">Summary</h3>
+                <p className="text-sm text-gray-500">
+                  Overview of Service Order totals
+                </p>
+              </CardDescription>
+              <CardDescription className="text-right">
+                    <div className="flex flex-col items-start">
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total inc. GST:</span>{" "}
+                        <span className="text-blue-600">
+                          {formatToIndianRupee(totalServiceOrdersAmt * 1.18)}
+                        </span>
+                      </p>
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total exc. GST:</span>{" "}
+                        <span className="text-blue-600">
+                          {formatToIndianRupee(totalServiceOrdersAmt)}
+                        </span>
+                      </p>
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total Amt Paid:</span>{" "}
+                        <span className="text-blue-600">
+                          ₹{getTotalAmountPaid()?.srAmount?.toLocaleString()}
+                        </span>
+                      </p>
+                    </div>
+              </CardDescription>
+            </CardContent>
+          </Card>
+          <DataTable
           columns={srSummaryColumns}
           data={allServiceRequestsData || []}
         />
+        </>
       )}
 
       <div className="hidden">
@@ -3714,7 +3784,7 @@ const CustomHoverCard = ({
   return (
     <HoverCard>
       <HoverCardTrigger>
-        <div className=" underline">
+        <div className="underline">
           <span className="whitespace-nowrap">PO Amt (ex. GST): </span>
           <span className="max-sm:text-end max-sm:w-full text-primary">
             {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
@@ -3919,7 +3989,6 @@ export const ToolandEquipementAccordion = ({
 
 export const ProjectMakesTab = ({ projectData, options, makesTab, setProjectMakesTab, project_mutate }) => {
 
-  console.log("projectData", projectData)
 
   const [wPmakesData, setWPMakesData] = useState([])
 
@@ -3929,8 +3998,6 @@ export const ProjectMakesTab = ({ projectData, options, makesTab, setProjectMake
 
   const [reactSelectOptions, setReactSelectOptions] = useState([])
   const [dialogOpen, setDialogOpen] = useState(false)
-
-  console.log("wpmakes", wPmakesData)
 
   const toggleDialog = () => {
     setDialogOpen((prevState) => !prevState);
