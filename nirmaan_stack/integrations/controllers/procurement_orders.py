@@ -80,6 +80,17 @@ def on_update(doc, method):
         try:
             vendor = frappe.get_doc("Vendors", doc.vendor)
             orders = doc.order_list
+
+            # Check and delete existing approved quotations for this procurement order
+            existing_aq_docs = frappe.get_all(
+                "Approved Quotations",
+                filters={"procurement_order": doc.name},
+                fields=["name"]
+            )
+            if existing_aq_docs:
+                for aq_doc in existing_aq_docs:
+                    frappe.delete_doc("Approved Quotations", aq_doc["name"])
+                    
             for order in orders['list']:
                 aq = frappe.new_doc('Approved Quotations')
                 try:
