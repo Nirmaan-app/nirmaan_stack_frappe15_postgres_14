@@ -33,6 +33,7 @@ import {
   Sparkles,
   User2,
   WalletCards,
+  BlendIcon
 } from "lucide-react";
 import logo from "@/assets/logo-svg.svg";
 import nLogo from "@/assets/LOGO.png";
@@ -533,6 +534,15 @@ export function NewSidebar() {
           },
         ]
       : []),
+      ...(role == "Nirmaan Project Lead Profile"
+        ? [
+            {
+              key: "/projects",
+              icon: BlendIcon,
+              label: "Projects",
+            },
+          ]
+        : []),
     ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
       role
     ) || user_id == "Administrator"
@@ -779,7 +789,6 @@ export function NewSidebar() {
       : "";
 
   const openKey = [
-    "projects",
     "users",
     "items",
     "vendors",
@@ -813,7 +822,9 @@ export function NewSidebar() {
         selectedKeys
       )
     ? "pe-sr-actions"
-    : selectedKeys === "project-payments" ? "/project-payments" : "";
+    : selectedKeys === "project-payments" ? "/project-payments"
+    : (selectedKeys === "projects" && role === "Nirmaan Project Lead Profile") ? "/projects"
+    : selectedKeys === "projects" ? "admin-actions" : "";
 
   const isDefaultOpen = [
     "admin-actions",
@@ -871,7 +882,7 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests"].includes(item?.label) ? (
+                  {["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects"].includes(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
                         ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)

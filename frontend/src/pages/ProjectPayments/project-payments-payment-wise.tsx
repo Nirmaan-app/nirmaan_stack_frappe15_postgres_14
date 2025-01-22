@@ -67,19 +67,41 @@ export const ProjectPaymentsPaymentWise = () => {
         value: item.name,
     })) || [];
 
+    const siteUrl = `${window.location.protocol}//${window.location.host}`;
+
     const columns = useMemo(
         () => [
+            // {
+            //     accessorKey: "name",
+            //     header: "T.ID",
+            //     cell: ({ row }) => {
+            //         const id = row.getValue("name");
+            //         return (
+            //             <div className="font-medium flex items-center gap-2 relative">
+            //                 <p className="underline hover:underline-offset-2">
+            //                     {id}
+            //                 </p>
+            //             </div >
+            //         );
+            //     },
+            // },
             {
-                accessorKey: "name",
-                header: "T.ID",
+                accessorKey: "utr",
+                header: "UTR",
                 cell: ({ row }) => {
-                    const id = row.getValue("name");
+                    const data = row.original
                     return (
-                        <div className="font-medium flex items-center gap-2 relative">
-                            <p className="underline hover:underline-offset-2">
-                                {id}
-                            </p>
-                        </div >
+                        <div className="font-medium text-blue-500 underline hover:underline-offset-2">
+                            {import.meta.env.MODE === "development" ? (
+                                <a href={`http://localhost:8000${data?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                    {data?.utr}
+                                </a>
+                            ) : (
+                                <a href={`${siteUrl}${data?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                    {data?.utr}
+                                </a>
+                            )}
+                        </div>
                     );
                 },
             },

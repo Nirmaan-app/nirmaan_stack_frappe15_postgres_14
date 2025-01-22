@@ -61,6 +61,21 @@ export const ApprovedSR = () => {
 
     const { data: project, isLoading: project_loading, error: project_error, mutate: project_mutate } = useFrappeGetDoc("Projects", orderData?.project, orderData?.project ? `Projects ${orderData?.project}` : null)
 
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+        fields: ["*"],
+        filters: [["document_name", "=", id]],
+        limit: 100
+    })
+
+    const getTotalAmountPaid = () => {
+
+        return projectPayments?.reduce((acc, payment) => {
+            const amount = parseFloat(payment.amount || 0)
+            const tds = parseFloat(payment.tds || 0)
+            return acc + amount;
+        }, 0);
+    }
+
     // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
     //     {
     //         fields: ["*"],
@@ -353,8 +368,8 @@ export const ApprovedSR = () => {
                 <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                 <p className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</p>
             </div> */}
-            <div className="grid gap-6 grid-cols-1 md:grid-cols-5">
-                <Card className="rounded-sm shadow-m md:col-span-2 overflow-x-auto">
+            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                             SR Details
@@ -400,25 +415,45 @@ export const ApprovedSR = () => {
                             </div>
                             <span className="font-light">{service_vendor?.vendor_gst || "--"}</span>
                         </div>
-                        <div className="flex items-start justify-between">
+                        {/* <div className="flex items-start justify-between">
                             <div className="w-[100%]">
                                 <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
                                 <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
                             </div>
                             <span className="font-light">
-                                {/* {vendorAddress} */}
+                                {vendorAddress}
                                 <AddressView id={service_vendor?.vendor_address} />
                             </span>
+                        </div> */}
+                        <div className="flex flex-col">
+                          <div>
+                            <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
+                            <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
+                          </div>
+                          <span className="font-light pl-6">
+                            {/* {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode} */}
+                            <AddressView id={service_vendor?.vendor_address}/>
+                          </span>
                         </div>
-                        <div className="flex items-start justify-between">
+                        {/* <div className="flex items-start justify-between">
                             <div className="w-[100%]">
                                 <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
                                 <Label className="ml-1 font-light text-red-700">Project Address:</Label>
                             </div>
                             <span className="font-light">
-                                {/* {projectAddress} */}
+                                {projectAddress}
                                 <AddressView id={project?.project_address}/>
                             </span>
+                        </div> */}
+                        <div className="flex flex-col">
+                          <div>
+                            <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
+                            <Label className="ml-1 font-light text-red-700">Project Address:</Label>
+                          </div>
+                          <span className="font-light pl-6">
+                            {/* {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode} */}
+                            <AddressView id={project?.project_address}/>
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
                             <Label className="ml-1 font-light text-red-700">Total (Excl. GST):</Label>
@@ -430,9 +465,13 @@ export const ApprovedSR = () => {
                                 <span className="font-light">{formatToIndianRupee(getTotal() * 1.18)}</span>
                             </div>
                         )}
+                        <div className="flex items-center justify-between">
+                            <Label className="ml-1 font-light text-red-700">Total Amt Paid:</Label>
+                            <span className="font-light">{formatToIndianRupee(getTotalAmountPaid())}</span>
+                        </div>
                     </CardContent>
                 </Card>
-                <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
+                <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                             SR Options
