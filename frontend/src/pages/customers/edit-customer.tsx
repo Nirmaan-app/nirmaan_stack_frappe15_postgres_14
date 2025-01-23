@@ -32,16 +32,13 @@ const CustomerFormSchema = z.object({
     }),
   company_email: z.string().email().optional().or(z.literal("")),
   company_phone: z
-    .string({
-      required_error: "Must Provide Customer Contact",
-    })
+    .string()
     .max(10, { message: "Mobile number must be of 10 digits" })
-    .min(10, { message: "Mobile number must be of 10 digits" }),
+    .min(10, { message: "Mobile number must be of 10 digits" })
+    .optional(),
   company_contact_person: z
-    .string({
-      required_error: "Contact Person is required",
-    })
-    .min(3, "Must be at least 3 characters."),
+    .string()
+    .optional(),
   company_gst: z
     .string({
       required_error: "Customer GST Required",
@@ -69,7 +66,6 @@ const CustomerFormSchema = z.object({
 type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
 
 const EditCustomer = ({ toggleEditSheet }) => {
-  const navigate = useNavigate();
 
   const { customerId: id } = useParams<{ customerId: string }>();
 
@@ -132,14 +128,14 @@ const EditCustomer = ({ toggleEditSheet }) => {
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(CustomerFormSchema),
     defaultValues: {
-      company_name: data?.company_name || "",
-      company_email: data?.company_email || "",
-      company_phone: data?.company_phone || "",
-      company_contact_person: data?.company_contact_person || "",
-      company_gst: data?.company_gst || "",
-      address_line1: addressData?.address_line1 || "",
-      address_line2: addressData?.address_line2 || "",
-      pin_code: addressData?.pincode || "",
+      company_name: data?.company_name,
+      company_email: data?.company_email,
+      company_phone: data?.company_phone,
+      company_contact_person: data?.company_contact_person,
+      company_gst: data?.company_gst,
+      address_line1: addressData?.address_line1,
+      address_line2: addressData?.address_line2,
+      pin_code: addressData?.pincode,
     },
     mode: "onBlur",
   });
@@ -164,14 +160,14 @@ const EditCustomer = ({ toggleEditSheet }) => {
   const hasChanges = () => {
     const values = form.getValues();
     const originalValues = {
-      company_name: data?.company_name || "",
-      company_email: data?.company_email || "",
-      company_phone: data?.company_phone || "",
-      company_contact_person: data?.company_contact_person || "",
-      company_gst: data?.company_gst || "",
-      address_line1: addressData?.address_line1 || "",
-      address_line2: addressData?.address_line2 || "",
-      pin_code: addressData?.pincode || "",
+      company_name: data?.company_name,
+      company_email: data?.company_email,
+      company_phone: data?.company_phone,
+      company_contact_person: data?.company_contact_person,
+      company_gst: data?.company_gst,
+      address_line1: addressData?.address_line1,
+      address_line2: addressData?.address_line2,
+      pin_code: addressData?.pincode,
     };
     return JSON.stringify(values) !== JSON.stringify(originalValues);
   };
@@ -306,7 +302,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>
-                  Company Phone<sup className="text-sm text-red-600">*</sup>
+                  Company Phone
                 </FormLabel>
                 <FormControl>
                   <Input type="number" {...field} />
@@ -322,7 +318,6 @@ const EditCustomer = ({ toggleEditSheet }) => {
               <FormItem>
                 <FormLabel>
                   Company Contact Person
-                  <sup className="text-sm text-red-600">*</sup>
                 </FormLabel>
                 <FormControl>
                   <Input {...field} />

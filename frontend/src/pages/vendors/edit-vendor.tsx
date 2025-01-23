@@ -23,57 +23,85 @@ import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-const VendorFormSchema = z.object({
-  vendor_contact_person_name: z.string().optional(),
-  vendor_name: z
-    .string({
-      required_error: "Must provide Vendor Name",
+const getVendorFormSchema = (service: boolean) => {
+    return z.object({
+        vendor_contact_person_name: z
+            .string()
+            .optional(),
+        vendor_name: z
+            .string({
+                required_error: "Must provide Vendor Name"
+            })
+            .min(3, {
+                message: "Must be at least 3 characters.",
+            }),
+        address_line_1: z
+            .string({
+                required_error: "Address Line 1 Required"
+            }).min(1, {
+                message: "Address Line 1 Required"
+            }),
+        address_line_2: z
+            .string({
+                required_error: "Address Line 2 Required"
+            }).min(1, {
+                message: "Address Line 2 Required"
+            }),
+        // vendor_city: z
+        //     .string({
+        //         required_error: "Must Provide City"
+        //     })
+        //     .min(1, {
+        //         message: "Must Provide City"
+        //     }),
+        // vendor_state: z
+        //     .string({
+        //         required_error: "Must Provide State"
+        //     })
+        //     .min(1, {
+        //         message: "Must Provide State"
+        //     }),
+        pin: z
+            .string({
+                required_error: "Must provide pincode"
+            })
+            .max(6, { message: "Pincode must be of 6 digits" })
+            .min(6, { message: "Pincode must be of 6 digits" }),
+        vendor_email: z
+            .string()
+            .email()
+            .optional(),
+        vendor_mobile: z
+            .string({
+                required_error: "Must provide contact"
+            })
+            .max(10, { message: "Mobile number must be of 10 digits" })
+            .min(10, { message: "Mobile number must be of 10 digits" })
+            .optional(),
+        // vendor_gst: z
+        //     .string({
+        //         required_error: "Vendor GST Required"
+        //     })
+        //     .min(1, {
+        //         message: "Vendor GST Required"
+        //     })
+        //     .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+        //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
+        //     }),
+        vendor_gst: service
+            ? z.string()
+                .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+                    message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
+                }).optional()
+            : z.string()
+                .min(1, { message: "Vendor GST Required" })
+                .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+                    message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
+                }),
     })
-    .min(3, {
-      message: "Must be at least 3 characters.",
-    }),
-  address_line_1: z
-    .string({
-      required_error: "Address Line 1 Required",
-    })
-    .min(1, {
-      message: "Address Line 1 Required",
-    }),
-  address_line_2: z
-    .string({
-      required_error: "Address Line 1 Required",
-    })
-    .min(1, {
-      message: "Address Line 1 Required",
-    }),
-  pin: z
-    .string({
-      required_error: "Must provide Pincode",
-    })
-    .max(6, { message: "Pincode must be of 6 digits" })
-    .min(6, { message: "Pincode must be of 6 digits" }),
-  email: z.string().email().optional().or(z.literal("")),
-  vendor_mobile: z
-    .string({
-      required_error: "Must Provide Vendor Contact",
-    })
-    .max(10, { message: "Mobile number must be of 10 digits" })
-    .min(10, { message: "Mobile number must be of 10 digits" })
-    .optional()
-    .or(z.literal("")),
-  vendor_gst: z
-    .string({
-      required_error: "Vendor GST Required",
-    })
-    .min(1, {
-      message: "Vendor GST Required",
-    })
-    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-      message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-    }),
-});
+};
 
-type VendorFormValues = z.infer<typeof VendorFormSchema>;
+type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
 
 interface SelectOption {
   label: string;
@@ -81,7 +109,7 @@ interface SelectOption {
 }
 
 export const EditVendor = ({ toggleEditSheet }) => {
-  const navigate = useNavigate();
+
   const { vendorId: id } = useParams<{ vendorId: string }>();
   const { data, mutate: vendorMutate } = useFrappeGetDoc(
     "Vendors",
@@ -103,17 +131,19 @@ export const EditVendor = ({ toggleEditSheet }) => {
     }
   );
 
+  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service");
+
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(VendorFormSchema),
     defaultValues: {
-      vendor_contact_person_name: data?.vendor_contact_person_name || "",
-      vendor_name: data?.vendor_name || "",
-      address_line_1: vendorAddress?.address_line1 || "",
-      address_line_2: vendorAddress?.address_line2 || "",
-      pin: vendorAddress?.pincode || "",
-      email: data?.vendor_email || "",
-      vendor_mobile: data?.vendor_mobile || "",
-      vendor_gst: data?.vendor_gst || "",
+      vendor_contact_person_name: data?.vendor_contact_person_name,
+      vendor_name: data?.vendor_name,
+      address_line_1: vendorAddress?.address_line1,
+      address_line_2: vendorAddress?.address_line2,
+      pin: vendorAddress?.pincode,
+      vendor_email: data?.vendor_email,
+      vendor_mobile: data?.vendor_mobile,
+      vendor_gst: data?.vendor_gst,
     },
     mode: "onBlur",
   });
@@ -121,14 +151,14 @@ export const EditVendor = ({ toggleEditSheet }) => {
   useEffect(() => {
     if (data && vendorAddress) {
       form.reset({
-        vendor_contact_person_name: data?.vendor_contact_person_name || "",
-        vendor_name: data?.vendor_name || "",
-        address_line_1: vendorAddress?.address_line1 || "",
-        address_line_2: vendorAddress?.address_line2 || "",
-        pin: vendorAddress?.pincode || "",
-        email: data?.vendor_email || "",
-        vendor_mobile: data?.vendor_mobile || "",
-        vendor_gst: data?.vendor_gst || "",
+        vendor_contact_person_name: data?.vendor_contact_person_name,
+        vendor_name: data?.vendor_name,
+        address_line_1: vendorAddress?.address_line1,
+        address_line_2: vendorAddress?.address_line2,
+        pin: vendorAddress?.pincode,
+        vendor_email: data?.vendor_email,
+        vendor_mobile: data?.vendor_mobile,
+        vendor_gst: data?.vendor_gst,
       });
       setPincode(vendorAddress?.pincode);
     }
@@ -206,7 +236,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
       }
 
       await updateDoc("Address", `${data?.vendor_address}`, {
-        email_id: values.email,
+        email_id: values.vendor_email,
         phone: values.vendor_mobile,
         address_line1: values.address_line_1,
         address_line2: values.address_line_2,
@@ -219,7 +249,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
         vendor_category: { categories: category_json },
         vendor_city: city,
         vendor_contact_person_name: values.vendor_contact_person_name,
-        vendor_email: values.email,
+        vendor_email: values.vendor_email,
         vendor_gst: values.vendor_gst,
         vendor_mobile: values.vendor_mobile,
         vendor_name: values.vendor_name,
@@ -367,7 +397,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
               <FormItem>
                 <FormLabel>Phone</FormLabel>
                 <FormControl>
-                  <Input type="number" {...field} />
+                  <Input type="number" {...field} value={field.value || ""} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -375,12 +405,12 @@ export const EditVendor = ({ toggleEditSheet }) => {
           />
           <FormField
             control={form.control}
-            name="email"
+            name="vendor_email"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Email</FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input {...field} value={field.value || ""} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -393,13 +423,15 @@ export const EditVendor = ({ toggleEditSheet }) => {
               <FormItem>
                 <FormLabel>Vendor GST</FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input {...field} value={field.value || ""} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <Separator className="my-3" />
+          {data?.vendor_type === "Material" && (
+            <>
+            <Separator className="my-3" />
           <p className="text-sky-600 font-semibold pb-2">
             Change Vendor Category
           </p>
@@ -416,6 +448,8 @@ export const EditVendor = ({ toggleEditSheet }) => {
               />
             )}
           </div>
+          </>
+          )}
           <div className="flex justify-end space-x-2">
             <Button
               type="button"
