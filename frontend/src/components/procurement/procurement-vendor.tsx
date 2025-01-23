@@ -71,7 +71,7 @@ export const ProcurementOrder = () => {
   const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
     {
       fields: ["*"],
-      limit: 1000
+      limit: 100000
     },
     "Vendor Category"
   );

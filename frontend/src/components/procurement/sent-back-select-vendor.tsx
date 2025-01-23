@@ -450,8 +450,7 @@ export const SentBackSelectVendor = () => {
 
             await mutate(`${orderData?.type} Sent Back Category`)
 
-            // navigate(`/${orderData?.type?.toLowerCase()}-sb`)
-            navigate(`/sent-back-requests?type=${orderData?.type}+SB`)
+            navigate(`/sent-back-requests?type=${orderData?.type}`)
         } catch (error) {
             toast({
                 title: "Failed!",

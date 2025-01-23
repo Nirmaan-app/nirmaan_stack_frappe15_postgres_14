@@ -303,16 +303,16 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
 
     const resetForm = () => {
         form.reset({
-            company_name: "",
-            email: "",
-            phone: "",
-            company_contact_person: "",
-            company_gst: "",
-            company_address_line_1: "",
-            company_address_line_2: "",
-            company_city: "",
-            company_state: "",
-            company_pin: "",
+            company_name: undefined,
+            email: undefined,
+            phone: undefined,
+            company_contact_person: undefined,
+            company_gst: undefined,
+            company_address_line_1: undefined,
+            company_address_line_2: undefined,
+            company_city: undefined,
+            company_state: undefined,
+            company_pin: undefined,
         });
         form.clearErrors();
     }
@@ -391,7 +391,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_gst"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Company GST no.:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="flex">Company GST:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="GST Number" {...field} />
                                 </FormControl>
@@ -406,7 +406,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                             <FormItem>
                                 <FormLabel>Company Contact Person:</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Contact Person" {...field} />
+                                    <Input placeholder="Contact Person" {...field} value={field.value || ""} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -423,6 +423,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                                         type="number"
                                         placeholder="Phone Number"
                                         {...field}
+                                        value={field.value || ""}
                                     />
                                 </FormControl>
                                 <FormMessage />
@@ -436,7 +437,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                             <FormItem>
                                 <FormLabel>Email:</FormLabel>
                                 <FormControl>
-                                    <Input type="email" placeholder="Email" {...field} />
+                                    <Input type="email" placeholder="Email" {...field} value={field.value || ""} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>

@@ -585,21 +585,20 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                     <CardDescription className="space-y-2">
                       <span>Contact Person</span>
                       <p className="font-bold text-black">
-                        {!data?.vendor_contact_person_name
-                          ? "N.A."
-                          : data.vendor_contact_person_name}
+                        {data?.vendor_contact_person_name
+                          || "N/A"}
                       </p>
                     </CardDescription>
 
                     <CardDescription className="space-y-2">
                       <span>Contact Number</span>
                       <p className="font-bold text-black">
-                        {!data?.vendor_mobile ? "N.A." : data?.vendor_mobile}
+                        {data?.vendor_mobile || "N/A"}
                       </p>
                     </CardDescription>
                     <CardDescription className="space-y-2">
                       <span>GST Number</span>
-                      <p className="font-bold text-black">{data?.vendor_gst}</p>
+                      <p className="font-bold text-black">{data?.vendor_gst || "N/A"}</p>
                     </CardDescription>
                   </div>
 

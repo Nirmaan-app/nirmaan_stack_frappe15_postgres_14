@@ -144,16 +144,16 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
     const resetForm = () => {
         form.reset({
-            vendor_contact_person_name: "",
-            vendor_name: "",
-            address_line_1: "",
-            address_line_2: "",
-            vendor_city: "",
-            vendor_state: "",
-            pin: "",
-            vendor_email: "",
-            vendor_mobile: "",
-            vendor_gst: "",
+            vendor_contact_person_name: undefined,
+            vendor_name: undefined,
+            address_line_1: undefined,
+            address_line_2: undefined,
+            vendor_city: undefined,
+            vendor_state: undefined,
+            pin: undefined,
+            vendor_email: undefined,
+            vendor_mobile: undefined,
+            vendor_gst: undefined,
         });
         setCategories([]);
         form.clearErrors();
