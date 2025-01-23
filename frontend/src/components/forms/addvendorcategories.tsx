@@ -22,7 +22,8 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
             fields: ["*"],
-            filters: [["vendor_name", "=", vendor_name]]
+            filters: [["vendor_name", "=", vendor_name]],
+            limit: 1000
     });
 
     useFrappeDocTypeEventListener("Vendor Category", async () => {

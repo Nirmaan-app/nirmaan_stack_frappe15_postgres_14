@@ -103,6 +103,13 @@ export function NewSidebar() {
 
   const user_id = Cookies.get("user_id") ?? "";
 
+  const [collapsedKey, setCollapsedKey] = useState(null); // Tracks the currently open group
+
+  const handleGroupToggle = (key) => {
+    // If the clicked group is already open, collapse it; otherwise, open it
+    setCollapsedKey((prevKey) => (prevKey === key ? null : key));
+  };
+
   const { toggleSidebar, isMobile, state } = useSidebar();
 
   const { data } = useFrappeGetDoc(
@@ -152,7 +159,7 @@ export function NewSidebar() {
     {
       fields: ["*"],
       filters: [["recipient", "=", user_id]],
-      limit: 100,
+      limit: 10000,
       orderBy: { field: "creation", order: "asc" },
     }
   );
@@ -877,6 +884,7 @@ export function NewSidebar() {
             {items.map((item) => (
               <Collapsible
                 key={item.key}
+                open={collapsedKey === item?.key}
                 defaultOpen={isDefaultOpen.includes(item.key)}
                 className="group/collapsible"
                 asChild
@@ -918,6 +926,7 @@ export function NewSidebar() {
                               }`
                             : ""
                         } tracking-tight`}
+                        onClick={() => handleGroupToggle(item.key)}
                         selectedKeys={selectedKeys}
                         tooltip={item.children}
                       >
