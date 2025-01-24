@@ -43,9 +43,8 @@ export default function ListSR() {
     {
       fields: ["*"],
       orderBy: { field: "creation", order: "desc" },
-      limit: 1000,
-    },
-    selectedProject ? undefined : null
+      limit: 10000,
+    }
   );
 
   useFrappeDocTypeEventListener("Service Requests", async (event) => {

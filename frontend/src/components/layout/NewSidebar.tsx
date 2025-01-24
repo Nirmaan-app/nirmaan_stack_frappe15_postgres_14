@@ -33,6 +33,7 @@ import {
   Sparkles,
   User2,
   WalletCards,
+  BlendIcon
 } from "lucide-react";
 import logo from "@/assets/logo-svg.svg";
 import nLogo from "@/assets/LOGO.png";
@@ -102,6 +103,13 @@ export function NewSidebar() {
 
   const user_id = Cookies.get("user_id") ?? "";
 
+  const [collapsedKey, setCollapsedKey] = useState(null); // Tracks the currently open group
+
+  const handleGroupToggle = (key) => {
+    // If the clicked group is already open, collapse it; otherwise, open it
+    setCollapsedKey((prevKey) => (prevKey === key ? null : key));
+  };
+
   const { toggleSidebar, isMobile, state } = useSidebar();
 
   const { data } = useFrappeGetDoc(
@@ -151,7 +159,7 @@ export function NewSidebar() {
     {
       fields: ["*"],
       filters: [["recipient", "=", user_id]],
-      limit: 100,
+      limit: 100000,
       orderBy: { field: "creation", order: "asc" },
     }
   );
@@ -205,7 +213,7 @@ export function NewSidebar() {
     {
       fields: ["status"],
       filters: [["project", "in", permissionsList || []]],
-      limit: 1000,
+      limit: 100000,
     },
     user_id === "Administrator" || !permissionsList ? null : undefined
   );
@@ -214,7 +222,7 @@ export function NewSidebar() {
     "Procurement Orders",
     {
       fields: ["status"],
-      limit: 1000,
+      limit: 100000,
     },
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
@@ -240,7 +248,7 @@ export function NewSidebar() {
         ],
         ["project", "in", permissionsList || []],
       ],
-      limit: 1000,
+      limit: 100000,
     },
     user_id === "Administrator" || !permissionsList ? null : "prDataMutate"
   );
@@ -263,7 +271,7 @@ export function NewSidebar() {
           ],
         ],
       ],
-      limit: 1000,
+      limit: 100000,
     },
 
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
@@ -283,7 +291,7 @@ export function NewSidebar() {
         ],
         ["project", "in", permissionsList || []],
       ],
-      limit: 1000,
+      limit: 10000,
     },
     user_id === "Administrator" || !permissionsList ? null : undefined
   );
@@ -299,7 +307,7 @@ export function NewSidebar() {
           ["Vendor Selected", "Partially Approved", "Pending"],
         ],
       ],
-      limit: 1000,
+      limit: 10000,
     },
 
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
@@ -312,7 +320,7 @@ export function NewSidebar() {
     {
       fields: ["status", "project", "vendor"],
       filters: [["project", "in", permissionsList || []]],
-      limit: 1000,
+      limit: 10000,
     },
     user_id === "Administrator" || !permissionsList ? null : undefined
   );
@@ -321,7 +329,7 @@ export function NewSidebar() {
     "Service Requests",
     {
       fields: ["status", "project", "vendor"],
-      limit: 1000,
+      limit: 10000,
     },
 
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
@@ -528,10 +536,20 @@ export function NewSidebar() {
               { key: "/vendors", label: "Vendors" },
               { key: "/customers", label: "Customers" },
               { key: "/procurement-packages", label: "Procurement Packages" },
+              { key: "/approved-quotes", label: "Approved Quotations" },
             ],
           },
         ]
       : []),
+      ...(role == "Nirmaan Project Lead Profile"
+        ? [
+            {
+              key: "/projects",
+              icon: BlendIcon,
+              label: "Projects",
+            },
+          ]
+        : []),
     ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
       role
     ) || user_id == "Administrator"
@@ -673,39 +691,49 @@ export function NewSidebar() {
     user_id == "Administrator" ||
     role == "Nirmaan Admin Profile"
       ? [
+          // {
+          //   key: "sent-back-actions",
+          //   icon: SendToBack,
+          //   label: "Sent Back Requests",
+          //   children: [
+          //     {
+          //       key: "/rejected-sb",
+          //       label: "Rejected Sent Back",
+          //       count:
+          //         role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //           ? adminNewSBCounts.rejected
+          //           : newSBCounts.rejected,
+          //     },
+          //     {
+          //       key: "/delayed-sb",
+          //       label: "Delayed Sent Back",
+          //       count:
+          //         role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //           ? adminNewSBCounts.delayed
+          //           : newSBCounts.delayed,
+          //     },
+          //     {
+          //       key: "/cancelled-sb",
+          //       label: "Cancelled Sent Back",
+          //       count:
+          //         role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //           ? adminNewSBCounts.cancelled
+          //           : newSBCounts.cancelled,
+          //     },
+          //   ],
+          // },
           {
-            key: "sent-back-actions",
+            key: "/sent-back-requests",
             icon: SendToBack,
             label: "Sent Back Requests",
-            children: [
-              {
-                key: "/rejected-sb",
-                label: "Rejected Sent Back",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewSBCounts.rejected
-                    : newSBCounts.rejected,
-              },
-              {
-                key: "/delayed-sb",
-                label: "Delayed Sent Back",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewSBCounts.delayed
-                    : newSBCounts.delayed,
-              },
-              {
-                key: "/cancelled-sb",
-                label: "Cancelled Sent Back",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewSBCounts.cancelled
-                    : newSBCounts.cancelled,
-              },
-            ],
+            count:
+                 role === "Nirmaan Admin Profile" ||
+                 user_id === "Administrator"
+                   ? adminNewSBCounts.rejected + adminNewSBCounts.cancelled + adminNewSBCounts.delayed
+                   : newSBCounts.rejected + newSBCounts.cancelled + newSBCounts.delayed,
           },
         ]
       : []),
@@ -735,6 +763,7 @@ export function NewSidebar() {
     "vendors",
     "customers",
     "procurement-packages",
+    "approved-quotes",
     "prs&milestones",
     "approve-new-pr",
     "approve-po",
@@ -747,9 +776,10 @@ export function NewSidebar() {
     // "approved-po",
     // "released-po",
     "purchase-orders",
-    "rejected-sb",
-    "delayed-sb",
-    "cancelled-sb",
+    // "rejected-sb",
+    // "delayed-sb",
+    // "cancelled-sb",
+    "sent-back-requests",
     "service-requests",
     "approve-service-request",
     "choose-service-vendor",
@@ -766,12 +796,12 @@ export function NewSidebar() {
       : "";
 
   const openKey = [
-    "projects",
     "users",
     "items",
     "vendors",
     "customers",
     "procurement-packages",
+    "approved-quotes",
   ].includes(selectedKeys)
     ? "admin-actions"
     : [
@@ -793,13 +823,16 @@ export function NewSidebar() {
     ? "pe-sr-actions"
     : ["purchase-orders"].includes(selectedKeys)
     ? "/purchase-orders"
-    : ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys)
-    ? "sent-back-actions"
+    : ["sent-back-requests"].includes(selectedKeys)
+    ? "/sent-back-requests"
     : ["service-requests", "choose-service-vendor", "approved-sr"].includes(
         selectedKeys
       )
     ? "pe-sr-actions"
-    : selectedKeys === "project-payments" ? "/project-payments" : "";
+    : selectedKeys === "project-payments" ? "/project-payments"
+    : (selectedKeys === "projects" && role === "Nirmaan Project Lead Profile") ? "/projects"
+    : selectedKeys === "projects" ? "admin-actions" : "";
+
 
   const isDefaultOpen = [
     "admin-actions",
@@ -817,9 +850,14 @@ export function NewSidebar() {
     }
   };
 
+  useEffect(() => {
+    if(["admin-actions", "pl-actions", "pe-sr-actions"].includes(openKey)) {
+      setCollapsedKey(openKey)
+    }
+  }, [])
+
   // console.log("selectedKeys", selectedKeys)
 
-  // console.log("openkey", openKey)
 
   return (
     <Sidebar collapsible="icon">
@@ -852,12 +890,13 @@ export function NewSidebar() {
             {items.map((item) => (
               <Collapsible
                 key={item.key}
+                open={collapsedKey === item?.key}
                 defaultOpen={isDefaultOpen.includes(item.key)}
                 className="group/collapsible"
                 asChild
               >
                 <SidebarMenuItem>
-                  {["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments"].includes(item?.label) ? (
+                  {["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects"].includes(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
                         ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
@@ -893,6 +932,7 @@ export function NewSidebar() {
                               }`
                             : ""
                         } tracking-tight`}
+                        onClick={() => handleGroupToggle(item.key)}
                         selectedKeys={selectedKeys}
                         tooltip={item.children}
                       >
@@ -902,7 +942,9 @@ export function NewSidebar() {
                       </SidebarMenuButton>
                     </CollapsibleTrigger>
                   )}
-                  <CollapsibleContent>
+                  <CollapsibleContent 
+                  className={`${collapsedKey === item?.key ? "animate-collapse-down" : "animate-collapse-up"}`}
+                  >
                     <SidebarMenuSub className="space-y-1">
                       {item?.children?.map((subitem) => (
                         <SidebarMenuSubItem

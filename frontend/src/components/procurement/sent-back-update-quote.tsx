@@ -14,9 +14,10 @@ import {
   Handshake,
   ListChecks,
   PencilLine,
+  Trash,
 } from "lucide-react";
 import SentBackQuotationForm from "./sent-back-quotation-form";
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useLocation, useParams } from "react-router-dom";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -69,6 +70,7 @@ import { PrintRFQ } from "./rfq-pdf";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { TailSpin } from "react-loader-spinner";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 
 export const SentBackUpdateQuote = () => {
   const { sbId: id } = useParams<{ sbId: string }>();
@@ -80,7 +82,7 @@ export const SentBackUpdateQuote = () => {
     error: category_error,
   } = useFrappeGetDocList("Category", {
     fields: ["*"],
-    limit: 1000,
+    limit: 10000,
   });
 
   const {
@@ -93,10 +95,11 @@ export const SentBackUpdateQuote = () => {
     {
       fields: ["*"],
       filters: [["vendor_type", "=", "Material"]],
-      limit: 1000,
+      limit: 10000,
     },
     "Material Vendors"
   );
+
   const {
     data: quotation_request_list,
     isLoading: quotation_request_list_loading,
@@ -106,7 +109,7 @@ export const SentBackUpdateQuote = () => {
     "Quotation Requests",
     {
       fields: ["*"],
-      limit: 10000,
+      limit: 100000,
     },
     "Quotation Requests"
   );
@@ -136,7 +139,17 @@ export const SentBackUpdateQuote = () => {
     project: "",
   });
 
+  const [deleteVendor, setDeleteVendor] = useState(null);
+
+  const [deleteDialog, setDeleteDialog] = useState(false);
+
+  const toggleDeleteDialog = () => {
+    setDeleteDialog((prevState) => !prevState);
+  };
+
   const { createDoc } = useFrappeCreateDoc();
+
+  const { deleteDoc, loading: delete_loading } = useFrappeDeleteDoc()
 
   useEffect(() => {
     sent_back_list?.map((item) => {
@@ -191,16 +204,15 @@ export const SentBackUpdateQuote = () => {
     }
   }, [quotation_request_list, orderData, vendor_list]);
 
-  const location = useLocation();
-
   const handleUpdateQuote = () => {
-    if (location.pathname.includes("cancelled-sb")) {
-      navigate(`/cancelled-sb/${id}/update-quote/choose-vendor`);
-    } else if (location.pathname.includes("rejected-sb")) {
-      navigate(`/rejected-sb/${id}/update-quote/choose-vendor`);
-    } else {
-      navigate(`/delayed-sb/${id}/update-quote/choose-vendor`);
-    }
+    // if (location.pathname.includes("cancelled-sb")) {
+    //   navigate(`/cancelled-sb/${id}/update-quote/choose-vendor`);
+    // } else if (location.pathname.includes("rejected-sb")) {
+    //   navigate(`/rejected-sb/${id}/update-quote/choose-vendor`);
+    // } else {
+    //   navigate(`/delayed-sb/${id}/update-quote/choose-vendor`);
+    // }
+    navigate("choose-vendor")
   };
 
   const isButtonDisabled = useCallback(
@@ -222,12 +234,14 @@ export const SentBackUpdateQuote = () => {
     try {
       const promises = [];
       orderData?.item_list?.list.forEach((item) => {
+        const makes = orderData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
         const newItem = {
           procurement_task: orderData.procurement_request,
           category: item.category,
           item: item.name,
           vendor: vendorId,
           quantity: item.quantity,
+          makes: {list : makes || []}
         };
         promises.push(createDoc("Quotation Requests", newItem));
       });
@@ -382,7 +396,6 @@ export const SentBackUpdateQuote = () => {
                   <AddVendorCategories
                     vendor_name={vendor_name}
                     isSheet={true}
-                    isSentBack={true}
                   />
                 </SheetContent>
               </Sheet>
@@ -413,8 +426,43 @@ export const SentBackUpdateQuote = () => {
         },
       },
     ],
-    [orderData, isButtonDisabled, vendor_list]
+    [orderData, isButtonDisabled, vendor_list, uniqueVendors]
   );
+
+  const handleDeleteVendor = async () => {
+    try {
+
+      const filteredVendorQuotes = quotation_request_list?.filter(i => i?.vendor === deleteVendor && i?.procurement_task === orderData?.procurement_request)
+
+      filteredVendorQuotes?.forEach(async (item) => {
+        await deleteDoc("Quotation Requests", item.name);
+      })
+
+      const filteredVendors = uniqueVendors?.list?.filter(i => i !== deleteVendor)
+
+      setUniqueVendors({
+        list: filteredVendors
+      })
+
+      await quotation_request_list_mutate()
+
+      toast({
+        title: "Success!",
+        description: `Vendor: ${deleteVendor} deleted successfully!`,
+        variant: "success",
+      });
+
+      toggleDeleteDialog()
+      
+    } catch (error) {
+      console.log("error while deleting vendor", error);
+      toast({
+        title: "Failed!",
+        description: `${error?.message}`,
+        variant: "destructive",
+      });
+    }
+  }
 
   // console.log("universalComments", universalComments)
 
@@ -454,9 +502,34 @@ export const SentBackUpdateQuote = () => {
         </div>
         {uniqueVendors.list.map((item) => {
           return (
-            <div className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
-              <div className="sm:pl-4 pl-2 py-4 font-semibold">
-                {getVendorName(item)}
+            <div key={item} className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
+              <div className="sm:pl-4 pl-2 py-4">
+                <strong>{getVendorName(item)}</strong>
+                {uniqueVendors?.list?.length > 1 && (
+                  <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                    <DialogTrigger onClick={() => setDeleteVendor(item)}>
+                      <Trash className="h-4 w-4 ml-2 fill-primary text-primary inline cursor-pointer" />
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Are you sure?</DialogTitle>
+                      </DialogHeader>
+                        <DialogDescription>Click on Confirm to delete vendor: <strong>{getVendorName(deleteVendor)}</strong> from this SB!</DialogDescription>
+                        <div className="flex items-center justify-end gap-2">
+                          {delete_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                            <>
+                            <DialogClose asChild>
+                              <Button variant={"outline"}>Cancel</Button>
+                            </DialogClose>
+                            <Button onClick={handleDeleteVendor}>
+                              Confirm
+                            </Button>
+                            </>
+                          )}
+                          </div>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
               <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
                 <Sheet>

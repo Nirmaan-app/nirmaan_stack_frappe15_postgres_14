@@ -34,9 +34,12 @@ export const ProcurementRequests = () => {
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation', 'modified'],
             filters: [["workflow_state", "=", tab === "New PR Request" ? "Approved" : tab === "Update Quote" ? "RFQ Generated" : "Quote Updated"]],
-            limit: 1000,
+            limit: 10000,
             orderBy: { field: "modified", order: "desc" }
-        });
+        },
+        tab ? undefined :  null
+    );
+
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
@@ -45,7 +48,7 @@ export const ProcurementRequests = () => {
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ["*"],
-            limit: 10000
+            limit: 100000
         });
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
@@ -86,11 +89,11 @@ export const ProcurementRequests = () => {
         }
     }
 
-    useEffect(() => {
-        const currentTab = searchParams.get("tab") || "New PR Request";
-        setTab(currentTab);
-        updateURL("tab", currentTab);
-    }, []);
+    // useEffect(() => {
+    //     const currentTab = searchParams.get("tab") || "New PR Request";
+    //     setTab(currentTab);
+    //     updateURL("tab", currentTab);
+    // }, []);
 
     const updateURL = (key, value) => {
         const url = new URL(window.location);

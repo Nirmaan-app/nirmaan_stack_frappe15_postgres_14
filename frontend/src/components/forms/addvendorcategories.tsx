@@ -13,7 +13,7 @@ interface SelectOption {
     value: string;
 }
 
-export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= false}) => {
+export const AddVendorCategories = ({vendor_name, isSheet = false}) => {
 
     const {data, mutate: VendorMutate} = useFrappeGetDocList("Vendors", {
         fields: ["*"],
@@ -22,7 +22,8 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
             fields: ["*"],
-            filters: [["vendor_name", "=", vendor_name]]
+            filters: [["vendor_name", "=", vendor_name]],
+            limit: 1000
     });
 
     useFrappeDocTypeEventListener("Vendor Category", async () => {
@@ -43,38 +44,41 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
         {
             fields: ['category_name', 'work_package'],
             orderBy: { field: 'work_package', order: 'asc' },
-            limit: 1000
+            limit: 10000
         });
 
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
-    function onSubmit() {
-        let category_json = Object.values(categories).map((object) => { return object["value"] })
-        // console.log(category_json)
-
-        updateDoc('Vendors', `${id}`, {
-            vendor_category: { "categories": category_json }
-        }).then((doc) => {
-            console.log(doc)
+    async function onSubmit() {
+        try {
+            let category_json = Object.values(categories).map((object) => object["value"]);
+            const doc = await updateDoc('Vendors', `${id}`, {
+                vendor_category: { "categories": category_json },
+            });
+    
             toast({
                 title: "Success",
-                description: `Categories(s) updated successfully`,
-                variant: "success"
-            })
-            VendorMutate()
-            vendor_category_mutate()
-            mutate("Vendors")
-            mutate("Vendor Category")
-            document.getElementById("sheetCloseButton")?.click()
-        }).catch(() => {
-            console.log(submit_error)
+                description: `Category(s) updated successfully`,
+                variant: "success",
+            });
+    
+            await VendorMutate();
+            await vendor_category_mutate();
+            await mutate("Material Vendors");
+            await mutate("Vendor Category");
+    
+            document.getElementById("sheetCloseButton")?.click();
+        } catch (error) {
+            console.error(error);
+    
             toast({
                 title: "Failed",
                 description: `Unable to update Categories, Please try again later!`,
-                variant: "destructive"
-            })
-        })
+                variant: "destructive",
+            });
+        }
     }
+    
 
     const category_options: SelectOption[] = category_list
         ?.map(item => ({

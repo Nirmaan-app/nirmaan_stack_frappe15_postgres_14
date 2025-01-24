@@ -38,6 +38,7 @@ import { ConfigProvider, Dropdown, Menu, Space } from "antd";
 import svg from "@/assets/Vector.svg";
 import { Button } from "../ui/button";
 import { UserContext } from "@/utils/auth/UserProvider";
+import { useUserData } from "@/hooks/useUserData";
 
 export const MainLayout = () => {
   const {
@@ -54,6 +55,8 @@ export const MainLayout = () => {
   const navigate = useNavigate();
 
   const { selectedProject, toggleNewItemDialog } = useContext(UserContext);
+
+  const {role} = useUserData()
 
   // console.log("selectedProject", selectedProject)
 
@@ -86,10 +89,10 @@ export const MainLayout = () => {
   const { data: projectData } = useFrappeGetDoc(
     "Projects",
     project ||
-      prData?.project ||
-      poData?.project ||
-      sbData?.project ||
-      srData?.project,
+    prData?.project ||
+    poData?.project ||
+    sbData?.project ||
+    srData?.project,
     project || prData || poData || sbData || srData ? undefined : null
   );
 
@@ -163,8 +166,8 @@ export const MainLayout = () => {
               {item?.includes("%20")
                 ? item?.replace(/%20/g, " ")?.toUpperCase()
                 : item?.includes("PO&=")
-                ? item?.replace(/&=/g, "/")?.toUpperCase()
-                : item?.toUpperCase()}
+                  ? item?.replace(/&=/g, "/")?.toUpperCase()
+                  : item?.toUpperCase()}
             </Link>
           ),
           key: String(index),
@@ -187,8 +190,8 @@ export const MainLayout = () => {
         ? locations[locations?.length - 1]?.replace(/%20/g, " ")?.toUpperCase()
         : locations[locations?.length - 1]?.includes("PO&=") ||
           locations[locations?.length - 1]?.includes("DN&=")
-        ? locations[locations?.length - 1]?.replace(/&=/g, "/")?.toUpperCase()
-        : locations[locations?.length - 1]?.toUpperCase()) || "DASHBOARD"
+          ? locations[locations?.length - 1]?.replace(/&=/g, "/")?.toUpperCase()
+          : locations[locations?.length - 1]?.toUpperCase()) || "DASHBOARD"
     );
 
     const project = locationsArray?.find((i) => i?.includes("PROJ"));
@@ -217,7 +220,7 @@ export const MainLayout = () => {
     "Procurement Requests",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     "All Procurement Requests"
   );
@@ -229,7 +232,7 @@ export const MainLayout = () => {
     "Projects",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     "All Projects"
   );
@@ -264,21 +267,18 @@ export const MainLayout = () => {
     <>
       <div className="flex w-full relative h-auto">
         {isMobile && (
-          <div className="absolute top-[15px] -left-2 shadow-2xl">
+          <div className="absolute top-[10px] -left-2 shadow-2xl">
             <SidebarTrigger />
           </div>
         )}
         <NewSidebar />
         <div className="w-full h-auto overflow-auto">
           <header
-            className={`${
-              !isMobile && state === "collapsed" ? "mt-1" : ""
-            } flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}
+            className={`flex justify-between h-12 shrink-0 items-center pt-2 gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}
           >
             <div
-              className={`${
-                isMobile ? "ml-2" : ""
-              } flex items-center gap-2 px-4`}
+              className={`${isMobile ? "ml-2" : ""
+                } flex items-center gap-2 px-4`}
             >
               {/* {isMobile && (
                         <>
@@ -288,11 +288,15 @@ export const MainLayout = () => {
                           <Separator orientation="vertical" className="mr-1 h-4" />
                         </>
                       )} */}
-              <ArrowLeft
+              {location.pathname !== "/" && (
+                <>
+                <ArrowLeft
                 onClick={() => navigate(-1)}
                 className="text-primary cursor-pointer"
               />
               <Separator orientation="vertical" className="mr-1 h-4" />
+                </>
+              )}
               {/* <Breadcrumb>
                           <BreadcrumbList>
                             {locationsPaths?.length > (isMobile ? 1 : 2) ? (
@@ -420,7 +424,21 @@ export const MainLayout = () => {
                 <CirclePlus className="w-5 h-5 pr-1" />
                 Add <span className="hidden md:flex pl-1">New Item</span>
               </Button>
-            ) : (
+            ) : location.pathname === "/" && ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button className="sm:mr-4 mr-2">
+                    <CirclePlus className="w-5 h-5 pr-1" />
+                    Add
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>Urgent PR</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate("/service-requests")}>Service Request</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+            : (
               projectData && (
                 <Badge className={`sm:mr-4 mr-2 ${projectData?.project_name?.length > 24 ? "max-sm:text-[9px]" : "max-sm:text-[11px]"}`}>
                   {projectData?.project_name}
@@ -429,7 +447,8 @@ export const MainLayout = () => {
             )}
           </header>
           <main
-            className={`pb-4 px-2 transition-all duration-300 ease-in-out overflow-auto  max-h-[90vh]`}
+            className={`pb-4 pt-2 px-2 transition-all ${!isMobile && state === "expanded" ? "" : ""
+              } duration-300 ease-in-out overflow-auto md:max-h-[94vh] 2xl:max-h-[95vh] max-md:max-h-[93vh]`}
           >
             <ErrorBoundaryWithNavigationReset>
               <ScrollToTop />

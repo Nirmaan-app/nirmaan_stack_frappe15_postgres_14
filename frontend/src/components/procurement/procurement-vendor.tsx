@@ -57,7 +57,7 @@ export const ProcurementOrder = () => {
 
   const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
     fields: ["*"],
-    limit: 1000
+    limit: 10000
   })
 
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
@@ -71,7 +71,7 @@ export const ProcurementOrder = () => {
   const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
     {
       fields: ["*"],
-      limit: 1000
+      limit: 100000
     },
     "Vendor Category"
   );
@@ -86,7 +86,7 @@ export const ProcurementOrder = () => {
     {
       fields: ["*"],
       filters: [["vendor_type", "=", "Material"]],
-      limit: 1000,
+      limit: 10000,
     },
     "Material Vendors"
   );
@@ -102,7 +102,8 @@ export const ProcurementOrder = () => {
   const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
     fields: ["*"],
     filters: [["reference_name", "=", orderId]],
-    orderBy: { field: "creation", order: "desc" }
+    orderBy: { field: "creation", order: "desc" },
+    limit: 1000,
   }
   )
 
@@ -313,7 +314,7 @@ export const ProcurementOrder = () => {
           item: item.name,
           vendor: cat,
           quantity: new_quantity,
-          makes: { list: makes }
+          makes: { list: makes || [] }
         };
 
         promises.push(
@@ -380,7 +381,7 @@ export const ProcurementOrder = () => {
           </p>
           <button
             className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => navigate("/new-procure-request")}
+            onClick={() => navigate("/procurement-requests")}
           >
             Go Back to PR List
           </button>

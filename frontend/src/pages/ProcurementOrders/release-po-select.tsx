@@ -35,11 +35,15 @@ export const ReleasePOSelect = () => {
         {
             fields: ["*"],
             filters: [["status", tab === "Released PO" ? "not in" : "in", tab === "Released PO" ? ["PO Approved", "PO Amendment", "Merged"] : ["PO Approved"]]],
-            limit: 1000,
+            limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         },
     );
 
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+            fields: ["*"],
+            limit: 100000
+        })
     // console.log("data", procurement_order_list)
 
     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
@@ -56,7 +60,7 @@ export const ReleasePOSelect = () => {
         filters: [["vendor_type", "=", "Material"]],
         limit: 1000
     },
-        "Vendors"
+        "Material Vendors"
     )
 
     const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
@@ -86,6 +90,17 @@ export const ReleasePOSelect = () => {
     };
 
 
+    const getTotalAmountPaid = (id) => {
+        const payments = projectPayments?.filter((payment) => payment.document_name === id);
+
+
+        return payments?.reduce((acc, payment) => {
+            const amount = parseFloat(payment.amount || 0)
+            const tds = parseFloat(payment.tds || 0)
+            return acc + amount;
+        }, 0);
+    }
+
     const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount } = useDocCountStore()
 
     const { notifications, mark_seen_notification } = useNotificationStore()
@@ -97,11 +112,11 @@ export const ReleasePOSelect = () => {
         }
     }
 
-    useEffect(() => {
-        const currentTab = searchParams.get("tab") || "Approved PO";
-        setTab(currentTab);
-        updateURL("tab", currentTab);
-    }, []);
+    // useEffect(() => {
+    //     const currentTab = searchParams.get("tab") || "Approved PO";
+    //     setTab(currentTab);
+    //     updateURL("tab", currentTab);
+    // }, []);
 
     const updateURL = (key, value) => {
         const url = new URL(window.location);
@@ -299,14 +314,25 @@ export const ReleasePOSelect = () => {
                 }
             },
             {
-                accessorKey: 'order_list',
-                header: ({ column }) => {
-                    return <h1 className="hidden">:</h1>
+                id: "Amount_paid",
+                header: "Amt Paid",
+                cell: ({ row }) => {
+                    const data = row.original
+                    const amountPaid = getTotalAmountPaid(data?.name);
+                    return <div className="font-medium">
+                        {formatToIndianRupee(amountPaid)}
+                    </div>
                 },
-                cell: ({ row }) => <span className="hidden">hh</span>
-            }
+            },
+            // {
+            //     accessorKey: 'order_list',
+            //     header: ({ column }) => {
+            //         return <h1 className="hidden">:</h1>
+            //     },
+            //     cell: ({ row }) => <span className="hidden">hh</span>
+            // }
         ],
-        [project_values, procurement_order_list]
+        [project_values, procurement_order_list, projectPayments]
     )
 
     const { toast } = useToast()

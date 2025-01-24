@@ -300,8 +300,8 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
             }, {});
 
             return Object.entries(groupedItems).map(([categoryName, items]) => (
-              <div key={categoryName} className="my-3">
-                <Table>
+              <div key={categoryName} className="my-3 w-full overflow-x-auto">
+                <Table className="overflow-x-auto">
                   <TableHeader>
                     <TableRow className="bg-red-100">
                       <TableHead className="w-[30%] text-red-700 font-extrabold">{categoryName}</TableHead>

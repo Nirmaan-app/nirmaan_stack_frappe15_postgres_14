@@ -17,20 +17,20 @@ export default function ProcurementDashboard() {
 
     return (
         <div className="flex-1 space-y-4">
-            <div className="flex justify-between items-center space-y-2">
-                {/* <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Procurement Dashboard</h2> */}
+            {/* <div className="flex justify-between items-center space-y-2">
+                <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Procurement Dashboard</h2>
                 <div className="flex gap-2 max-sm:flex-col">
                     <Button onClick={() => navigate("/prs&milestones/procurement-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
                     <Button onClick={() => navigate("/service-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
                 </div>
 
-            </div>
+            </div> */}
             <div className="flex items-center space-y-2">
                 <h2 className=" font-bold tracking-tight">New PR Actions</h2>
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=New PR Request">
+                    <Link to="/procurement-requests?tab=New+PR+Request">
                         <p className="text-center py-6 font-bold text-gray-500">New PR Request</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {approvedPRCount || 0}
@@ -39,7 +39,7 @@ export default function ProcurementDashboard() {
                 </Card>
 
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=Update Quote">
+                    <Link to="/procurement-requests?tab=Update+Quote">
                         <p className="text-center py-6 font-bold text-gray-500">Update Quote</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {updateQuotePRCount || 0}
@@ -47,7 +47,7 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=Choose Vendor">
+                    <Link to="/procurement-requests?tab=Choose+Vendor">
                         <p className="text-center py-6 font-bold text-gray-500">Choose Vendor</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {chooseVendorPRCount || 0}
@@ -91,7 +91,7 @@ export default function ProcurementDashboard() {
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/purchase-orders?tab=Approved PO">
+                    <Link to="/purchase-orders?tab=Approved+PO">
                         <p className="text-center py-6 font-bold text-gray-500">Approved PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {newPOCount || 0}
@@ -99,7 +99,7 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/purchase-orders?tab=Released PO">
+                    <Link to="/purchase-orders?tab=Released+PO">
                         <p className="text-center py-6 font-bold text-gray-500">Released PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {otherPOCount || 0}
@@ -112,7 +112,7 @@ export default function ProcurementDashboard() {
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/rejected-sb">
+                    <Link to="/sent-back-requests?type=Rejected">
                         <p className="text-center py-6 font-bold text-gray-500">Rejected Sent Backs</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {newSBCounts.rejected || 0}
@@ -120,7 +120,7 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/delayed-sb">
+                    <Link to="/sent-back-requests?type=Delayed">
                         <p className="text-center py-6 font-bold text-gray-500">Delayed Sent Backs</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {newSBCounts.delayed || 0}
@@ -128,7 +128,7 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/cancelled-sb">
+                    <Link to="/sent-back-requests?type=Cancelled">
                         <p className="text-center py-6 font-bold text-gray-500">Cancelled Sent Backs</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {newSBCounts.cancelled || 0}

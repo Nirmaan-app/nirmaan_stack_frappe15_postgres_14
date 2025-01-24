@@ -156,7 +156,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
       ],
       filters: [["category", "in", category_list?.map((i) => i?.name)]],
       orderBy: { field: "creation", order: "desc" },
-      limit: 10000,
+      limit: 100000,
     },
     category_list?.length ? undefined : null
   );
@@ -164,7 +164,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const { data: wp_list } = useFrappeGetDocList("Procurement Packages", {
     fields: ["work_package_name", "work_package_image"],
     orderBy: { field: "work_package_name", order: "asc" },
-    limit: 100,
+    limit: 1000,
   });
 
   // const { data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error } = useFrappeGetDocList("Category Makelist", {
@@ -775,8 +775,13 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           >
             Add Item
           </Button>
-          <div className="flex flex-col justify-between h-[65vh] max-sm:h-[60vh]">
-            <div>
+          <div className="flex flex-col justify-between h-[58vh]">
+            <div
+            className={`${universalComments?.length > 0
+              ? "max-h-[40vh]"
+              : "max-h-[60vh]"
+              } overflow-y-auto`}
+            >
               <div className="flex justify-between items-center max-md:py-2 py-4">
                 <h2 className="font-semibold">Order List</h2>
                 {stack.length !== 0 && (
@@ -802,17 +807,14 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
 
               {procList?.length === 0 && (
                 <div
-                  className={`h-[40vh] flex items-center justify-center font-bold`}
+                  className={`h-[35vh] flex items-center justify-center font-bold`}
                 >
                   Empty!
                 </div>
               )}
 
               <div
-                className={`${universalComments?.length > 0
-                  ? "max-h-[40vh]"
-                  : "max-h-[55vh]"
-                  } overflow-y-auto`}
+                
               >
                 {
                   // procList.length !== 0 ? (
@@ -1340,7 +1342,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
             </div>
             <div>
               {(resolve || edit) && universalComments?.length > 0 && (
-                <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
+                <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3 mt-2">
                   <h3 className="font-bold flex items-center gap-1">
                     <MessageCircleMore className="w-5 h-5" />
                     Previous Comments
@@ -1388,7 +1390,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                     disabled={!procList.length}
                     variant={`${!procList.length ? "secondary" : "destructive"
                       }`}
-                    className="h-8 mb-40 w-full"
+                    className="w-full my-2"
                   >
                     <div className="flex items-center gap-1">
                       <ListChecks className="h-4 w-4" />
@@ -1615,7 +1617,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             {fuzzyMatches.slice(0, 5).map((item, index) => (
                               <li
                                 key={item.item_name}
-                                className="p-2 hover:bg-gray-100 flex flex-col"
+                                className="p-2 hover:bg-gray-100 flex justify-between items-center"
                               // onMouseDown={() => {
                               //   setCurCategory({
                               //     label: item?.category,
@@ -1634,16 +1636,21 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                               //   toggleRequestItemDialog();
                               // }}
                               >
-                                <p className="flex justify-between items-center">
+
+                                <div className="flex flex-col gap-1">
                                   <strong>{item?.item_name}</strong>
-                                  <span className="text-gray-500">
-                                    {" "}
-                                    - {item?.matchPercentage}% match
-                                  </span>
-                                </p>
-                                <div className="flex justify-between items-center">
-                                  <p className="text-gray-400 font-semibold">{item?.category}</p>
-                                  <p
+
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-gray-400 font-semibold">{item?.category}</p>
+                                    <i className="text-gray-500">
+                                      {" "}
+                                      - {item?.matchPercentage}% match
+                                    </i>
+                                  </div>
+
+                                </div>
+
+                                <div
                                     onMouseDown={() => {
                                       setCurCategory({
                                         label: item?.category,
@@ -1661,7 +1668,9 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                       });
                                       toggleRequestItemDialog();
                                     }}
-                                    className="text-primary bg-gray-300 rounded-md p-1 font-bold text-xs cursor-pointer">Add Item</p>
+                                    className="text-primary bg-gray-300 hover:bg-white rounded-md p-2 font-bold text-xs cursor-pointer flex items-center gap-1">
+                                      <CirclePlus className="w-4 h-4" />
+                                      Add
                                 </div>
                                 {/* <span>
                                   <strong>{item.item_name}</strong>

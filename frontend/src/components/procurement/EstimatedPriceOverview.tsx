@@ -13,7 +13,7 @@ export const EstimatedPriceOverview = () => {
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations", {
         fields: ["*"],
         filters: [["procurement_order", "=", poId], ["item_id", "=", itemId]],
-        limit: 10000,
+        limit: 1000,
     });
 
     // console.log("quote_data", quote_data);

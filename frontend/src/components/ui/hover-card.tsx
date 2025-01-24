@@ -1,15 +1,94 @@
-"use client"
+import * as React from "react";
+import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
+import { cn } from "@/lib/utils";
 
-import * as React from "react"
-import * as HoverCardPrimitive from "@radix-ui/react-hover-card"
+const HoverCard = ({ delayDuration = 500, ...props }) => {
+  const [isTouchDevice, setIsTouchDevice] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
 
-import { cn } from "@/lib/utils"
+  React.useEffect(() => {
+    const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    setIsTouchDevice(isTouch);
+  }, []);
 
-const HoverCard = ({ delayDuration = 300, ...props }) => (
-    <HoverCardPrimitive.Root openDelay={delayDuration} {...props} />
-)
+  const handleOutsideClick = (e) => {
+    if (!e.target.closest("[data-hover-card]")) {
+      setOpen(false);
+    }
+  };
 
-const HoverCardTrigger = HoverCardPrimitive.Trigger
+  React.useEffect(() => {
+    if (isTouchDevice) {
+      document.addEventListener("touchstart", handleOutsideClick);
+      return () => {
+        document.removeEventListener("touchstart", handleOutsideClick);
+      };
+    }
+  }, [isTouchDevice]);
+
+  return (
+    <HoverCardPrimitive.Root
+      open={isTouchDevice ? open : undefined}
+      onOpenChange={(newState) => {
+        if (!isTouchDevice) setOpen(newState);
+      }}
+      openDelay={isTouchDevice ? undefined : delayDuration}
+      closeDelay={isTouchDevice ? undefined : 300}
+      {...props}
+    >
+      {React.Children.map(props.children, (child) =>
+        React.isValidElement(child)
+          ? React.cloneElement(child, {
+              setOpen: setOpen,
+              isTouchDevice: isTouchDevice,
+            })
+          : child
+      )}
+    </HoverCardPrimitive.Root>
+  );
+};
+
+const HoverCardTrigger = ({
+  children,
+  onLongPressDuration = 500,
+  setOpen,
+  isTouchDevice,
+  ...props
+}) => {
+  const longPressTimer = React.useRef(null);
+
+  const handleTouchStart = () => {
+    if (isTouchDevice) {
+      longPressTimer.current = setTimeout(() => {
+        setOpen(true);
+      }, onLongPressDuration);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isTouchDevice) {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+      }
+    }
+  };
+
+  // Filter out the `setOpen` and `isTouchDevice` props
+  const { setOpen: _, isTouchDevice: __, ...restProps } = props;
+
+  return (
+    <HoverCardPrimitive.Trigger
+      {...restProps}
+      onMouseEnter={!isTouchDevice ? props.onMouseEnter : undefined}
+      onMouseLeave={!isTouchDevice ? props.onMouseLeave : undefined}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      data-hover-card
+    >
+      {children}
+    </HoverCardPrimitive.Trigger>
+  );
+};
 
 const HoverCardContent = React.forwardRef<
   React.ElementRef<typeof HoverCardPrimitive.Content>,
@@ -28,10 +107,10 @@ const HoverCardContent = React.forwardRef<
       "data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
       className
     )}
+    data-hover-card
     {...props}
   />
 ));
 HoverCardContent.displayName = HoverCardPrimitive.Content.displayName;
 
-
-export { HoverCard, HoverCardTrigger, HoverCardContent }
+export { HoverCard, HoverCardTrigger, HoverCardContent };

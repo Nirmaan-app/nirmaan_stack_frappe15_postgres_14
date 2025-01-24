@@ -6,13 +6,13 @@ from .procurement_requests import get_user_name
 def after_insert(doc, method):
         proc_admin_users = get_allowed_procurement_users(doc)
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
-        click_action_type = None
-        if doc.type == 'Rejected':
-            click_action_type = 'rejected-sb'
-        elif doc.type == 'Delayed':
-            click_action_type = 'delayed-sb'
-        else:
-            click_action_type = 'cancelled-sb'
+        # click_action_type = None
+        # if doc.type == 'Rejected':
+        #     click_action_type = 'rejected-sb'
+        # elif doc.type == 'Delayed':
+        #     click_action_type = 'delayed-sb'
+        # else:
+        #     click_action_type = 'cancelled-sb'
         
         if proc_admin_users:
             for user in proc_admin_users:
@@ -24,7 +24,7 @@ def after_insert(doc, method):
                         f"work package has been created by {get_user_name(frappe.session.user)}, click here to take action."
                         )
                     
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/{click_action_type}"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/sent-back-requests?type={doc.type}"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -57,7 +57,7 @@ def after_insert(doc, method):
             new_notification_doc.type = "info"
             eventID = f"{doc.type}-sb:new"
             new_notification_doc.event_id = eventID
-            new_notification_doc.action_url = f"{click_action_type}/{doc.name}"
+            new_notification_doc.action_url = f"sent-back-requests/{doc.name}"
             new_notification_doc.insert()
             frappe.db.commit()
 

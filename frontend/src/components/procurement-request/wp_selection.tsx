@@ -15,7 +15,7 @@ export const WPSelection = () => {
         {
             fields: ['work_package_name', "work_package_image"],
             orderBy: { field: 'work_package_name', order: 'asc' },
-            limit: 100
+            limit: 1000
         }
     );
 

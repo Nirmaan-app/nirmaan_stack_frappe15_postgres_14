@@ -124,24 +124,24 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         updateURL("eTab", value)
     }
 
-    useEffect(() => {
-        const currentTab = searchParams.get("eTab") || "All";
-        setSelectedPackage(currentTab);
-        updateURL("eTab", currentTab)
-    }, []);
+    // useEffect(() => {
+    //     const currentTab = searchParams.get("eTab") || "All";
+    //     setSelectedPackage(currentTab);
+    //     // updateURL("eTab", currentTab)
+    // }, []);
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax'],
             orderBy: { field: 'category_name', order: 'asc' },
-            limit: 1000
+            limit: 10000
         });
 
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
             orderBy: { field: 'creation', order: 'desc' },
-            limit: 10000
+            limit: 100000
         });
 
     useEffect(() => {

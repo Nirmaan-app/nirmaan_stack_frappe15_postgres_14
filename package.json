@@ -12,7 +12,5 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "fuse.js": "^7.0.0"
-  }
+  "dependencies": {}
 }

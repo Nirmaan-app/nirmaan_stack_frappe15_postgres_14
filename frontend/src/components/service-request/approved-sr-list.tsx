@@ -18,7 +18,7 @@ interface ApprovedSRListProps {
 
 export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) => {
     const sr_filters: any = [["status", "=", "Approved"]]
-    if (for_vendor !== undefined) {
+    if (for_vendor) {
         sr_filters.push(["vendor", "=", for_vendor])
     }
     const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList("Service Requests",
@@ -32,6 +32,11 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
+    })
+
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+        fields: ["*"],
+        limit: 100000
     })
 
 
@@ -50,6 +55,18 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
         })
         return total;
     }
+
+    const getTotalAmountPaid = (id) => {
+        const payments = projectPayments?.filter((payment) => payment.document_name === id);
+
+
+        return payments?.reduce((acc, payment) => {
+            const amount = parseFloat(payment.amount || 0)
+            const tds = parseFloat(payment.tds || 0)
+            return acc + amount;
+        }, 0);
+    }
+
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
@@ -163,7 +180,7 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
                 accessorKey: "total",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Estimated Price" />
+                        <DataTableColumnHeader column={column} title="Total PO Amt" />
                     )
                 },
                 cell: ({ row }) => {
@@ -173,10 +190,21 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
                         </div>
                     )
                 }
-            }
+            },
+            {
+                id: "Amount_paid",
+                header: "Amt Paid",
+                cell: ({ row }) => {
+                    const data = row.original
+                    const amountPaid = getTotalAmountPaid(data?.name);
+                    return <div className="font-medium">
+                        {formatToIndianRupee(amountPaid)}
+                    </div>
+                },
+            },
 
         ],
-        [project_values, service_list]
+        [project_values, service_list, projectPayments]
     )
     const { toast } = useToast()
 

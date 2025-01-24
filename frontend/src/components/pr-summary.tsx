@@ -338,8 +338,6 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                             <CardHeader>
                                 <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
                                 <div className="overflow-x-auto">
-                                    <div className="min-w-full inline-block align-middle">
-                                    </div>
                                     {po_data?.length === 0 ? <p>No POs generated as of now</p>
                                         :
                                         <Table>
@@ -371,8 +369,6 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                         <CardHeader>
                             <CardTitle className="text-xl text-red-600">Associated Delivery Notes:</CardTitle>
                             <div className="overflow-x-auto">
-                                <div className="min-w-full inline-block align-middle">
-                                </div>
                                 {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).length === 0 ? <p>No DNs generated as of now</p>
                                     :
                                     <Table>
@@ -405,9 +401,6 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                     <Card className="w-full">
                         <CardHeader>
                             <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
-                        </CardHeader>
-                        <div className="overflow-x-auto">
-                            <div className="min-w-full inline-block align-middle">
                                 {(() => {
                                     const categories = [];
                                     try {
@@ -422,7 +415,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                     }
 
                                     return categories.map((cat) => (
-                                        <div className="p-5" key={cat.name}>
+                                        <div className="overflow-x-auto w-full" key={cat.name}>
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow className="bg-red-100">
@@ -506,8 +499,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                         </div>
                                     ));
                                 })()}
-                            </div>
-                        </div>
+                                </CardHeader>
                     </Card>
                     <div />
                 </div>

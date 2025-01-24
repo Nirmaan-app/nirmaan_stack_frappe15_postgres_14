@@ -24,6 +24,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "../ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog";
+import { AddressView } from "@/components/address-view";
 
 // const { Sider, Content } = Layout;
 
@@ -36,8 +37,8 @@ export const ApprovedSR = () => {
     const { data: service_request, isLoading: service_request_loading, error: service_request_error, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
 
     const [orderData, setOrderData] = useState(null)
-    const [vendorAddress, setVendorAddress] = useState()
-    const [projectAddress, setProjectAddress] = useState()
+    // const [vendorAddress, setVendorAddress] = useState()
+    // const [projectAddress, setProjectAddress] = useState()
     const [notes, setNotes] = useState([])
     const [curNote, setCurNote] = useState(null)
     const [gstEnabled, setGstEnabled] = useState(false)
@@ -60,13 +61,28 @@ export const ApprovedSR = () => {
 
     const { data: project, isLoading: project_loading, error: project_error, mutate: project_mutate } = useFrappeGetDoc("Projects", orderData?.project, orderData?.project ? `Projects ${orderData?.project}` : null)
 
-    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-        {
-            fields: ["*"],
-            limit: 1000
-        },
-        "Address"
-    );
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+        fields: ["*"],
+        filters: [["document_name", "=", id]],
+        limit: 100
+    })
+
+    const getTotalAmountPaid = () => {
+
+        return projectPayments?.reduce((acc, payment) => {
+            const amount = parseFloat(payment.amount || 0)
+            const tds = parseFloat(payment.tds || 0)
+            return acc + amount;
+        }, 0);
+    }
+
+    // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+    //     {
+    //         fields: ["*"],
+    //         limit: 1000
+    //     },
+    //     "Address"
+    // );
 
     useEffect(() => {
         if (service_request) {
@@ -85,25 +101,25 @@ export const ApprovedSR = () => {
     }, [service_request])
 
 
-    useEffect(() => {
-        if (orderData?.project && project && service_vendor) {
-            const doc = address_list?.find(item => item.name == project?.project_address);
-            const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
-            setProjectAddress(address)
-            const doc2 = address_list?.find(item => item.name == service_vendor?.vendor_address);
-            const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
-            setVendorAddress(address2)
-            // setPhoneNumber(doc2?.phone || "")
-            // setEmail(doc2?.email_id || "")
-        }
-        // if (orderData?.vendor) {
-        //     setVendor(orderData?.vendor)
-        // }
-        // if (vendor_data) {
-        //     setVendorGST(vendor_data?.vendor_gst)
-        // }
+    // useEffect(() => {
+    //     if (orderData?.project && project && service_vendor) {
+    //         const doc = address_list?.find(item => item.name == project?.project_address);
+    //         const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+    //         setProjectAddress(address)
+    //         const doc2 = address_list?.find(item => item.name == service_vendor?.vendor_address);
+    //         const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
+    //         setVendorAddress(address2)
+    //         // setPhoneNumber(doc2?.phone || "")
+    //         // setEmail(doc2?.email_id || "")
+    //     }
+    //     // if (orderData?.vendor) {
+    //     //     setVendor(orderData?.vendor)
+    //     // }
+    //     // if (vendor_data) {
+    //     //     setVendorGST(vendor_data?.vendor_gst)
+    //     // }
 
-    }, [orderData, address_list, project, service_vendor]);
+    // }, [orderData, address_list, project, service_vendor]);
 
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
     const componentRef = useRef<HTMLDivElement>(null);
@@ -352,8 +368,8 @@ export const ApprovedSR = () => {
                 <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                 <p className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</p>
             </div> */}
-            <div className="grid gap-6 grid-cols-1 md:grid-cols-5">
-                <Card className="rounded-sm shadow-m md:col-span-2 overflow-x-auto">
+            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                             SR Details
@@ -399,23 +415,45 @@ export const ApprovedSR = () => {
                             </div>
                             <span className="font-light">{service_vendor?.vendor_gst || "--"}</span>
                         </div>
-                        <div className="flex items-start justify-between">
+                        {/* <div className="flex items-start justify-between">
                             <div className="w-[100%]">
                                 <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
                                 <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
                             </div>
                             <span className="font-light">
                                 {vendorAddress}
+                                <AddressView id={service_vendor?.vendor_address} />
                             </span>
+                        </div> */}
+                        <div className="flex flex-col">
+                          <div>
+                            <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
+                            <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
+                          </div>
+                          <span className="font-light pl-6">
+                            {/* {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode} */}
+                            <AddressView id={service_vendor?.vendor_address}/>
+                          </span>
                         </div>
-                        <div className="flex items-start justify-between">
+                        {/* <div className="flex items-start justify-between">
                             <div className="w-[100%]">
                                 <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
                                 <Label className="ml-1 font-light text-red-700">Project Address:</Label>
                             </div>
                             <span className="font-light">
                                 {projectAddress}
+                                <AddressView id={project?.project_address}/>
                             </span>
+                        </div> */}
+                        <div className="flex flex-col">
+                          <div>
+                            <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
+                            <Label className="ml-1 font-light text-red-700">Project Address:</Label>
+                          </div>
+                          <span className="font-light pl-6">
+                            {/* {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode} */}
+                            <AddressView id={project?.project_address}/>
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
                             <Label className="ml-1 font-light text-red-700">Total (Excl. GST):</Label>
@@ -427,9 +465,13 @@ export const ApprovedSR = () => {
                                 <span className="font-light">{formatToIndianRupee(getTotal() * 1.18)}</span>
                             </div>
                         )}
+                        <div className="flex items-center justify-between">
+                            <Label className="ml-1 font-light text-red-700">Total Amt Paid:</Label>
+                            <span className="font-light">{formatToIndianRupee(getTotalAmountPaid())}</span>
+                        </div>
                     </CardContent>
                 </Card>
-                <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
+                <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                             SR Options
@@ -627,13 +669,13 @@ export const ApprovedSR = () => {
                                                     <div>
                                                         <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
                                                         <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{service_vendor?.vendor_name}</div>
-                                                        <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
+                                                        <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={service_vendor?.vendor_address} /></div>
                                                         <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {service_vendor?.vendor_gst || "N/A"}</div>
                                                     </div>
                                                     <div>
                                                         <div>
                                                             <h3 className="text-gray-500 text-sm pb-2 text-left">Service Location</h3>
-                                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
+                                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={project?.project_address}/></div>
                                                         </div>
                                                         <div className="pt-2">
                                                             <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.modified?.split(" ")[0]}</i></div>

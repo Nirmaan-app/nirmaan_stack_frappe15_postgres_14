@@ -19,11 +19,11 @@ import { debounce } from "lodash";
 import logo from "@/assets/logo-svg.svg"
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@/components/ui/sheet"; 
+import { AddressView } from "@/components/address-view";
 
 const OrderPaymentSummary = () => {
     const { id } = useParams<{ id: string }>();
     const poId = id?.replace(/&=/g, "/");
-    const navigate = useNavigate();
 
     const [poPdfSheet, setPoPdfSheet] = useState(false); // State for PO PDF Sheet
     const [srPdfSheet, setSrPdfSheet] = useState(false); // State for SR PDF Sheet
@@ -36,8 +36,8 @@ const OrderPaymentSummary = () => {
 
     const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
 
-    const [vendorAddress, setVendorAddress] = useState<string | null>(null);
-    const [projectAddress, setProjectAddress] = useState<string | null>(null);
+    // const [vendorAddress, setVendorAddress] = useState<string | null>(null);
+    // const [projectAddress, setProjectAddress] = useState<string | null>(null);
 
     const [advance, setAdvance] = useState(0)
     const [materialReadiness, setMaterialReadiness] = useState(0)
@@ -56,7 +56,8 @@ const OrderPaymentSummary = () => {
     const [newPayment, setNewPayment] = useState({
             amount: "",
             transaction_date: "",
-            utr: ""
+            utr: "",
+            tds: ""
     });
     
     const [paymentScreenshot, setPaymentScreenshot] = useState(null);
@@ -73,13 +74,13 @@ const OrderPaymentSummary = () => {
 
     const {data : prData} = useFrappeGetDoc("Procurement Requests", documentData?.procurement_request, documentData?.procurement_request ? `Procurement Requests ${documentData?.procurement_request}` : null)
 
-    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-            {
-                fields: ["*"],
-                limit: 1000
-            },
-            "Address"
-        );
+    // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+    //         {
+    //             fields: ["*"],
+    //             limit: 1000
+    //         },
+    //         "Address"
+    //     );
 
     const {data : vendorData} = useFrappeGetDoc("Vendors", documentData?.vendor, documentData ? `Vendors ${documentData?.vendor}` : null)
 
@@ -87,19 +88,19 @@ const OrderPaymentSummary = () => {
 
     const {data : projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate} = useFrappeGetDocList("Project Payments", {
             fields: ["*"],
-            limit: 10000
+            limit: 100000
      })
 
-    useEffect(() => {
-        if (endpoint && documentData && projectData && vendorData) {
-            const doc = address_list?.find(item => item.name == projectData?.project_address);
-            const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
-            setProjectAddress(address)
-            const doc2 = address_list?.find(item => item.name == vendorData?.vendor_address);
-            const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
-            setVendorAddress(address2)
-        }
-    }, [endpoint, documentData, projectData, vendorData]);
+    // useEffect(() => {
+    //     if (endpoint && documentData && projectData && vendorData) {
+    //         const doc = address_list?.find(item => item.name == projectData?.project_address);
+    //         const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+    //         setProjectAddress(address)
+    //         const doc2 = address_list?.find(item => item.name == vendorData?.vendor_address);
+    //         const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
+    //         setVendorAddress(address2)
+    //     }
+    // }, [endpoint, documentData, projectData, vendorData]);
 
     useEffect(() => {
         if(endpoint === "Procurement Orders" && documentData) {
@@ -152,7 +153,7 @@ const OrderPaymentSummary = () => {
         if(projectPayments) {
             const payments = projectPayments?.filter((i) => i?.document_name === id);
 
-            return payments?.reduce((acc, i) => acc + parseFloat(i?.amount), 0);
+            return payments?.reduce((acc, i) => acc + parseFloat(i?.amount || 0), 0);
         }
 
         return 0;
@@ -247,17 +248,19 @@ const OrderPaymentSummary = () => {
         }
     
         const { total, totalWithGST } = totals
+
+        const totalAmountPaid = getTotalAmtPaid(documentData?.name)
     
         const compareAmount =
           isPO
-            ? totalWithGST // Always compare with totalWithTax for Purchase Orders
+            ? (totalWithGST - totalAmountPaid) // Always compare with totalWithTax for Purchase Orders
             : documentData?.gst === "true" // Check GST field for Service Orders
-            ? totalWithGST
-            : total;
+            ? (totalWithGST - totalAmountPaid)
+            : (total - totalAmountPaid);
     
         if (parseFloat(amount) > compareAmount) {
           setWarning(
-            `Entered amount exceeds the total amount ${
+            `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${
                 isPO ? "including" : documentData?.gst === "true" ? "including" : "excluding"
             } GST: ${formatToIndianRupee(compareAmount)}`
           );
@@ -400,6 +403,20 @@ const OrderPaymentSummary = () => {
                                                                     onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
                                                                 />
                                                             </div>
+                                                            {(!isPO && documentData.gst === "true") && <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">TDS Amount</Label>
+                                                                <div className="w-full">
+                                                                <Input
+                                                                    type="number"
+                                                                    placeholder="Enter TDS Amount"
+                                                                    value={newPayment.tds}
+                                                                    onChange={(e) => {
+                                                                        const tdsValue = e.target.value;
+                                                                        setNewPayment({ ...newPayment, tds: tdsValue })
+                                                                    }}
+                                                                />
+                                                                </div>
+                                                            </div>}
 
                                                         </div>
 
@@ -470,7 +487,7 @@ const OrderPaymentSummary = () => {
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr}
+                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -488,6 +505,9 @@ const OrderPaymentSummary = () => {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Amount</TableHead>
+                                    {!isPO && documentData?.gst === "true" && (
+                                        <TableHead>TDS Amt</TableHead>
+                                    )}
                                     <TableHead>UTR No.</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -498,6 +518,9 @@ const OrderPaymentSummary = () => {
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                {!isPO && documentData?.gst === "true" && (
+                                                    <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
+                                                )}
                                                 <TableCell className="font-semibold text-blue-500 underline">
                                                 {import.meta.env.MODE === "development" ? (
                                                     <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
@@ -740,7 +763,8 @@ const OrderPaymentSummary = () => {
                             {documentData?.vendor_name}
                           </div>
                           <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                            {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode}
+                            {/* {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode} */}
+                            <AddressView id={documentData.vendor_address} />
                           </div>
                           <div className="text-sm font-medium text-gray-900 text-left">
                             GSTIN: {documentData?.vendor_gst}
@@ -752,7 +776,8 @@ const OrderPaymentSummary = () => {
                               Delivery Location
                             </h3>
                             <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                              {projectAddress?.address_line1}, {projectAddress?.address_line2}, {projectAddress?.city}, {projectAddress?.state}-{projectAddress?.pincode}
+                              {/* {projectAddress?.address_line1}, {projectAddress?.address_line2}, {projectAddress?.city}, {projectAddress?.state}-{projectAddress?.pincode} */}
+                              <AddressView id={documentData.project_address} />
                             </div>
                           </div>
                           <div className="pt-2">
@@ -1416,17 +1441,17 @@ const OrderPaymentSummary = () => {
                                         <div>
                                             <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
                                             <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{vendorData?.vendor_name}</div>
-                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
+                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={vendorData?.vendor_address}/></div>
                                             <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {vendorData?.vendor_gst || "N/A"}</div>
                                         </div>
                                         <div>
                                             <div>
                                                 <h3 className="text-gray-500 text-sm pb-2 text-left">Service Location</h3>
-                                                <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
+                                                <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={projectData?.project_address}/></div>
                                             </div>
                                             <div className="pt-2">
                                                 <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{documentData?.modified?.split(" ")[0]}</i></div>
-                                                <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{documentData?.project}</i></div>
+                                                <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{projectData?.project_name}</i></div>
                                             </div>
                                         </div>
                                     </div>

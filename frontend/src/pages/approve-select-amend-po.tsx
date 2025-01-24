@@ -30,9 +30,9 @@ export const ApproveSelectAmendPO = () => {
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
         fields: ["vendor_name", 'vendor_type'],
         filters: [["vendor_type", "=", "Material"]],
-        limit: 1000
+        limit: 10000
     },
-        "Vendors"
+        "Material Vendors"
     )
 
     useFrappeDocTypeEventListener("Procurement Orders", async (data) => {

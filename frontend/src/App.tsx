@@ -83,7 +83,7 @@ const router = createBrowserRouter(
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/" element={<ProtectedRoute />}>
-        <Route element={<MainLayout />}>
+        <Route path="/" element={<MainLayout />}>
           <Route index element={<Dashboard />} />
 
           {/* PRs & Milestones Paths */}
@@ -262,8 +262,22 @@ const router = createBrowserRouter(
             <Route path=":poId" element={<PurchaseOrder />} />
           </Route>
 
+          <Route path="sent-back-requests">
+            <Route index element={<SentBackRequest />} />
+            <Route path=":sbId">
+              <Route index element={<SentBackSummary />} />
+              <Route path="update-quote">
+                <Route index element={<SentBackUpdateQuote />} />
+                <Route
+                  path="choose-vendor"
+                  element={<SentBackSelectVendor />}
+                />
+              </Route>
+            </Route>
+          </Route>
+
           {/* Sent Back Paths */}
-          <Route path="rejected-sb">
+          {/* <Route path="rejected-sb">
             <Route index element={<SentBackRequest type="Rejected" />} />
             <Route path=":sbId">
               <Route index element={<SentBackSummary />} />
@@ -303,7 +317,7 @@ const router = createBrowserRouter(
                 />
               </Route>
             </Route>
-          </Route>
+          </Route> */}
 
           <Route path="estimate-overview">
             <Route index element={<EstimatedPriceOverview />} />
@@ -380,6 +394,13 @@ const router = createBrowserRouter(
 
           <Route path="roles">
             <Route index element={<Roles />} />
+          </Route>
+
+          {/* Debug Paths  */}
+          <Route path="approved-quotes">
+            {/* <Route index element={<Debug />} /> */}
+            <Route index element={<ApprovedQuotationsTable />} />
+            <Route path=":poId" lazy={() => import("@/components/POSummary")} />
           </Route>
 
           {/* Debug Paths  */}
