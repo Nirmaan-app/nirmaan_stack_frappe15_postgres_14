@@ -76,6 +76,21 @@ def on_update(doc, method):
     Manage Approved Quotations and Deletion of PO
     """
     doc = frappe.get_doc("Procurement Orders", doc.name)
+
+    if(doc.status=="PO Approved"):
+        try:
+            existing_aq_docs = frappe.get_all(
+                "Approved Quotations",
+                filters={"procurement_order": doc.name},
+                fields=["name"]
+            )
+            if existing_aq_docs:
+                for aq_doc in existing_aq_docs:
+                    frappe.delete_doc("Approved Quotations", aq_doc["name"])
+
+        except frappe.DoesNotExistError:
+            print("VENDOR NOT AVAILABLE IN DB")
+
     if(doc.status=="Dispatched"):
         try:
             vendor = frappe.get_doc("Vendors", doc.vendor)
@@ -103,11 +118,13 @@ def on_update(doc, method):
                     aq.quantity=order['quantity']
                     aq.quote=order['quote']
                     aq.tax=order['tax']
-                    enabled_make = next(
-                        (make['make'] for make in order['makes']['list'] if make['enabled'] == "true"), 
-                        None
-                    )
-                    aq.make = enabled_make
+                    
+                    if "makes" in order and 'list' in order['makes']:
+                        enabled_make = next(
+                            (make['make'] for make in order['makes']['list'] if make['enabled'] == "true"), 
+                            None
+                        )
+                        aq.make = enabled_make
                     aq.city=vendor.vendor_city
                     aq.state=vendor.vendor_state
                     aq.insert()
