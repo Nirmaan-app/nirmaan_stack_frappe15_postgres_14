@@ -775,8 +775,13 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           >
             Add Item
           </Button>
-          <div className="flex flex-col justify-between h-[65vh] max-sm:h-[60vh]">
-            <div>
+          <div className="flex flex-col justify-between h-[58vh]">
+            <div
+            className={`${universalComments?.length > 0
+              ? "max-h-[40vh]"
+              : "max-h-[60vh]"
+              } overflow-y-auto`}
+            >
               <div className="flex justify-between items-center max-md:py-2 py-4">
                 <h2 className="font-semibold">Order List</h2>
                 {stack.length !== 0 && (
@@ -802,17 +807,14 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
 
               {procList?.length === 0 && (
                 <div
-                  className={`h-[40vh] flex items-center justify-center font-bold`}
+                  className={`h-[35vh] flex items-center justify-center font-bold`}
                 >
                   Empty!
                 </div>
               )}
 
               <div
-                className={`${universalComments?.length > 0
-                  ? "max-h-[40vh]"
-                  : "max-h-[55vh]"
-                  } overflow-y-auto`}
+                
               >
                 {
                   // procList.length !== 0 ? (
@@ -1340,7 +1342,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
             </div>
             <div>
               {(resolve || edit) && universalComments?.length > 0 && (
-                <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
+                <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3 mt-2">
                   <h3 className="font-bold flex items-center gap-1">
                     <MessageCircleMore className="w-5 h-5" />
                     Previous Comments
@@ -1388,7 +1390,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                     disabled={!procList.length}
                     variant={`${!procList.length ? "secondary" : "destructive"
                       }`}
-                    className="h-8 mb-40 w-full"
+                    className="w-full my-2"
                   >
                     <div className="flex items-center gap-1">
                       <ListChecks className="h-4 w-4" />

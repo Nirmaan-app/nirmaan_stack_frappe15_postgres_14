@@ -888,6 +888,9 @@ const ApprovePRListPage = ({
       setUnit("");
       setQuantity("");
       setRequestCategory("");
+
+      toggleRequestItemDialog()
+
     } catch (error) {
       toast({
         title: "Failed!",

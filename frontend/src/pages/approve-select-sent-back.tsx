@@ -25,7 +25,7 @@ export const ApproveSelectSentBack = () => {
             fields: ["*"],
             filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
             limit: 1000,
-            orderBy: {field: "creation", order : "desc"}
+            orderBy: {field: "modified", order : "desc"}
         },
         "Sent Back Category(filters,in,Vendor Selected,Partially Approved)"
     );

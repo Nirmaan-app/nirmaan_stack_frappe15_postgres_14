@@ -387,7 +387,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
       {categories.list.map((cat, index) => (
         <Card key={index} className="mb-6">
           <CardHeader className="bg-gray-100 border-b">
-            <CardTitle className="text-lg font-medium flex items-center justify-between">
+            <CardTitle className="text-lg font-medium flex max-md:flex-col max-md:gap-1 md:items-center md:justify-between">
               <span>Category: {cat.name}</span>
               <div>
                 {cat?.makes?.length > 0 ? (
