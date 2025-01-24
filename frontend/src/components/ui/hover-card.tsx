@@ -50,7 +50,7 @@ const HoverCard = ({ delayDuration = 500, ...props }) => {
 
 const HoverCardTrigger = ({
   children,
-  onLongPressDuration = 1000,
+  onLongPressDuration = 500,
   setOpen,
   isTouchDevice,
   ...props

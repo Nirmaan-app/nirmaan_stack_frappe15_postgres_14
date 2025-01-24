@@ -94,7 +94,7 @@ const ApproveAmendPO = () => {
         </div>
     );
     return (
-        <ApproveAmendPOPage po_data={po_data} project_data={project_data} versionsData={versions} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} />
+        <ApproveAmendPOPage po_data={po_data} project_data={project_data} versionsData={versions} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} usersList={usersList} />
     )
 }
 
@@ -103,17 +103,14 @@ interface ApproveAmendPOPageProps {
     project_data: ProjectsType | undefined
     owner_data: NirmaanUsersType | undefined | { full_name: String }
     versionsData: NirmaanVersionsType | undefined
+    usersList: any
 }
 
 
-const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }: ApproveAmendPOPageProps) => {
+const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, usersList }: ApproveAmendPOPageProps) => {
 
     const navigate = useNavigate()
     const userData = useUserData()
-    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
-        fields: ["full_name", "name"],
-        limit: 1000
-    })
 
     const getUserName = (name) => {
         if (usersList) {

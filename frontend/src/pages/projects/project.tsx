@@ -371,7 +371,7 @@ const ProjectView = ({
   } = useFrappeGetDocList("Project Estimates", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
-    limit: 1000,
+    limit: 10000,
   });
 
   const {
@@ -394,7 +394,7 @@ const ProjectView = ({
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
     filters : [['project', '=', projectId]],
-    limit: 100
+    limit: 1000
   })
 
   const getTotalAmountPaid = () => {
@@ -494,7 +494,7 @@ const ProjectView = ({
   } = useFrappeGetDocList("Vendors", {
     fields: ["vendor_name", "vendor_type"],
     filters: [["vendor_type", "=", "Material"]],
-    limit: 1000,
+    limit: 10000,
   });
 
   const vendorOptions = vendorsList?.map((ven) => ({
@@ -806,7 +806,7 @@ const ProjectView = ({
 
   const { data: quote_data } = useFrappeGetDocList("Quotation Requests", {
     fields: ["name", "item", "quote"],
-    limit: 10000,
+    limit: 100000,
   });
 
   const getTotal = (order_id) => {
@@ -1737,7 +1737,7 @@ const ProjectView = ({
             {data?.project_name.toUpperCase()}
           </span>
           {role === "Nirmaan Admin Profile" && (
-            <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
+            <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet} modal={false}>
               <SheetTrigger>
                 <FilePenLine className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3 max-md:-mt-1" />
               </SheetTrigger>
@@ -4007,7 +4007,7 @@ export const ProjectMakesTab = ({ projectData, options, makesTab, setProjectMake
 
   const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
     fields: ["make", "category"],
-    limit: 10000,
+    limit: 100000,
   });
 
   useEffect(() => {

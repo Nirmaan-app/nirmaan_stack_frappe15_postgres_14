@@ -218,7 +218,7 @@ const ApprovePRListPage = ({
       "name",
     ],
     orderBy: { field: "category_name", order: "asc" },
-    limit: 1000,
+    limit: 10000,
   });
   const {
     data: item_list,
@@ -235,12 +235,12 @@ const ApprovePRListPage = ({
       "creation",
     ],
     orderBy: { field: "creation", order: "desc" },
-    limit: 10000,
+    limit: 100000,
   });
 
   const { data: quote_data } = useFrappeGetDocList("Approved Quotations", {
     fields: ["item_id", "quote"],
-    limit: 10000,
+    limit: 100000,
   });
 
   const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
@@ -888,6 +888,9 @@ const ApprovePRListPage = ({
       setUnit("");
       setQuantity("");
       setRequestCategory("");
+
+      toggleRequestItemDialog()
+
     } catch (error) {
       toast({
         title: "Failed!",
@@ -1747,20 +1750,25 @@ const ApprovePRListPage = ({
                                                   <p className="text-xs italic">- This will also permanently remove the current request item entry from the order_list!</p>
                                                   <div className="flex flex-col gap-2 mt-4 border rounded p-2 bg-gray-50">
                                                     {fuzzyMatches?.slice(0, 3)?.map((i, index) => (
-                                                      <div className="flex flex-col gap-1 border-b pb-1">
-                                                        <p className="flex justify-between items-center">
+                                                      <div className="flex justify-between items-center border-b pb-1">
+                                                        <div className="flex flex-col gap-1">
                                                           <strong>{i?.item_name}</strong>
-                                                          <span className="text-gray-500">
-                                                            {" "}
-                                                            - {i?.matchPercentage}% match
-                                                          </span>
-                                                        </p>
-                                                        <div className="flex justify-between items-center">
-                                                          <p className="text-gray-400 font-semibold">{i?.category}</p>
-                                                          <p
-                                                            onClick={() => handleAddMatchingItem({ item_name: i?.item_name, unit: i?.unit_name, quantity: quantity || 1, category: i?.category }, requestItemName)}
-                                                            className="text-primary font-bold text-xs cursor-pointer border p-1 rounded-md bg-gray-200">Add this item</p>
+
+                                                          <div className="flex items-center gap-2">
+                                                            <p className="text-gray-400 font-semibold">{item?.category}</p>
+                                                            <i className="text-gray-500">
+                                                              {" "}
+                                                              - {i?.matchPercentage}% match
+                                                            </i>
+                                                          </div>            
                                                         </div>
+
+                                                          <div
+                                                            onClick={() => handleAddMatchingItem({ item_name: i?.item_name, unit: i?.unit_name, quantity: quantity || 1, category: i?.category }, requestItemName)}
+                                                            className="text-primary font-bold text-xs cursor-pointer border p-2 rounded-md bg-gray-200 hover:bg-white flex items-center gap-1">
+                                                              <CirclePlus className="w-4 h-4" />
+                                                              Add
+                                                            </div>
 
                                                       </div>
                                                     ))}

@@ -24,20 +24,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export const ProjectPaymentsPaymentWise = () => {
 
-    const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList("Procurement Orders", {
-        fields: ["*"],
-        filters: [["status", "not in", ["Cancelled"]]],
-        limit: 10000,
-        orderBy: { field: "modified", order: "desc" },
-    });
-
-    const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList("Service Requests", {
-        fields: ["*"],
-        filters: [["status", "=", "Approved"]],
-        limit: 10000,
-        orderBy: { field: "modified", order: "desc" },
-    });
-
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
@@ -45,12 +31,12 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
         fields: ["name", "vendor_name"],
-        limit: 1000,
+        limit: 10000,
     });
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
-        limit: 10000
+        limit: 100000
     })
 
     useFrappeDocTypeEventListener("Project Payments", async () => {
@@ -160,10 +146,10 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const { toast } = useToast();
 
-    if (poError || srError || projectsError || vendorsError) {
+    if (projectsError || vendorsError || projectPaymentsError) {
         toast({
             title: "Error!",
-            description: `Error: ${poError?.message || srError?.message || projectsError?.message}`,
+            description: `Error: ${vendorsError?.message || projectsError?.message || projectPaymentsError?.message}`,
             variant: "destructive",
         });
     }

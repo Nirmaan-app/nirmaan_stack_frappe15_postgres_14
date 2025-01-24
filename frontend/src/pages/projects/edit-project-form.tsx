@@ -177,15 +177,13 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
 
   // console.log("projectData", data)
 
-  const navigate = useNavigate();
-
   const {
     data: work_package_list,
     isLoading: wp_list_loading,
     error: wp_list_error,
   } = useFrappeGetDocList("Work Packages", {
     fields: ["work_package_name"],
-    limit: 100,
+    limit: 1000,
   });
 
   const {
@@ -205,7 +203,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
     mutate: project_types_mutate,
   } = useFrappeGetDocList("Project Types", {
     fields: ["name", "project_type_name"],
-    limit: 100,
+    limit: 1000,
   });
 
   const {
@@ -1013,12 +1011,12 @@ const WorkPackageSelection = ({ form, wp_list }) => {
   const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
     fields: ["category_name", "work_package", "name"],
     filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
-    limit: 1000,
+    limit: 10000,
   });
 
   const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
     fields: ["make", "category"],
-    limit: 10000,
+    limit: 100000,
   });
 
   const workPackages = form.watch("project_work_packages.work_packages");

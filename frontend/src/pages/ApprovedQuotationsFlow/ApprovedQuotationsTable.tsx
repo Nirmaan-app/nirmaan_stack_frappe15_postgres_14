@@ -75,12 +75,12 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
 
     const {data : approvedQuotations, isLoading: approvedQuotationsLoading, mutate: approvedQuotationsMutate} = useFrappeGetDocList("Approved Quotations", {
         fields: ["*"],
-        limit: 10000
+        limit: 100000
     })
 
     const {data: vendorsList} = useFrappeGetDocList("Vendors", {
         fields: ["*"],
-        limit: 1000
+        limit: 10000
     })
 
   //   const {data : approvedItems} = useFrappeGetDocList("Items", {

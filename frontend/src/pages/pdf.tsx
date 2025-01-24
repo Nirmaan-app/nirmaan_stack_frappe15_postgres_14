@@ -16,7 +16,7 @@ export const PDF = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'quantity', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
-            limit: 2000
+            limit: 100000
 
         });
     const [orderData, setOrderData] = useState({

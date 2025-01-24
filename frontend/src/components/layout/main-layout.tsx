@@ -220,7 +220,7 @@ export const MainLayout = () => {
     "Procurement Requests",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     "All Procurement Requests"
   );
@@ -232,7 +232,7 @@ export const MainLayout = () => {
     "Projects",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     "All Projects"
   );
@@ -447,8 +447,8 @@ export const MainLayout = () => {
             )}
           </header>
           <main
-            className={`pb-4 px-2 transition-all ${!isMobile && state === "expanded" ? "" : ""
-              } duration-300 ease-in-out overflow-auto md:max-h-[94vh] 2xl:max-h-[95vh] max-md:max-h-[91vh]`}
+            className={`pb-4 pt-2 px-2 transition-all ${!isMobile && state === "expanded" ? "" : ""
+              } duration-300 ease-in-out overflow-auto md:max-h-[94vh] 2xl:max-h-[95vh] max-md:max-h-[93vh]`}
           >
             <ErrorBoundaryWithNavigationReset>
               <ScrollToTop />

@@ -25,6 +25,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     {
       fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity', "makes"],
       filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
+      orderBy: { field: "creation", order: "desc" },
       limit: 1000
     });
 
@@ -37,19 +38,19 @@ export default function QuotationForm({ vendor_id, pr_id }) {
   const { data: item_list } = useFrappeGetDocList("Items",
     {
       fields: ['name', 'item_name', 'unit_name'],
-      limit: 10000
+      limit: 100000
     });
   const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
     {
       fields: ["*"],
-      limit: 1000
+      limit: 10000
     },
     "Procurement Requests"
   );
   const { data: address_list } = useFrappeGetDocList("Address",
     {
       fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
-      limit: 1000
+      limit: 100000
     });
 
   const { data: prAttachment, mutate: prAttachmentMutate, isLoading: prAttachmentLoading } = useFrappeGetDocList("PR Attachments",
@@ -57,7 +58,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     {
       fields: ["*"],
       filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]],
-      limit: 1000
+      limit: 100000
     });
 
   const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
@@ -109,7 +110,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
   }, [quotationData, mandatoryMakesQs]);
 
   useEffect(() => {
-    if (quotation_request_list) {
+    if (quotation_request_list && !deliveryTime) {
       setDeliveryTime(quotation_request_list[0].lead_time)
     }
   }, [quotation_request_list]);
@@ -386,7 +387,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
       {categories.list.map((cat, index) => (
         <Card key={index} className="mb-6">
           <CardHeader className="bg-gray-100 border-b">
-            <CardTitle className="text-lg font-medium flex items-center justify-between">
+            <CardTitle className="text-lg font-medium flex max-md:flex-col max-md:gap-1 md:items-center md:justify-between">
               <span>Category: {cat.name}</span>
               <div>
                 {cat?.makes?.length > 0 ? (
@@ -784,7 +785,7 @@ const MakesSelection = ({ q, quotationData, handleMakeChange, quotation_request_
 
   const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
-    limit: 10000,
+    limit: 100000,
   })
 
   useEffect(() => {
@@ -830,8 +831,6 @@ const MakesSelection = ({ q, quotationData, handleMakeChange, quotation_request_
 
       await quotation_request_list_mutate()
 
-      toggleShowAlert()
-
       setNewSelectedMakes([])
 
       toast({
@@ -839,6 +838,8 @@ const MakesSelection = ({ q, quotationData, handleMakeChange, quotation_request_
         description: `Makes updated successfully!`,
         variant: "success",
       });
+
+      toggleShowAlert()
       
     } catch (error) {
       console.log("error while adding new makes to the item", error)

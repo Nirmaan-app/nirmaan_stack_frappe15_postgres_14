@@ -18,27 +18,31 @@ import {
 
 interface DataTablePaginationProps<TData> {
   table: Table<TData>;
+  onPageSizeChange: any;
+  onPageChange: any;
 }
 
 export function DataTablePagination<TData>({
   table,
+  onPageChange,
+  onPageSizeChange
 }: DataTablePaginationProps<TData>) {
-  // Initialize pagination state from URL
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const pageIndex = Number(urlParams.get("pageIdx") || "0");
-    const pageSize = Number(urlParams.get("rows") || "10");
+  // // Initialize pagination state from URL
+  // useEffect(() => {
+  //   const urlParams = new URLSearchParams(window.location.search);
+  //   const pageIndex = Number(urlParams.get("pageIdx") || "0");
+  //   const pageSize = Number(urlParams.get("rows") || "10");
 
-    table.setPageIndex(pageIndex);
-    table.setPageSize(pageSize);
-  }, [table]);
+  //   table.setPageIndex(pageIndex);
+  //   table.setPageSize(pageSize);
+  // }, [table]);
 
-  // Update URL search params
-  const updateURL = (key: string, value: string | number) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set(key, value.toString());
-    window.history.pushState({}, "", url);
-  };
+  // // Update URL search params
+  // const updateURL = (key: string, value: string | number) => {
+  //   const url = new URL(window.location.href);
+  //   url.searchParams.set(key, value.toString());
+  //   window.history.pushState({}, "", url);
+  // };
 
   return (
     <div className="flex max-md:flex-col space-y-2 items-center md:justify-between">
@@ -54,7 +58,8 @@ export function DataTablePagination<TData>({
               value={`${table.getState().pagination.pageSize}`}
               onValueChange={(value) => {
                 table.setPageSize(Number(value));
-                updateURL("rows", value);
+                // updateURL("rows", value);
+                onPageSizeChange(value)
               }}
             >
               <SelectTrigger className="h-8 w-[70px]">
@@ -81,7 +86,8 @@ export function DataTablePagination<TData>({
               className="hidden h-8 w-8 p-0 lg:flex"
               onClick={() => {
                 table.setPageIndex(0);
-                updateURL("pageIdx", 0);
+                // updateURL("pageIdx", 0);
+                onPageChange(0)
               }}
               disabled={!table.getCanPreviousPage()}
             >
@@ -93,7 +99,8 @@ export function DataTablePagination<TData>({
               className="h-8 w-8 p-0"
               onClick={() => {
                 table.previousPage();
-                updateURL("pageIdx", table.getState().pagination.pageIndex - 1);
+                // updateURL("pageIdx", table.getState().pagination.pageIndex - 1);
+                onPageChange(table.getState().pagination.pageIndex - 1)
               }}
               disabled={!table.getCanPreviousPage()}
             >
@@ -105,7 +112,8 @@ export function DataTablePagination<TData>({
               className="h-8 w-8 p-0"
               onClick={() => {
                 table.nextPage();
-                updateURL("pageIdx", table.getState().pagination.pageIndex + 1);
+                // updateURL("pageIdx", table.getState().pagination.pageIndex + 1);
+                onPageChange(table.getState().pagination.pageIndex + 1)
               }}
               disabled={!table.getCanNextPage()}
             >
@@ -118,7 +126,8 @@ export function DataTablePagination<TData>({
               onClick={() => {
                 const lastPage = table.getPageCount() - 1;
                 table.setPageIndex(lastPage);
-                updateURL("pageIdx", lastPage);
+                // updateURL("pageIdx", lastPage);
+                onPageChange(lastPage)
               }}
               disabled={!table.getCanNextPage()}
             >

@@ -155,7 +155,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     "Category",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     "Category"
   );
@@ -168,7 +168,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     "Procurement Requests",
     {
       fields: ["*"],
-      limit: 10000,
+      limit: 100000,
     },
     `Procurement Requests`
   );
@@ -176,7 +176,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments",
     {
       fields: ["*"],
-      limit: 10000,
+      limit: 100000,
       filters: [["vendor", "=", vendorId]]
     }
   );

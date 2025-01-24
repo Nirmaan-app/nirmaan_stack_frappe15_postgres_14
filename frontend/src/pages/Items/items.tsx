@@ -58,7 +58,7 @@ export default function Items() {
       "category",
       "creation",
     ],
-    limit: 10000,
+    limit: 100000,
     orderBy: { field: "creation", order: "desc" },
   });
   const {

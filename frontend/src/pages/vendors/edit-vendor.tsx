@@ -166,7 +166,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const { data: category_list } = useFrappeGetDocList("Category", {
     fields: ["*"],
-    limit: 1000,
+    limit: 10000,
   });
 
   const [city, setCity] = useState(vendorAddress?.city || "");

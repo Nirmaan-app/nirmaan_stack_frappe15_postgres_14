@@ -500,7 +500,7 @@ export default function DeliveryNote() {
   const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
     {
       fields: ["*"],
-      limit: 1000
+      limit: 10000
     },
     "Address"
   );

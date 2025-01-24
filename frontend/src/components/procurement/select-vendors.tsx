@@ -183,18 +183,18 @@ export const SelectVendors = () => {
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
-            limit: 1000
+            limit: 10000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'lead_time', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'quantity', 'makes'],
             filters: [["procurement_task", "=", orderId]],
-            limit: 2000
+            limit: 1000
         });
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ["*"],
-            limit: 2000
+            limit: 100000
         });
     const { createDoc: createDoc, loading: create_loading, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()

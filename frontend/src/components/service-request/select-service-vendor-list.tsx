@@ -15,7 +15,7 @@ export const SelectServiceVendorList = () => {
         {
             fields: ["*"],
             filters: [["status", "in", ["Created", "Rejected"]]],
-            limit: 1000,
+            limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         });
 

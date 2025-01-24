@@ -42,7 +42,7 @@ export const ProjectPaymentsList = () => {
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "not in", ["Cancelled", "Merged"]]],
-        limit: 10000,
+        limit: 100000,
         orderBy: { field: "modified", order: "desc" },
     });
 
@@ -60,7 +60,7 @@ export const ProjectPaymentsList = () => {
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
         fields: ["name", "vendor_name"],
-        limit: 1000,
+        limit: 10000,
     });
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {

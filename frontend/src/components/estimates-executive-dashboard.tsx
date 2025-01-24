@@ -15,7 +15,7 @@ export const EstimatesExecutive = () => {
     const { data: projectPermissions } = useFrappeGetDocList("Nirmaan User Permissions", {
         fields: ["for_value"],
         filters: [["allow", "=", "Projects"], ["user", "=", user_id]],
-        limit: 1000
+        limit: 10000
     },
         user_id === "Administrator" || role === "Nirmaan Admin Profile" ? null : undefined
     )
@@ -25,7 +25,7 @@ export const EstimatesExecutive = () => {
     const { data: projectsData, mutate: projectsDataMutate, isLoading: projectsDataLoading } = useFrappeGetDocList("Projects", {
         fields: ["*"],
         filters: [["name", "in", permissionsList || []]],
-        limit: 1000
+        limit: 10000
     },
         (user_id === "Administrator" || !permissionsList) ? null : undefined
     )

@@ -44,40 +44,40 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         {
             fields: ['name', 'lead_time', 'quote', 'item', 'category', 'vendor', 'procurement_task', 'quantity', 'makes'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
-            limit: 2000
+            limit: 1000
         });
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
             filters: [["vendor_type", "=", "Material"]],
-            limit: 1000
+            limit: 10000
         },
         "Vendors"
     );
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'unit_name'],
-            limit: 10000
+            limit: 100000
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ["*"],
-            limit: 1000
+            limit: 10000
         },
         "Procurement Requests"
     );
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
-            limit: 1000
+            limit: 10000
         });
     
     const { data: prAttachment, mutate: prAttachmentMutate } = useFrappeGetDocList("PR Attachments",
         {
             fields: ["*"],
             filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]],
-            limit: 1000
+            limit: 100000
     });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
@@ -123,7 +123,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         })
       }
 
-      if(quotation_request_list) {
+      if(quotation_request_list && !deliveryTime) {
         setDeliveryTime(quotation_request_list[0].lead_time)
       }
     }, [quotation_request_list, sent_back_list]);
@@ -565,7 +565,7 @@ const MakesSelection = ({ q, quotationData, handleMakeChange, quotation_request_
 
   const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
-    limit: 10000,
+    limit: 100000,
   })
 
   useEffect(() => {

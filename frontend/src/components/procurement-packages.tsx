@@ -110,25 +110,25 @@ export const ProcurementPackages = () => {
     mutate: categoriesListMutate,
   } = useFrappeGetDocList("Category", {
     fields: ["*"],
-    limit: 1000,
+    limit: 10000,
   });
 
   const { data: itemList, isLoading: itemListLoading } = useFrappeGetDocList(
     "Items",
     {
       fields: ["*"],
-      limit: 10000,
+      limit: 100000,
     }
   );
 
   const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
-    limit: 10000,
+    limit: 100000,
   })
 
   const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList("Makelist", {
     fields: ["*"],
-    limit: 10000,
+    limit: 100000,
   })
 
   const [editCategory, setEditCategory] = useState({});
