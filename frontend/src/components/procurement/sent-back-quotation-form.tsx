@@ -123,7 +123,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         })
       }
 
-      if(quotation_request_list) {
+      if(quotation_request_list && !deliveryTime) {
         setDeliveryTime(quotation_request_list[0].lead_time)
       }
     }, [quotation_request_list, sent_back_list]);

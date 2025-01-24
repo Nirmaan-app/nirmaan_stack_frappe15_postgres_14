@@ -1615,7 +1615,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             {fuzzyMatches.slice(0, 5).map((item, index) => (
                               <li
                                 key={item.item_name}
-                                className="p-2 hover:bg-gray-100 flex flex-col"
+                                className="p-2 hover:bg-gray-100 flex justify-between items-center"
                               // onMouseDown={() => {
                               //   setCurCategory({
                               //     label: item?.category,
@@ -1634,16 +1634,21 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                               //   toggleRequestItemDialog();
                               // }}
                               >
-                                <p className="flex justify-between items-center">
+
+                                <div className="flex flex-col gap-1">
                                   <strong>{item?.item_name}</strong>
-                                  <span className="text-gray-500">
-                                    {" "}
-                                    - {item?.matchPercentage}% match
-                                  </span>
-                                </p>
-                                <div className="flex justify-between items-center">
-                                  <p className="text-gray-400 font-semibold">{item?.category}</p>
-                                  <p
+
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-gray-400 font-semibold">{item?.category}</p>
+                                    <i className="text-gray-500">
+                                      {" "}
+                                      - {item?.matchPercentage}% match
+                                    </i>
+                                  </div>
+
+                                </div>
+
+                                <div
                                     onMouseDown={() => {
                                       setCurCategory({
                                         label: item?.category,
@@ -1661,7 +1666,9 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                       });
                                       toggleRequestItemDialog();
                                     }}
-                                    className="text-primary bg-gray-300 rounded-md p-1 font-bold text-xs cursor-pointer">Add Item</p>
+                                    className="text-primary bg-gray-300 hover:bg-white rounded-md p-2 font-bold text-xs cursor-pointer flex items-center gap-1">
+                                      <CirclePlus className="w-4 h-4" />
+                                      Add
                                 </div>
                                 {/* <span>
                                   <strong>{item.item_name}</strong>

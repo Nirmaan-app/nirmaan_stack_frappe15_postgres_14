@@ -12,11 +12,13 @@ import {
   Download,
   ListChecks,
   PencilLine,
+  Trash,
   Undo2,
 } from "lucide-react";
 import QuotationForm from "./quotation-form";
 import {
   useFrappeCreateDoc,
+  useFrappeDeleteDoc,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
   useSWRConfig,
@@ -59,6 +61,7 @@ import {
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 import { TailSpin } from "react-loader-spinner";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 
 export const UpdateQuote = () => {
   const { prId: orderId } = useParams<{ prId: string }>();
@@ -89,7 +92,6 @@ export const UpdateQuote = () => {
   const {
     data: quotation_request_list,
     isLoading: quotation_request_list_loading,
-    error: quotation_request_list_error,
     mutate: quotation_request_list_mutate,
   } = useFrappeGetDocList(
     "Quotation Requests",
@@ -115,6 +117,8 @@ export const UpdateQuote = () => {
   const { updateDoc: updateDoc, error: update_error } = useFrappeUpdateDoc();
   const { createDoc } = useFrappeCreateDoc();
 
+  const { deleteDoc, loading: delete_loading } = useFrappeDeleteDoc()
+
   const getVendorName = (vendorName: string) => {
     return vendor_list?.find((vendor) => vendor.name === vendorName)
       ?.vendor_name;
@@ -126,6 +130,14 @@ export const UpdateQuote = () => {
   const [uniqueVendors, setUniqueVendors] = useState({
     list: [],
   });
+
+  const [deleteVendor, setDeleteVendor] = useState(null);
+
+  const [deleteDialog, setDeleteDialog] = useState(false);
+
+  const toggleDeleteDialog = () => {
+    setDeleteDialog((prevState) => !prevState);
+  };
 
   const checkItemQuoteStatus = (vendor_id) => {
     if (!quotation_request_list || quotation_request_list.length === 0) {
@@ -245,7 +257,7 @@ export const UpdateQuote = () => {
   }, [category_data]);
 
   useEffect(() => {
-    const vendors = uniqueVendors.list;
+    const vendors = [];
     quotation_request_list?.map((item) => {
       const value = item.vendor;
       vendors.push(value);
@@ -254,10 +266,11 @@ export const UpdateQuote = () => {
       return Array.from(new Set(array));
     };
     const uniqueList = removeDuplicates(vendors);
-    setUniqueVendors((prevState) => ({
-      ...prevState,
+
+    setUniqueVendors({
       list: uniqueList,
-    }));
+    });
+
   }, [quotation_request_list]);
 
   // console.log("orderData", orderData)
@@ -390,7 +403,6 @@ export const UpdateQuote = () => {
                   <AddVendorCategories
                     vendor_name={vendor_name}
                     isSheet={true}
-                    isSentBack={true}
                   />
                 </SheetContent>
               </Sheet>
@@ -421,7 +433,7 @@ export const UpdateQuote = () => {
         },
       },
     ],
-    [orderData, isButtonDisabled, vendor_list]
+    [orderData, isButtonDisabled, vendor_list, uniqueVendors]
   );
 
   const handleUpdateQuote = () => {
@@ -436,6 +448,41 @@ export const UpdateQuote = () => {
         console.log("submit_error", update_error);
       });
   };
+
+  const handleDeleteVendor = async () => {
+    try {
+
+      const filteredVendorQuotes = quotation_request_list?.filter(i => i?.vendor === deleteVendor)
+
+      filteredVendorQuotes?.forEach(async (item) => {
+        await deleteDoc("Quotation Requests", item.name);
+      })
+
+      const filteredVendors = uniqueVendors?.list?.filter(i => i !== deleteVendor)
+
+      setUniqueVendors({
+        list: filteredVendors
+      })
+
+      await quotation_request_list_mutate()
+
+      toast({
+        title: "Success!",
+        description: `Vendor: ${deleteVendor} deleted successfully!`,
+        variant: "success",
+      });
+
+      toggleDeleteDialog()
+      
+    } catch (error) {
+      console.log("error while deleting vendor", error);
+      toast({
+        title: "Failed!",
+        description: `${error?.message}`,
+        variant: "destructive",
+      });
+    }
+  }
 
   const filteredVendorList = vendor_list?.filter(
     (ven) => !uniqueVendors?.list?.includes(ven.name)
@@ -473,9 +520,34 @@ export const UpdateQuote = () => {
         </div>
         {uniqueVendors.list.map((item) => {
           return (
-            <div className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
-              <div className="sm:pl-4 pl-2 py-4 font-semibold ">
-                {getVendorName(item)}
+            <div key={item} className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
+              <div className="sm:pl-4 pl-2 py-4">
+                <strong>{getVendorName(item)}</strong>
+                {uniqueVendors?.list?.length > 1 && (
+                  <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                    <DialogTrigger onClick={() => setDeleteVendor(item)}>
+                      <Trash className="h-4 w-4 ml-2 fill-primary text-primary inline cursor-pointer" />
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Are you sure?</DialogTitle>
+                      </DialogHeader>
+                        <DialogDescription>Click on Confirm to delete vendor: <strong>{getVendorName(deleteVendor)}</strong> from this PR!</DialogDescription>
+                        <div className="flex items-center justify-end gap-2">
+                          {delete_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                            <>
+                            <DialogClose asChild>
+                              <Button variant={"outline"}>Cancel</Button>
+                            </DialogClose>
+                            <Button onClick={handleDeleteVendor}>
+                              Confirm
+                            </Button>
+                            </>
+                          )}
+                          </div>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
               <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
                 <Sheet>

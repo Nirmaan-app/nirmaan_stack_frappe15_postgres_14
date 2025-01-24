@@ -262,7 +262,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
-            limit: 200
+            limit: 1000
         });
 
     const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {

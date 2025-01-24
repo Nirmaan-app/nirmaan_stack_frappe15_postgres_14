@@ -87,6 +87,9 @@ export function DataTable<TData, TValue>({
 
   const [rowSelection, setRowSelection] = React.useState({});
 
+  const [pageIndex, setPageIndex] = React.useState(0);
+  const [pageSize, setPageSize] = React.useState(10);
+
   // const currentRoute = window.location.pathname;
 
   // const globalSearch = useFilterStore((state) => state.getTextSearch(currentRoute));
@@ -119,6 +122,12 @@ export function DataTable<TData, TValue>({
 
   React.useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+
+    const initialPageIndex = Number(urlParams.get("pageIdx") || "0");
+    const initialPageSize = Number(urlParams.get("rows") || "10");
+
+    setPageIndex(initialPageIndex);
+    setPageSize(initialPageSize);
 
     // Initialize global search filter
     const initialSearch = urlParams.get("search") || "";
@@ -156,6 +165,16 @@ export function DataTable<TData, TValue>({
     return combinedString.includes(filterValue.toLowerCase());
   };
 
+  const handlePageChange = (newPageIndex: number) => {
+    setPageIndex(newPageIndex);
+    updateURL("pageIdx", newPageIndex);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize);
+    updateURL("rows", newPageSize);
+  };
+
   const table = useReactTable({
     data,
     columns,
@@ -173,6 +192,7 @@ export function DataTable<TData, TValue>({
     onGlobalFilterChange: setGlobalFilter,
     globalFilterFn: itemSearch ? customGlobalFilter : fuzzyFilter,
     state: {
+      pagination: { pageIndex, pageSize },
       sorting,
       columnFilters,
       columnVisibility,
@@ -410,7 +430,8 @@ export function DataTable<TData, TValue>({
           </TableBody>
         </Table>
       </div>
-      <DataTablePagination table={table} />
+      <DataTablePagination onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange} table={table} />
     </div>
   );
 }

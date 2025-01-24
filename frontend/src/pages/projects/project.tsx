@@ -1737,7 +1737,7 @@ const ProjectView = ({
             {data?.project_name.toUpperCase()}
           </span>
           {role === "Nirmaan Admin Profile" && (
-            <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
+            <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet} modal={false}>
               <SheetTrigger>
                 <FilePenLine className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3 max-md:-mt-1" />
               </SheetTrigger>

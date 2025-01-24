@@ -25,6 +25,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     {
       fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity', "makes"],
       filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
+      orderBy: { field: "creation", order: "desc" },
       limit: 1000
     });
 
@@ -109,7 +110,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
   }, [quotationData, mandatoryMakesQs]);
 
   useEffect(() => {
-    if (quotation_request_list) {
+    if (quotation_request_list && !deliveryTime) {
       setDeliveryTime(quotation_request_list[0].lead_time)
     }
   }, [quotation_request_list]);
@@ -830,8 +831,6 @@ const MakesSelection = ({ q, quotationData, handleMakeChange, quotation_request_
 
       await quotation_request_list_mutate()
 
-      toggleShowAlert()
-
       setNewSelectedMakes([])
 
       toast({
@@ -839,6 +838,8 @@ const MakesSelection = ({ q, quotationData, handleMakeChange, quotation_request_
         description: `Makes updated successfully!`,
         variant: "success",
       });
+
+      toggleShowAlert()
       
     } catch (error) {
       console.log("error while adding new makes to the item", error)

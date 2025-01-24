@@ -833,6 +833,7 @@ export function NewSidebar() {
     : (selectedKeys === "projects" && role === "Nirmaan Project Lead Profile") ? "/projects"
     : selectedKeys === "projects" ? "admin-actions" : "";
 
+
   const isDefaultOpen = [
     "admin-actions",
     openKey,
@@ -849,9 +850,14 @@ export function NewSidebar() {
     }
   };
 
+  useEffect(() => {
+    if(["admin-actions", "pl-actions", "pe-sr-actions"].includes(openKey)) {
+      setCollapsedKey(openKey)
+    }
+  }, [])
+
   // console.log("selectedKeys", selectedKeys)
 
-  // console.log("openkey", openKey)
 
   return (
     <Sidebar collapsible="icon">
@@ -936,7 +942,9 @@ export function NewSidebar() {
                       </SidebarMenuButton>
                     </CollapsibleTrigger>
                   )}
-                  <CollapsibleContent>
+                  <CollapsibleContent 
+                  className={`${collapsedKey === item?.key ? "animate-collapse-down" : "animate-collapse-up"}`}
+                  >
                     <SidebarMenuSub className="space-y-1">
                       {item?.children?.map((subitem) => (
                         <SidebarMenuSubItem

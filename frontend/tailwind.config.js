@@ -87,6 +87,51 @@ module.exports = {
 						height: '0'
 					}
 				},
+				'collapse-down': {
+    '0%': {
+        height: '0',
+        opacity: '0',
+    },
+    '25%': {
+        height: 'calc(var(--radix-collapsible-content-height) * 0.25)',
+        opacity: '0.25',
+    },
+    '50%': {
+        height: 'calc(var(--radix-collapsible-content-height) * 0.5)',
+        opacity: '0.5',
+    },
+    '75%': {
+        height: 'calc(var(--radix-collapsible-content-height) * 0.75)',
+        opacity: '0.75',
+    },
+    '100%': {
+        height: 'var(--radix-collapsible-content-height)',
+        opacity: '1',
+    },
+},
+'collapse-up': {
+    '0%': {
+        height: 'var(--radix-collapsible-content-height)',
+        opacity: '1',
+    },
+    '25%': {
+        height: 'calc(var(--radix-collapsible-content-height) * 0.75)',
+        opacity: '0.75',
+    },
+    '50%': {
+        height: 'calc(var(--radix-collapsible-content-height) * 0.5)',
+        opacity: '0.5',
+    },
+    '75%': {
+        height: 'calc(var(--radix-collapsible-content-height) * 0.25)',
+        opacity: '0.25',
+    },
+    '100%': {
+        height: '0',
+        opacity: '0',
+    },
+},
+
 				'shadow-drop-center': {
 					'0%': {
 						'box-shadow': '0 0 0 0 transparent'
@@ -99,6 +144,8 @@ module.exports = {
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
+				'collapse-down': 'collapse-down 0.2s ease-out',
+				'collapse-up': 'collapse-up 0.2s ease-out',
 				'shadow-drop-center': 'shadow-drop-center 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940)   both'
 			}
 		}
