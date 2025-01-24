@@ -115,7 +115,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         {
             fields: ["*"],
             orderBy: { field: 'work_package', order: 'asc' },
-            limit: 1000
+            limit: 10000
         },
         "Category"
     );
@@ -214,7 +214,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             item: item.name,
                             vendor: vendorDoc.name,
                             quantity: item.quantity,
-                            makes: { list: makes }
+                            makes: { list: makes || [] }
                         };
                         promises.push(createDoc("Quotation Requests", newItem));
                     });
@@ -227,7 +227,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             item: item.name,
                             vendor: vendorDoc.name,
                             quantity: item.quantity,
-                            makes: { list: makes }
+                            makes: { list: makes || [] }
                         };
                         promises.push(createDoc("Quotation Requests", newItem));
                     });

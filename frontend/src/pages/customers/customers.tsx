@@ -173,7 +173,7 @@ export default function Customers() {
     const { data, isLoading, error } = useFrappeGetDocList("Customers",
         {
             fields: ["*"],
-            limit: 1000,
+            limit: 10000,
             orderBy: { field: "creation", order: "desc" }
         }
     )

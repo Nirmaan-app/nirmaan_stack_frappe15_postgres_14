@@ -11,25 +11,11 @@ import { Link } from "react-router-dom"
 
 const DeliveryNotes = () => {
 
-    const { data: procurementRequestsList, isLoading: procurementRequestsLoading } = useFrappeGetDocList("Procurement Requests", {
-        fields: ["*"],
-        limit: 1000,
-        orderBy: { field: "creation", order: "desc" }
-    },
-        "Procurement Requests"
-    )
-
     const { data: procurementOrdersList, isLoading: procurementRequestsListLoading } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment", "Cancelled", "Merged"]]],
-        limit: 1000,
+        limit: 100000,
     })
-
-    // console.log("data", procurementOrdersList, procurementRequestsList)
-
-    const getPOsAssociated = (prId) => {
-        return procurementOrdersList?.filter((po) => po.procurement_request === prId) || []
-    }
 
     const { setSelectedProject, selectedProject } = useContext(UserContext)
 

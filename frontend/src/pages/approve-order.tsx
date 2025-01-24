@@ -218,7 +218,7 @@ const ApprovePRListPage = ({
       "name",
     ],
     orderBy: { field: "category_name", order: "asc" },
-    limit: 1000,
+    limit: 10000,
   });
   const {
     data: item_list,
@@ -235,12 +235,12 @@ const ApprovePRListPage = ({
       "creation",
     ],
     orderBy: { field: "creation", order: "desc" },
-    limit: 10000,
+    limit: 100000,
   });
 
   const { data: quote_data } = useFrappeGetDocList("Approved Quotations", {
     fields: ["item_id", "quote"],
-    limit: 10000,
+    limit: 100000,
   });
 
   const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {

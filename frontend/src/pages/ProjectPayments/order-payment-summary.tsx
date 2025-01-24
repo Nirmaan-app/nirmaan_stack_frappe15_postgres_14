@@ -88,7 +88,7 @@ const OrderPaymentSummary = () => {
 
     const {data : projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate} = useFrappeGetDocList("Project Payments", {
             fields: ["*"],
-            limit: 10000
+            limit: 100000
      })
 
     // useEffect(() => {

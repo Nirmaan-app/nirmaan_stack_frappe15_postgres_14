@@ -44,7 +44,7 @@ export const AddVendorCategories = ({vendor_name, isSheet = false}) => {
         {
             fields: ['category_name', 'work_package'],
             orderBy: { field: 'work_package', order: 'asc' },
-            limit: 1000
+            limit: 10000
         });
 
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()

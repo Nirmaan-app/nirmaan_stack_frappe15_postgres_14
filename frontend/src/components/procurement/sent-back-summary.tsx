@@ -19,7 +19,7 @@ export const SentBackSummary = () => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['*'],
-            limit: 1000
+            limit: 10000
         });
 
     const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {

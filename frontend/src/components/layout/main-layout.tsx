@@ -220,7 +220,7 @@ export const MainLayout = () => {
     "Procurement Requests",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     "All Procurement Requests"
   );
@@ -232,7 +232,7 @@ export const MainLayout = () => {
     "Projects",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 10000,
     },
     "All Projects"
   );

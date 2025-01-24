@@ -154,9 +154,8 @@ export const PurchaseOrder = () => {
 
   const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
-    limit: 10000,
-  },
-    po ? undefined : null
+    limit: 100000,
+  }
   )
 
   const { data: pr, isLoading: prLoading, error: prError } = useFrappeGetDoc("Procurement Requests", po?.procurement_request)
@@ -173,7 +172,7 @@ export const PurchaseOrder = () => {
   const { data: poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
     filters: [["document_name", "=", poId]],
-    limit: 10000
+    limit: 1000
   })
 
   const { control, handleSubmit, reset } = useForm({

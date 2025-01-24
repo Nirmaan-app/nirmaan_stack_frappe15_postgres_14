@@ -181,7 +181,7 @@ export const ProjectForm = () => {
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
             fields: ['work_package_name'],
-            limit: 100
+            limit: 1000
         });
 
     const defaultValues: ProjectFormValues = {
@@ -228,7 +228,7 @@ export const ProjectForm = () => {
 
     const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList('Project Types', {
         fields: ["name", "project_type_name", "creation"],
-        limit: 100,
+        limit: 1000,
         orderBy: { field: "creation", order: "desc" }
     });
 
@@ -1520,12 +1520,12 @@ const WorkPackageSelection = ({ form, wp_list }) => {
     const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
         fields: ["category_name", "work_package", "name"],
         filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
-        limit: 1000,
+        limit: 10000,
     });
 
     const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
         fields: ["make", "category"],
-        limit: 10000,
+        limit: 100000,
     });
 
     const workPackages = form.watch("project_work_packages.work_packages");

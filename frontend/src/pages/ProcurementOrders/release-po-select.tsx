@@ -35,7 +35,7 @@ export const ReleasePOSelect = () => {
         {
             fields: ["*"],
             filters: [["status", tab === "Released PO" ? "not in" : "in", tab === "Released PO" ? ["PO Approved", "PO Amendment", "Merged"] : ["PO Approved"]]],
-            limit: 1000,
+            limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         },
     );
@@ -60,7 +60,7 @@ export const ReleasePOSelect = () => {
         filters: [["vendor_type", "=", "Material"]],
         limit: 1000
     },
-        "Vendors"
+        "Material Vendors"
     )
 
     const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))

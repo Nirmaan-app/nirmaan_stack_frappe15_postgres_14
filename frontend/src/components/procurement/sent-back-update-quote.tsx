@@ -82,7 +82,7 @@ export const SentBackUpdateQuote = () => {
     error: category_error,
   } = useFrappeGetDocList("Category", {
     fields: ["*"],
-    limit: 1000,
+    limit: 10000,
   });
 
   const {
@@ -95,7 +95,7 @@ export const SentBackUpdateQuote = () => {
     {
       fields: ["*"],
       filters: [["vendor_type", "=", "Material"]],
-      limit: 1000,
+      limit: 10000,
     },
     "Material Vendors"
   );
@@ -109,7 +109,7 @@ export const SentBackUpdateQuote = () => {
     "Quotation Requests",
     {
       fields: ["*"],
-      limit: 10000,
+      limit: 100000,
     },
     "Quotation Requests"
   );
@@ -234,12 +234,14 @@ export const SentBackUpdateQuote = () => {
     try {
       const promises = [];
       orderData?.item_list?.list.forEach((item) => {
+        const makes = orderData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
         const newItem = {
           procurement_task: orderData.procurement_request,
           category: item.category,
           item: item.name,
           vendor: vendorId,
           quantity: item.quantity,
+          makes: {list : makes || []}
         };
         promises.push(createDoc("Quotation Requests", newItem));
       });

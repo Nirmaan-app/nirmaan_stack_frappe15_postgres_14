@@ -38,12 +38,8 @@ export const ApprovePR = () => {
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ["*"],
-            limit: 10000
+            limit: 100000
         });
-    const { data: po_data } = useFrappeGetDocList("Procurement Orders", {
-        fields: ["*"],
-        limit: 1000
-    })
 
     useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
         await pr_list_mutate()

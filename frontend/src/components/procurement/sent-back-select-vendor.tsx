@@ -157,12 +157,12 @@ export const SentBackSelectVendor = () => {
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
-            limit: 1000
+            limit: 10000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'lead_time', 'item', 'vendor', 'category', 'procurement_task', 'quote', 'makes'],
-            limit: 10000,
+            limit: 100000,
             orderBy: { field: "creation", order: "desc" }
         });
 
@@ -175,7 +175,7 @@ export const SentBackSelectVendor = () => {
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ['*'],
-            limit: 2000
+            limit: 100000
         });
     const { updateDoc: updateDoc, loading: update_loading, error: submit_error } = useFrappeUpdateDoc()
     const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
@@ -190,7 +190,7 @@ export const SentBackSelectVendor = () => {
     const { data: filtered_quotation_data } = useFrappeGetDocList("Quotation Requests", {
         fields: ["*"],
         filters: [["procurement_task", "=", orderData?.procurement_request]],
-        limit: 2000
+        limit: 1000
     })
 
     if (!orderData.project) {

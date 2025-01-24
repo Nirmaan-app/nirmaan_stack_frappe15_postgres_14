@@ -32,7 +32,7 @@ export const SentBackRequest = () => {
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type', 'modified'],
             filters: [["workflow_state", "=", "Pending"], ["type", "=", type]],
-            limit: 1000,
+            limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         },
         type ? `${type} Sent Back Category` : null

@@ -54,7 +54,7 @@ export default function Projects() {
     "Procurement Requests",
     {
       fields: ["*"],
-      limit: 2000,
+      limit: 10000,
     }
   );
 
@@ -98,7 +98,7 @@ export default function Projects() {
     {
       fields: ["*"],
       filters: [["status", "!=", "PO Approved"]],
-      limit: 1000,
+      limit: 10000,
       orderBy: { field: "creation", order: "desc" },
     }
   );

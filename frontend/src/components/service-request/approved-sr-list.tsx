@@ -18,7 +18,7 @@ interface ApprovedSRListProps {
 
 export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) => {
     const sr_filters: any = [["status", "=", "Approved"]]
-    if (for_vendor !== undefined) {
+    if (for_vendor) {
         sr_filters.push(["vendor", "=", for_vendor])
     }
     const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList("Service Requests",

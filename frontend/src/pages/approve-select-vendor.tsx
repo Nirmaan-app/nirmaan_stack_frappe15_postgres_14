@@ -40,7 +40,7 @@ export const ApproveSelectVendor = () => {
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote', 'procurement_task', 'status', 'creation'],
-            limit: 10000,
+            limit: 100000,
             filters: [["status", "=", "Selected"]],
             orderBy: {field: "creation", order : "desc"}
         });

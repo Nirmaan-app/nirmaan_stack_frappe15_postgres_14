@@ -262,7 +262,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
-            limit: 1000
+            limit: 10000
         });
 
     const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
@@ -273,14 +273,14 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ['*'],
-            limit: 2000
+            limit: 100000
         });
 
     const { data: quotation_request_list } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity', 'makes'],
             filters: [["status", "=", "Selected"], ["procurement_task", "=", sb_data?.procurement_request]],
-            limit: 2000
+            limit: 1000
         });
 
 

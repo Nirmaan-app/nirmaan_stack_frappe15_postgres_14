@@ -26,7 +26,7 @@ export default function Vendors() {
 
   const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList("Vendors", {
     fields: ["*"],
-    limit: 1000,
+    limit: 10000,
     orderBy: { field: "creation", order: "desc" }
   },
     "vendors"
@@ -34,7 +34,7 @@ export default function Vendors() {
 
   const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
     fields: ["*"],
-    limit: 1000
+    limit: 10000
   })
   // Extract unique categories from the data dynamically
   useEffect(() => {

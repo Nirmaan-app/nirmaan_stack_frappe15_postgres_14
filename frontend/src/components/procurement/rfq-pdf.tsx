@@ -1,4 +1,4 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useState, useEffect, useRef } from "react"
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
@@ -89,39 +89,46 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
 
     // console.log("pdfImages", pdfImages)
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-        {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            filters: [["name", "=", pr_id]],
-            limit: 1000
-        });
+    const {data: procurement_request, isLoading: procurement_request_loading, error: procurement_request_error} = useFrappeGetDoc("Procurement Requests", pr_id, pr_id ? undefined : null);
+
+    console.log("procurement_requests", procurement_request)
+
+    // const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    //     {
+    //         fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+    //         filters: [["name", "=", pr_id]],
+    //     });
+
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'quantity', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'makes'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
-            limit: 2000
-        });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address', 'project_city', 'project_state'],
-            filters: [['name', 'like', `%${pr_id.split("-").at(1)}`]],
             limit: 1000
         });
+    
+    const {data: procurement_project} = useFrappeGetDoc("Projects", procurement_request?.project, procurement_request?.project ? undefined : null);
+
+    // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+    //     {
+    //         fields: ['name', 'project_name', 'project_address', 'project_city', 'project_state'],
+    //         filters: [['name', 'like', `%${pr_id.split("-").at(1)}`]],
+    //         limit: 1000
+    //     });
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
-            limit: 1000
+            limit: 10000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_city', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
-            limit: 1000
+            limit: 10000
         });
 
-    const [orderData, setOrderData] = useState({
-        name: ''
-    });
+    // const [orderData, setOrderData] = useState({
+    //     name: ''
+    // });
     
       // useEffect to extract and add unique categories when itemList changes
     useEffect(() => {
@@ -140,14 +147,14 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
       }
     }, [itemList, quotation_request_list]);
 
-    useEffect(() => {
-        if (Array.isArray(procurement_request_list) && procurement_request_list.length > 0) {
-            setOrderData(procurement_request_list[0]);
-        }
-    }, [procurement_request_list]);
+    // useEffect(() => {
+    //     if (procurement_request) {
+    //         setOrderData(procurement_request);
+    //     }
+    // }, [procurement_request]);
 
-    const getProjectAddress = (item: string) => {
-        const id = project_list?.find(value => value.name === item)?.project_address;
+    const getProjectAddress = () => {
+        const id = procurement_project?.project_address;
         const doc = address_list?.find(item => item.name === id);
         const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}-${doc?.pincode}, ${doc?.state}`
         return address
@@ -278,15 +285,15 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                     <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
                                         <div className="border-0 flex flex-col">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation?.split(" ")[0])}</p>
                                         </div>
                                         <div className="border-0 flex flex-col ml-10">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Project ID</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{orderData?.project}</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.project}</p>
                                         </div>
                                         <div className="border-0 flex flex-col">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Project Address</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black truncate pr-4 text-wrap">{getProjectAddress(orderData?.project)}</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black truncate pr-4 text-wrap">{getProjectAddress()}</p>
                                         </div>
                                         <div className="border-0 flex flex-col ml-10">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Vendor Name</p>

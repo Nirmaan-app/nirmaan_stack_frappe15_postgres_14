@@ -156,7 +156,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
       ],
       filters: [["category", "in", category_list?.map((i) => i?.name)]],
       orderBy: { field: "creation", order: "desc" },
-      limit: 10000,
+      limit: 100000,
     },
     category_list?.length ? undefined : null
   );
@@ -164,7 +164,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const { data: wp_list } = useFrappeGetDocList("Procurement Packages", {
     fields: ["work_package_name", "work_package_image"],
     orderBy: { field: "work_package_name", order: "asc" },
-    limit: 100,
+    limit: 1000,
   });
 
   // const { data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error } = useFrappeGetDocList("Category Makelist", {

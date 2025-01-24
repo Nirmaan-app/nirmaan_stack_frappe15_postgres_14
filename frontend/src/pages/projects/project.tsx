@@ -371,7 +371,7 @@ const ProjectView = ({
   } = useFrappeGetDocList("Project Estimates", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
-    limit: 1000,
+    limit: 10000,
   });
 
   const {
@@ -394,7 +394,7 @@ const ProjectView = ({
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
     filters : [['project', '=', projectId]],
-    limit: 100
+    limit: 1000
   })
 
   const getTotalAmountPaid = () => {
@@ -494,7 +494,7 @@ const ProjectView = ({
   } = useFrappeGetDocList("Vendors", {
     fields: ["vendor_name", "vendor_type"],
     filters: [["vendor_type", "=", "Material"]],
-    limit: 1000,
+    limit: 10000,
   });
 
   const vendorOptions = vendorsList?.map((ven) => ({
@@ -806,7 +806,7 @@ const ProjectView = ({
 
   const { data: quote_data } = useFrappeGetDocList("Quotation Requests", {
     fields: ["name", "item", "quote"],
-    limit: 10000,
+    limit: 100000,
   });
 
   const getTotal = (order_id) => {
@@ -4007,7 +4007,7 @@ export const ProjectMakesTab = ({ projectData, options, makesTab, setProjectMake
 
   const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
     fields: ["make", "category"],
-    limit: 10000,
+    limit: 100000,
   });
 
   useEffect(() => {

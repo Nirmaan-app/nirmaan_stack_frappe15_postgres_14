@@ -159,7 +159,7 @@ export function NewSidebar() {
     {
       fields: ["*"],
       filters: [["recipient", "=", user_id]],
-      limit: 10000,
+      limit: 100000,
       orderBy: { field: "creation", order: "asc" },
     }
   );
@@ -213,7 +213,7 @@ export function NewSidebar() {
     {
       fields: ["status"],
       filters: [["project", "in", permissionsList || []]],
-      limit: 1000,
+      limit: 100000,
     },
     user_id === "Administrator" || !permissionsList ? null : undefined
   );
@@ -222,7 +222,7 @@ export function NewSidebar() {
     "Procurement Orders",
     {
       fields: ["status"],
-      limit: 1000,
+      limit: 100000,
     },
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
@@ -248,7 +248,7 @@ export function NewSidebar() {
         ],
         ["project", "in", permissionsList || []],
       ],
-      limit: 1000,
+      limit: 100000,
     },
     user_id === "Administrator" || !permissionsList ? null : "prDataMutate"
   );
@@ -271,7 +271,7 @@ export function NewSidebar() {
           ],
         ],
       ],
-      limit: 1000,
+      limit: 100000,
     },
 
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
@@ -291,7 +291,7 @@ export function NewSidebar() {
         ],
         ["project", "in", permissionsList || []],
       ],
-      limit: 1000,
+      limit: 10000,
     },
     user_id === "Administrator" || !permissionsList ? null : undefined
   );
@@ -307,7 +307,7 @@ export function NewSidebar() {
           ["Vendor Selected", "Partially Approved", "Pending"],
         ],
       ],
-      limit: 1000,
+      limit: 10000,
     },
 
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
@@ -320,7 +320,7 @@ export function NewSidebar() {
     {
       fields: ["status", "project", "vendor"],
       filters: [["project", "in", permissionsList || []]],
-      limit: 1000,
+      limit: 10000,
     },
     user_id === "Administrator" || !permissionsList ? null : undefined
   );
@@ -329,7 +329,7 @@ export function NewSidebar() {
     "Service Requests",
     {
       fields: ["status", "project", "vendor"],
-      limit: 1000,
+      limit: 10000,
     },
 
     user_id === "Administrator" || role === "Nirmaan Admin Profile"

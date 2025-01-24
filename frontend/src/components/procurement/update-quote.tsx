@@ -77,7 +77,7 @@ export const UpdateQuote = () => {
     {
       fields: ["*"],
       filters: [["vendor_type", "=", "Material"]],
-      limit: 1000,
+      limit: 10000,
     },
     "Material Vendors"
   );
@@ -87,7 +87,7 @@ export const UpdateQuote = () => {
     isLoading: procurement_request_list_loading,
   } = useFrappeGetDocList("Procurement Requests", {
     fields: ["*"],
-    limit: 1000,
+    limit: 100000,
   });
   const {
     data: quotation_request_list,
@@ -98,7 +98,7 @@ export const UpdateQuote = () => {
     {
       fields: ["*"],
       filters: [["procurement_task", "=", orderId]],
-      limit: 2000,
+      limit: 1000,
     },
     `Quotations Requests,Procurement_task=${orderId}`
   );
@@ -111,7 +111,7 @@ export const UpdateQuote = () => {
     error: category_error,
   } = useFrappeGetDocList("Category", {
     fields: ["*"],
-    limit: 1000,
+    limit: 10000,
   });
 
   const { updateDoc: updateDoc, error: update_error } = useFrappeUpdateDoc();
@@ -213,7 +213,7 @@ export const UpdateQuote = () => {
           item: item.name,
           vendor: vendorId,
           quantity: item.quantity,
-          makes: { list: makes }
+          makes: { list: makes || [] }
         };
         promises.push(createDoc("Quotation Requests", newItem));
       });

@@ -134,14 +134,14 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax'],
             orderBy: { field: 'category_name', order: 'asc' },
-            limit: 1000
+            limit: 10000
         });
 
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
             orderBy: { field: 'creation', order: 'desc' },
-            limit: 10000
+            limit: 100000
         });
 
     useEffect(() => {
