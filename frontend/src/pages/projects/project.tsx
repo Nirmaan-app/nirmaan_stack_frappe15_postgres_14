@@ -1483,6 +1483,20 @@ const ProjectView = ({
     if (!po_item_data || !project_estimates) return;
 
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
+
+    const totalAmountPaidWPWise = {}
+
+    const filteredPOPayments = projectPayments?.filter(i => i.document_type === "Procurement Orders")
+
+    filteredPOPayments?.forEach(i => {
+      const po = po_data?.find(j => j?.name === i?.document_name)
+      const workPackage = pr_data?.find(j => j?.name === po?.procurement_request)?.work_package
+      if (!totalAmountPaidWPWise[workPackage]) {
+        totalAmountPaidWPWise[workPackage] = 0
+      }
+      totalAmountPaidWPWise[workPackage] += parseFloat(i.amount)
+    })
+
     Object.keys(totals)?.forEach((key) => {
       const estimates =
         project_estimates?.filter((i) => i?.work_package === key) || [];
@@ -1494,9 +1508,10 @@ const ProjectView = ({
         0
       );
       totals[key].total_estimated_amount = totalEstimatedAmount || 0;
+      totals[key].total_amount_paid = totalAmountPaidWPWise[key] || 0
     });
     setWorkPackageTotalAmounts(totals);
-  }, [po_item_data, project_estimates]);
+  }, [po_item_data, project_estimates, po_data, projectPayments, pr_data]);
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
@@ -1667,6 +1682,20 @@ const ProjectView = ({
       }, 0),
     [segregatedServiceOrderData]
   );
+
+  const getAllSRsTotal =useMemo(() => {
+    const totalAmount = serviceRequestsData?.reduce((total, item) => {
+      const gst = item?.gst === "true" ? 1.18 : 1;
+      const amount = item?.service_order_list?.list?.reduce((srTotal, i) => {
+        const srAmount = parseFloat(i.rate) * parseFloat(i.quantity) * gst;
+        return srTotal + srAmount;
+      }, 0)
+      return total + amount;
+    }, 0);
+
+    return totalAmount;
+
+  }, [serviceRequestsData])
 
   // console.log("seggregatedService", segregatedServiceOrderData);
 
@@ -2444,7 +2473,7 @@ const ProjectView = ({
           )} */}
 
           {activeTab === "All" && (
-            <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} />
+            <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} getTotalAmountPaid={getTotalAmountPaid} />
           )}
 
           {["Services"].includes(activeTab) && (
@@ -2491,15 +2520,15 @@ const ProjectView = ({
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(totalServiceOrdersAmt * 1.18)}
+                          {formatToIndianRupee(getAllSRsTotal)}
                         </span>
                       </p>
-                      <p className="text-gray-700">
+                      {/* <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
                           {formatToIndianRupee(totalServiceOrdersAmt)}
                         </span>
-                      </p>
+                      </p> */}
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
@@ -3295,7 +3324,7 @@ export const CategoryAccordion = ({
   )
 }
 
-export const AllTab = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt }) => {
+export const AllTab = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt, getTotalAmountPaid }) => {
 
   const [totalsAmounts, setTotalsAmounts] = useState({})
 
@@ -3308,7 +3337,7 @@ export const AllTab = ({ workPackageTotalAmounts, setProjectSpendsTab, segregate
   useEffect(() => {
     const totalAmountsObject = { ...workPackageTotalAmounts }
     if ((serviceTotalEstdAmt || totalServiceOrdersAmt)) {
-      totalAmountsObject["Services"] = { amountWithoutTax: totalServiceOrdersAmt, total_estimated_amount: serviceTotalEstdAmt }
+      totalAmountsObject["Services"] = { amountWithoutTax: totalServiceOrdersAmt, total_estimated_amount: serviceTotalEstdAmt, total_amount_paid: getTotalAmountPaid()?.srAmount }
     }
     setTotalsAmounts(totalAmountsObject)
   }, [serviceTotalEstdAmt, workPackageTotalAmounts, totalServiceOrdersAmt])
@@ -3318,21 +3347,28 @@ export const AllTab = ({ workPackageTotalAmounts, setProjectSpendsTab, segregate
       title: "Work Package",
       dataIndex: "work_package",
       key: "work_package",
-      width: "40%",
+      width: "25%",
       render: (text) => <strong onClick={() => setProjectSpendsTab(text)} className="text-primary underline cursor-pointer">{text}</strong>,
     },
     {
       title: "Total Amount (exc. GST)",
       dataIndex: "amountWithoutTax",
       key: "amountWithoutTax",
-      width: "30%",
+      width: "20%",
       render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Estd. Amount (exc. GST)",
       dataIndex: "total_estimated_amount",
       key: "total_estimated_amount",
-      width: "30%",
+      width: "20%",
+      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+    },
+    {
+      title: "Total Amount Paid",
+      dataIndex: "total_amount_paid",
+      key: "total_amount_paid",
+      width: "20%",
       render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
     },
   ];
@@ -3352,6 +3388,7 @@ export const AllTab = ({ workPackageTotalAmounts, setProjectSpendsTab, segregate
                     key: key,
                     amountWithoutTax: totalsAmounts[key]?.amountWithoutTax,
                     total_estimated_amount: totalsAmounts[key]?.total_estimated_amount,
+                    total_amount_paid: totalsAmounts[key]?.total_amount_paid,
                     work_package: key,
                   }
                 })?.
