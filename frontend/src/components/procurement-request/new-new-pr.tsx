@@ -63,7 +63,6 @@ import { Card, CardHeader, CardTitle } from "../ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { formatDate } from "@/utils/FormatDate";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
-import { add } from "date-fns";
 import { v4 as uuidv4 } from "uuid";
 import Fuse from "fuse.js";
 
@@ -86,11 +85,12 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const [newItem, setNewItem] = useState({});
   const [requestItem, setRequestItem] = useState("");
   const [fuzzyMatches, setFuzzyMatches] = useState([]);
-  const [matchFound, setMatchFound] = useState(false);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState("wp-selection");
   const [requestItemDialogOpen, setRequestItemDialogOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+
+  const [isNewItemsDisabled, setIsNewItemsDisabled] = useState(false);
 
   const toggleNewItemDialog = () => {
     setOpen((prevState) => !prevState);
@@ -199,22 +199,6 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   // console.log("selectedWP", selectedWP)
 
   useEffect(() => {
-    if (curCategory && item_list) {
-      const options = [];
-      item_list?.map((item) => {
-        if (item.category === curCategory?.value) {
-          options.push({
-            value: item.name,
-            label: item.item_name,
-            unit: item?.unit_name,
-          });
-        }
-      });
-      setItemOptions(options);
-    }
-  }, [curCategory, item_list]);
-
-  useEffect(() => {
     if (selectedWP && category_list) {
       const options = [];
       category_list?.map((item) => {
@@ -222,13 +206,41 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           options.push({
             value: item.category_name,
             label: item.category_name,
-            tax: parseFloat(item?.tax),
+            tax: parseFloat(item?.tax || "0"),
           });
         }
       });
       setCatOptions(options);
     }
   }, [category_list, selectedWP]);
+
+  useEffect(() => {
+    if (selectedWP && catOptions && item_list) {
+      const options = [];
+      item_list?.map((item) => {
+        if (catOptions.some(i => i.value === item.category)) {
+          options.push({
+            value: item.name,
+            label: item.item_name,
+            unit: item?.unit_name,
+            category: item.category,
+            tax: catOptions?.find(i => i?.value === item.category)?.tax,
+          });
+        }
+      });
+      setItemOptions(options);
+    }
+  }, [selectedWP,catOptions, item_list]);
+
+  useEffect(() => {
+    if(curCategory) {
+      const bool = category_list?.find(i => i?.name === curCategory?.value)?.new_items
+      setIsNewItemsDisabled((bool === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)))
+    } else {
+      setIsNewItemsDisabled(false)
+    }
+
+  }, [curCategory])
 
   const handleCommentChange = (e) => {
     const value = e.target.value;
@@ -312,15 +324,15 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const handleAddNewItem = (request = false) => {
     const curProcList = [...procList];
     const itemToAdd = {
-      item: request ? requestItem?.name : curItem?.label,
+      item: request ? newItem?.item_name : curItem?.label,
       name: request ? uuidv4() : curItem?.value,
-      unit: request ? requestItem?.unit : curItem?.unit,
+      unit: request ? newItem?.unit_name : curItem?.unit,
       quantity: request
-        ? parseFloat(requestItem?.quantity)
+        ? parseFloat(newItem?.quantity)
         : parseFloat(curItem?.quantity),
-      category: curCategory?.value,
-      tax: parseFloat(curCategory?.tax),
-      comment: request ? requestItem?.comment : curItem?.comment,
+      category: request ? curCategory?.value : curItem?.category,
+      tax: request ? curCategory?.tax : curItem?.tax,
+      comment: request ? newItem?.comment : curItem?.comment,
       status: request ? "Request" : "Pending",
     };
     // Check if item exists in the current list
@@ -351,25 +363,34 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
       // Add item to the current request list
       curProcList.push(itemToAdd);
       setProcList(curProcList);
+
+      toast({
+        title: `${request ? "Request " : ""}Item: ${curItem?.label} added!`,
+        variant: "success",
+      });
+
     } else {
       toast({
         title: "Invalid Request!",
         description: (
           <span>
-            You are trying to add the <b>item: {curItem?.label}</b> multiple
+            You are trying to add the <strong>item: {curItem?.label}</strong> multiple
             times which is not allowed, instead edit the quantity directly!
           </span>
         ),
       });
     }
-    setCurItem("");
+
+    setCurCategory("")
 
     if (request) {
-      setRequestItem("");
+      setNewItem({});
       setFuzzyMatches([]);
-      setMatchFound(false);
-      toggleRequestItemDialog();
+      toggleNewItemDialog();
+    } else {
+      setCurItem("");
     }
+
   };
 
   const handleDeleteItem = (item: string) => {
@@ -500,19 +521,35 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
 
   const handleAddItem = async () => {
     try {
-      const itemData = { ...newItem, category: curCategory.value };
+      const itemData = { item_name : newItem.item_name, unit_name : newItem.unit_name, category : curCategory.value };
 
       const res = await createDoc("Items", itemData);
 
-      await item_list_mutate();
+      const curProcList = [...procList];
+      const itemToAdd = {
+        item: res?.item_name,
+        name: res?.name,
+        unit: res?.unit_name,
+        quantity: parseFloat(newItem?.quantity),
+        category: res.category,
+        tax: curCategory?.tax,
+        comment: newItem?.comment,
+        status: "Pending",
+      };
 
-      toggleNewItemDialog();
+      curProcList.push(itemToAdd);
+
+      setProcList(curProcList);
+
+      await item_list_mutate();
 
       setNewItem({});
 
+      toggleNewItemDialog();
+
       toast({
         title: "Success!",
-        description: `New Item: ${res?.item_name} created successfully!`,
+        description: `New Item: ${res?.item_name} created and added to Order List successfully!`,
         variant: "success",
       });
     } catch (error) {
@@ -560,7 +597,6 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const handleFuzzySearch = (input) => {
     if (!input.trim()) {
       setFuzzyMatches([]);
-      setMatchFound(false);
       return;
     }
 
@@ -571,21 +607,19 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
         matchPercentage: Math.round((1 - result.score) * 100), // Convert score to percentage
       }));
       setFuzzyMatches(matches);
-      setMatchFound(true);
     } else {
       setFuzzyMatches([]);
-      setMatchFound(false);
     }
   };
 
   //   console.log("fuzzyMatches", fuzzyMatches);
   // console.log("selectedCategories", selectedCategories)
 
-  //   console.log("curItem", curItem);
+    // console.log("curItem", curItem);
 
-  //   console.log("curCategory", curCategory);
+    // console.log("curCategory", curCategory);
 
-  //   console.log("procList", procList);
+    // console.log("procList", procList);
 
   // console.log("editItem", editItem)
 
@@ -709,7 +743,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                 )}
               </div>
             </div>
-            <div className="w-[60%] max-sm:text-sm">
+            <div className="w-[60%] max-sm:text-sm hidden">
               <ReactSelect
                 isDisabled={!selectedWP}
                 value={curCategory}
@@ -723,19 +757,19 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           </div>
           <ReactSelect
             value={curItem}
-            isDisabled={!curCategory}
+            isDisabled={!selectedWP}
             options={itemOptions}
             onChange={(e) => setCurItem(e)}
             components={{ MenuList: CustomMenuList }}
             onAddItemClick={toggleNewItemDialog}
-            onRequestItemClick={toggleRequestItemDialog}
-            isNewItemsCreationDisabled={
-              category_list?.find((i) => i?.name === curCategory?.value)
-                ?.new_items === "false" &&
-                !["Nirmaan Admin Profile"].includes(userData?.role)
-                ? true
-                : false
-            }
+            // onRequestItemClick={toggleRequestItemDialog}
+            // isNewItemsCreationDisabled={
+            //   category_list?.find((i) => i?.name === curCategory?.value)
+            //     ?.new_items === "false" &&
+            //     !["Nirmaan Admin Profile"].includes(userData?.role)
+            //     ? true
+            //     : false
+            // }
           />
           <div className="flex items-center gap-4">
             <div className="w-1/2">
@@ -980,7 +1014,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                   <AlertDialogAction
                                                     onClick={() =>
                                                       handleDeleteItem(
-                                                        item.name
+                                                        editItem.name
                                                       )
                                                     }
                                                     className="bg-gray-100 text-black hover:text-white flex items-center gap-1"
@@ -995,7 +1029,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                     }
                                                     onClick={() =>
                                                       handleUpdateItem(
-                                                        item.name
+                                                        editItem.name
                                                       )
                                                     }
                                                   >
@@ -1117,9 +1151,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                         Category
                                                       </h5>
                                                       <Select
-                                                        defaultValue={
-                                                          item?.category
-                                                        }
+                                                        value={editItem?.category}
                                                         onValueChange={(
                                                           value
                                                         ) =>
@@ -1160,9 +1192,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                           Item Name
                                                         </h5>
                                                         <Input
-                                                          defaultValue={
-                                                            item?.item
-                                                          }
+                                                          value={editItem?.item}
                                                           onChange={(e) =>
                                                             setEditItem(
                                                               (prev) => ({
@@ -1179,8 +1209,8 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                           UOM
                                                         </h5>
                                                         <Select
-                                                          defaultValue={
-                                                            item.unit
+                                                          value={
+                                                            editItem?.unit
                                                           }
                                                           onValueChange={(
                                                             value
@@ -1295,7 +1325,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                       <AlertDialogAction
                                                         onClick={() =>
                                                           handleDeleteItem(
-                                                            item.name
+                                                            editItem.name
                                                           )
                                                         }
                                                         className="bg-gray-100 text-black hover:text-white flex items-center gap-1"
@@ -1313,7 +1343,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                         }
                                                         onClick={() =>
                                                           handleUpdateItem(
-                                                            item.name
+                                                            editItem.name
                                                           )
                                                         }
                                                       >
@@ -1452,14 +1482,32 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
 
               <AlertDialog open={open} onOpenChange={toggleNewItemDialog}>
                 <AlertDialogContent>
-                  <AlertDialogHeader>
+                  <AlertDialogHeader className="text-start">
                     <AlertDialogTitle>
-                      Create New{" "}
-                      <span className="text-primary">{curCategory.value}</span>{" "}
+                      Create/Request New{" "}
+                      <strong className="text-primary">{selectedWP}</strong>{" "}
                       Item
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-1">
+                        <label
+                            htmlFor="curCategory"
+                            className="block text-sm font-medium text-gray-700"
+                          >
+                            Category
+                            <sup className="text-sm text-red-600">*</sup>
+                          </label>
+                          <ReactSelect
+                            isDisabled={!selectedWP}
+                            value={curCategory}
+                            options={catOptions}
+                            onChange={(e) => {
+                              setCurCategory(e);
+                            }}
+                          />
+                          {isNewItemsDisabled && <p className="text-red-500 text-sm">New Items Creation is disabled for this category, proceed to request item instead!</p>}
+                        </div>
                         <div className="flex flex-col gap-1">
                           <label
                             htmlFor="itemName"
@@ -1471,38 +1519,82 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                           <Input
                             type="text"
                             id="itemName"
+                            disabled={!curCategory}
                             value={newItem?.item_name || ""}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setNewItem((prevState) => ({
                                 ...prevState,
                                 item_name: e.target.value,
                               }))
+                              handleFuzzySearch(e.target.value);
                             }
+                            }
+                            autoComplete="off"
+                            onFocus={() => setIsFocused(true)}
+                            onBlur={() => setIsFocused(false)}
                           />
                         </div>
-                        {/* <div className="flex flex-col gap-1">
-                          <label
-                            htmlFor="makeName"
-                            className="block text-sm font-medium text-gray-700"
-                          >
-                            Make Name(N/A)
-                          </label>
-                          <Input
-                            type="text"
-                            id="makeName"
-                            disabled={true}
-                            value={newItem?.make_name || ""}
-                            placeholder="disabled"
-                            onChange={(e) =>
-                              setNewItem((prevState) => ({
-                                ...prevState,
-                                make_name: e.target.value,
-                              }))
-                            }
-                          />
-                        </div> */}
+                        {fuzzyMatches.length > 0 && isFocused && (
+                        <div className="relative">
+                          <ul className="absolute z-10 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 w-full overflow-y-auto">
+                            {fuzzyMatches.slice(0, 5).map((item, index) => (
+                              <li
+                                key={`${item.name}-${index}`}
+                                className="p-2 hover:bg-gray-100 flex justify-between items-center"
+                              >
 
-                        <div className="flex flex-col gap-1">
+                                <div className="flex flex-col gap-1">
+                                  <strong>{item?.item_name}</strong>
+
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-gray-400 font-semibold">{item?.category}</p>
+                                    <i className="text-gray-500">
+                                      {" "}
+                                      - {item?.matchPercentage}% match
+                                    </i>
+                                  </div>
+
+                                </div>
+                                <div
+                                    onMouseDown={() => {
+                                      setCurItem({
+                                        label: item.item_name,
+                                        value: item?.name,
+                                        unit: item?.unit_name,
+                                        category: item?.category,
+                                        tax: parseFloat(
+                                          category_list?.find(
+                                            (i) => i?.name === item?.category
+                                          )?.tax)
+                                      });
+                                      toggleNewItemDialog();
+                                    }}
+                                    className="text-primary bg-gray-300 hover:bg-white rounded-md p-2 font-bold text-xs cursor-pointer flex items-center gap-1">
+                                      <CirclePlus className="w-4 h-4" />
+                                      Add
+                                </div>
+                                {/* <span>
+                                  <strong>{item.item_name}</strong>
+                                  <span className="text-gray-500">
+                                    {" "}
+                                    - {item.matchPercentage}% match
+                                  </span>
+                                </span>
+                                {item.matchPercentage > 60 && index === 0 && (
+                                  <div className="flex items-center gap-2 px-2 py-1 bg-blue-100 rounded-md shadow">
+                                    <Sparkles className="w-4 h-4" />
+                                    <p className="text-blue-700">
+                                      <strong>Recommended</strong>
+                                    </p>
+                                  </div>
+                                )} */}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="flex gap-2 items-center">
+                        <div className="flex flex-col gap-1 w-1/2">
                           <label
                             htmlFor="itemUnit"
                             className="block text-sm font-medium text-gray-700"
@@ -1511,6 +1603,8 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             <sup className="text-sm text-red-600">*</sup>
                           </label>
                           <Select
+                            value={newItem?.unit_name}
+                            disabled={!curCategory}
                             onValueChange={(value) =>
                               setNewItem((prevState) => ({
                                 ...prevState,
@@ -1543,43 +1637,80 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             </SelectContent>
                           </Select>
                         </div>
+                        <div className="flex flex-col gap-1 w-1/2 items-start">
+                          <label
+                            htmlFor="quantity"
+                            className="block text-sm font-medium text-gray-700"
+                          >
+                            Quantity
+                            <sup className="text-sm text-red-600">*</sup>
+                          </label>
+                          <Input
+                            disabled={!curCategory}
+                            type="number"
+                            id="quantity"
+                            onChange={(e) =>
+                              setNewItem((prevState) => ({
+                                ...prevState,
+                                quantity: e.target.value,
+                              }))
+                            }
+                            value={newItem?.quantity || ""}
+                          />
+                        </div>
+                      </div>
+                      <div className="w-full flex flex-col gap-1">
+                        <h3>Comment</h3>
+                        <Input
+                          type="text"
+                          placeholder="Optional"
+                          value={newItem?.comment || ""}
+                          onChange={(e) =>
+                            setNewItem((prev) => ({
+                              ...prev,
+                              comment: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
                       </div>
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <div className="flex gap-2 justify-end items-center">
-                    {createLoading ? (
-                      <TailSpin width={30} height={30} color={"red"} />
-                    ) : (
+                    {isNewItemsDisabled ? (
                       <>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        {newItem?.item_name && newItem?.unit_name ? (
-                          <Button
-                            variant={"default"}
-                            onClick={handleAddItem}
-                            className=" flex items-center gap-1"
-                          >
-                            <ListChecks className="h-4 w-4" /> Submit
-                          </Button>
-                        ) : (
-                          <Button
-                            disabled={true}
-                            variant="secondary"
-                            className="flex items-center gap-1"
-                          >
-                            {" "}
-                            <ListChecks className="h-4 w-4" /> Submit
-                          </Button>
-                        )}
+                        <Button
+                          disabled={!curCategory || !newItem?.item_name || !newItem?.unit_name || !newItem?.quantity}
+                          variant={"default"}
+                          onClick={() => handleAddNewItem(true)}
+                          className=" flex items-center gap-1"
+                        >
+                          <ListChecks className="h-4 w-4" /> Request
+                        </Button>
                       </>
+                    ) : (
+                      createLoading ? (
+                        <TailSpin width={30} height={30} color={"red"} />
+                      ) : (
+                        <>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <Button
+                              disabled={!curCategory || !newItem?.item_name || !newItem?.unit_name || !newItem?.quantity}
+                              variant={"default"}
+                              onClick={handleAddItem}
+                              className=" flex items-center gap-1"
+                            >
+                              <ListChecks className="h-4 w-4" /> Create
+                            </Button>
+                        </>
+                      )
                     )}
                   </div>
                 </AlertDialogContent>
               </AlertDialog>
 
-              <AlertDialog
-                open={requestItemDialogOpen}
-                onOpenChange={toggleRequestItemDialog}
-              >
+              <AlertDialog open={requestItemDialogOpen} onOpenChange={toggleRequestItemDialog}>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle className="flex justify-between">
@@ -1802,8 +1933,8 @@ const CustomMenuList = (props) => {
     children, // options rendered as children
     selectProps: {
       onAddItemClick,
-      onRequestItemClick,
-      isNewItemsCreationDisabled,
+      // onRequestItemClick,
+      // isNewItemsCreationDisabled,
     }, // custom handler for "Add Item"
   } = props;
 
@@ -1816,10 +1947,9 @@ const CustomMenuList = (props) => {
         <div>{children}</div>
       </components.MenuList>
       <div
-        className={`sticky top-0 z-10 bg-white ${isNewItemsCreationDisabled ? "py-2" : ""
-          } border-primary border`}
+        className={`sticky top-0 z-10 bg-white border-primary border`}
       >
-        {isNewItemsCreationDisabled ? (
+        {/* {isNewItemsCreationDisabled ? (
           <Button
             variant={"ghost"}
             className="w-full rounded-none text-sm py-2 px-0 md:text-lg text-blue-300 flex flex-col items-center justify-center hover:bg-white"
@@ -1835,9 +1965,9 @@ const CustomMenuList = (props) => {
               for a new item here or contact the Administrator!
             </span>
           </Button>
-        ) : (
+        ) : ( */}
           <Button
-            disabled={isNewItemsCreationDisabled}
+            // disabled={isNewItemsCreationDisabled}
             variant={"ghost"}
             className="w-full rounded-none flex items-center justify-center gap-1"
             onClick={onAddItemClick}
@@ -1845,9 +1975,9 @@ const CustomMenuList = (props) => {
 
           >
             <CirclePlus className="w-4 h-4" />
-            Create New Item
+            Create/Request New Item
           </Button>
-        )}
+        {/* )} */}
       </div>
     </div>
   );
