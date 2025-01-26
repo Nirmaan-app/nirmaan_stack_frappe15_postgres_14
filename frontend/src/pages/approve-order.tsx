@@ -181,9 +181,6 @@ const ApprovePRList = () => {
       pr_data={pr}
       project_data={project_data}
       prMutate={prMutate}
-      owner_data={
-        owner_data == undefined ? { full_name: "Administrator" } : owner_data
-      }
     />
   );
 };
@@ -191,14 +188,12 @@ const ApprovePRList = () => {
 interface ApprovePRListPageProps {
   pr_data: ProcurementRequestsType | undefined;
   project_data: ProjectsType | undefined;
-  owner_data: NirmaanUsersType | undefined | { full_name: String };
   prMutate?: any;
 }
 
 const ApprovePRListPage = ({
   pr_data,
   project_data,
-  owner_data,
   prMutate,
 }: ApprovePRListPageProps) => {
   const navigate = useNavigate();
@@ -217,13 +212,13 @@ const ApprovePRListPage = ({
       "new_items",
       "name",
     ],
+    filters: [["work_package", "=", pr_data?.work_package]],
     orderBy: { field: "category_name", order: "asc" },
     limit: 10000,
   });
+
   const {
     data: item_list,
-    isLoading: item_list_loading,
-    error: item_list_error,
     mutate: item_list_mutate,
   } = useFrappeGetDocList("Items", {
     fields: [
@@ -234,9 +229,12 @@ const ApprovePRListPage = ({
       "category",
       "creation",
     ],
+    filters: [["category", "in", category_list?.map((i) => i?.name)]],
     orderBy: { field: "creation", order: "desc" },
     limit: 100000,
-  });
+  },
+  category_list?.length ? undefined : null
+  );
 
   const { data: quote_data } = useFrappeGetDocList("Approved Quotations", {
     fields: ["item_id", "quote"],
@@ -265,46 +263,52 @@ const ApprovePRListPage = ({
     ],
   });
 
-  // console.log("universalCOmment", universalComments)
-
-  // const { data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error } = useFrappeGetDocList("Category Makelist", {
-  //   fields: ["*"],
-  //   limit: 10000
-  // })
-
   const {
     createDoc: createDoc,
     error: update_error,
     loading: createLoading,
   } = useFrappeCreateDoc();
 
-  interface Category {
-    name: string;
-  }
+  const [showNewItemsCard, setShowNewItemsCard] = useState(false)
 
+  const toggleNewItemsCard = () => {
+    setShowNewItemsCard((prevState) => !prevState);
+  };
+
+  const [itemOptions, setItemOptions] = useState([]);
   const [page, setPage] = useState<string>("itemlist");
   const [curItem, setCurItem] = useState<string>("");
   const [curCategory, setCurCategory] = useState<string>("");
   const [unit, setUnit] = useState<string>("");
   const [quantity, setQuantity] = useState<number | null | string>(null);
-  // const [item_id, setItem_id] = useState<string>('');
-  // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-  // const [make, setMake] = useState("");
-  const [tax, setTax] = useState<number | null>(null);
   const [dynamicPage, setDynamicPage] = useState<string | null>(null);
-  const [comments, setComments] = useState({});
   const [universalComment, setUniversalComment] = useState<string | null>(null);
   const [stack, setStack] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [managersIdList, setManagersIdList] = useState(null);
   const [requestCategory, setRequestCategory] = useState("");
+  const [newItem, setNewItem] = useState({})
 
-  const [requestItemName, setRequestItemName] = useState("");
+  const [requestItemName, setRequestItemName] = useState({});
 
   const [requestItemDialog, setRequestItemDialog] = useState(false);
 
   const toggleRequestItemDialog = () => {
     setRequestItemDialog((prevState) => !prevState);
+  };
+
+  const [newItemDialog, setNewItemDialog] = useState(false);
+
+  const toggleNewItemDialog = () => {
+    setNewItemDialog((prevState) => !prevState);
+  };
+
+  const [editItem, setEditItem] = useState({})
+
+  const [editItemDialog, setEditItemDialog] = useState(false);
+
+  const toggleEditItemDialog = () => {
+    setEditItemDialog((prevState) => !prevState);
   };
 
   const [fuzzyMatches, setFuzzyMatches] = useState([]);
@@ -316,49 +320,15 @@ const ApprovePRListPage = ({
     }
   }, [usersList]);
 
-  // console.log("usersList", usersList)
-  // const fileInputRefs = useRef({});
-
   const getFullName = (id) => {
     return usersList?.find((user) => user.name == id)?.full_name;
-  };
-
-  const handleCommentChange = (item, e) => {
-    setComments((prevComments) => ({
-      ...prevComments,
-      [item.item]: e.target.value,
-    }));
   };
 
   const handleUniversalCommentChange = (e) => {
     setUniversalComment(e.target.value === "" ? null : e.target.value);
   };
 
-  const addCategory = (categoryName: string) => {
-    setCurCategory(categoryName);
-    setTax(
-      category_list?.find((category) => category.category_name === categoryName)
-        .tax
-    );
-    // const isDuplicate = categories.list.some(category => category.name === categoryName);
-    // if (!isDuplicate) {
-    //     setCategories(prevState => ({
-    //         ...prevState,
-    //         list: [...prevState.list, { name: categoryName }]
-    //     }));
-    // }
-  };
-
-  const handleCategoryClick = (category: string, value: string) => {
-    addCategory(category);
-    setPage(value);
-  };
-
   const triggerFileInput = (name: string) => {
-    // console.log("triggering input", name)
-    // if (fileInputRefs.current[name]) {
-    //     fileInputRefs.current[name].click();
-    // }
     document.getElementById(`file-upload-${name}`)?.click();
   };
 
@@ -398,6 +368,24 @@ const ApprovePRListPage = ({
   // console.log("pr_data", pr_data)
 
   useEffect(() => {
+    if(category_list) {
+      const options = [];
+      item_list?.map((item) => {
+        if (category_list.some(i => i.name === item.category)) {
+          options.push({
+            value: item.name,
+            label: item.item_name,
+            unit: item?.unit_name,
+            category: item.category,
+            tax: parseFloat(category_list?.find(i => i?.name === item.category)?.tax || "0"),
+          });
+        }
+      });
+      setItemOptions(options);
+    }
+  }, [category_list, item_list])
+
+  useEffect(() => {
     if (!orderData.project) {
       let mod_pr_data = {
         ...pr_data,
@@ -426,18 +414,6 @@ const ApprovePRListPage = ({
       // }));
     }
   }, [pr_data]);
-
-  const item_options: string[] = [];
-
-  if (curCategory) {
-    item_list?.map((item) => {
-      if (item.category === curCategory)
-        item_options.push({
-          value: item.item_name,
-          label: `${item.item_name}`,
-        });
-    });
-  }
 
   useEffect(() => {
     const newCategories = [];
@@ -485,39 +461,18 @@ const ApprovePRListPage = ({
     }));
   }, [orderData.procurement_list]);
 
-  const handleChange = (selectedItem) => {
-    // console.log('Selected item:', selectedItem);
-    setCurItem(selectedItem.value);
-    item_list?.map((item) => {
-      if (item.item_name == selectedItem.value) {
-        setUnit(item.unit_name);
-        // setMake(item.make_name);
-      }
-    });
-  };
 
   const handleAdd = () => {
     if (curItem && Number(quantity)) {
-      let itemIdToUpdate = null;
-      // let itemMake = null;
 
-      // Find item ID and make
-      item_list.forEach((item) => {
-        if (item.item_name === curItem) {
-          itemIdToUpdate = item.name;
-          // itemMake = item.make_name;
-        }
-      });
-
-      if (itemIdToUpdate) {
         const curRequest = [...orderData.procurement_list.list];
         const curValue = {
-          item: `${curItem}`,
-          name: itemIdToUpdate,
-          unit: unit,
+          item: curItem.label,
+          name: curItem.value,
+          unit: curItem.unit,
           quantity: Number(quantity),
-          category: curCategory,
-          tax: Number(tax),
+          category: curItem.category,
+          tax: curItem.tax,
           status: "Pending",
         };
 
@@ -550,7 +505,7 @@ const ApprovePRListPage = ({
             title: "Invalid Request!",
             description: (
               <span>
-                You are trying to add the <b>item: {curItem}</b> multiple times
+                You are trying to add the <b>item: {curItem?.label}</b> multiple times
                 which is not allowed, instead edit the quantity directly!
               </span>
             ),
@@ -558,10 +513,6 @@ const ApprovePRListPage = ({
         }
         setQuantity("");
         setCurItem("");
-        setUnit("");
-        // setItem_id('');
-        // setMake("");
-      }
     }
   };
 
@@ -572,10 +523,7 @@ const ApprovePRListPage = ({
         return {
           ...curValue,
           quantity: parseInt(newQuantity),
-          comment:
-            comments[itemName] === undefined
-              ? curValue.comment || ""
-              : comments[itemName] || "",
+          comment: editItem?.comment || "",
         };
       }
       return curValue;
@@ -586,7 +534,6 @@ const ApprovePRListPage = ({
         list: curRequest,
       },
     }));
-    setQuantity("");
     setCurItem("");
   };
 
@@ -596,10 +543,6 @@ const ApprovePRListPage = ({
 
     if (itemToPush.status !== "Request") {
       setStack((prevStack) => [...prevStack, itemToPush]);
-      setComments((prev) => {
-        delete prev[item];
-        return prev;
-      });
     }
 
     curRequest = curRequest.filter((curValue) => curValue.item !== item);
@@ -609,7 +552,7 @@ const ApprovePRListPage = ({
         list: curRequest,
       },
     }));
-    setQuantity("");
+
     setCurItem("");
   };
 
@@ -757,38 +700,63 @@ const ApprovePRListPage = ({
     }
   };
 
-  const handleCreateItem = () => {
-    setUnit("");
-    setCurItem("");
-    // setMake("");
-    setPage("additem");
-  };
+  const handleAddItem = async () => {
+    try {
 
-  const handleCategoryClick2 = (category: string) => {
-    addCategory(category);
-    setPage("additem");
-  };
+      const itemData = {
+        category: curCategory.value,
+        unit_name: newItem.unit_name,
+        item_name: newItem.item_name,
+      };
 
-  const handleAddItem = () => {
-    const itemData = {
-      category: curCategory,
-      unit_name: unit,
-      item_name: curItem,
-      // make_name: make,
-    };
-    // console.log("itemData", itemData)
-    createDoc("Items", itemData)
-      .then(() => {
-        // console.log(itemData)
-        setUnit("");
-        setCurItem("");
-        // setMake("");
-        setPage("itemlist");
-        item_list_mutate();
-      })
-      .catch(() => {
-        console.log("submit_error", update_error);
+      const res = await createDoc("Items", itemData)
+
+      const curRequest = [...orderData.procurement_list.list];
+
+      const itemToAdd = {
+        item: res?.item_name,
+        name: res?.name,
+        unit: res?.unit_name,
+        quantity: parseFloat(newItem?.quantity),
+        category: res.category,
+        tax: curCategory?.tax,
+        comment: newItem?.comment,
+        status: "Pending",
+      };
+
+      curRequest.push(itemToAdd);
+
+      setOrderData((prevState) => ({
+        ...prevState,
+        procurement_list: {
+          list: curRequest,
+        },
+      }));
+  
+      await item_list_mutate();
+
+      setNewItem({});
+
+      setCurCategory("")
+
+      toast({
+        title: "Success!",
+        description: `New Item: ${res?.item_name} created and added to Order List successfully!`,
+        variant: "success",
       });
+
+
+      toggleNewItemDialog()
+
+    } catch (error) {
+      console.log("error", error);
+      toast({
+        title: "Failed!",
+        description: `Item Creation failed!`,
+        variant: "destructive",
+      });
+    }
+
   };
 
   const handleDeletePr = async () => {
@@ -812,7 +780,7 @@ const ApprovePRListPage = ({
     }
   };
 
-  const handleRequestItem = async (item) => {
+  const handleRequestItem = async () => {
     const itemData = {
       category: requestCategory,
       unit_name: unit,
@@ -825,7 +793,8 @@ const ApprovePRListPage = ({
 
       const combinedRequest = [...curRequest, ...stack];
 
-      const itemToUpdate = combinedRequest.find((i) => i.name === item.name);
+      const itemToUpdate = combinedRequest.find((i) => i.name === requestItemName.name);
+      
       itemToUpdate.item = res.item_name;
       itemToUpdate.unit = res.unit_name;
       itemToUpdate.quantity = quantity;
@@ -880,7 +849,7 @@ const ApprovePRListPage = ({
 
       toast({
         title: "Success!",
-        description: `Requested Item: ${res.item_name} created and added successfully!`,
+        description: `Requested Item: ${res.item_name} created and added to Order List successfully!`,
         variant: "success",
       });
 
@@ -888,6 +857,7 @@ const ApprovePRListPage = ({
       setUnit("");
       setQuantity("");
       setRequestCategory("");
+      setRequestItemName({})
 
       toggleRequestItemDialog()
 
@@ -1013,6 +983,8 @@ const ApprovePRListPage = ({
   }
 
 
+
+  // console.log("curItem", curItem)
   // console.log("stack", stack)
   // console.log("uploadedFiles", uploadedFiles)
 
@@ -1020,51 +992,10 @@ const ApprovePRListPage = ({
 
   return (
     <>
-      {page == "categorylist" && (
-        <div className="flex-1 space-y-4">
-          <div className="flex items-center">
-            <ArrowLeft
-              className="cursor-pointer"
-              onClick={() => setPage("itemlist")}
-            />
-            <h2 className="text-lg pl-2 font-bold tracking-tight text-pageheader">
-              Select Category
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {category_list?.map((item) => {
-              if (item.work_package === orderData.work_package) {
-                return (
-                  <Card
-                    className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center"
-                    onClick={() =>
-                      handleCategoryClick(item.category_name, "itemlist")
-                    }
-                  >
-                    <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
-                      <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                        <img
-                          className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0"
-                          src={
-                            item.image_url === null ? imageUrl : item.image_url
-                          }
-                          alt="Category"
-                        />
-                        <span>{item.category_name}</span>
-                      </CardTitle>
-                    </CardHeader>
-                  </Card>
-                );
-              }
-            })}
-          </div>
-        </div>
-      )}
       {page == "itemlist" && (
         <div className="flex-1 space-y-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center">
-              {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
               <h2 className="text-lg pl-2 font-bold tracking-tight text-pageheader">
                 Approve/Reject/Delete
               </h2>
@@ -1104,35 +1035,24 @@ const ApprovePRListPage = ({
           </div>
           <ProcurementActionsHeaderCard orderData={orderData} pr={true} />
 
-          {curCategory === "" && (
+          {!showNewItemsCard && (
             <button
               className="text-lg text-blue-400 flex p-2 items-center gap-1"
-              onClick={() => setPage("categorylist")}
+              onClick={toggleNewItemsCard}
             >
               <CirclePlus className="w-4 h-4" /> Add Missing Items
             </button>
           )}
 
-          {curCategory && (
+          {showNewItemsCard && (
             <Card className="p-4 max-sm:p-2 border border-gray-100 rounded-lg">
-              <div className="flex justify-between items-center mb-2">
-                <div
-                  onClick={() => {
-                    setCurItem("");
-                    // setMake("");
-                    setPage("categorylist");
-                  }}
-                  className="text-blue-400 underline flex items-center gap-1 cursor-pointer"
-                >
-                  <h3 className="font-bold">{curCategory}</h3>
-                  <Pencil className="w-4 h-4" />
-                </div>
+              <div className="flex justify-end mb-2">
                 <button
                   className="text-red-600"
                   onClick={() => {
                     setCurItem("");
-                    // setMake("");
                     setCurCategory("");
+                    toggleNewItemsCard()
                   }}
                 >
                   <X className="w-6 h-6 " />
@@ -1143,12 +1063,9 @@ const ApprovePRListPage = ({
                 <div className="w-1/2 md:w-2/3">
                   <h5 className="text-xs text-gray-400">Items</h5>
                   <ReactSelect
-                    value={{
-                      value: curItem,
-                      label: `${curItem}`,
-                    }}
-                    options={item_options}
-                    onChange={handleChange}
+                    value={curItem}
+                    options={itemOptions}
+                    onChange={(selected) =>  setCurItem(selected)}
                   />
                 </div>
                 <div className="flex-1">
@@ -1156,31 +1073,30 @@ const ApprovePRListPage = ({
                   <input
                     className="h-[37px] w-full"
                     type="text"
-                    placeholder={unit || "Unit"}
-                    value={unit}
+                    placeholder={"Unit"}
+                    value={curItem?.unit}
                   />
                 </div>
                 <div className="flex-1">
                   <h5 className="text-xs text-gray-400">Qty</h5>
                   <input
+                    type="number"
                     className="h-[37px] w-full border p-2 rounded-lg outline-none"
                     onChange={(e) =>
                       setQuantity(
                         e.target.value === "" ? null : parseInt(e.target.value)
                       )
                     }
-                    value={quantity}
-                    type="number"
+                    value={quantity || ""}
                   />
                 </div>
               </div>
               <div className="flex justify-between mt-4 items-center">
                 {["Nirmaan Admin Profile"].includes(userData?.role) ? (
                   <Button
-                    disabled={!curCategory}
                     variant={"ghost"}
                     className="text-sm py-2 px-0 md:text-lg text-blue-400 flex items-center gap-1 hover:bg-white"
-                    onClick={() => handleCreateItem()}
+                    onClick={toggleNewItemDialog}
                   >
                     <CirclePlus className="w-4 h-4" />
                     Create new item
@@ -1189,23 +1105,14 @@ const ApprovePRListPage = ({
                   <div />
                 )}
 
-                {curItem && Number(quantity) ? (
                   <Button
+                    disabled={!curItem || !quantity}
                     variant="outline"
-                    className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500"
-                    onClick={() => handleAdd()}
+                    className="border border-red-500 px-8 text-red-500"
+                    onClick={handleAdd}
                   >
                     Add
-                  </Button>
-                ) : (
-                  <Button
-                    disabled={true}
-                    variant="secondary"
-                    className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500"
-                  >
-                    Add
-                  </Button>
-                )}
+                    </Button>
               </div>
             </Card>
           )}
@@ -1291,18 +1198,18 @@ const ApprovePRListPage = ({
                             </div>
                             <div className="text-sm font-bold text-gray-500">
                             {JSON.parse(project_data.project_work_packages).work_packages
-  .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-  .filter((category) => category?.name === cat?.name)?.length > 0 ? (
-    JSON.parse(project_data.project_work_packages).work_packages
-      .flatMap((wp) => wp.category_list?.list || [])
-      .filter((category) => category?.name === cat?.name)
-      .flatMap((category) => category.makes || [])
-      .map((make, index, arr) => (
-        <i key={index}>{make}{index < arr.length - 1 && ", "}</i>
-      ))
-  ) : (
-    "--"
-  )}
+                              .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+                              .filter((category) => category?.name === cat?.name)?.length > 0 ? (
+                                JSON.parse(project_data.project_work_packages).work_packages
+                                  .flatMap((wp) => wp.category_list?.list || [])
+                                  .filter((category) => category?.name === cat?.name)
+                                  .flatMap((category) => category.makes || [])
+                                  .map((make, index, arr) => (
+                                    <i key={index}>{make}{index < arr.length - 1 && ", "}</i>
+                                  ))
+                              ) : (
+                                "--"
+                              )}
                             </div>
                           </div>
                           <table className="table-auto w-full">
@@ -1329,7 +1236,7 @@ const ApprovePRListPage = ({
                                   item.status !== "Request"
                                 ) {
                                   return (
-                                    <tr key={item.item}>
+                                    <tr key={item.name}>
                                       <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                         {item.item}
                                         {item.comment && (
@@ -1348,10 +1255,17 @@ const ApprovePRListPage = ({
                                         {item.quantity}
                                       </td>
                                       <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
-                                        <AlertDialog>
+                                        <AlertDialog open={editItemDialog} onOpenChange={toggleEditItemDialog}>
                                           <AlertDialogTrigger
                                             onClick={() =>
-                                              setQuantity(parseInt(item.quantity))
+                                              setEditItem({
+                                                name: item.name,
+                                                quantity: item?.quantity,
+                                                comment: item?.comment,
+                                                unit: item?.unit,
+                                                item: item.item,
+                                                category: item?.category,
+                                              })
                                             }
                                           >
                                             <Pencil className="w-4 h-4" />
@@ -1361,7 +1275,7 @@ const ApprovePRListPage = ({
                                               <AlertDialogTitle className="flex justify-between">
                                                 Edit Item
                                                 <AlertDialogCancel
-                                                  onClick={() => setQuantity("")}
+                                                  onClick={() => setEditItem({})}
                                                   className="border-none shadow-none p-0"
                                                 >
                                                   X
@@ -1374,7 +1288,7 @@ const ApprovePRListPage = ({
                                                       Item Name
                                                     </h5>
                                                     <div className="w-full  p-1 text-left">
-                                                      {item.item}
+                                                      {editItem.item}
                                                     </div>
                                                   </div>
                                                   <div className="w-[30%]">
@@ -1382,7 +1296,7 @@ const ApprovePRListPage = ({
                                                       UOM
                                                     </h5>
                                                     <div className=" w-full  p-2 text-center justify-left flex">
-                                                      {item.unit}
+                                                      {editItem.unit}
                                                     </div>
                                                   </div>
                                                   <div className="w-[25%]">
@@ -1391,16 +1305,20 @@ const ApprovePRListPage = ({
                                                     </h5>
                                                     <input
                                                       type="number"
-                                                      defaultValue={item.quantity}
+                                                      value={editItem.quantity || ""}
                                                       className=" rounded-lg w-full border p-2"
                                                       onChange={(e) =>
-                                                        setQuantity(
-                                                          e.target.value !== ""
-                                                            ? parseInt(
-                                                              e.target.value
-                                                            )
-                                                            : null
-                                                        )
+                                                        setEditItem({
+                                                          ...editItem,
+                                                          quantity:
+                                                            e.target.value ===
+                                                              ""
+                                                              ? 0
+                                                              : parseFloat(
+                                                                e.target
+                                                                  .value
+                                                              ),
+                                                        })
                                                       }
                                                     />
                                                   </div>
@@ -1411,10 +1329,14 @@ const ApprovePRListPage = ({
                                                     className="block p-2 border-gray-300 border rounded-md w-full"
                                                     placeholder="Add comment..."
                                                     onChange={(e) =>
-                                                      handleCommentChange(item, e)
+                                                      setEditItem({
+                                                        ...editItem,
+                                                        comment:
+                                                          e.target.value,
+                                                      })
                                                     }
-                                                    defaultValue={
-                                                      item.comment || ""
+                                                    value={
+                                                      editItem.comment || ""
                                                     }
                                                   />
                                                 </div>
@@ -1424,18 +1346,18 @@ const ApprovePRListPage = ({
                                                   <AlertDialogAction
                                                     className="bg-gray-100 text-black hover:text-white flex gap-1 items-center"
                                                     onClick={() =>
-                                                      handleDelete(item.item)
+                                                      handleDelete(editItem.item)
                                                     }
                                                   >
                                                     <Trash2 className="h-4 w-4" />
                                                     Delete
                                                   </AlertDialogAction>
                                                   <AlertDialogAction
-                                                    disabled={!quantity}
+                                                    disabled={!editItem?.quantity}
                                                     onClick={() =>
                                                       handleSave(
-                                                        item.item,
-                                                        quantity
+                                                        editItem.item,
+                                                        editItem.quantity
                                                       )
                                                     }
                                                     className="flex gap-1 items-center"
@@ -1558,7 +1480,7 @@ const ApprovePRListPage = ({
                                                     Category
                                                   </h5>
                                                   <Select
-                                                    defaultValue={requestCategory}
+                                                    value={requestCategory}
                                                     onValueChange={(value) =>
                                                       setRequestCategory(value)
                                                     }
@@ -1604,7 +1526,6 @@ const ApprovePRListPage = ({
                                                   onChange={(e) =>
                                                     setCurItem(e.target.value)
                                                   }
-                                                  className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                                 />
 
                                                 <div className="flex items-center gap-2 w-full">
@@ -1692,14 +1613,13 @@ const ApprovePRListPage = ({
                                                       onChange={(e) =>
                                                         setQuantity(
                                                           e.target.value === ""
-                                                            ? null
+                                                            ? 0
                                                             : parseInt(
                                                               e.target.value
                                                             )
                                                         )
                                                       }
                                                       value={quantity || ""}
-                                                      className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                                     />
                                                   </div>
                                                 </div>
@@ -1732,8 +1652,8 @@ const ApprovePRListPage = ({
                                                         !quantity ||
                                                         !requestCategory
                                                       }
-                                                      onClick={() =>
-                                                        handleRequestItem(item)
+                                                      onClick={
+                                                        handleRequestItem
                                                       }
                                                       className="flex items-center gap-1"
                                                     >
@@ -1927,12 +1847,10 @@ const ApprovePRListPage = ({
             </Button>
           </div>
 
-          {/* <button className="bottom-0 h-8 w-full bg-red-700 rounded-md text-sm text-white" onClick={()=>handleSubmit()}>Next</button> */}
         </div>
       )}
       {page == "summary" && (
         <div className="flex-1 space-y-4">
-          {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
           <div className="flex items-center pt-1">
             <ArrowLeft
               className="cursor-pointer"
@@ -2213,177 +2131,156 @@ const ApprovePRListPage = ({
           </div>
         </div>
       )}
-      {page == "additem" && (
-        <div className="flex-1 space-y-4">
-          {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
-          <div className="flex items-center gap-1">
-            <ArrowLeft
-              className="cursor-pointer"
-              onClick={() => {
-                setCurItem("");
-                // setMake("");
-                setPage("itemlist");
-              }}
-            />
-            <h2 className="text-base font-bold tracking-tight">
-              Create new Item
-            </h2>
-          </div>
-          <div className="mb-4">
-            <div className="flex">
-              <div className="text-lg font-bold py-2">Category: </div>
-              <button
-                onClick={() => {
-                  setCurItem("");
-                  // setMake("");
-                  setPage("categorylist2");
-                }}
-                className="text-blue-500 underline ml-1"
-              >
-                <div className="flex">
-                  <div className="text-lg font-bold">{curCategory}</div>
-                  <Pencil className="w-4 h-4 ml-1 mt-1.5" />
-                </div>
-              </button>
-            </div>
-            <label
-              htmlFor="itemName"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Item Name
-            </label>
-            <Input
-              type="text"
-              id="itemName"
-              value={curItem}
-              onChange={(e) => setCurItem(e.target.value)}
-              className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            />
-            {/* <label
-              htmlFor="makeName"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Make Name
-            </label>
-            <Input
-              type="text"
-              id="makeName"
-              value={make}
-              onChange={(e) => setMake(e.target.value)}
-              className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            /> */}
-          </div>
-          <div className="mb-4">
-            <label
-              htmlFor="itemUnit"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Item Unit
-            </label>
-            <Select onValueChange={(value) => setUnit(value)}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue
-                  className="text-gray-200"
-                  placeholder="Select Unit"
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {/* <SelectItem value="PCS">PCS</SelectItem> */}
-                <SelectItem value="BOX">BOX</SelectItem>
-                <SelectItem value="ROLL">ROLL</SelectItem>
-                {/* <SelectItem value="PKT">PKT</SelectItem> */}
-                <SelectItem value="LENGTH">LTH</SelectItem>
-                <SelectItem value="MTR">MTR</SelectItem>
-                <SelectItem value="NOS">NOS</SelectItem>
-                <SelectItem value="KGS">KGS</SelectItem>
-                <SelectItem value="PAIRS">PAIRS</SelectItem>
-                <SelectItem value="PACKS">PACKS</SelectItem>
-                <SelectItem value="DRUM">DRUM</SelectItem>
-                {/* <SelectItem value="COIL">COIL</SelectItem> */}
-                <SelectItem value="SQMTR">SQMTR</SelectItem>
-                <SelectItem value="LTR">LTR</SelectItem>
-                {/* <SelectItem value="PAC">PAC</SelectItem> */}
-                {/* <SelectItem value="BAG">BAG</SelectItem> */}
-                <SelectItem value="BUNDLE">BUNDLE</SelectItem>
-                <SelectItem value="FEET">FEET</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="py-10">
-            <div className="">
-              <Dialog>
-                <DialogTrigger asChild>
-                  {curItem && unit ? (
-                    <Button className="mt-15 h-8 w-full bg-red-700 rounded-md text-sm text-white">
-                      Confirm and Submit
-                    </Button>
-                  ) : (
-                    <Button
-                      disabled={true}
-                      variant="secondary"
-                      className="h-8 w-full rounded-md text-sm"
-                    >
-                      Confirm and Submit
-                    </Button>
-                  )}
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>Are you Sure</DialogTitle>
-                    <DialogDescription>
-                      Click on Confirm to create new Item.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogClose>
-                    <Button variant="secondary" onClick={() => handleAddItem()}>
-                      Confirm
-                    </Button>
-                  </DialogClose>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-        </div>
-      )}
-      {page == "categorylist2" && (
-        <div className="flex-1 md:space-y-4">
-          <div className="flex items-center space-y-2">
-            <ArrowLeft
-              className="cursor-pointer"
-              onClick={() => setPage("additem")}
-            />
-            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">
-              Select Category
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
-            {category_list?.map((item) => {
-              if (item.work_package === orderData.work_package) {
-                return (
-                  <Card
-                    className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center"
-                    onClick={() => handleCategoryClick2(item.category_name)}
-                  >
-                    <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
-                      <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                        <img
-                          className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0"
-                          src={
-                            item.image_url === null ? imageUrl : item.image_url
+        <AlertDialog open={newItemDialog} onOpenChange={toggleNewItemDialog}>
+                <AlertDialogContent>
+                  <AlertDialogHeader className="text-start">
+                    <AlertDialogTitle>
+                      Create New{" "}
+                      <strong className="text-primary">{pr_data?.work_package}</strong>{" "}
+                      Item
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-1">
+                        <label
+                            htmlFor="curCategory"
+                            className="block text-sm font-medium text-gray-700"
+                          >
+                            Category
+                            <sup className="text-sm text-red-600">*</sup>
+                          </label>
+                          <ReactSelect
+                            value={curCategory}
+                            options={category_list?.map(i => ({label : i?.name, value : i?.name, tax : parseFloat(i?.tax || "0")}))}
+                            onChange={(e) => {
+                              setCurCategory(e);
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label
+                            htmlFor="itemName"
+                            className="block text-sm font-medium text-gray-700"
+                          >
+                            Item Name
+                            <sup className="text-sm text-red-600">*</sup>
+                          </label>
+                          <Input
+                            type="text"
+                            id="itemName"
+                            disabled={!curCategory}
+                            value={newItem?.item_name || ""}
+                            onChange={(e) => {
+                              setNewItem((prevState) => ({
+                                ...prevState,
+                                item_name: e.target.value,
+                              }))
+                            }
+                            }
+                          />
+                        </div>
+                      <div className="flex gap-2 items-center">
+                        <div className="flex flex-col gap-1 w-1/2">
+                          <label
+                            htmlFor="itemUnit"
+                            className="block text-sm font-medium text-gray-700"
+                          >
+                            Item Unit
+                            <sup className="text-sm text-red-600">*</sup>
+                          </label>
+                          <Select
+                            value={newItem?.unit_name}
+                            disabled={!curCategory}
+                            onValueChange={(value) =>
+                              setNewItem((prevState) => ({
+                                ...prevState,
+                                unit_name: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue
+                                className="text-gray-200"
+                                placeholder="Select Unit"
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                              <SelectItem value="BOX">BOX</SelectItem>
+                              <SelectItem value="ROLL">ROLL</SelectItem>
+                              {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                              <SelectItem value="LENGTH">LTH</SelectItem>
+                              <SelectItem value="MTR">MTR</SelectItem>
+                              <SelectItem value="NOS">NOS</SelectItem>
+                              <SelectItem value="KGS">KGS</SelectItem>
+                              <SelectItem value="PAIRS">PAIRS</SelectItem>
+                              <SelectItem value="PACKS">PACKS</SelectItem>
+                              <SelectItem value="DRUM">DRUM</SelectItem>
+                              <SelectItem value="SQMTR">SQMTR</SelectItem>
+                              <SelectItem value="LTR">LTR</SelectItem>
+                              <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                              <SelectItem value="FEET">FEET</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex flex-col gap-1 w-1/2 items-start">
+                          <label
+                            htmlFor="quantity"
+                            className="block text-sm font-medium text-gray-700"
+                          >
+                            Quantity
+                            <sup className="text-sm text-red-600">*</sup>
+                          </label>
+                          <Input
+                            disabled={!curCategory}
+                            type="number"
+                            id="quantity"
+                            onChange={(e) =>
+                              setNewItem((prevState) => ({
+                                ...prevState,
+                                quantity: e.target.value,
+                              }))
+                            }
+                            value={newItem?.quantity || ""}
+                          />
+                        </div>
+                      </div>
+                      <div className="w-full flex flex-col gap-1">
+                        <h3>Comment</h3>
+                        <Input
+                          type="text"
+                          placeholder="Optional"
+                          value={newItem?.comment || ""}
+                          onChange={(e) =>
+                            setNewItem((prev) => ({
+                              ...prev,
+                              comment: e.target.value,
+                            }))
                           }
-                          alt="Category"
                         />
-                        <span>{item.category_name}</span>
-                      </CardTitle>
-                      {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
-                    </CardHeader>
-                  </Card>
-                );
-              }
-            })}
-          </div>
-        </div>
-      )}
+                      </div>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <div className="flex gap-2 justify-end items-center">
+                    {createLoading ? (
+                        <TailSpin width={30} height={30} color={"red"} />
+                      ) : (
+                        <>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <Button
+                              disabled={!curCategory || !newItem?.item_name || !newItem?.unit_name || !newItem?.quantity}
+                              variant={"default"}
+                              onClick={handleAddItem}
+                              className=" flex items-center gap-1"
+                            >
+                              <ListChecks className="h-4 w-4" /> Create
+                            </Button>
+                        </>
+                      )}
+                  </div>
+                </AlertDialogContent>
+              </AlertDialog>
     </>
   );
 };

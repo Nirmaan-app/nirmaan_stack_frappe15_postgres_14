@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Printer, ArrowLeft, SquarePlus, HandCoins, BookCheck, Truck, CalendarDays, Paperclip } from "lucide-react";
+import { Printer, ArrowLeft, SquarePlus, HandCoins, BookCheck, Truck, CalendarDays, Paperclip, MessageCircleMore } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useReactToPrint } from "react-to-print";
@@ -912,10 +912,10 @@ const OrderPaymentSummary = () => {
                         <td className="py-2 text-sm whitespace-nowrap text-wrap">
                           {item.item}
                           {item?.makes?.list?.length > 0 && (
-<p className="text-xs italic font-semibold text-gray-500">
-  - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
-</p>
-)}{item.comment && includeComments && (
+                            <p className="text-xs italic font-semibold text-gray-500">
+                              - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
+                            </p>
+                            )}{item.comment && (
                             <div className="flex gap-1 items-start block p-1">
                               <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
                               <div className="text-xs text-gray-400">

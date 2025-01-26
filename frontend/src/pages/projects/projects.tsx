@@ -67,7 +67,36 @@ export default function Projects() {
     }
   );
 
-  const getPOTotalWithGST = (projectId) => {
+  const { data: serviceRequestsData, isLoading: sRloading } =
+      useFrappeGetDocList("Service Requests", {
+        fields: ["*"],
+        filters: [
+          ["status", "=", "Approved"],
+        ],
+        limit: 10000,
+      });
+
+      console.log("serviceRequestsData", serviceRequestsData)
+
+  const getSRTotal = (project: string) => {
+    const filteredRequests = serviceRequestsData?.filter(
+      (item) => item.project === project
+    )
+
+    const totalAmount = filteredRequests?.reduce((total, item) => {
+      const gst = item.gst === "true" ? 1.18 : 1;
+      const amount = item.service_order_list?.list?.reduce((srTotal, i) => {
+        const srAmount = parseFloat(i.rate) * parseFloat(i.quantity) * gst;
+        return srTotal + srAmount;
+      }, 0)
+      return total + amount;
+    }, 0);
+
+    return totalAmount;
+    
+  };
+
+  const getPOTotalWithGST = (projectId : string) => {
     // Ensure the po_item_data is fetched
     if (!po_item_data || !po_item_data.length) {
       return 0;
@@ -347,7 +376,7 @@ const {
         cell: ({ row }) => {
           const data = row.original
 
-          const totalPOAmt = getPOTotalWithGST(data?.name)
+          const totalPOAmt = getPOTotalWithGST(data?.name) + getSRTotal(data?.name)
           const amountPaid = getTotalAmountPaid(data?.name);
           const totalEstimateAmt = getTotalEstimateAmt(data?.name)
 
@@ -378,7 +407,7 @@ const {
 
       }
     ],
-    [projectStatusCounts, project_estimates, projectPayments, po_item_data]
+    [projectStatusCounts, project_estimates, projectPayments, po_item_data, serviceRequestsData]
   );
 
   // console.log("projectStatusCounts", projectStatusCounts)
