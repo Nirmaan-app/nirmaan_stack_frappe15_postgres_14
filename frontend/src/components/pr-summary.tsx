@@ -310,16 +310,16 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                         <CardContent className="flex flex-col gap-4">
                             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                 <div className="space-y-1">
-                                    <Label className="text-slim text-red-300">Project:</Label>
-                                    <p className="font-semibold">{project?.project_name}</p>
-                                </div>
-                                <div className="space-y-1">
                                     <Label className="text-slim text-red-300">Package:</Label>
                                     <p className="font-semibold">{pr_data?.work_package}</p>
                                 </div>
                                 <div className="space-y-1">
                                     <Label className="text-slim text-red-300">Date Created:</Label>
                                     <p className="font-semibold">{new Date(pr_data?.creation).toDateString()}</p>
+                                </div>
+                                <div className="space-y-1">
+                                    <Label className="text-slim text-red-300">Created by:</Label>
+                                    <p className="font-semibold">{pr_data?.owner}</p>
                                 </div>
                             </div>
 

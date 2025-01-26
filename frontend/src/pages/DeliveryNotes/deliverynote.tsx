@@ -481,6 +481,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useUserData } from '@/hooks/useUserData';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { AddressView } from '@/components/address-view'
 
 
 export default function DeliveryNote() {
@@ -497,16 +498,16 @@ export default function DeliveryNote() {
   const { updateDoc } = useFrappeUpdateDoc();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-    {
-      fields: ["*"],
-      limit: 10000
-    },
-    "Address"
-  );
+  // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+  //   {
+  //     fields: ["*"],
+  //     limit: 10000
+  //   },
+  //   "Address"
+  // );
 
-  const [projectAddress, setProjectAddress] = useState()
-  const [vendorAddress, setVendorAddress] = useState()
+  // const [projectAddress, setProjectAddress] = useState()
+  // const [vendorAddress, setVendorAddress] = useState()
   const [show, setShow] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null);
 
@@ -522,17 +523,17 @@ export default function DeliveryNote() {
     }
   }, [data]);
 
-  useEffect(() => {
-    if (data?.project_address) {
-      const doc = address_list?.find(item => item.name == data?.project_address);
-      const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
-      setProjectAddress(address)
-      const doc2 = address_list?.find(item => item.name == data?.vendor_address);
-      const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
-      setVendorAddress(address2)
-    }
+  // useEffect(() => {
+  //   if (data?.project_address) {
+  //     const doc = address_list?.find(item => item.name == data?.project_address);
+  //     const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+  //     setProjectAddress(address)
+  //     const doc2 = address_list?.find(item => item.name == data?.vendor_address);
+  //     const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
+  //     setVendorAddress(address2)
+  //   }
 
-  }, [data, address_list]);
+  // }, [data, address_list]);
 
   // Handle change in received quantity
   const handleReceivedChange = (itemName, value) => {
@@ -697,14 +698,14 @@ export default function DeliveryNote() {
           </div>
         </CardHeader>
         <CardContent>
-          <p>
+          {/* <p>
             <strong>Project:</strong> {data?.project_name}
+          </p> */}
+          <p className="flex flex-row gap-2">
+            <strong>Addr:</strong> <AddressView id={data?.project_address} />
           </p>
-          <p>
-            <strong>Address:</strong> {data?.project_address}
-          </p>
-          <p>
-            <strong>PR:</strong>{" "}
+          <p className="flex flex-row gap-2">
+            <strong>@PR:</strong>
             <span
               className="underline cursor-pointer"
               onClick={() =>
@@ -718,8 +719,8 @@ export default function DeliveryNote() {
               {data?.procurement_request}
             </span>
           </p>
-          <p>
-            <strong>PO:</strong>{" "}
+          <p className="flex flex-row gap-2">
+            <strong>@PO:</strong>
             <span
               className="underline cursor-pointer"
               onClick={() =>
@@ -741,11 +742,21 @@ export default function DeliveryNote() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p>
-            <strong>Name:</strong> {data?.delivery_contact?.split(":")[0]}
+          <p className="flex flex-row gap-3.5">
+            <strong>Name:</strong> 
+            {data?.delivery_contact==="" ? (
+              <span>Not Provided</span>
+              ) : (
+              <span>{data?.delivery_contact?.split(":")[0]}</span>
+            )}
           </p>
-          <p>
-            <strong>Number:</strong> {data?.delivery_contact?.split(":")[1]}
+          <p className="flex flex-row gap-2">
+            <strong>Mobile:</strong>
+            {data?.delivery_contact==="" ? (
+              <span>Not Provided</span>
+              ) : (
+              <span>{data?.delivery_contact?.split(":")[1]}</span>
+            )} 
           </p>
         </CardContent>
       </Card>
@@ -958,7 +969,7 @@ export default function DeliveryNote() {
                           {data?.vendor_name}
                         </div>
                         <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                          {vendorAddress}
+                          <AddressView id={data?.vendor_address}/>
                         </div>
                         <div className="text-sm font-medium text-gray-900 text-left">
                           GSTIN: {data?.vendor_gst}
@@ -970,7 +981,7 @@ export default function DeliveryNote() {
                             Delivery Location
                           </h3>
                           <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                            {projectAddress}
+                            <AddressView id={data?.project_address}/>
                           </div>
                         </div>
                         <div className="pt-2">

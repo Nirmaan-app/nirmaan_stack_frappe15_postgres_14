@@ -28,8 +28,6 @@ const SrSummary = () => {
 
     const { srId: id } = useParams<{ srId: any }>();
 
-    const [project, setProject] = useState<string | undefined>()
-
     const { data: sr_data, isLoading: sr_loading, error: sr_error } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id, id ? `Service Requests ${id}` : null);
 
     const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
@@ -56,12 +54,6 @@ const SrSummary = () => {
         "Address"
     );
 
-    useEffect(() => {
-        if (sr_data) {
-            setProject(sr_data?.project)
-        }
-    }, [sr_data])
-
     return (
         <>  {(sr_loading || project_loading || userLoading || universalCommentsLoading || service_vendor_loading || address_list_loading) ? <NewPRSkeleton /> :
             <SrSummaryPage sr_data={sr_data} project_data={projectData} universalComments={universalComments} usersList={usersList} service_vendor={service_vendor} address_list={address_list} />}
@@ -81,7 +73,6 @@ interface SrSummaryPageProps {
 
 export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComments, service_vendor, address_list }: SrSummaryPageProps) => {
     const navigate = useNavigate();
-    const sr_no = sr_data?.name.split("-").slice(-1)
     const userData = useUserData()
     const [page, setPage] = useState("Summary")
     const [vendorAddress, setVendorAddress] = useState()
@@ -143,6 +134,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         ), color:
             cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue") : 'gray'
     }))
+
+    console.log("itemsTimelineList", itemsTimelineList)
 
 
     const handleDeleteSr = async () => {
@@ -274,7 +267,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         <Badge>{sr_data?.status}</Badge>
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="flex flex-wrap gap-4">
+                                <CardContent className="flex flex-col gap-4">
                                     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                         <div className="space-y-1">
                                             <Label className="text-slim text-red-300">Project:</Label>
@@ -308,6 +301,9 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
                                     <div className="space-y-1 flex flex-col items-start justify-start">
                                         <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
+                                        {itemsTimelineList?.length === 0 && (
+                                            <p className="text-sm text-gray-500">No comments found</p>
+                                        )}
                                         <Timeline
                                             className="w-full"
                                             mode={'left'}
