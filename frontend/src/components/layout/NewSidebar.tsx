@@ -149,12 +149,12 @@ export function NewSidebar() {
     adminApprovedSRCount,
   } = useDocCountStore();
 
-  const { notifications, add_new_notification, delete_notification } =
+  const { notifications, add_new_notification, delete_notification, clear_notifications } =
     useNotificationStore();
   const { db } = useContext(FrappeContext) as FrappeConfig;
 
   // Fetch all notifications that are unseen for the current user
-  const { data: notificationsData } = useFrappeGetDocList(
+  const { data: notificationsData, mutate: notificationsDataMutate } = useFrappeGetDocList(
     "Nirmaan Notifications",
     {
       fields: ["*"],
@@ -167,6 +167,7 @@ export function NewSidebar() {
   // On initial render, segregate notifications and store in Zustand
   useEffect(() => {
     if (notificationsData) {
+      clear_notifications();
       notificationsData.forEach((notification: any) => {
         add_new_notification({
           name: notification.name,
@@ -408,6 +409,10 @@ export function NewSidebar() {
     } else {
       await prDataMutate();
     }
+  });
+
+  useFrappeDocTypeEventListener("Nirmaan Notifications", async (event) => {
+    await notificationsDataMutate();
   });
 
   //  ***** SB Events *****
