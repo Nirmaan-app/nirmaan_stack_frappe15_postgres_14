@@ -324,13 +324,13 @@ export const ReleasePOSelect = () => {
                     </div>
                 },
             },
-            // {
-            //     accessorKey: 'order_list',
-            //     header: ({ column }) => {
-            //         return <h1 className="hidden">:</h1>
-            //     },
-            //     cell: ({ row }) => <span className="hidden">hh</span>
-            // }
+            {
+                accessorKey: 'order_list',
+                header: ({ column }) => {
+                    return <h1 className="hidden">:</h1>
+                },
+                cell: ({ row }) => <span className="hidden">hh</span>
+            }
         ],
         [project_values, procurement_order_list, projectPayments]
     )

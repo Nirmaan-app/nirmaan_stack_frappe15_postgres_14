@@ -8,12 +8,13 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 export default function ProcurementDashboard() {
 
-    const navigate = useNavigate()
     const { approvedPRCount, updateQuotePRCount, chooseVendorPRCount, newPOCount, otherPOCount, newSBCounts, allSRCount, pendingSRCount, approvedSRCount } = useDocCountStore()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocCount("Items");
     const { data: projects_data, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList("Projects")
+
+    const { data: approved_quotes, isLoading: approved_quotes_loading, error: approved_quotes_error } = useFrappeGetDocCount("Approved Quotations");
 
     return (
         <div className="flex-1 space-y-4">
@@ -163,6 +164,14 @@ export default function ProcurementDashboard() {
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(item_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                             : (item_list)}
                             {item_list_error && <p>Error</p>}</p>
+                    </Link>
+                </Card>
+                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Link to="/approved-quotes">
+                        <p className="text-center py-6 font-bold text-gray-500">Approved Quotations</p>
+                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(approved_quotes_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                            : (approved_quotes)}
+                            {approved_quotes_error && <p>Error</p>}</p>
                     </Link>
                 </Card>
             </div>
