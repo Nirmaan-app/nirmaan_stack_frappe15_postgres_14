@@ -493,7 +493,7 @@ const ProjectView = ({
     error: vendorsError,
   } = useFrappeGetDocList("Vendors", {
     fields: ["vendor_name", "vendor_type"],
-    filters: [["vendor_type", "=", "Material"]],
+    filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
   });
 

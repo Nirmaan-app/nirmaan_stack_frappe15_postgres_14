@@ -272,7 +272,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
     "Vendors",
     {
       fields: ["*"],
-      filters: [["vendor_type", "=", "Service"]],
+      filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
       limit: 10000,
     },
     "Service Vendors"
@@ -306,8 +306,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
     isCompleted: update_complete,
     error: update_error,
   } = useFrappeUpdateDoc();
-
-  console.log("orderData", order)
 
   // const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
   //     {

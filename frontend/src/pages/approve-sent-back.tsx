@@ -261,7 +261,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst', 'vendor_type'],
-            filters: [["vendor_type", "=", "Material"]],
+            filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
             limit: 10000
         });
 

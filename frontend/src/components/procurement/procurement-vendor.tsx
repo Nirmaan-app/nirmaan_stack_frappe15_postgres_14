@@ -85,7 +85,7 @@ export const ProcurementOrder = () => {
     "Vendors",
     {
       fields: ["*"],
-      filters: [["vendor_type", "=", "Material"]],
+      filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
       limit: 10000,
     },
     "Material Vendors"
@@ -206,7 +206,6 @@ export const ProcurementOrder = () => {
         },
         cell: ({ row }) => {
           const categories = row.getValue("vendor_category")
-          const vendor_name = row.getValue("vendor_name")
           return (
             <div className="space-x-1 space-y-1">
               {categories?.categories.map((cat) => (
@@ -220,7 +219,7 @@ export const ProcurementOrder = () => {
                   </button>
                 </SheetTrigger>
                 <SheetContent>
-                  <AddVendorCategories vendor_name={vendor_name} isSheet={true} />
+                  <AddVendorCategories vendor_id={row.original.name} isSheet={true} />
                 </SheetContent>
               </Sheet>
             </div>

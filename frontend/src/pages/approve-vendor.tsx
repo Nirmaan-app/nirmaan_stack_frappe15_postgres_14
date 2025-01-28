@@ -275,7 +275,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     const { data: vendor_list } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst', 'vendor_type'],
-            filters: [["vendor_type", "=", "Material"]],
+            filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
             limit: 10000
         });
 
