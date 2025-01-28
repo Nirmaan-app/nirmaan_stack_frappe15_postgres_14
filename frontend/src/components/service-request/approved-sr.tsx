@@ -1,5 +1,5 @@
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ArrowLeft, ArrowLeftToLine, Building, Calendar, CheckIcon, CirclePlus, Edit, Eye, MapPin, MessageCircleMore, NotebookPen, Package, PencilIcon, Printer, ReceiptIndianRupee, Save, Trash, User } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, Building, Calendar, CheckIcon, CirclePlus, Edit, Eye, MapPin, MessageCircleMore, NotebookPen, Package, PencilIcon, PencilRuler, Printer, ReceiptIndianRupee, Save, Trash, Undo2, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
@@ -16,14 +16,12 @@ import { toast } from "../ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 import { Button } from "../ui/button"
 import { Separator } from "../ui/separator";
-import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 import logo from "@/assets/logo-svg.svg"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../ui/card";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "../ui/sheet";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
-import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { AddressView } from "@/components/address-view";
 
 // const { Sider, Content } = Layout;
@@ -34,7 +32,7 @@ export const ApprovedSR = () => {
 
     const navigate = useNavigate()
 
-    const { data: service_request, isLoading: service_request_loading, error: service_request_error, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
+    const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
 
     const [orderData, setOrderData] = useState(null)
     // const [vendorAddress, setVendorAddress] = useState()
@@ -43,7 +41,7 @@ export const ApprovedSR = () => {
     const [curNote, setCurNote] = useState(null)
     const [gstEnabled, setGstEnabled] = useState(false)
     const [advance, setAdvance] = useState(0)
-    const [customAdvance, setCustomAdvance] = useState(false);
+    // const [customAdvance, setCustomAdvance] = useState(false);
 
     const [srPdfSheet, setSrPdfSheet] = useState(false)
 
@@ -57,11 +55,11 @@ export const ApprovedSR = () => {
         setEditSrTermsDialog((prevState) => !prevState)
     }
 
-    const { data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate } = useFrappeGetDoc("Vendors", orderData?.vendor, orderData?.vendor ? `Vendors ${orderData?.vendor}` : null)
+    const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc("Vendors", orderData?.vendor, orderData?.vendor ? `Vendors ${orderData?.vendor}` : null)
 
-    const { data: project, isLoading: project_loading, error: project_error, mutate: project_mutate } = useFrappeGetDoc("Projects", orderData?.project, orderData?.project ? `Projects ${orderData?.project}` : null)
+    const { data: project, isLoading: project_loading } = useFrappeGetDoc("Projects", orderData?.project, orderData?.project ? `Projects ${orderData?.project}` : null)
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
         filters: [["document_name", "=", id]],
         limit: 100
@@ -143,6 +141,12 @@ export const ApprovedSR = () => {
 
     const [editingIndex, setEditingIndex] = useState(null);
 
+    const [amendDialog, setAmendDialog] = useState(false);
+
+    const toggleAmendDialog = () => {
+        setAmendDialog((prevState) => !prevState);
+    };
+
     const handleAddNote = () => {
         if (editingIndex !== null) {
             const updatedNotes = notes.map(note =>
@@ -203,6 +207,46 @@ export const ApprovedSR = () => {
             })
         }
     }
+
+
+    const handleAmendSR = async () => {
+        try {
+            await updateDoc("Service Requests", id, {
+                status : "Edit"
+            })
+
+            toast({
+                title: "Success!",
+                description: `Now, you can start Amending the Service Request!`,
+                variant: "success"
+            })
+
+            await service_request_mutate()
+
+            navigate(`/choose-service-vendor/${id}`)
+
+        } catch (error) {
+            console.log("error while amending service request", error)
+            toast({
+                title: "Failed!",
+                description: `Amending Service Request Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+
+    if (
+        service_request_loading ||
+        service_vendor_loading ||
+        project_loading ||
+        projectPaymentsLoading
+      )
+        return (
+          <div className="flex items-center h-[90vh] w-full justify-center">
+            <TailSpin color={"red"} />{" "}
+          </div>
+        );
 
     // console.log("notes", notes)
 
@@ -373,10 +417,52 @@ export const ApprovedSR = () => {
                     <CardHeader>
                         <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                             SR Details
-                            <Button onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1">
+                            <div className="flex items-center gap-2">
+                              {/* {po?.status === "Dispatched" && ( */}
+                                <button onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
+                                    <PencilRuler className="w-4 h-4" />
+                                    Amend
+                                </button>
+
+                                <Dialog open={amendDialog} onOpenChange={toggleAmendDialog}>
+                                  <DialogContent>
+                                      <DialogHeader>
+                                        <DialogTitle>
+                                          Are you sure?
+                                        </DialogTitle>
+                                      </DialogHeader>
+
+                                      <DialogDescription>
+                                        Clicking on Confirm will navigate you to the amendment page.
+                                      </DialogDescription>
+
+                                      <div className="flex items-center justify-end gap-2">
+                                      {update_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                                        <>
+                                        <DialogClose asChild>
+                                          <Button variant={"outline"}>Cancel</Button>
+                                        </DialogClose>
+                                        <Button onClick={handleAmendSR}>
+                                          Confirm
+                                        </Button>
+                                        </>
+                                        )}
+                                      </div>
+                                  
+                                  </DialogContent>
+                                </Dialog>
+                              {/* )} */}
+                            {/* {po?.status !== "PO Approved" && ( */}
+                              <button onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
                                 <Eye className="w-4 h-4" />
                                 Preview
-                            </Button>
+                              </button>
+                            {/* )} */}
+                            </div>
+                            {/* <Button onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1">
+                                <Eye className="w-4 h-4" />
+                                Preview
+                            </Button> */}
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-4 max-sm:text-sm w-full">
@@ -635,7 +721,7 @@ export const ApprovedSR = () => {
             {/* SR PDF Sheet */}
 
             <Sheet open={srPdfSheet} onOpenChange={toggleSrPdfSheet}>
-                <SheetContent className="overflow-y-auto min-w-[700px]">
+                <SheetContent className="overflow-y-auto md:min-w-[700px]">
                     <Button onClick={handlePrint} className="flex items-center gap-1">
                         <Printer className="h-4 w-4" />
                         Print

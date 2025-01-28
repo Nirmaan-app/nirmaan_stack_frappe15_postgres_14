@@ -106,7 +106,6 @@ const Vendor = () => {
 export const Component = Vendor;
 
 const VendorView = ({ vendorId }: { vendorId: string }) => {
-  const navigate = useNavigate();
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
@@ -188,10 +187,10 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
       label: "Overview",
       key: "overview",
     },
-    data?.vendor_type === "Material"
+    ["Material", "Material & Service"].includes(data?.vendor_type)
       ? {
-        label: "Orders",
-        key: "orders",
+        label: "Material Orders",
+        key: "materialOrders",
       }
       : null,
     // data?.vendor_type === "Material"
@@ -206,7 +205,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     //     key: "openOrders",
     //   }
     //   : null,
-    data?.vendor_type === "Service"
+    ["Service", "Material & Service"].includes(data?.vendor_type)
       ? {
         label: "Service Orders",
         key: "serviceOrders",
@@ -710,7 +709,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         ))}
 
 
-    {current === "orders" &&
+    {current === "materialOrders" &&
         (procurementOrdersLoading || procurementRequestsLoading ? (
           <TableSkeleton />
         ) : (

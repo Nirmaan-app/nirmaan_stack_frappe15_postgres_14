@@ -79,7 +79,6 @@ export const SentBackUpdateQuote = () => {
   const {
     data: category_data,
     isLoading: category_loading,
-    error: category_error,
   } = useFrappeGetDocList("Category", {
     fields: ["*"],
     limit: 10000,
@@ -88,13 +87,12 @@ export const SentBackUpdateQuote = () => {
   const {
     data: vendor_list,
     isLoading: vendor_list_loading,
-    error: vendor_list_error,
     mutate: vendor_list_mutate,
   } = useFrappeGetDocList(
     "Vendors",
     {
       fields: ["*"],
-      filters: [["vendor_type", "=", "Material"]],
+      filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
       limit: 10000,
     },
     "Material Vendors"
@@ -103,7 +101,6 @@ export const SentBackUpdateQuote = () => {
   const {
     data: quotation_request_list,
     isLoading: quotation_request_list_loading,
-    error: quotation_request_list_error,
     mutate: quotation_request_list_mutate,
   } = useFrappeGetDocList(
     "Quotation Requests",
@@ -117,7 +114,6 @@ export const SentBackUpdateQuote = () => {
   const {
     data: sent_back_list,
     isLoading: sent_back_list_loading,
-    error: sent_back_list_error,
   } = useFrappeGetDocList("Sent Back Category", {
     fields: ["*"],
     limit: 1000,
@@ -176,7 +172,7 @@ export const SentBackUpdateQuote = () => {
 
   useEffect(() => {
     if (orderData.project) {
-      const vendors = uniqueVendors.list;
+      const vendors = [];
       // vendor_list?.map((item) => (item.vendor_category.categories)[0] === (orderData.category_list.list)[0].name && vendors.push(item.name))
       quotation_request_list?.map((item) => {
         const isPresent = orderData.category_list.list.find(
@@ -379,7 +375,6 @@ export const SentBackUpdateQuote = () => {
         },
         cell: ({ row }) => {
           const categories = row.getValue("vendor_category");
-          const vendor_name = row.getValue("vendor_name");
           return (
             <div className="space-x-1 space-y-1">
               {categories?.categories.map((cat) => (
@@ -394,7 +389,7 @@ export const SentBackUpdateQuote = () => {
                 </SheetTrigger>
                 <SheetContent className="overflow-auto">
                   <AddVendorCategories
-                    vendor_name={vendor_name}
+                    vendor_id={row.original.name}
                     isSheet={true}
                   />
                 </SheetContent>

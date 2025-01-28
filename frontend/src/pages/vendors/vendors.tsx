@@ -94,6 +94,17 @@ const items = [
         ),
         value: "Service",
     },
+    {
+      label: (
+          <div className="flex items-center">
+              <span>Material & Service</span>
+              <span className="ml-2 rounded text-xs font-bold">
+                {data?.filter(i => i?.vendor_type === "Material & Service").length}
+              </span>
+          </div>
+      ),
+      value: "Material & Service",
+  },
 ];
 
 
@@ -110,7 +121,7 @@ const items = [
           return (
             <div className="font-medium">
               <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/vendors/${row.getValue("name")}`}>
-                {row.getValue("vendor_type") === "Material" ? "M" : "S"}-{row.getValue("name").slice(-4)}
+                {row.getValue("vendor_type") === "Material" ? "M" : row.getValue("vendor_type") === "Service" ? "S" : "MS"}-{row.getValue("name").slice(-4)}
               </Link>
             </div>
           )
@@ -278,10 +289,13 @@ const items = [
                 data?.length
               )}
             </div>
-            <div className="flex items-center gap-1 text-sm font-semibold">
+            <div className="flex flex-col gap-1 text-sm font-semibold">
+            <div className="flex items-center gap-1">
               <span>Material : {data?.filter(i => i?.vendor_type === "Material").length}</span>
               <span>|</span>
               <span>Service : {data?.filter(i => i?.vendor_type === "Service").length}</span>
+            </div>
+            <span>Material & Service : {data?.filter(i => i?.vendor_type === "Material & Service").length}</span>
             </div>
           </CardContent>
         </Card>

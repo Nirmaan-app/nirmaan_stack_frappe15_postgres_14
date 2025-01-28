@@ -156,8 +156,8 @@ def on_update(doc, method):
             print("No project leads or admins found with push notifications enabled.")
 
         message = {
-            "title": _("PO Status Update"),
-            "description": _(f"PO: {doc.name} has been amended."),
+            "title": _("PO Status Updated!"),
+            "description": _(f"PO: {doc.name} has been amended!"),
             "project": doc.project,
             "work_package": pr.work_package,
             "sender": frappe.session.user,
