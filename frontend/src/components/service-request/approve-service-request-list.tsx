@@ -42,6 +42,16 @@ export const ApproveSelectSR = () => {
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
+    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+        fields: ["vendor_name", 'vendor_type', 'name'],
+        filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
+        limit: 1000
+    },
+        "Service Vendors"
+    )
+
+    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name }))
+
     const getTotal = (order_id: string) => {
         let total: number = 0;
 
@@ -62,6 +72,10 @@ export const ApproveSelectSR = () => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
+    }
+
+    const getVendorName = (vendorId: string) => {
+        return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name;
     }
 
     // console.log("service list", service_request_list)
@@ -151,6 +165,27 @@ export const ApproveSelectSR = () => {
                 },
             },
             {
+                // accessorKey: "vendor",
+                id: "vendor_name",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Vendor" />
+                    )
+                },
+                cell: ({ row }) => {
+
+                    console.log("row.original", row.original)
+                    return (
+                        <div className="font-medium">
+                            {getVendorName(row.original.vendor)}
+                        </div>
+                    )
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.original.vendor)
+                }
+            },
+            {
                 accessorKey: "total",
                 header: ({ column }) => {
                     return (
@@ -166,7 +201,7 @@ export const ApproveSelectSR = () => {
                 }
             }
         ],
-        [service_request_list, project_values]
+        [service_request_list, project_values, vendorsList, vendorOptions]
     )
 
     // let filteredList;
@@ -193,7 +228,7 @@ export const ApproveSelectSR = () => {
                     <h2 className="text-lg font-bold tracking-tight">Approve Service Request</h2>
                 </div> */}
             {(service_request_list_loading || projects_loading) ? (<TableSkeleton />) : (
-                <DataTable columns={columns} data={service_request_list || []} project_values={project_values} />
+                <DataTable columns={columns} data={service_request_list || []} project_values={project_values} vendorOptions={vendorOptions} />
             )}
         </div>
     )
