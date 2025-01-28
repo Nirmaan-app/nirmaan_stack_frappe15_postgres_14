@@ -76,3 +76,7 @@ export const handleSRVendorSelectedEvent = async (db, event, add_new_notificatio
 export const handleSRApprovedEvent = async (db, event, add_new_notification) => {
     await handleNotification(db, event, add_new_notification);
 };
+
+export const handleSOAmendedEvent = async (db, event, add_new_notification) => {
+    await handleNotification(db, event, add_new_notification)
+}

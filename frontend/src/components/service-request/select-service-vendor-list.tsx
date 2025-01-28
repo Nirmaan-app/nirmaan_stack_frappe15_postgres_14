@@ -14,7 +14,7 @@ export const SelectServiceVendorList = () => {
     const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList("Service Requests",
         {
             fields: ["*"],
-            filters: [["status", "in", ["Created", "Rejected"]]],
+            filters: [["status", "in", ["Created", "Rejected", "Edit"]]],
             limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         });
@@ -144,13 +144,13 @@ export const SelectServiceVendorList = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <Badge variant={row.getValue("status") === "Rejected" ? "red" : "yellow"}>{row.getValue("status")}</Badge>
+                        <Badge variant={row.getValue("status") === "Rejected" ? "red" : row.getValue("status") === "Created"  ? "yellow" : "orange"}>{row.getValue("status")}</Badge>
                     )
                 }
             }
 
         ],
-        [project_values]
+        [project_values, service_list]
     )
     const { toast } = useToast()
 

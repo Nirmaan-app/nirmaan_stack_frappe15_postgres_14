@@ -93,6 +93,7 @@ import {
   handleSBVendorSelectedEvent,
   handleSRApprovedEvent,
   handleSRVendorSelectedEvent,
+  handleSOAmendedEvent
 } from "@/zustand/eventListeners";
 
 export function NewSidebar() {
@@ -147,6 +148,8 @@ export function NewSidebar() {
     selectedSRCount,
     approvedSRCount,
     adminApprovedSRCount,
+    adminAmendedSRCount,
+    amendedSRCount
   } = useDocCountStore();
 
   const { notifications, add_new_notification, delete_notification, clear_notifications } =
@@ -474,6 +477,10 @@ export function NewSidebar() {
     handlePRDeleteEvent(event, delete_notification);
   });
 
+  useFrappeEventListener("sr:amended", (event) => {
+    handleSOAmendedEvent(db, event, add_new_notification);
+  });
+
   // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
   //     await handlePRStatusChangedEvent(role, user_id);
   // });
@@ -609,6 +616,15 @@ export function NewSidebar() {
                   user_id === "Administrator"
                     ? adminSelectedSRCount
                     : selectedSRCount,
+              },
+              {
+                key: "/approve-amended-so",
+                label: "Approve Amended SO",
+                count:
+                  role === "Nirmaan Admin Profile" ||
+                  user_id === "Administrator"
+                    ? adminAmendedSRCount
+                    : amendedSRCount,
               },
             ],
           },
@@ -787,6 +803,7 @@ export function NewSidebar() {
     "sent-back-requests",
     "service-requests",
     "approve-service-request",
+    "approve-amended-so",
     "choose-service-vendor",
     "approved-sr",
     "notifications",
@@ -816,6 +833,7 @@ export function NewSidebar() {
         "approve-sent-back",
         "approve-amended-po",
         "approve-service-request",
+        "approve-amended-so",
       ].includes(selectedKeys)
     ? "pl-actions"
     : ["procurement-requests"].includes(
