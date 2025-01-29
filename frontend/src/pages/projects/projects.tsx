@@ -1,6 +1,5 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
@@ -11,18 +10,14 @@ import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
-import { useUserData } from "@/hooks/useUserData";
 import { Badge } from "@/components/ui/badge";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
 export default function Projects() {
-  const navigate = useNavigate();
-  const { role } = useUserData();
 
   const {
     data: data,
     isLoading: isLoading,
-    error: error,
   } = useFrappeGetDocList<ProjectsType>("Projects", {
     fields: [
       "name",
@@ -75,8 +70,6 @@ export default function Projects() {
         ],
         limit: 10000,
       });
-
-      console.log("serviceRequestsData", serviceRequestsData)
 
   const getSRTotal = (project: string) => {
     const filteredRequests = serviceRequestsData?.filter(
@@ -132,7 +125,7 @@ export default function Projects() {
     }
   );
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+  const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList("Project Payments", {
           fields: ["*"],
           limit: 100000
   })
@@ -149,7 +142,6 @@ export default function Projects() {
 const {
     data: project_estimates,
     isLoading: project_estimates_loading,
-    error: project_estimates_error,
   } = useFrappeGetDocList("Project Estimates", {
     fields: ["*"],
     limit: 100000,
@@ -407,7 +399,7 @@ const {
 
       }
     ],
-    [projectStatusCounts, project_estimates, projectPayments, po_item_data, serviceRequestsData]
+    [data, projectStatusCounts, project_estimates, projectPayments, po_item_data, serviceRequestsData]
   );
 
   // console.log("projectStatusCounts", projectStatusCounts)
@@ -440,7 +432,7 @@ const {
             </CardTitle>
             <HardHat className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex justify-between items-center">
             <div className="text-2xl font-bold">
               {isLoading ? (
                 <TailSpin
@@ -456,11 +448,25 @@ const {
               ) : (
                 data?.length
               )}
-              {error && <p>Error</p>}
+            </div>
+            <div className="flex flex-col gap-1 text-xs font-semibold">
+              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-yellow-100 rounded-md">
+                <span className="">WIP</span>
+                <i>{data?.filter(i => i?.status === "WIP").length}</i>
+              </div>
+              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-green-100 rounded-md">
+                <span className="">Completed</span>
+                <i>{data?.filter(i => i?.status === "Completed").length}</i>
+              </div>
+              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-red-100 rounded-md">
+                <span className="">Halted</span>
+                <i>{data?.filter(i => i?.status === "Halted").length}</i>
+              </div>
             </div>
           </CardContent>
         </Card>
-        {isLoading || projectTypesListLoading ? (
+        {isLoading || projectTypesListLoading || project_estimates_loading || 
+        projectPaymentsLoading || po_loading || sRloading || prData_loading ? (
           <TableSkeleton />
         ) : (
           <DataTable

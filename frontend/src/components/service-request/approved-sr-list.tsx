@@ -34,12 +34,12 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
         limit: 1000
     })
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
         limit: 100000
     })
 
-    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    const { data: vendorsList, isLoading: vendorsListLoading } = useFrappeGetDocList("Vendors", {
         fields: ["vendor_name", 'vendor_type', 'name'],
         filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
         limit: 1000
@@ -240,7 +240,7 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
             {/* {for_vendor === undefined && <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Approved SR</h2>
             </div>} */}
-            {(projects_loading || service_list_loading) ? (<TableSkeleton />) : (
+            {(projects_loading || service_list_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={service_list || []} project_values={project_values} vendorOptions={vendorOptions} />
             )}
         </div>

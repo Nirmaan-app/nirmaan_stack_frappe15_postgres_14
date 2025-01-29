@@ -121,8 +121,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const {
     data: vendorAddress,
-    isLoading: vendorAddressLoading,
-    error: vendorAddressError,
     mutate: addressMutate,
   } = useFrappeGetDoc(
     "Address",
@@ -198,8 +196,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const [categories, setCategories] = useState(default_options || []);
 
-  console.log("categories", categories)
-
   const handleChange = (selectedOptions: SelectOption[]) => {
     setCategories(selectedOptions);
   };
@@ -208,8 +204,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const {
     data: pincode_data,
-    isLoading: pincode_loading,
-    error: pincode_error,
   } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`);
 
   const debouncedFetch = useCallback((value: string) => {
