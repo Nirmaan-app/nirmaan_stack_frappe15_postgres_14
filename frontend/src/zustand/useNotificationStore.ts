@@ -28,7 +28,8 @@ const updateNotificationInDB = async (db, name) => {
 export interface NotificationStateType {
     notifications: NotificationType[];
     notificationsCount: number;
-    eventBasedNotificationCount: any;
+    // eventBasedNotificationCount: any;
+    clear_notifications: () => void;
     add_new_notification: (notification: NotificationType) => void;
     mark_seen_notification: (db: any, notification: NotificationType) => void;
     delete_notification: (notificationId : string) => void;
@@ -39,7 +40,7 @@ export const useNotificationStore = create<NotificationStateType>()(
         (set, get) => ({
             notifications: [],
             notificationsCount: 0,
-            eventBasedNotificationCount: {},
+            // eventBasedNotificationCount: {},
 
             // Add a new notification to the array
             add_new_notification: (notification: NotificationType) => {
@@ -52,17 +53,25 @@ export const useNotificationStore = create<NotificationStateType>()(
 
                 if (!notificationExists) {
                     set((state) => {
-                        const eventNotificationCount = state.eventBasedNotificationCount[notification.event_id] || 0;
+                        // const eventNotificationCount = state.eventBasedNotificationCount[notification.event_id] || 0;
                         return {
                             notifications: [notification, ...state.notifications],
                             notificationsCount: state.notificationsCount + (notification.seen === "false" ? 1 : 0),
-                            eventBasedNotificationCount: {
-                                ...state.eventBasedNotificationCount,
-                                [notification.event_id]: eventNotificationCount + (notification.seen === "false" ? 1 : 0)
-                            }
+                            // eventBasedNotificationCount: {
+                            //     ...state.eventBasedNotificationCount,
+                            //     [notification.event_id]: eventNotificationCount + (notification.seen === "false" ? 1 : 0)
+                            // }
                     }
                     });
                 }
+            },
+
+            clear_notifications: () => {
+                set((state) => ({
+                    notifications: [],
+                    notificationsCount: 0,
+                    // eventBasedNotificationCount: {}
+                }));
             },
 
             mark_seen_notification: async (db, notification: NotificationType) => {
@@ -70,22 +79,22 @@ export const useNotificationStore = create<NotificationStateType>()(
                     await updateNotificationInDB(db, notification.name);
 
                     set((state) => {
-                        const currentEventCount = state.eventBasedNotificationCount[notification.event_id] || 0;
+                        // const currentEventCount = state.eventBasedNotificationCount[notification.event_id] || 0;
             
-                        const updatedEventBasedNotificationCount = { ...state.eventBasedNotificationCount };
+                        // const updatedEventBasedNotificationCount = { ...state.eventBasedNotificationCount };
             
-                        if (currentEventCount === 1) {
-                            delete updatedEventBasedNotificationCount[notification.event_id];
-                        } else if (currentEventCount > 1) {
-                            updatedEventBasedNotificationCount[notification.event_id] = currentEventCount - 1;
-                        }
+                        // if (currentEventCount === 1) {
+                        //     delete updatedEventBasedNotificationCount[notification.event_id];
+                        // } else if (currentEventCount > 1) {
+                        //     updatedEventBasedNotificationCount[notification.event_id] = currentEventCount - 1;
+                        // }
             
                         return {
                             notifications: state.notifications.map((item) =>
                                 item.name === notification.name ? { ...item, seen: "true" } : item
                             ),
                             notificationsCount: state.notificationsCount - 1,
-                            eventBasedNotificationCount: updatedEventBasedNotificationCount
+                            // eventBasedNotificationCount: updatedEventBasedNotificationCount
                         };
                     });
                 } catch (error) {

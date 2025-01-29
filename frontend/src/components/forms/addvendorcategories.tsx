@@ -1,4 +1,4 @@
-import {  useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener, useSWRConfig } from "frappe-react-sdk"
+import {  useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener, useSWRConfig, useFrappeGetDoc } from "frappe-react-sdk"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/ui/button-loading"
@@ -13,16 +13,16 @@ interface SelectOption {
     value: string;
 }
 
-export const AddVendorCategories = ({vendor_name, isSheet = false}) => {
+export const AddVendorCategories = ({vendor_id, isSheet = false}) => {
 
-    const {data, mutate: VendorMutate} = useFrappeGetDocList("Vendors", {
-        fields: ["*"],
-        filters: [["vendor_name", "=", vendor_name]],
-    })
+    const {data, mutate: vendorMutate} = useFrappeGetDoc("Vendors", vendor_id)
+
+    const service_categories = ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services", "Painting Services", "Carpentry Services", "POP Services"]
+
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
             fields: ["*"],
-            filters: [["vendor_name", "=", vendor_name]],
+            filters: [["vendor", "=", vendor_id], ["category", "not in", service_categories]],
             limit: 1000
     });
 
@@ -30,19 +30,13 @@ export const AddVendorCategories = ({vendor_name, isSheet = false}) => {
         await vendor_category_mutate()
     })
 
-    const [id, setId] = useState(null)
-
-    useEffect(() => {
-        if(data) {
-            setId(data[0]?.name)
-        }
-    }, [data])
 
     const {mutate} = useSWRConfig()
     const {toast} = useToast()
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package'],
+            filters:[["work_package", "!=", "Services"]],
             orderBy: { field: 'work_package', order: 'asc' },
             limit: 10000
         });
@@ -51,8 +45,16 @@ export const AddVendorCategories = ({vendor_name, isSheet = false}) => {
 
     async function onSubmit() {
         try {
-            let category_json = Object.values(categories).map((object) => object["value"]);
-            const doc = await updateDoc('Vendors', `${id}`, {
+            
+            const selectedCategories = categories?.map(item => item.value) || []
+
+            let category_json = selectedCategories
+
+            if(data?.vendor_type === "Material & Service") {
+                category_json = [...selectedCategories, ...service_categories]
+            }
+            
+            await updateDoc('Vendors', `${data?.name}`, {
                 vendor_category: { "categories": category_json },
             });
     
@@ -62,7 +64,7 @@ export const AddVendorCategories = ({vendor_name, isSheet = false}) => {
                 variant: "success",
             });
     
-            await VendorMutate();
+            await vendorMutate();
             await vendor_category_mutate();
             await mutate("Material Vendors");
             await mutate("Vendor Category");

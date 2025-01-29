@@ -40,7 +40,7 @@ export const ReleasePOSelect = () => {
         },
     );
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments", {
             fields: ["*"],
             limit: 100000
         })
@@ -57,7 +57,7 @@ export const ReleasePOSelect = () => {
 
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
         fields: ["vendor_name", 'vendor_type'],
-        filters: [["vendor_type", "=", "Material"]],
+        filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
         limit: 1000
     },
         "Material Vendors"
@@ -180,7 +180,7 @@ export const ReleasePOSelect = () => {
                     const id = row.getValue("name")
                     const poId = id?.replaceAll("/", "&=")
                     const isNew = notifications.find(
-                        (item) => item.docname === id && item.seen === "false" && item.event_id === "po:new" && tab === "Approved"
+                        (item) => tab === "Approved PO" && item.docname === id && item.seen === "false" && item.event_id === "po:new"
                     )
                     return (
                         <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
@@ -324,20 +324,20 @@ export const ReleasePOSelect = () => {
                     </div>
                 },
             },
-            // {
-            //     accessorKey: 'order_list',
-            //     header: ({ column }) => {
-            //         return <h1 className="hidden">:</h1>
-            //     },
-            //     cell: ({ row }) => <span className="hidden">hh</span>
-            // }
+            {
+                accessorKey: 'order_list',
+                header: ({ column }) => {
+                    return <h1 className="hidden">:</h1>
+                },
+                cell: ({ row }) => <span className="hidden">hh</span>
+            }
         ],
         [project_values, procurement_order_list, projectPayments]
     )
 
     const { toast } = useToast()
 
-    if (procurement_order_list_error || projects_error || vendorsError) {
+    if (procurement_order_list_error || projects_error || vendorsError || projectPaymentsError) {
         console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, vendorsError?.message)
         toast({
             title: "Error!",
@@ -388,7 +388,7 @@ export const ReleasePOSelect = () => {
                         onChange={(e) => onClick(e.target.value)}
                     />
                 )}
-                {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
+                {(procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                 )}
             </div>

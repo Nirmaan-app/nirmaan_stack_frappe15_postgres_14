@@ -63,11 +63,15 @@ interface StoreState {
     adminAllSRCount: number | null;
     pendingSRCount: number | null;
     adminPendingSRCount: number | null;
+    amendedSRCount: number | null;
+    adminAmendedSRCount: number | null;
 }
 
 export const useDocCountStore = create<StoreState>()(
     persist(
         (set) => ({
+            amendedSRCount: null,
+            adminAmendedSRCount: null,
             pendingPRCount: null,
             approvePRCount: null,
             adminPendingPRCount: null,
@@ -159,24 +163,28 @@ export const useDocCountStore = create<StoreState>()(
                 }
             },
             updateSRCounts : (srData, admin) => {
-                const selectedSRCount = srData?.filter((sr) => sr?.status === "Vendor Selected")?.length
+                const selectedSRCount = srData?.filter((sr) => ["Vendor Selected", "Edit"].includes(sr?.status))?.length
                 const approvedSRCount = srData?.filter((sr) => sr?.status === "Approved")?.length
                 const allSRCount = srData?.length
-                const pendingSRCount = srData?.filter((sr) => !["Vendor Selected", "Approved"].includes(sr?.status))?.length
+                const pendingSRCount = srData?.filter((sr) => !["Vendor Selected", "Approved", "Edit", "Amendment"].includes(sr?.status))?.length
+
+                const amendedSRCount = srData?.filter((sr) => sr?.status === "Amendment")?.length
 
                 if(admin) {
                     set({
                         adminSelectedSRCount: selectedSRCount,
                         adminApprovedSRCount: approvedSRCount,
                         adminAllSRCount: allSRCount,
-                        adminPendingSRCount: pendingSRCount
+                        adminPendingSRCount: pendingSRCount,
+                        adminAmendedSRCount: amendedSRCount
                     });
                 } else {
                     set({
                         selectedSRCount: selectedSRCount,
                         approvedSRCount: approvedSRCount,
                         allSRCount: allSRCount,
-                        pendingSRCount: pendingSRCount
+                        pendingSRCount: pendingSRCount,
+                        amendedSRCount: amendedSRCount
                     });
                 }
             }

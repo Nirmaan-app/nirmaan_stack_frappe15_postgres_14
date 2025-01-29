@@ -34,10 +34,20 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
         limit: 1000
     })
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
         limit: 100000
     })
+
+    const { data: vendorsList, isLoading: vendorsListLoading } = useFrappeGetDocList("Vendors", {
+        fields: ["vendor_name", 'vendor_type', 'name'],
+        filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
+        limit: 1000
+    },
+        "Service Vendors"
+    )
+
+    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name }))
 
 
     useFrappeDocTypeEventListener("Service Requests", async (event) => {
@@ -75,6 +85,10 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
         if (notification) {
             mark_seen_notification(db, notification)
         }
+    }
+
+    const getVendorName = (vendorId: string) => {
+        return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name;
     }
 
     const columns = useMemo(
@@ -146,21 +160,25 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
                     return value.includes(row.getValue(id))
                 },
             },
-            // {
-            //     accessorKey: "work_package",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="Package" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         return (
-            //             <div className="font-medium">
-            //                 {row.getValue("work_package")}
-            //             </div>
-            //         )
-            //     }
-            // },
+            {
+                // accessorKey: "vendor",
+                id: "vendor_name",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Vendor" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {getVendorName(row.original.vendor)}
+                        </div>
+                    )
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.original.vendor)
+                }
+            },
             {
                 accessorKey: "service_category_list",
                 header: ({ column }) => {
@@ -204,7 +222,7 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
             },
 
         ],
-        [project_values, service_list, projectPayments]
+        [project_values, service_list, projectPayments, vendorsList, vendorOptions]
     )
     const { toast } = useToast()
 
@@ -222,8 +240,8 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
             {/* {for_vendor === undefined && <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Approved SR</h2>
             </div>} */}
-            {(projects_loading || service_list_loading) ? (<TableSkeleton />) : (
-                <DataTable columns={columns} data={service_list || []} project_values={project_values} />
+            {(projects_loading || service_list_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
+                <DataTable columns={columns} data={service_list || []} project_values={project_values} vendorOptions={vendorOptions} />
             )}
         </div>
     )

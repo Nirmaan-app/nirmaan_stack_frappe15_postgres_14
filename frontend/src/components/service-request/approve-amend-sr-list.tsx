@@ -19,11 +19,11 @@ type PRTable = {
     category: string
 }
 
-export const ApproveSelectSR = () => {
+export const ApproveSelectAmendSR = () => {
     const { data: service_request_list, isLoading: service_request_list_loading, error: service_request_list_error, mutate: sr_list_mutate } = useFrappeGetDocList("Service Requests",
         {
             fields: ["*"],
-            filters: [["status", "=", "Vendor Selected"]],
+            filters: [["status", "=", "Amendment"]],
             limit: 1000,
             orderBy: { field: "creation", order: "desc" }
         }
@@ -91,7 +91,7 @@ export const ApproveSelectSR = () => {
                 cell: ({ row }) => {
                     const srId = row.getValue("name")
                     const isNew = notifications.find(
-                        (item) => item.docname === srId && item.seen === "false" && item.event_id === "sr:vendorSelected"
+                        (item) => item.docname === srId && item.seen === "false" && item.event_id === "sr:amended"
                     )
                     return (
                         <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
@@ -174,7 +174,6 @@ export const ApproveSelectSR = () => {
                 },
                 cell: ({ row }) => {
 
-                    console.log("row.original", row.original)
                     return (
                         <div className="font-medium">
                             {getVendorName(row.original.vendor)}

@@ -38,7 +38,7 @@
    "fieldname": "vendor_type",
    "fieldtype": "Select",
    "label": "Vendor Type",
-   "options": "Material\nService"
+   "options": "Material\nService\nMaterial & Service"
   },
   {
    "fieldname": "vendor_address_details_section",
@@ -102,7 +102,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:55:37.786895",
+ "modified": "2025-01-28 11:47:01.565503",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

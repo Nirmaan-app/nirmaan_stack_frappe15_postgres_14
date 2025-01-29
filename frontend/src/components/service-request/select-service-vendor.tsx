@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   CheckCheck,
   CirclePlus,
+  PencilRuler,
   Settings2,
   Trash2,
   Undo2,
@@ -65,10 +66,13 @@ const SelectServiceVendor = () => {
   const { srId: id }: any = useParams();
   const [project, setProject] = useState<string>();
 
+  const navigate = useNavigate()
+
   const {
     data: sr_data,
     isLoading: sr_data_loading,
     error: sr_data_error,
+    mutate: sr_data_mutate
   } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id);
 
   useEffect(() => {
@@ -103,29 +107,69 @@ const SelectServiceVendor = () => {
     orderBy: { field: "creation", order: "desc" },
   });
 
+  const getUserName = (id) => {
+    if (usersList) {
+        return usersList.find((user) => user?.name === id)?.full_name
+    }
+}
+
   // console.log("universalComments", universalComments)
 
+  if(sr_data_loading ||
+    project_loading ||
+    userLoading ||
+    universalCommentsLoading) {
+      return (
+        <div className="flex items-center h-[90vh] w-full justify-center">
+            <TailSpin color={"red"} />{" "}
+          </div>
+      )
+    }
+  
+  if(sr_data_error ||
+    project_error ||
+    userError ||
+    universalCommentsError) {
+      return <h1>Error</h1>
+    }
+
+    if ( !["Created", "Rejected", "Edit"].includes(sr_data?.status)) return (
+      <div className="flex items-center justify-center h-screen">
+          <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+              <h2 className="text-2xl font-semibold text-gray-800">
+                  Heads Up!
+              </h2>
+              <p className="text-gray-600 text-lg">
+                  Hey there, the SR:{" "}
+                  <span className="font-medium text-gray-900">{sr_data?.name}</span>{" "}
+                  is no longer available for{" "}
+                  <span className="italic">Choosing Vendors/Editing Services</span>. The current state is{" "}
+                  <span className="font-semibold text-blue-600">
+                      {sr_data?.status}
+                  </span>{" "}
+                  And the last modification was done by <span className="font-medium text-gray-900">
+                      {sr_data?.modified_by === "Administrator" ? sr_data?.modified_by : getUserName(sr_data?.modified_by)}
+                  </span>
+                  !
+              </p>
+              <button
+                  className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                  onClick={() => navigate("/choose-service-vendor")}
+              >
+                  Go Back
+              </button>
+          </div>
+      </div>
+    );
+
   return (
-    <>
-      {" "}
-      {sr_data_loading ||
-        project_loading ||
-        userLoading ||
-        universalCommentsLoading ? (
-        <NewPRSkeleton />
-      ) : (
         <SelectServiceVendorPage
           sr_data={sr_data}
+          sr_data_mutate={sr_data_mutate}
           project_data={project_data}
           universalComments={universalComments}
           usersList={usersList}
         />
-      )}
-      {(sr_data_error ||
-        project_error ||
-        userError ||
-        universalCommentsError) && <h1>Error</h1>}
-    </>
   );
 };
 
@@ -133,26 +177,18 @@ interface SelectServiceVendorPageProps {
   sr_data: ServiceRequestsType | undefined
   usersList?: NirmaanUsersType[] | undefined
   universalComments: NirmaanCommentsType[] | undefined
+  sr_data_mutate?: any
+  project_data?: any
 }
 
-interface DataType {
-  key: React.ReactNode;
-  category: string | null;
-  description: string;
-  rate: number | null;
-  selectedVendor: string;
-  amount: number;
-  children?: DataType[];
-}
-
-export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments }: SelectServiceVendorPageProps) => {
+export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments, sr_data_mutate }: SelectServiceVendorPageProps) => {
   const navigate = useNavigate();
   const userData = useUserData();
 
   const [comment, setComment] = useState<any>(null);
   const [section, setSection] = useState("choose-vendor");
   const [vendorOptions, setVendorOptions] = useState<
-    { label: string; value: string }[]
+    { vendor_name: string; value: string, city: string, state : string }[]
   >([]);
   const [selectedVendor, setSelectedvendor] = useState();
   const [amounts, setAmounts] = useState<{ [key: string]: string }>({}); // New state for amounts
@@ -161,6 +197,14 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
   );
   const [isNextEnabled, setIsNextEnabled] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+  const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
+
+
+  const [cancelAmendDialog, setCancelAmendDialog] = useState(false);
+
+  const toggleCancelAmendDialog = () => {
+    setCancelAmendDialog((prevState) => !prevState);
+  };
 
   // console.log("sr_data", JSON.parse(sr_data?.service_order_list))
 
@@ -180,6 +224,17 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
     }
   }, [groupedData]);
 
+  useEffect(() => {
+    const newCategories: { name: string }[] = [];
+    order.forEach((item) => {
+        const isDuplicate = newCategories.some(category => category.name === item.category);
+        if (!isDuplicate) {
+            newCategories.push({ name: item.category });
+        }
+    });
+    setCategories({ list: newCategories });
+}, [order]);
+
   // Main table columns
   const columns = [
     {
@@ -195,7 +250,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
       width: "45%",
       render: () => (
         <span className="font-semibold text-primary">
-          {selectedVendor?.label}
+          {selectedVendor?.vendor_name}
         </span>
       ),
     },
@@ -255,24 +310,19 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
     // },
   ];
 
-  const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+  const { data: category_data } = useFrappeGetDocList("Category", {
     fields: ["*"],
     filters: [['work_package', '=', 'Services']],
     orderBy: { field: 'name', order: 'asc' }
   })
 
-  console.log("category_data", category_data)
-
   const {
     data: vendor_list,
-    isLoading: vendor_list_loading,
-    error: vendor_list_error,
-    mutate: vendor_list_mutate,
   } = useFrappeGetDocList(
     "Vendors",
     {
       fields: ["*"],
-      filters: [["vendor_type", "=", "Service"]],
+      filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
       limit: 10000,
     },
     "Service Vendors"
@@ -296,18 +346,12 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
   const {
     createDoc: createDoc,
     loading: create_loading,
-    isCompleted: submit_complete,
-    error: submit_error,
   } = useFrappeCreateDoc();
 
   const {
     updateDoc: updateDoc,
     loading: update_loading,
-    isCompleted: update_complete,
-    error: update_error,
   } = useFrappeUpdateDoc();
-
-  console.log("orderData", order)
 
   // const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
   //     {
@@ -417,7 +461,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
   // console.log("selecedVendor", selectedVendor)
 
   useEffect(() => {
-    if (sr_data?.status === "Rejected" && vendor_list) {
+    if (["Rejected", "Edit"].includes(sr_data?.status) && vendor_list) {
       const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor);
       const selectedVendor = {
         value: vendor?.name,
@@ -427,7 +471,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
       };
       setSelectedvendor(selectedVendor);
     }
-    if (sr_data?.status === "Rejected") {
+    if (["Rejected", "Edit"].includes(sr_data?.status)) {
       let amounts = {};
       JSON.parse(sr_data?.service_order_list)?.list?.forEach((item) => {
         amounts = { ...amounts, [item.id]: item?.rate };
@@ -456,6 +500,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
         service_order_list: { list: order },
+        service_category_list: categories,
         status: "Vendor Selected",
       });
 
@@ -490,6 +535,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
       }
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
+        service_category_list: categories,
         service_order_list: { list: order },
         status: "Vendor Selected",
       });
@@ -517,6 +563,71 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
     }
   };
 
+  const handleAmendSR = async () => {
+    try {
+      await updateDoc("Service Requests", sr_data?.name, {
+        vendor: selectedVendor?.value,
+        service_category_list: categories,
+        service_order_list: { list: order },
+        status: "Amendment"
+      });
+
+      if (comment) {
+        await createDoc("Nirmaan Comments", {
+          comment_type: "Comment",
+          reference_doctype: "Service Requests",
+          reference_name: sr_data?.name,
+          comment_by: userData?.user_id,
+          content: comment,
+          subject: "sr amendment",
+        });
+      }
+
+      await sr_data_mutate();
+
+      toast({
+        title: "Success!",
+        description: `${sr_data?.name} amended and sent to Project Lead!`,
+        variant: "success",
+      });
+
+      navigate("/approved-sr");
+    } catch (error) {
+      toast({
+        title: "Failed!",
+        description: `Unable to amend SR: ${sr_data?.name}`,
+        variant: "destructive",
+      });
+      console.log("error while amending SR", error);
+    }
+  }
+
+  const handleCancelAmendment = async () => {
+    try {
+      await updateDoc("Service Requests", sr_data?.name, {
+        status: "Approved"
+      })
+
+      await sr_data_mutate()
+
+      toast({
+        title: "Success!",
+        description: `SR: ${sr_data?.name} Amendment has been cancelled.`,
+        variant: "success",
+      });
+
+      navigate(`/approved-sr/${sr_data?.name}`);
+      
+    } catch (error) {
+      console.log("error while cancelling amendment", error);
+      toast({
+        title: "Failed!",
+        description: `Unable to cancel amendment`,
+        variant: "destructive",
+      });
+    }
+  }
+
   const handleInputChange = (id: string, field: string, value: string) => {
     if (field) {
       const updatedOrder = order.map((item: any) =>
@@ -525,7 +636,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
       setOrder(updatedOrder);
     }
   };
-  // console.log("selectedVendor", selectedVendor)
 
   // console.log("orderData", order)
 
@@ -694,6 +804,43 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
             </div>
             <div className="flex justify-between items-center mt-4 pl-2">
               <Button onClick={() => setOrder(prev => [...prev, { id: uuidv4(), category: "", description: "", quantity: "", uom: "", rate: "" }])}>New Service</Button>
+              <div className="flex items-center gap-2">
+
+                    {sr_data?.status === "Edit" && (
+                    <Button
+                    onClick={toggleCancelAmendDialog}
+                    >
+                      Cancel Amendment
+                    </Button>
+                    )}
+                            <Dialog open={cancelAmendDialog} onOpenChange={toggleCancelAmendDialog}>
+                                  <DialogContent>
+                                      <DialogHeader>
+                                        <DialogTitle>
+                                          Are you sure?
+                                        </DialogTitle>
+                                      </DialogHeader>
+
+                                      <DialogDescription>
+                                        Clicking on Confirm will cancel the amendment!
+                                      </DialogDescription>
+
+                                      <div className="flex items-center justify-end gap-2">
+                                      {update_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                                        <>
+                                        <DialogClose asChild>
+                                          <Button variant={"outline"}>Cancel</Button>
+                                        </DialogClose>
+                                        <Button onClick={handleCancelAmendment}>
+                                          Confirm
+                                        </Button>
+                                        </>
+                                        )}
+                                      </div>
+                                  
+                                  </DialogContent>
+                                </Dialog>
+
               <Button
                 disabled={
                   !isNextEnabled ||
@@ -706,6 +853,8 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
               >
                 Next
               </Button>
+
+              </div>
             </div>
             <div className="flex items-center space-y-2">
               <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">
@@ -814,11 +963,15 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                 <Button className="flex items-center gap-1">
                   {sr_data?.status === "Rejected" ? (
                     <Settings2 className="h-4 w-4" />
+                  ) : sr_data?.status === "Edit" ? (
+                    <PencilRuler className="w-4 h-4" />
                   ) : (
-                    <ArrowBigUpDash className="" />
+                    <ArrowBigUpDash />
                   )}
                   {sr_data?.status === "Rejected"
                     ? "Resolve"
+                    : sr_data?.status === "Edit"
+                    ? "Amend"
                     : "Send for Approval"}
                 </Button>
               </DialogTrigger>
@@ -829,6 +982,8 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                     Click on Confirm to{" "}
                     {sr_data?.status === "Rejected"
                       ? "resolve and send for approval"
+                      : sr_data?.status === "Edit"
+                     ? "Send for Amendment Approval"
                       : "Submit"}
                     !
                     <Textarea
@@ -869,7 +1024,25 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                         </>
                       )}
                     </Button>
-                  ) : (
+                  ) :  sr_data?.status === "Edit" ? (
+                    <Button
+                      variant="default"
+                      className="flex items-center gap-1"
+                      onClick={handleAmendSR}
+                      disabled={update_loading}
+                    >
+                      {update_loading ? (
+                        <TailSpin width={20} height={20} color="white" />
+                      ) : (
+                        <>
+                          <CheckCheck className="h-4 w-4" />
+                          Confirm
+                        </>
+                      )}
+                    </Button>
+                  ) :
+                  
+                  (
                     <Button
                       variant="default"
                       className="flex items-center gap-1"

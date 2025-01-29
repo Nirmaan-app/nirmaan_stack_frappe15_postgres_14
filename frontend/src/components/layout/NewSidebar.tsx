@@ -93,6 +93,7 @@ import {
   handleSBVendorSelectedEvent,
   handleSRApprovedEvent,
   handleSRVendorSelectedEvent,
+  handleSOAmendedEvent
 } from "@/zustand/eventListeners";
 
 export function NewSidebar() {
@@ -147,14 +148,16 @@ export function NewSidebar() {
     selectedSRCount,
     approvedSRCount,
     adminApprovedSRCount,
+    adminAmendedSRCount,
+    amendedSRCount
   } = useDocCountStore();
 
-  const { notifications, add_new_notification, delete_notification } =
+  const { notifications, add_new_notification, delete_notification, clear_notifications } =
     useNotificationStore();
   const { db } = useContext(FrappeContext) as FrappeConfig;
 
   // Fetch all notifications that are unseen for the current user
-  const { data: notificationsData } = useFrappeGetDocList(
+  const { data: notificationsData, mutate: notificationsDataMutate } = useFrappeGetDocList(
     "Nirmaan Notifications",
     {
       fields: ["*"],
@@ -167,6 +170,7 @@ export function NewSidebar() {
   // On initial render, segregate notifications and store in Zustand
   useEffect(() => {
     if (notificationsData) {
+      clear_notifications();
       notificationsData.forEach((notification: any) => {
         add_new_notification({
           name: notification.name,
@@ -410,6 +414,10 @@ export function NewSidebar() {
     }
   });
 
+  useFrappeDocTypeEventListener("Nirmaan Notifications", async (event) => {
+    await notificationsDataMutate();
+  });
+
   //  ***** SB Events *****
   useFrappeEventListener("sb:vendorSelected", async (event) => {
     await handleSBVendorSelectedEvent(db, event, add_new_notification);
@@ -467,6 +475,10 @@ export function NewSidebar() {
 
   useFrappeEventListener("sr:delete", (event) => {
     handlePRDeleteEvent(event, delete_notification);
+  });
+
+  useFrappeEventListener("sr:amended", (event) => {
+    handleSOAmendedEvent(db, event, add_new_notification);
   });
 
   // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
@@ -604,6 +616,15 @@ export function NewSidebar() {
                   user_id === "Administrator"
                     ? adminSelectedSRCount
                     : selectedSRCount,
+              },
+              {
+                key: "/approve-amended-so",
+                label: "Approve Amended SO",
+                count:
+                  role === "Nirmaan Admin Profile" ||
+                  user_id === "Administrator"
+                    ? adminAmendedSRCount
+                    : amendedSRCount,
               },
             ],
           },
@@ -782,6 +803,7 @@ export function NewSidebar() {
     "sent-back-requests",
     "service-requests",
     "approve-service-request",
+    "approve-amended-so",
     "choose-service-vendor",
     "approved-sr",
     "notifications",
@@ -811,6 +833,7 @@ export function NewSidebar() {
         "approve-sent-back",
         "approve-amended-po",
         "approve-service-request",
+        "approve-amended-so",
       ].includes(selectedKeys)
     ? "pl-actions"
     : ["procurement-requests"].includes(

@@ -74,6 +74,7 @@ import { ProjectPaymentsList } from "./pages/ProjectPayments/project-payments-li
 import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
 import { ProcurementRequests } from "./components/procurement/procurement-requests";
 import { RenderProcurementRequest } from "./components/procurement/render-procurement-requests";
+import { ApproveSelectAmendSR } from "./components/service-request/approve-amend-sr-list";
 // import { SentBackSummary } from './components/procurement/sent-back-summary'
 // import { ManPowerReport } from './components/ManPowerReport'
 
@@ -201,6 +202,14 @@ const router = createBrowserRouter(
           <Route path="approve-service-request">
             <Route index element={<ApproveSelectSR />} />
             <Route path=":srId" element={<ApproveServiceRequest />} />
+          </Route>
+
+          {/* Approve Amended Service Request Paths  */}
+          <Route path="approve-amended-so">
+            <Route index element={<ApproveSelectAmendSR />} />
+            <Route path=":soId" 
+              lazy={() => import("@/components/service-request/approve-amended-sr")}
+             />
           </Route>
 
           <Route path="approved-sr">

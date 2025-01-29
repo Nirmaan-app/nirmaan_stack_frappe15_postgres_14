@@ -22,6 +22,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 const getVendorFormSchema = (service: boolean) => {
     return z.object({
@@ -119,8 +121,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const {
     data: vendorAddress,
-    isLoading: vendorAddressLoading,
-    error: vendorAddressError,
     mutate: addressMutate,
   } = useFrappeGetDoc(
     "Address",
@@ -131,7 +131,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
     }
   );
 
-  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service");
+  const [vendorChange, setVendorChange] = useState(false)
+
+  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange);
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(VendorFormSchema),
@@ -166,6 +168,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const { data: category_list } = useFrappeGetDocList("Category", {
     fields: ["*"],
+    filters: [["work_package", "!=", "Services"]],
     limit: 10000,
   });
 
@@ -181,15 +184,17 @@ export const EditVendor = ({ toggleEditSheet }) => {
       value: item.category_name,
     })) || [];
 
+    const service_categories = ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services", "Painting Services", "Carpentry Services", "POP Services"]
+
   const default_options: SelectOption[] =
     (data &&
-      JSON.parse(data?.vendor_category)?.categories?.map((item) => ({
+      JSON.parse(data?.vendor_category)?.categories?.filter(i => !service_categories.includes(i))?.map((item) => ({
         label: item,
         value: item,
       }))) ||
     [];
 
-  const [categories, setCategories] = useState(default_options);
+  const [categories, setCategories] = useState(default_options || []);
 
   const handleChange = (selectedOptions: SelectOption[]) => {
     setCategories(selectedOptions);
@@ -199,8 +204,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const {
     data: pincode_data,
-    isLoading: pincode_loading,
-    error: pincode_error,
   } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`);
 
   const debouncedFetch = useCallback((value: string) => {
@@ -227,7 +230,17 @@ export const EditVendor = ({ toggleEditSheet }) => {
   };
 
   const onSubmit = async (values: VendorFormValues) => {
-    let category_json = categories.map((c) => c.value);
+
+    const categoriesSelected = categories.map((c) => c.value) || [];
+
+    let category_json = categoriesSelected
+
+    if(vendorChange || data?.vendor_type === "Service" || data?.vendor_type === "Material & Service") {
+      category_json = [...categoriesSelected, ...service_categories]
+    }
+
+    console.log("category_json", category_json)
+
     try {
       if (city === "Not Found" || state === "Not Found") {
         throw new Error(
@@ -247,6 +260,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
       await updateDoc("Vendors", id, {
         vendor_category: { categories: category_json },
+        vendor_type: vendorChange ? "Material & Service" : data?.vendor_type,
         vendor_city: city,
         vendor_contact_person_name: values.vendor_contact_person_name,
         vendor_email: values.vendor_email,
@@ -277,6 +291,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
     }
   };
 
+
   return (
     <div className="flex-1 space-y-4">
       {/* <div className="space-y-0.5">
@@ -286,6 +301,18 @@ export const EditVendor = ({ toggleEditSheet }) => {
                 </div>
             </div>
             <Separator className="my-6 max-md:my-2" /> */}
+            {data?.vendor_type !== "Material & Service" && (
+              <>
+            <div className="flex flex-col mt-2 px-6 max-md:px-2 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Vendor_Type<sup className="text-sm text-red-600">*</sup></label>
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="vendorType">Change to <span className="text-primary italic text-lg">Material & Service</span> type?</Label>
+                <Switch value={vendorChange} onCheckedChange={(e) => setVendorChange(e)} id="vendorType" />
+              </div>
+            </div>
+            <Separator className="my-6 max-md:my-2" />
+            </>
+            )}
       <Form {...form}>
         <form
           onSubmit={(event) => {
@@ -317,6 +344,19 @@ export const EditVendor = ({ toggleEditSheet }) => {
                 <FormLabel>Contact Person Name</FormLabel>
                 <FormControl>
                   <Input {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="vendor_gst"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Vendor GST {vendorChange ? <sup className="text-sm text-red-600">*</sup> : ["Material", "Material & Service"].includes(data?.vendor_type) && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
+                <FormControl>
+                  <Input {...field} value={field.value || ""} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -416,20 +456,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name="vendor_gst"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Vendor GST</FormLabel>
-                <FormControl>
-                  <Input {...field} value={field.value || ""} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          {data?.vendor_type === "Material" && (
+          {data?.vendor_type !== "Service" && (
             <>
             <Separator className="my-3" />
           <p className="text-sky-600 font-semibold pb-2">

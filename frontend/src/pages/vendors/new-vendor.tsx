@@ -114,6 +114,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ["*"],
+            filters: [["work_package", "!=", "Services"]],
             orderBy: { field: 'work_package', order: 'asc' },
             limit: 10000
         },
@@ -168,6 +169,8 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
             }
 
             let category_json = categories.map((cat) => cat["value"]);
+
+            const service_categories = ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services", "Painting Services", "Carpentry Services", "POP Services"]
             // Create the address document
             const addressDoc = await createDoc('Address', {
                 address_title: values.vendor_name,
@@ -194,12 +197,18 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     vendor_mobile: values.vendor_mobile,
                     vendor_email: values.vendor_email,
                     vendor_gst: values.vendor_gst,
-                    vendor_category: vendorType === "Service" ? { categories: ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services", "Painting Services", "Carpentry Services", "POP Services"] }
+                    vendor_category: vendorType === "Service" ? { categories: service_categories }
                         :
+                        vendorType === "Material" ?
                         {
                             categories: (!renderCategorySelection && dynamicCategories.length)
                                 ? dynamicCategories
                                 : category_json
+                        } :
+                        {
+                            categories : (!renderCategorySelection && dynamicCategories.length)
+                                ? [...dynamicCategories, ...service_categories]
+                                : [...category_json, ...service_categories]
                         }
                 });
 
@@ -332,14 +341,19 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 )}
 
                 <div className="flex flex-col items-start mt-2 px-6 max-md:px-2 space-y-2">
-                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Vendor_Type<sup className="text-sm text-red-600">*</sup></label>
-                    <Select onValueChange={(value) => setVendorType(value)} defaultValue={service ? "Service" : "Material"}>
+                    <label htmlFor="vendorType" className="block text-sm font-medium text-gray-700">Vendor_Type<sup className="text-sm text-red-600">*</sup></label>
+                    <Select value={vendorType} onValueChange={(value) => setVendorType(value)} defaultValue={service ? "Service" : "Material"}>
                         <SelectTrigger className="">
                             <SelectValue className="text-gray-200" placeholder="Select Vendor Type" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="Material">Material</SelectItem>
-                            <SelectItem value="Service">Service</SelectItem>
+                            {!service && (
+                                <SelectItem value="Material">Material</SelectItem>
+                            )}
+                            {dynamicCategories.length === 0 && (
+                                <SelectItem value="Service">Service</SelectItem>
+                            )}
+                            <SelectItem value="Material & Service">Material & Service</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
@@ -385,7 +399,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                     name="vendor_gst"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel className="flex">GST Number{vendorType === "Material" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
+                                            <FormLabel className="flex">GST Number{vendorType !== "Service" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="enter gst..." {...field} />
                                             </FormControl>

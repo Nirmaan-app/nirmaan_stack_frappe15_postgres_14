@@ -1,6 +1,7 @@
 import frappe
 from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users, get_allowed_accountants
 from frappe import _
+from .procurement_requests import get_user_name
 
 def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {
@@ -32,6 +33,9 @@ def on_trash(doc, method):
     })
 
 def on_update(doc, method):
+
+    previous_doc = doc.get_doc_before_save()
+
     if doc.status == "Vendor Selected":
         lead_admin_users = get_allowed_users(doc)
         if lead_admin_users:
@@ -87,9 +91,65 @@ def on_update(doc, method):
                 message=message,
                 user=user['name']  # Notify only specific users
             )
+    
+    if doc.status == "Amendment":
+        lead_admin_users = get_allowed_users(doc)
+        if lead_admin_users:
+            for user in lead_admin_users:
+                if user["push_notification"] == "true":
+                    # Dynamically generate notification title/body for each lead
+                    notification_title = f"SO: {doc.name} has been Amended"
+                    notification_body = (
+                        f"Hi {user['full_name']}, SO: {doc.name} for the {doc.project} "
+                        f"project has been amended by {get_user_name(frappe.session.user)} and is awaiting your review."
+                        )
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-amended-so"
+                    # Send notification for each lead
+                    PrNotification(user, notification_title, notification_body, click_action_url)
+                else:
+                    print(f"push notifications were not enabled for user: {user['full_name']}")
+        else:
+            print("No project leads or admins found with push notifications enabled.")
+
+        message = {
+            "title": _("SR Status Updated!"),
+            "description": _(f"SO: {doc.name} has been amended!"),
+            "project": doc.project,
+            # "work_package": "Services",
+            "sender": frappe.session.user,
+            "docname": doc.name
+        }
+        # Emit the event to the allowed users
+        for user in lead_admin_users:
+            new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+            new_notification_doc.recipient = user['name']
+            new_notification_doc.recipient_role = user['role_profile']
+            if frappe.session.user != 'Administrator':
+                new_notification_doc.sender = frappe.session.user
+            new_notification_doc.title = message["title"]
+            new_notification_doc.description = message["description"]
+            new_notification_doc.document = 'Service Requests'
+            new_notification_doc.docname = doc.name
+            new_notification_doc.project = doc.project
+            # new_notification_doc.work_package = doc.work_package
+            new_notification_doc.seen = "false"
+            new_notification_doc.type = "info"
+            new_notification_doc.event_id = "sr:amended"
+            new_notification_doc.action_url = f"approve-amended-so/{doc.name}"
+            new_notification_doc.insert()
+            frappe.db.commit()
+
+            message["notificationId"] = new_notification_doc.name
+            print(f"running publish realtime for: {user}")
+
+            frappe.publish_realtime(
+                event="sr:amended",  # Custom event name
+                message=message,
+                user=user['name']  # Notify only specific users
+            )
 
 
-    if doc.status == "Approved":
+    if previous_doc and previous_doc.status == "Vendor Selected" and doc.status == "Approved":
         proc_admin_users = get_allowed_procurement_users(doc)
         accountant_users = get_allowed_accountants(doc)
         proc_admin_accountant_users = proc_admin_users + accountant_users

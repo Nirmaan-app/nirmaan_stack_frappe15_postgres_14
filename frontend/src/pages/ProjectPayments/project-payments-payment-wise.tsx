@@ -36,7 +36,8 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
-        limit: 100000
+        limit: 100000,
+        orderBy: { field: "payment_date", order: "desc" }
     })
 
     useFrappeDocTypeEventListener("Project Payments", async () => {
@@ -92,11 +93,12 @@ export const ProjectPaymentsPaymentWise = () => {
                 },
             },
             {
-                accessorKey: "creation",
+                accessorKey: "payment_date",
                 header: "Date",
-                cell: ({ row }) => (
-                    <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>
-                ),
+                cell: ({ row }) => {
+                    const data = row.original
+                    return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
+                },
             },
             {
                 accessorKey: "document_name",

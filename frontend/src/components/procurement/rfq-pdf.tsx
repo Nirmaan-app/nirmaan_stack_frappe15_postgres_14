@@ -91,8 +91,6 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
 
     const {data: procurement_request, isLoading: procurement_request_loading, error: procurement_request_error} = useFrappeGetDoc("Procurement Requests", pr_id, pr_id ? undefined : null);
 
-    console.log("procurement_requests", procurement_request)
-
     // const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
     //     {
     //         fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
@@ -122,7 +120,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_city', 'vendor_type'],
-            filters: [["vendor_type", "=", "Material"]],
+            filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
             limit: 10000
         });
 
@@ -289,7 +287,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                         </div>
                                         <div className="border-0 flex flex-col ml-10">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Project ID</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.project}</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.name}</p>
                                         </div>
                                         <div className="border-0 flex flex-col">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Project Address</p>
