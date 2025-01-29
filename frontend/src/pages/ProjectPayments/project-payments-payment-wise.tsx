@@ -92,11 +92,12 @@ export const ProjectPaymentsPaymentWise = () => {
                 },
             },
             {
-                accessorKey: "creation",
+                id: "payment_date",
                 header: "Date",
-                cell: ({ row }) => (
-                    <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>
-                ),
+                cell: ({ row }) => {
+                    const data = row.original
+                    return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
+                },
             },
             {
                 accessorKey: "document_name",

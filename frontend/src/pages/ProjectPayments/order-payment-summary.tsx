@@ -55,7 +55,7 @@ const OrderPaymentSummary = () => {
 
     const [newPayment, setNewPayment] = useState({
             amount: "",
-            transaction_date: "",
+            payment_date: "",
             utr: "",
             tds: ""
     });
@@ -192,6 +192,7 @@ const OrderPaymentSummary = () => {
                 vendor: documentData?.vendor,
                 utr: newPayment?.utr,
                 amount: newPayment?.amount,
+                payment_date: newPayment?.payment_date,
             })
 
             const fileArgs = {
@@ -222,8 +223,9 @@ const OrderPaymentSummary = () => {
 
               setNewPayment({
                 amount: "",
-                transaction_date: "",
-                utr: ""
+                payment_date: "",
+                utr: "",
+                tds: ""
             })
 
             setPaymentScreenshot(null)
@@ -275,6 +277,8 @@ const OrderPaymentSummary = () => {
         setNewPayment({ ...newPayment, amount });
         validateAmount(amount);
       };
+
+      console.log("date", newPayment.payment_date)
 
     return (
         <div className="flex flex-col gap-4">
@@ -355,7 +359,9 @@ const OrderPaymentSummary = () => {
                         <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                         Transaction Details
                         <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
-                            <AlertDialogTrigger>
+                            <AlertDialogTrigger
+                            onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
+                            >
                                 <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
                             </AlertDialogTrigger>
                             <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
@@ -418,38 +424,17 @@ const OrderPaymentSummary = () => {
                                                                 </div>
                                                             </div>}
 
+                                                            <div className="flex gap-4 w-full" >
+                                                                <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Input
+                                                                        type="date"
+                                                                        value={newPayment.payment_date}
+                                                                        placeholder="DD/MM/YYYY"
+                                                                        onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
+                                                                     />
+                                                            </div>
+
                                                         </div>
-
-                                {/* <div className="flex justify-between pt-4">
-                                <div className="flex flex-col">
-                                    <Label className="py-4">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
-                                    <Label className="py-4">Date(of Transaction):</Label>
-                                    <Label className="py-4">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                </div>
-                                <div className="flex flex-col gap-4" >
-                                    <Input
-                                        type="number"
-                                        placeholder="Enter Amount"
-                                        value={newPayment.amount}
-                                        onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
-                                     />
-
-                                    <Input
-                                        type="date"
-                                        value={newPayment.transaction_date}
-                                        placeholder="DD/MM/YYYY"
-                                        onChange={(e) => setNewPayment({...newPayment, transaction_date: e.target.value})}
-                                     />
-
-                                     <Input
-                                        type="text"
-                                        placeholder="Enter UTR"
-                                        value={newPayment.utr}
-                                        onChange={(e) => setNewPayment({...newPayment, utr: e.target.value})}
-                                     />
-
-                                </div>
-                                </div> */}
 
                                 <div className="flex flex-col gap-2">
                                     <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
@@ -487,7 +472,7 @@ const OrderPaymentSummary = () => {
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || warning}
+                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -516,7 +501,7 @@ const OrderPaymentSummary = () => {
                                     projectPayments?.filter((i) => i?.document_name === poId)?.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
+                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
                                                 {!isPO && documentData?.gst === "true" && (
                                                     <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
