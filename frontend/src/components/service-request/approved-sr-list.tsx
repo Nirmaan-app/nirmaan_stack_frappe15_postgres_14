@@ -169,8 +169,6 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
                     )
                 },
                 cell: ({ row }) => {
-
-                    console.log("row.original", row.original)
                     return (
                         <div className="font-medium">
                             {getVendorName(row.original.vendor)}
