@@ -138,6 +138,7 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
     const [comment, setComment] = useState('');
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
+    const [previousCategoryList, setPreviousCategoryList] = useState<any[]>([])
 
     useEffect(() => {
         if (versionsData) {
@@ -152,6 +153,12 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
                 const orderListChange = changed.find((item) => item[0] === 'service_order_list');
 
                 const vendorChange = changed.find(i => i[0] === "vendor")
+
+                const categoryChange = changed.find(i => i[0] === "service_category_list")
+
+                if(categoryChange) {
+                    setPreviousCategoryList(categoryChange?.[1]?.list || [])
+                }
 
                 if(vendorChange) {
                     setPreviousVendor(vendorChange?.[1])
@@ -177,6 +184,8 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
     }, [versionsData]);
 
     // console.log("comment", comment)
+
+    console.log("so_data", so_data)
 
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
     const { createDoc, loading: create_loading } = useFrappeCreateDoc()
@@ -204,6 +213,7 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
             } else {
                 await updateDoc("Service Requests", so_data.name, {
                     status: "Approved",
+                    service_category_list: previousCategoryList?.length ? {list : previousCategoryList} : JSON.parse(so_data?.service_category_list),
                     service_order_list: { list: previousOrderList },
                     vendor: previousVendor ? previousVendor : so_data.vendor
                 })
@@ -238,8 +248,8 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
         }
     };
 
-    const renderCell = (label: string, value: string | number, isChanged: boolean) => (
-        <div className={`py-1 ${isChanged ? 'bg-green-100 dark:bg-green-900' : ''}`}>
+    const renderCell = (label: string, value: string | number, isChanged: boolean, type: string) => (
+        <div className={`py-1 ${isChanged ? (type === "previous" ? 'bg-yellow-100 dark:bg-yellow-900' : 'bg-green-100 dark:bg-green-900') : ''}`}>
             <span className="font-medium">{label}:</span> {value}
         </div>
     )
@@ -307,12 +317,12 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
                                     {/* Item Name */}
                                     <TableCell className="font-bold">{item.category}</TableCell>
                                     {/* Original Details */}
-                                    <TableCell>
+                                    <TableCell className={`${!amendedItem ? "bg-yellow-100 dark:bg-yellow-900" : ""}`}>
                                         <div className="space-y-1 text-sm">
-                                            {renderCell("Description", item.description, item.description !== amendedItem?.description)}
-                                            {renderCell("Unit", item.uom, item.uom !== amendedItem?.uom)}
-                                            {renderCell("Quantity", item.quantity, item.quantity !== amendedItem?.quantity)}
-                                            {renderCell("Quote", item.rate, item.rate !== amendedItem?.rate)}
+                                            {renderCell("Description", item.description, !amendedItem ? false : item.description !== amendedItem?.description, "previous")}
+                                            {renderCell("Unit", item.uom, !amendedItem ? false : item.uom !== amendedItem?.uom, "previous")}
+                                            {renderCell("Quantity", item.quantity, !amendedItem ? false : item.quantity !== amendedItem?.quantity, "previous")}
+                                            {renderCell("Quote", item.rate, !amendedItem ? false : item.rate !== amendedItem?.rate, "previous")}
                                         </div>
                                     </TableCell>
 
@@ -346,12 +356,12 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
                                 </TableCell>
                         
                                 {/* Amended Details */}
-                                <TableCell>
+                                <TableCell className="bg-green-100 dark:bg-green-900">
                                     <div className="space-y-1 text-sm">
-                                        {renderCell("Description", item.description, true)}
-                                        {renderCell("Unit", item.uom, true)}
-                                        {renderCell("Quantity", item.quantity, true)}
-                                        {renderCell("Quote", item.rate, true)}
+                                        {renderCell("Description", item.description, false)}
+                                        {renderCell("Unit", item.uom, false)}
+                                        {renderCell("Quantity", item.quantity, false)}
+                                        {renderCell("Quote", item.rate, false)}
                                     </div>
                                 </TableCell>
                             </TableRow>
@@ -427,7 +437,7 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
                         onChange={(e) => setComment(e.target.value)}
                         placeholder="Add a comment (optional)"
                     />
-                    {(update_loading || create_loading) ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                    {(update_loading || create_loading || delete_loading) ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                         <div className="flex justify-end mt-4">
                             <Button variant="outline" className="flex gap-1 items-center" onClick={() => setIsDialogOpen(false)}>
                                 <X className="h-4 w-4" />

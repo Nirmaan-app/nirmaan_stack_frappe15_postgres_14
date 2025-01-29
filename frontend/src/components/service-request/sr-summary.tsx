@@ -135,9 +135,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
             cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue") : 'gray'
     }))
 
-    console.log("itemsTimelineList", itemsTimelineList)
-
-
     const handleDeleteSr = async () => {
         try {
             await deleteDoc("Service Requests", sr_data?.name)

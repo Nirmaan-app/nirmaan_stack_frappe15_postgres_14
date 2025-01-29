@@ -169,7 +169,7 @@ export const PurchaseOrder = () => {
     limit: 1000,
   });
 
-  const { data: poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+  const { data: poPayments } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
     filters: [["document_name", "=", poId]],
     limit: 1000
@@ -220,6 +220,7 @@ export const PurchaseOrder = () => {
           item.project === po?.project &&
           item.vendor === po?.vendor &&
           item.status === "PO Approved" &&
+          item.merged !== "true" &&
           item.name !== poId
         );
         setMergeablePOs(mergeablePOs);
@@ -886,7 +887,8 @@ export const PurchaseOrder = () => {
       </div> */}
       {po?.status === "PO Approved" &&
         po?.merged !== "true" &&
-        mergeablePOs.length > 0 && !poPayments?.length > 0 && (
+        !(poPayments?.length > 0) &&
+        mergeablePOs.length > 0 && (
           <>
             <Alert variant="warning" className="">
               <AlertTitle className="text-sm flex items-center gap-2">
@@ -1160,7 +1162,7 @@ export const PurchaseOrder = () => {
             <CardTitle className="text-xl text-red-600 flex items-center justify-between">
               PO Details
               <div className="flex items-center gap-2">
-                {po?.status === "Dispatched" && (
+                {po?.status === "Dispatched" && !(poPayments?.length > 0) && (
                   <button onClick={toggleRevertDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
                     <Undo2 className="w-4 h-4" />
                     Revert
@@ -2072,9 +2074,11 @@ export const PurchaseOrder = () => {
       </Card>
 
       {/* Unmerge, Amend and Cancel PO Buttons  */}
+
+      {/* Unmerge */}
       <div className="flex items-center justify-between">
-        {po?.status === "PO Approved" &&
-          po?.merged === "true" && !poPayments?.length > 0 ? (
+        {po?.merged === "true" &&
+          po?.status === "PO Approved" && !(poPayments?.length > 0) ? (
           <AlertDialog open={unMergeDialog} onOpenChange={toggleUnMergeDialog}>
             <AlertDialogTrigger asChild>
               <Button
@@ -2164,7 +2168,31 @@ export const PurchaseOrder = () => {
               )}
             </AlertDialogContent>
           </AlertDialog>
-        ) : (<div />)}
+        ) : (
+          <HoverCard>
+              <HoverCardTrigger>
+              <Button
+                disabled
+                variant={"outline"}
+                className="flex border-primary items-center gap-1"
+              >
+                <Split className="h-4 w-4 mr-1" />
+                Unmerge
+              </Button>
+              </HoverCardTrigger>
+              <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                <div>
+                  <span className="text-primary underline">
+                    PO Unmerging
+                  </span>{" "}
+                  cannot happen at this stage as its delivery note or
+                  status has already been updated or there are payment(s) created for it!
+                </div>
+              </HoverCardContent>
+            </HoverCard>
+        )}
+
+        {/* Amend PO */}
         <div className="flex gap-4 items-center justify-end">
           {["PO Approved"].includes(po?.status) ? (
             po?.merged !== "true" ? (
@@ -2547,7 +2575,8 @@ export const PurchaseOrder = () => {
             </SheetContent>
           </Sheet>
 
-          {(["PO Approved"].includes(po?.status) && !poPayments?.length > 0) ? (
+          {/* Cancel PO */}
+          {(["PO Approved"].includes(po?.status) && !(poPayments?.length > 0)) ? (
             //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
             po?.merged !== "true" ? (
               <Button onClick={toggleCancelPODialog} variant={"outline"} className="border-primary text-primary flex items-center gap-1">

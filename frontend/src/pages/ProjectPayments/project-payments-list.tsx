@@ -129,7 +129,7 @@ export const ProjectPaymentsList = () => {
         vendor: "",
         vendor_id: "",
         amount: "",
-        transaction_date: "",
+        payment_date: "",
         utr: "",
         tds: ""
     });
@@ -143,6 +143,12 @@ export const ProjectPaymentsList = () => {
     const { notifications, mark_seen_notification } = useNotificationStore();
 
     const { db } = useContext(FrappeContext) as FrappeConfig;
+
+    const handleNewPRSeen = (notification) => {
+        if (notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
 
     const projectValues = projects?.map((item) => ({
         label: item.project_name,
@@ -224,6 +230,7 @@ export const ProjectPaymentsList = () => {
                 utr: newPayment?.utr,
                 amount: newPayment?.amount,
                 tds: newPayment?.tds,
+                payment_date: newPayment?.payment_date
             })
 
             const fileArgs = {
@@ -260,8 +267,9 @@ export const ProjectPaymentsList = () => {
                 vendor: "",
                 vendor_id: "",
                 amount: "",
-                transaction_date: "",
-                utr: ""
+                payment_date: "",
+                utr: "",
+                tds: ""
             })
 
             setPaymentScreenshot(null)
@@ -322,26 +330,32 @@ export const ProjectPaymentsList = () => {
     const columns = useMemo(
         () => [
             {
-                accessorKey: "type",
-                header: "Type",
-                cell: ({ row }) => (
-                    <Badge variant="default">{row.original.type}</Badge>
-                ),
-            },
-            {
                 accessorKey: "name",
                 header: "ID",
                 cell: ({ row }) => {
                     const id = row.getValue("name");
                     const poId = id?.replaceAll("/", "&=")
+                    const isNew = notifications.find(
+                        (item) => item.docname === id && item.seen === "false" && item.event_id === (row.original.type === "Purchase Order" ? "po:new" : "sr:approved")
+                    )
                     return (
-                        < div className="font-medium flex items-center gap-2 relative" >
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
                             <Link to={`${poId}`} className="underline hover:underline-offset-2">
                                 {id}
                             </Link>
-                        </div >
+                        </div>
                     );
                 },
+            },
+            {
+                accessorKey: "type",
+                header: "Type",
+                cell: ({ row }) => (
+                    <Badge variant="default">{row.original.type}</Badge>
+                ),
             },
             {
                 accessorKey: "creation",
@@ -421,7 +435,7 @@ export const ProjectPaymentsList = () => {
                     const { project, vendor, vendor_id, project_id } = getDataAttributes(data)
                     return <div className="font-medium">
                         <SquarePlus onClick={() => {
-                            setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" , tds: ""})
+                            setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
                             setWarning("")
                             toggleNewPaymentDialog()
                         }} className="w-5 h-5 text-red-500 cursor-pointer" />
@@ -556,17 +570,15 @@ export const ProjectPaymentsList = () => {
                                 />
                                 </div>
                             </div>}
-                            {/* <div className="flex flex-col gap-4" > */}
-
-                                {/* <Input
+                            <div className="flex gap-4 w-full" >
+                                <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                                <Input
                                         type="date"
-                                        value={newPayment.transaction_date}
+                                        value={newPayment.payment_date}
                                         placeholder="DD/MM/YYYY"
-                                        onChange={(e) => setNewPayment({...newPayment, transaction_date: e.target.value})}
-                                     /> */}
-
-
-                            {/* </div> */}
+                                        onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
+                                     />
+                            </div>
                         </div>
 
                         <div className="flex flex-col gap-2">
@@ -605,7 +617,7 @@ export const ProjectPaymentsList = () => {
                                     </AlertDialogCancel>
                                     <Button
                                         onClick={AddPayment}
-                                        disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || warning}
+                                        disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
                                         className="flex-1">Add Payment
                                     </Button>
                                 </>
@@ -650,7 +662,7 @@ export const ProjectPaymentsList = () => {
                                     projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name)?.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
+                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
                                                 {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && (
                                                     <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>

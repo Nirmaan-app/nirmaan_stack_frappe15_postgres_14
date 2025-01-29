@@ -197,6 +197,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
   );
   const [isNextEnabled, setIsNextEnabled] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+  const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
 
 
   const [cancelAmendDialog, setCancelAmendDialog] = useState(false);
@@ -222,6 +223,17 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       setExpandedRowKeys(Object.keys(groupedData));
     }
   }, [groupedData]);
+
+  useEffect(() => {
+    const newCategories: { name: string }[] = [];
+    order.forEach((item) => {
+        const isDuplicate = newCategories.some(category => category.name === item.category);
+        if (!isDuplicate) {
+            newCategories.push({ name: item.category });
+        }
+    });
+    setCategories({ list: newCategories });
+}, [order]);
 
   // Main table columns
   const columns = [
@@ -298,7 +310,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     // },
   ];
 
-  const { data: category_data, isLoading: category_loading } = useFrappeGetDocList("Category", {
+  const { data: category_data } = useFrappeGetDocList("Category", {
     fields: ["*"],
     filters: [['work_package', '=', 'Services']],
     orderBy: { field: 'name', order: 'asc' }
@@ -306,8 +318,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
 
   const {
     data: vendor_list,
-    isLoading: vendor_list_loading,
-    mutate: vendor_list_mutate,
   } = useFrappeGetDocList(
     "Vendors",
     {
@@ -490,6 +500,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
         service_order_list: { list: order },
+        service_category_list: categories,
         status: "Vendor Selected",
       });
 
@@ -524,6 +535,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       }
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
+        service_category_list: categories,
         service_order_list: { list: order },
         status: "Vendor Selected",
       });
@@ -555,6 +567,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     try {
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
+        service_category_list: categories,
         service_order_list: { list: order },
         status: "Amendment"
       });

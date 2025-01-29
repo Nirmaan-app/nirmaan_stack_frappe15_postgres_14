@@ -213,8 +213,8 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, u
         }
     };
 
-    const renderCell = (label: string, value: string | number, isChanged: boolean) => (
-        <div className={`py-1 ${isChanged ? 'bg-green-100 dark:bg-green-900' : ''}`}>
+    const renderCell = (label: string, value: string | number, isChanged: boolean, type : string) => (
+        <div className={`py-1 ${isChanged ? (type === "previous" ? 'bg-yellow-100 dark:bg-yellow-900' : 'bg-green-100 dark:bg-green-900') : ''}`}>
             <span className="font-medium">{label}:</span> {value}
         </div>
     )
@@ -264,14 +264,14 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, u
                                     {/* Item Name */}
                                     <TableCell className="font-bold">{item.item}</TableCell>
                                     {/* Original Details */}
-                                    <TableCell>
+                                    <TableCell className={`${!amendedItem ? "bg-yellow-100 dark:bg-yellow-900" : ""}`}>
                                         <div className="space-y-1 text-sm">
-                                            {renderCell("Quote", item.quote, item.quote !== amendedItem?.quote)}
-                                            {renderCell("Quantity", item.quantity, item.quantity !== amendedItem?.quantity)}
-                                            {renderCell("Category", item.category, item.category !== amendedItem?.category)}
-                                            {renderCell("Tax", `${item.tax}%`, item.tax !== amendedItem?.tax)}
-                                            {renderCell("Unit", item.unit, item.unit !== amendedItem?.unit)}
-                                            {renderCell("Make", item.makes?.list?.find(i => i?.enabled === "true")?.make, item.makes?.list?.find(i => i?.enabled === "true")?.make !== amendedItem?.makes?.list?.find(i => i?.enabled === "true")?.make)}
+                                            {renderCell("Quote", item.quote, !amendedItem ? false : item.quote !== amendedItem?.quote, "previous")}
+                                            {renderCell("Quantity", item.quantity, !amendedItem ? false : item.quantity !== amendedItem?.quantity, "previous")}
+                                            {renderCell("Category", item.category, !amendedItem ? false : item.category !== amendedItem?.category, "previous")}
+                                            {renderCell("Tax", `${item.tax}%`, !amendedItem ? false : item.tax !== amendedItem?.tax, "previous")}
+                                            {renderCell("Unit", item.unit, !amendedItem ? false : item.unit !== amendedItem?.unit, "previous")}
+                                            {renderCell("Make", item.makes?.list?.find(i => i?.enabled === "true")?.make, !amendedItem ? false : item.makes?.list?.find(i => i?.enabled === "true")?.make !== amendedItem?.makes?.list?.find(i => i?.enabled === "true")?.make, "previous")}
                                         </div>
                                     </TableCell>
 

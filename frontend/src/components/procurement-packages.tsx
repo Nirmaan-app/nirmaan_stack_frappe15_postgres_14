@@ -376,8 +376,6 @@ export const ProcurementPackages = () => {
   //   }
   // }
 
-  console.log("defaultOptions", defaultOptions)
-
   return (
     <div className="flex-1 space-y-4">
       {/* <div className="flex items-center justify-between mb-2 space-y-2">
@@ -634,7 +632,7 @@ export const ProcurementPackages = () => {
                                                         editCategory?.tax &&
                                                         cat?.new_items ===
                                                         editCategory?.new_items &&
-                                                        !newCategoryMakes?.length > 0 &&
+                                                        !(newCategoryMakes?.length > 0) &&
                                                         categoryMakeList?.filter((catMake) => catMake?.category === editCategory?.name)?.length === defaultOptions?.length) ||
                                                       loadingFunc !== ""
                                                     }

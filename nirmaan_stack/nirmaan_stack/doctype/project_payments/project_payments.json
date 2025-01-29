@@ -14,7 +14,8 @@
   "utr",
   "payment_attachment",
   "amount",
-  "tds"
+  "tds",
+  "payment_date"
  ],
  "fields": [
   {
@@ -70,11 +71,16 @@
    "fieldname": "tds",
    "fieldtype": "Data",
    "label": "TDS"
+  },
+  {
+   "fieldname": "payment_date",
+   "fieldtype": "Date",
+   "label": "Payment Date"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-17 17:57:16.996618",
+ "modified": "2025-01-29 16:37:30.733433",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",

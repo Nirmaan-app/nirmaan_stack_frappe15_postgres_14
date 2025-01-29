@@ -16,26 +16,22 @@ import { ProcurementActionsHeaderCard } from "../ui/ProcurementActionsHeaderCard
 export const ApproveServiceRequest = () => {
     const { srId: id } = useParams<{ srId: string }>()
     const navigate = useNavigate()
-    const [project, setProject] = useState()
-    const [owner, setOwner] = useState()
     const [serviceOrderData, setServiceOrderData] = useState(null)
     const [isLoading, setIsLoading] = useState<string | null>(null);
     const [comment, setComment] = useState('')
     const userData = useUserData()
     const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
-    const { data: service_request, isLoading: service_request_loading, error: service_request_error, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id)
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc("Projects", project, project ? undefined : null);
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
-    const { data: serviceVendor } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request ? service_request?.vendor : null)
+    const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id)
+    const { data: serviceVendor, isLoading: serviceVendor_loading } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request ? service_request?.vendor : null)
 
-    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
 
-    const { createDoc: createDoc, loading: create_loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
+    const { createDoc: createDoc } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc } = useFrappeUpdateDoc()
 
     // const getUserName = (id) => {
     //     if (usersList) {
@@ -45,8 +41,6 @@ export const ApproveServiceRequest = () => {
 
     useEffect(() => {
         if (service_request) {
-            setProject(service_request?.project)
-            setOwner(service_request?.modified_by)
             setServiceOrderData(JSON.parse(service_request?.service_order_list)?.list)
         }
     }, [service_request])
@@ -156,8 +150,6 @@ export const ApproveServiceRequest = () => {
                 variant: "success",
             });
 
-            document.getElementById("ApproveSRAlertCancel")?.click()
-
             navigate("/approve-service-request");
 
         } catch (error) {
@@ -196,8 +188,6 @@ export const ApproveServiceRequest = () => {
                 variant: "success",
             });
 
-            document.getElementById("RejectSRAlertCancel")?.click()
-
             navigate("/approve-service-request");
 
         } catch (error) {
@@ -218,6 +208,14 @@ export const ApproveServiceRequest = () => {
             return usersList.find((user) => user?.name === id)?.full_name
         }
     }
+
+    if(serviceVendor_loading || service_request_loading || usersListLoading) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <TailSpin color={"red"} />{" "}
+            </div>
+        )
+    } 
 
 
     if (service_request?.status !== "Vendor Selected") return (
@@ -354,9 +352,6 @@ export const ApproveServiceRequest = () => {
                                 </Button>
                             </AlertDialogFooter>
                         )}
-                        <AlertDialogCancel id='RejectSRAlertCancel' className="hidden">
-                            Cancel
-                        </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
@@ -385,9 +380,6 @@ export const ApproveServiceRequest = () => {
                                 </Button>
                             </AlertDialogFooter>
                         )}
-                        <AlertDialogCancel id='ApproveSRAlertCancel' className="hidden">
-                            Cancel
-                        </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
