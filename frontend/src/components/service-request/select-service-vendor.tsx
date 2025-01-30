@@ -334,6 +334,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     if (vendor_list) {
       const currOptions = vendor_list?.map((item) => ({
         value: item.name,
+        label: item.vendor_name,
         vendor_name: item.vendor_name,
         city: item?.vendor_city,
         state: item?.vendor_state,
@@ -465,6 +466,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor);
       const selectedVendor = {
         value: vendor?.name,
+        label: vendor?.vendor_name,
         vendor_name: vendor?.vendor_name,
         city: vendor?.vendor_city,
         state: vendor?.vendor_state,

@@ -2197,16 +2197,14 @@ const ProjectView = ({
 
       {activePage === "prsummary" && (
         <div>
-          <Card className="flex border border-gray-100 rounded-lg p-4">
-            <CardContent className="w-full flex flex-row items-center justify-around">
-              {/* <CardHeader className=" w-full"> */}
+          <Card className="py-4 max-sm:py-2">
+            <CardContent className="w-full flex flex-row items-center justify-around max-sm:justify-between py-2">
               {Object.entries(statusCounts)?.map(([status, count]) => (
-                <div className="flex items-center gap-1 pt-3">
-                  <h3 className="font-semibold">{status}: </h3>
-                  <p className="italic">{count}</p>
+                <div>
+                  <span className="font-semibold">{status}: </span>
+                  <p className="italic inline-block">{count}</p>
                 </div>
               ))}
-              {/* </CardHeader> */}
             </CardContent>
           </Card>
           {prData_loading ? (

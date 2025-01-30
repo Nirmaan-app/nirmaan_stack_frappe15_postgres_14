@@ -10,12 +10,74 @@ def generate_versions(doc, method):
     if doc.doctype == "Procurement Requests":
         previous_state = doc.workflow_state
 
-        data["changed"].append(["procurement_list", doc.procurement_list, []])  # Empty new data since it's a delete operation
+        pr_details = {
+            "project": doc.project,
+            "work_package": doc.work_package,
+            "owner": doc.owner,
+        }
+
+        data["changed"].append(["procurement_list", doc.procurement_list, []])
+
+        data["changed"].append(["category_list", doc.category_list, []])
+
+        data["changed"].append(["pr_details", pr_details, []])
+
+    elif doc.doctype == "Procurement Orders":
+        previous_state = doc.status
+
+        po_details = {
+            "procurement_request": doc.procurement_request,
+            "project": doc.project,
+            "project_name": doc.project_name,
+            "project_address": doc.project_address,
+            "vendor": doc.vendor,
+            "vendor_name": doc.vendor_name,
+            "vendor_address": doc.vendor_address,
+            "vendor_gst": doc.vendor_gst,
+            "merged": doc.merged,
+            "advance": doc.advance,
+            "loading_charges": doc.loading_charges,
+            "freight_charges": doc.freight_charges,
+            "notes": doc.notes,
+            "owner": doc.owner,
+        }
+
+        data["changed"].append(["order_list", doc.order_list, []])
+
+        data["changed"].append(["po_details", po_details, []])
 
     elif doc.doctype == "Service Requests":
         previous_state = doc.status
 
         data["changed"].append(["service_order_list", doc.service_order_list, []])
+
+        sr_details = {
+            "project" : doc.project,
+            "vendor" : doc.vendor,
+            "notes": doc.notes,
+            "gst": doc.gst,
+            "owner": doc.owner,
+        }
+
+        data["changed"].append(["sr_details", sr_details, []])
+
+        data["changed"].append(["service_category_list", doc.service_category_list, []])
+
+    elif doc.doctype == "Sent Back Category":
+        previous_state = doc.work_flow_state
+
+        sb_details = {
+            "project" : doc.project,
+            "type" : doc.type,
+            "owner": doc.owner,
+            "procurement_request": doc.procurement_request,
+        }
+
+        data["changed"].append(["item_list", doc.item_list, []])
+
+        data["changed"].append(["sb_details", sb_details, []])
+
+        data["changed"].append(["category_list", doc.category_list, []])
 
     elif doc.doctype == "Project Estimates":
         previous_state = ""
@@ -30,6 +92,7 @@ def generate_versions(doc, method):
             "quantity_estimate": doc.quantity_estimate,
             "rate_estimate": doc.rate_estimate,
             "item_tax": doc.item_tax,
+            "owner": doc.owner,
         }
         data["changed"].append(["project_estimate", original_data, []])
 
@@ -54,6 +117,7 @@ def generate_versions(doc, method):
             "mobile_no": doc.mobile_no,
             "email": doc.email,
             "role_profile": doc.role_profile,
+            "owner": doc.owner,
         }
         data["changed"].append(["user_details", original_data, []])
 

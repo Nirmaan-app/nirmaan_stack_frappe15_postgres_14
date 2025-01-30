@@ -34,6 +34,8 @@ export const PurchaseOrder = () => {
 
   const { poId: id } = useParams()
 
+  const [isRedirecting, setIsRedirecting] = useState(false);
+
   const [searchParams] = useSearchParams();
 
   const tab = searchParams.get("tab") || "Approved PO";
@@ -144,15 +146,15 @@ export const PurchaseOrder = () => {
     setRevertDialog((prevState) => !prevState)
   }
 
-  const { updateDoc, error: update_submit_error, loading: update_loading } = useFrappeUpdateDoc()
+  const { updateDoc } = useFrappeUpdateDoc()
 
-  const { createDoc, error: create_submit_error, loading: create_loading } = useFrappeCreateDoc()
+  const { createDoc } = useFrappeCreateDoc()
 
-  const { deleteDoc, error: delete_submit_error, loading: delete_loading } = useFrappeDeleteDoc()
+  const { deleteDoc } = useFrappeDeleteDoc()
 
   const { data: po, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId);
 
-  const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading } = useFrappeGetDocList("Procurement Orders", {
+  const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading, mutate : associated_po_list_mutate } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
     limit: 100000,
   }
@@ -169,7 +171,7 @@ export const PurchaseOrder = () => {
     limit: 1000,
   });
 
-  const { data: poPayments } = useFrappeGetDocList("Project Payments", {
+  const { data: poPayments, isLoading: poPaymentsLoading, error: poPaymentsError } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
     filters: [["document_name", "=", poId]],
     limit: 1000
@@ -220,7 +222,7 @@ export const PurchaseOrder = () => {
           item.project === po?.project &&
           item.vendor === po?.vendor &&
           item.status === "PO Approved" &&
-          item.merged !== "true" &&
+          // item.merged !== "true" &&
           item.name !== poId
         );
         setMergeablePOs(mergeablePOs);
@@ -363,37 +365,48 @@ export const PurchaseOrder = () => {
   }, [editPOTermsDialog]);
 
   const handleMerge = (po) => {
-    const updatedOrderList = po.order_list.list.map((item) => ({
-      ...item,
-      po: po.name,
-    }));
+    let updatedOrderList= po.order_list.list;
+    if(po?.merged !== "true") {
+      updatedOrderList = po.order_list.list.map((item) => ({
+        ...item,
+        po: po.name,
+      }));
+    }
 
     if (orderData) {
       const updatedList = [...orderData.list, ...updatedOrderList];
 
       setOrderData({ list: updatedList })
 
-      setMergedItems((prev) => [...prev, po.name]);
+      setMergedItems((prev) => [...prev, po]);
     }
   };
 
   const handleUnmerge = (po) => {
     if (orderData) {
-      const updatedList = orderData.list.filter(
-        (item) => item.po !== po.name
-      );
+      let updatedList;
+      if(po?.merged === "true") {
+        const associated_merged_pos = associated_po_list?.filter((item) => item.merged === po?.name)?.map(i => i?.name) || [];
+        updatedList = orderData.list.filter(
+          (item) => !associated_merged_pos.includes(item.po)
+        );
+      } else {
+        updatedList = orderData.list.filter(
+          (item) => item.po !== po.name
+        );
+      }
 
       setOrderData({ list: updatedList })
 
       // Remove the unmerged PO from the mergedItems array
-      setMergedItems((prev) => prev.filter((mergedPo) => mergedPo !== po.name));
+      setMergedItems((prev) => prev.filter((mergedPo) => mergedPo?.name !== po.name));
     }
   };
 
   const handleUnmergeAll = () => {
     if (mergedItems.length) {
       const updatedList = orderData.list.filter(
-        (item) => !mergedItems.includes(item.po)
+        (item) => !item.po
       );
 
       setOrderData({ list: updatedList })
@@ -403,80 +416,126 @@ export const PurchaseOrder = () => {
   };
 
   const handleMergePOs = async () => {
+    
     setLoadingFuncName("handleMergePOs");
-    const updatedOrderList = orderData.list.map((item) => {
-      if (!item?.po) {
-        return { ...item, po: po?.name };
-      }
-      return item;
-    });
+
     try {
-      const newDoc = await createDoc("Procurement Orders", {
-        procurement_request: po?.procurement_request,
-        project: po?.project,
-        project_name: po?.project_name,
-        project_address: po?.project_address,
-        vendor: po?.vendor,
-        vendor_name: po?.vendor_name,
-        vendor_address: po?.vendor_address,
-        vendor_gst: po?.vendor_gst,
-        order_list: { list: updatedOrderList },
-        merged: "true",
-      });
-
-      mergedItems.map(async (po) => {
-        try {
-          await updateDoc("Procurement Orders", po, {
-            status: "Merged",
-            merged: newDoc?.name,
-          });
-        } catch (error) {
-          console.error(`Error while merging PO(s)`, error);
+      const sanitizeOrderItems = (items) => items.map(item => 
+        item?.po ? item : {...item, po: po?.name}
+      );
+  
+      const updatedOrderList = sanitizeOrderItems(orderData.list);
+      const freshMergedPos = [
+        ...(mergedItems?.filter(item => item?.merged !== "true") || []), 
+        po
+      ];
+  
+      // 2. Previous Merge Handling
+      const previouslyMergedPos = mergedItems?.filter(item => item?.merged === "true");
+      const mergeHierarchy = previouslyMergedPos?.reduce((acc, curr) => {
+        if (!acc[curr.name]) {
+          acc[curr.name] = associated_po_list
+            ?.filter(item => item.merged === curr.name)
+            ?.map(j => j.name);
         }
-      });
+        return acc;
+      }, {});
 
-      await updateDoc("Procurement Orders", po?.name, {
-        status: "Merged",
-        merged: newDoc?.name,
-      });
+        // ✅ Step 1: Create new Master PO (non-blocking)
+        const newDoc = await createDoc("Procurement Orders", {
+            procurement_request: po?.procurement_request,
+            project: po?.project,
+            project_name: po?.project_name,
+            project_address: po?.project_address,
+            vendor: po?.vendor,
+            vendor_name: po?.vendor_name,
+            vendor_address: po?.vendor_address,
+            vendor_gst: po?.vendor_gst,
+            order_list: { list: updatedOrderList },
+            merged: "true",
+        });
 
-      toast({
-        title: "Success!",
-        description: `Successfully merged PO(s)`,
-        variant: "success",
-      });
+        // 4. Batch Operations
+        const updateOperations = [
+          ...freshMergedPos.map(po => 
+            updateDoc("Procurement Orders", po.name, {
+              status: "Merged",
+              merged: newDoc.name
+            })
+          ),
+          ...Object.values(mergeHierarchy)
+            .flat()
+            .map(poName => 
+              updateDoc("Procurement Orders", poName, {
+                status: "Merged",
+                merged: newDoc.name
+              })
+            ),
+          ...Object.keys(mergeHierarchy).map(key => 
+            deleteDoc("Procurement Orders", key)
+          )
+        ];
 
-      setMergeablePOs([]);
+        // 5. Atomic Execution
+        await Promise.allSettled(updateOperations.map(op => 
+          op.catch(error => ({ status: 'rejected', reason: error }))
+        ));
 
-      toggleMergeConfirmDialog()
+        await associated_po_list_mutate()
 
-      toggleMergeSheet()
+        // ✅ Step 4: Success message & UI updates (Batch State Updates)
+        setMergeablePOs([]);
+        toast({
+            title: "Merge Successful!",
+            description: `${freshMergedPos.length + Object.keys(mergeHierarchy)?.length} POs merged into ${newDoc.name}`,
+            variant: "success",
+        });
+        toggleMergeConfirmDialog();
+        toggleMergeSheet();
 
-      const navigatePOId = newDoc?.name?.replaceAll("/", "&=")
+        // ✅ Step 5: Add redirect overlay, then navigate smoothly
+        setIsRedirecting(true);
 
-      navigate(`/purchase-orders/${navigatePOId}?tab=Approved+PO`);
+        setTimeout(() => {
+            setIsRedirecting(false);
+            navigate(`/purchase-orders/${newDoc?.name.replaceAll("/", "&=")}?tab=Approved%20PO`);
+            window.location.reload();
+        }, 1000);
 
     } catch (error) {
-      console.log("error while creating the master po", error);
+        console.error("Error in merging POs:", error);
+        toast({
+            title: "Error!",
+            description: "Failed to merge POs. Please try again.",
+            variant: "destructive",
+        });
     } finally {
-      setLoadingFuncName("");
+        setLoadingFuncName("");
     }
-  };
+};
+
 
   const handleUnmergePOs = async () => {
     setLoadingFuncName("handleUnmergePOs");
     try {
-      prevMergedPOs.map(async (po) => {
-        try {
-          await updateDoc("Procurement Orders", po?.name, {
-            status: "PO Approved",
-            merged: null,
-          });
-        } catch (error) {
-          console.error(`Error while unmerging PO(s)`, error);
 
-        }
-      });
+      await Promise.all(prevMergedPOs.map(po => updateDoc("Procurement Orders", po?.name, {
+        status: "PO Approved",
+        merged: null,
+      })
+      ))
+
+      // prevMergedPOs.map(async (po) => {
+      //   try {
+      //     await updateDoc("Procurement Orders", po?.name, {
+      //       status: "PO Approved",
+      //       merged: null,
+      //     });
+      //   } catch (error) {
+      //     console.error(`Error while unmerging PO(s)`, error);
+
+      //   }
+      // });
 
       await deleteDoc("Procurement Orders", po?.name);
 
@@ -488,7 +547,13 @@ export const PurchaseOrder = () => {
         variant: "success",
       });
 
-      navigate("/purchase-orders");
+      setIsRedirecting(true); // Show overlay
+
+      setTimeout(() => {
+        setIsRedirecting(false);
+        navigate(`/purchase-orders`);
+      }, 1000); // Small delay ensures UI has time to update
+
     } catch (error) {
       console.log("error while unmerging po's", error);
     } finally {
@@ -688,6 +753,17 @@ export const PurchaseOrder = () => {
     }
   };
 
+  const handleUnAmendAll = () => {
+      setOrderData(po?.order_list ? JSON.parse(po?.order_list) : { list: [] })
+      setStack([])
+  }
+
+  useEffect(() => {
+    if(!amendPOSheet && stack.length) {
+      handleUnAmendAll()
+    }
+  }, [amendPOSheet])
+
   const handleSave = (itemName: string, newQuantity: string, selectedMake: any) => {
     let curRequest = orderData?.list;
 
@@ -823,13 +899,26 @@ export const PurchaseOrder = () => {
 
   const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
+  if(isRedirecting) {
+
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className="bg-white p-6 rounded-lg shadow-lg text-center">
+          <p className="text-lg font-semibold">Redirecting... Please wait</p>
+        </div>
+      </div>
+    )
+
+  } 
+
   if (
     poLoading ||
     // vendor_address_loading ||
     // project_address_loading ||
     usersListLoading ||
     associated_po_list_loading ||
-    prLoading
+    prLoading || 
+    poPaymentsLoading
   )
     return (
       <div className="flex items-center h-[90vh] w-full justify-center">
@@ -842,10 +931,11 @@ export const PurchaseOrder = () => {
     // project_address_error || 
     usersListError || 
     prError || 
-    poError
+    poError ||
+    poPaymentsError
   )
     return <h1>Error</h1>;
-  if (tab === "Approved PO" && !["PO Approved", "Merged"].includes(po?.status))
+  if (tab === "Approved PO" && !["PO Approved"].includes(po?.status))
     return (
       <div className="flex items-center justify-center h-[90vh]">
         <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -1022,7 +1112,7 @@ export const PurchaseOrder = () => {
                                     </ul>
                                   </TableCell>
                                   <TableCell>
-                                    {!mergedItems.includes(po.name) ? (
+                                    {!mergedItems.some(mergedItem => mergedItem?.name === po.name) ? (
                                       isMergeDisabled ? (
                                         <HoverCard>
                                           <HoverCardTrigger>
@@ -1646,7 +1736,7 @@ export const PurchaseOrder = () => {
                 <Sheet>
                   <SheetTrigger asChild>
                     <Button className="flex items-center gap-1">
-                      <Send className="h-4 w-4 mr-2" />
+                      <Send className="h-4 w-4" />
                       Dispatch PO
                     </Button>
                   </SheetTrigger>
@@ -2077,15 +2167,16 @@ export const PurchaseOrder = () => {
 
       {/* Unmerge */}
       <div className="flex items-center justify-between">
-        {po?.merged === "true" &&
+        {po?.merged === "true" ?
+        (
           po?.status === "PO Approved" && !(poPayments?.length > 0) ? (
           <AlertDialog open={unMergeDialog} onOpenChange={toggleUnMergeDialog}>
             <AlertDialogTrigger asChild>
               <Button
                 variant={"outline"}
-                className="flex border-primary items-center gap-1"
+                className="flex border-primary items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
               >
-                <Split className="h-4 w-4 mr-1" />
+                <Split className="h-4 w-4" />
                 Unmerge
               </Button>
             </AlertDialogTrigger>
@@ -2174,9 +2265,9 @@ export const PurchaseOrder = () => {
               <Button
                 disabled
                 variant={"outline"}
-                className="flex border-primary items-center gap-1"
+                className="flex border-primary items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
               >
-                <Split className="h-4 w-4 mr-1" />
+                <Split className="h-4 w-4" />
                 Unmerge
               </Button>
               </HoverCardTrigger>
@@ -2190,13 +2281,15 @@ export const PurchaseOrder = () => {
                 </div>
               </HoverCardContent>
             </HoverCard>
-        )}
+        )) 
+        : <div />
+      }
 
         {/* Amend PO */}
-        <div className="flex gap-4 items-center justify-end">
+        <div className="flex gap-2 items-center justify-end">
           {["PO Approved"].includes(po?.status) ? (
             po?.merged !== "true" ? (
-              <Button onClick={toggleAmendPOSheet} variant={"outline"} className="border-primary text-primary flex items-center gap-1">
+              <Button onClick={toggleAmendPOSheet} variant={"outline"} className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8">
                 <PencilRuler className="w-4 h-4" />
                 Amend PO
               </Button>
@@ -2206,7 +2299,7 @@ export const PurchaseOrder = () => {
                   <Button
                     disabled
                     variant={"outline"}
-                    className="border-primary text-primary flex items-center gap-1"
+                    className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
                   >
                     <PencilRuler className="w-4 h-4" />
                     Amend PO
@@ -2230,7 +2323,7 @@ export const PurchaseOrder = () => {
                 <Button
                   disabled
                   variant={"outline"}
-                  className="border-primary text-primary flex items-center gap-1"
+                  className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
                 >
                   <PencilRuler className="w-4 h-4" />
                   Amend PO
@@ -2579,14 +2672,14 @@ export const PurchaseOrder = () => {
           {(["PO Approved"].includes(po?.status) && !(poPayments?.length > 0)) ? (
             //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
             po?.merged !== "true" ? (
-              <Button onClick={toggleCancelPODialog} variant={"outline"} className="border-primary text-primary flex items-center gap-1">
+              <Button onClick={toggleCancelPODialog} variant={"outline"} className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8">
                 <X className="w-4 h-4" />
                 Cancel PO
               </Button>
             ) : (
               <HoverCard>
                 <HoverCardTrigger>
-                  <Button disabled variant={"outline"} className="border-primary text-primary flex items-center gap-1">
+                  <Button disabled variant={"outline"} className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8">
                     <X className="w-4 h-4" />
                     Cancel PO
                   </Button>
@@ -2606,7 +2699,7 @@ export const PurchaseOrder = () => {
           ) : (
             <HoverCard>
               <HoverCardTrigger>
-                <Button disabled variant={"outline"} className="border-primary text-primary flex items-center gap-1">
+                <Button disabled variant={"outline"} className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8">
                   <X className="w-4 h-4" />
                   Cancel PO
                 </Button>
@@ -2795,7 +2888,7 @@ export const PurchaseOrder = () => {
                     <tr className="border-t border-black">
                       <th
                         scope="col"
-                        className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider"
+                        className="py-3 px-2 text-left text-xs font-bold text-gray-800 tracking-wider"
                       >
                         S. No.
                       </th>
@@ -2898,16 +2991,18 @@ export const PurchaseOrder = () => {
                             } page-break-inside-avoid ${index === 15 ? "page-break-before" : ""
                             }`}
                         >
-                          <td className="py-2 text-sm whitespace-nowrap w-[7%]">
+                          <td className="py-2 px-2 text-sm whitespace-nowrap w-[7%]">
                             {index + 1}.
                           </td>
-                          <td className="py-2 text-sm whitespace-nowrap text-wrap">
-                            {item.item}
+                          <td className="py-2 text-xs whitespace-nowrap text-wrap">
+                            {item.item?.toUpperCase()}
                             {item?.makes?.list?.length > 0 && (
-  <p className="text-xs italic font-semibold text-gray-500">
-    - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
-  </p>
-)}{item.comment && includeComments && (
+                              <p className="text-xs italic font-semibold text-gray-500">
+                                - {item.makes.list.find((i) => i?.enabled === "true")?.make?.toLowerCase()
+                                      ?.replace(/\b\w/g, (char) => char.toUpperCase()) || "No Make Specified"}
+                              </p>
+                            )}
+                            {item.comment && includeComments && (
                               <div className="flex gap-1 items-start block p-1">
                                 <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
                                 <div className="text-xs text-gray-400">
@@ -2955,7 +3050,7 @@ export const PurchaseOrder = () => {
                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">
                           -
                         </td>
-                        <td className=" py-2 text-sm whitespace-nowrap">
+                        <td className=" py-2 text-xs whitespace-nowrap">
                           LOADING CHARGES
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
@@ -2982,7 +3077,7 @@ export const PurchaseOrder = () => {
                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">
                           -
                         </td>
-                        <td className=" py-2 text-sm whitespace-nowrap">
+                        <td className=" py-2 text-xs whitespace-nowrap">
                           FREIGHT CHARGES
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">

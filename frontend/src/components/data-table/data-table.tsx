@@ -70,6 +70,7 @@ export function DataTable<TData, TValue>({
   approvedQuotesVendors = undefined,
   itemOptions = undefined,
   wpOptions = undefined,
+  projectStatusOptions = undefined,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([
     {
@@ -357,6 +358,16 @@ export function DataTable<TData, TValue>({
                                 column={table.getColumn("role_profile")}
                                 title={"Role"}
                                 options={roleTypeOptions || []}
+                              />
+                            ) : null)}
+
+                        {projectStatusOptions &&
+                            header.id === table.getColumn("status")?.id &&
+                            (table.getColumn("status") ? (
+                              <DataTableFacetedFilter
+                                column={table.getColumn("status")}
+                                title={"Status"}
+                                options={projectStatusOptions || []}
                               />
                             ) : null)}
 

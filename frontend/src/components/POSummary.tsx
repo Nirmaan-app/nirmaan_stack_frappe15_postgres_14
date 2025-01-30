@@ -437,7 +437,7 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   </th>
                 </tr>
                 <tr className="border-t border-black">
-                  <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
+                  <th scope="col" className="py-3 px-2 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
                   <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                   <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
@@ -476,10 +476,15 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   )).values()].length
                   return (
                     <tr key={index} className={`${(!parseFloat(po_data?.loading_charges) && !parseFloat(po_data?.freight_charges) && index === length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
-                      <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                      <td className="py-2 text-sm whitespace-nowrap text-wrap">
-                        {item.item}
-                        <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
+                      <td className="py-2 px-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
+                      <td className="py-2 text-xs whitespace-nowrap text-wrap">
+                        {item.item?.toUpperCase()}
+                        {item?.makes?.list?.length > 0 && (
+                              <p className="text-xs italic font-semibold text-gray-500">
+                                - {item.makes.list.find((i) => i?.enabled === "true")?.make?.toLowerCase()
+                                      ?.replace(/\b\w/g, (char) => char.toUpperCase()) || "No Make Specified"}
+                              </p>
+                            )}
                       </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
@@ -505,7 +510,7 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                 {parseFloat(po_data?.loading_charges || 0) ?
                   <tr className={`${!parseFloat(po_data?.freight_charges) && "border-b border-black"}`}>
                     <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
-                    <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
+                    <td className=" py-2 text-xs whitespace-nowrap">LOADING CHARGES</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(po_data?.loading_charges)}</td>
@@ -518,7 +523,7 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                 {parseFloat(po_data?.freight_charges || 0) ?
                   <tr className={`border-b border-black`}>
                     <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
-                    <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
+                    <td className=" py-2 text-xs whitespace-nowrap">FREIGHT CHARGES</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(po_data?.freight_charges)}</td>
