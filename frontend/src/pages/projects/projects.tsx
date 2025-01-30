@@ -257,6 +257,9 @@ const {
             </div>
           );
         },
+        filterFn: (row, id, value) => {
+          return value.includes(row.getValue(id));
+        },
       },
       {
         accessorKey: "project_name",
@@ -402,6 +405,12 @@ const {
     [data, projectStatusCounts, project_estimates, projectPayments, po_item_data, serviceRequestsData]
   );
 
+  const statusOptions = [{value : "Created", label : "Created"},
+    {value : "WIP", label : "WIP"},
+    {value : "Completed", label : "Completed"},
+    {value : "Halted", label : "Halted"},
+   ]
+
   // console.log("projectStatusCounts", projectStatusCounts)
 
   return (
@@ -472,6 +481,7 @@ const {
           <DataTable
             columns={columns}
             data={data || []}
+            projectStatusOptions={statusOptions}
             projectTypeOptions={projectTypeOptions}
           />
         )}

@@ -184,23 +184,13 @@ const columns: TableColumnsType<DataType> = [
 const ApproveSentBack = () => {
 
     const { sbId: id } = useParams<{ sbId: string }>()
-    const [project, setProject] = useState()
-    const [owner, setOwner] = useState()
     const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc<SentBackCategoryType>("Sent Back Category", id);
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", sb?.project, sb?.project ? undefined : null);
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
-
-    useEffect(() => {
-        if (sb) {
-            setProject(sb?.project)
-            setOwner(sb?.modified_by)
-        }
-    }, [sb])
 
     const navigate = useNavigate()
 
@@ -210,8 +200,8 @@ const ApproveSentBack = () => {
         }
     }
 
-    if (sb_loading || project_loading || owner_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-    if (sb_error || project_error || owner_error) return <h1>Error</h1>
+    if (sb_loading || project_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (sb_error || project_error || usersListError) return <h1>Error</h1>
     if (!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
         <div className="flex items-center justify-center h-screen">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -241,24 +231,23 @@ const ApproveSentBack = () => {
         </div>
     );
     return (
-        <ApproveSentBackPage sb_data={sb} project_data={project_data} usersList={usersList} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
+        <ApproveSentBackPage sb_data={sb} project_data={project_data} usersList={usersList} sent_back_list_mutate={sb_mutate} />
     )
 }
 
 interface ApproveSentBackPageProps {
     sb_data: SentBackCategoryType | undefined
     project_data: ProjectsType | undefined
-    owner_data: NirmaanUsersType | undefined | { full_name: String }
     sent_back_list_mutate: any
     usersList?: any
 }
 
 
-const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
+const ApproveSentBackPage = ({ sb_data, project_data, usersList, sent_back_list_mutate }: ApproveSentBackPageProps) => {
 
     const navigate = useNavigate()
 
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
+    const { data: vendor_list } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst', 'vendor_type'],
             filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
@@ -377,7 +366,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
             });
             setData(newData)
         }
-    }, [orderData, vendor_list, quote_data]);
+    }, [orderData, vendor_list, quote_data, quotation_request_list]);
 
     const [selectedItems, setSelectedItems] = useState()
 
