@@ -172,12 +172,18 @@ doc_events = {
     "Procurement Orders": {
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_orders.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
-        "on_trash": "nirmaan_stack.integrations.controllers.procurement_orders.on_trash"
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.procurement_orders.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        ]
     },
     "Sent Back Category": {
         "after_insert": "nirmaan_stack.integrations.controllers.sent_back_category.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.sent_back_category.on_update",
-        "on_trash": "nirmaan_stack.integrations.controllers.sent_back_category.on_trash"
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.sent_back_category.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        ]
     },
     "Version": {
         "after_insert": [

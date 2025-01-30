@@ -30,6 +30,8 @@ export const ApprovedSR = () => {
 
     const { srId: id } = useParams()
 
+    const [isRedirecting, setIsRedirecting] = useState(false)
+
     const navigate = useNavigate()
 
     const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
@@ -171,20 +173,22 @@ export const ApprovedSR = () => {
     };
 
     const handleNotesSave = async () => {
-        let updatedData = {}
-
-        if (notes?.length) {
-            updatedData = { ...updatedData, notes: { list: notes } }
-        }
-        if (service_request?.gst !== gstEnabled?.toString()) {
-            updatedData = { ...updatedData, gst: gstEnabled?.toString() }
-        }
-
-        // if(parseFloat(service_request?.advance || 0) !== advance) {
-        //     updatedData = {...updatedData, advance: advance}
-        // }
 
         try {
+
+            let updatedData = {}
+
+            if (notes?.length) {
+                updatedData = { ...updatedData, notes: { list: notes } }
+            }
+            if (service_request?.gst !== gstEnabled?.toString()) {
+                updatedData = { ...updatedData, gst: gstEnabled?.toString() }
+            }
+        
+            // if(parseFloat(service_request?.advance || 0) !== advance) {
+            //     updatedData = {...updatedData, advance: advance}
+            // }
+
             await updateDoc("Service Requests", orderData?.name, updatedData)
 
             // console.log("updatedData", data)
@@ -215,6 +219,10 @@ export const ApprovedSR = () => {
                 status : "Edit"
             })
 
+            toggleAmendDialog()
+
+            setIsRedirecting(true);
+
             toast({
                 title: "Success!",
                 description: `Now, you can start Amending the Service Request!`,
@@ -234,6 +242,16 @@ export const ApprovedSR = () => {
             })
         }
     }
+
+    if(isRedirecting) {
+        return (
+          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+            <div className="bg-white p-6 rounded-lg shadow-lg text-center">
+              <p className="text-lg font-semibold">Redirecting... Please wait</p>
+            </div>
+          </div>
+        )
+      } 
 
 
     if (
