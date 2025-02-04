@@ -117,7 +117,7 @@ const OrderPaymentSummary = () => {
 
     const calculateTotals = () => {
         let total = 0;
-        let totalWithGST = 0;
+        let totalGst = 0;
 
         if (isPO) {
             JSON.parse(documentData?.order_list || "[]")?.list?.forEach((item) => {
@@ -128,10 +128,10 @@ const OrderPaymentSummary = () => {
                 const gstAmount = amount * (tax / 100);
 
                 total += amount;
-                totalWithGST += amount + gstAmount;
+                totalGst += gstAmount;
             });
             total += loadingCharges + freightCharges;
-            totalWithGST += loadingCharges * 0.18 + freightCharges * 0.18;
+            totalGst += loadingCharges * 0.18 + freightCharges * 0.18;
         } else {
             JSON.parse(documentData?.service_order_list).list.forEach((item) => {
                 const price = parseFloat(item?.rate || 0);
@@ -139,12 +139,13 @@ const OrderPaymentSummary = () => {
                 total += price * quantity;
             });
 
-            totalWithGST = total * 1.18;
+            totalGst = total * 0.18;
         }
 
         return {
             total,
-            totalWithGST,
+            totalWithGST : total + totalGst,
+            totalGst
         };
     };
 
@@ -387,7 +388,7 @@ const OrderPaymentSummary = () => {
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(totals.totalWithGST)}</span>
+                                    <span className="">{formatToIndianRupee(Math.floor(totals.totalWithGST))}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
@@ -1034,7 +1035,7 @@ const OrderPaymentSummary = () => {
                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                       <div className="ml-4">
                         {formatToIndianRupee(
-                          totals.totalWithGST
+                          totals.totalGst
                         )}
                       </div>
                       <div className="ml-4">
