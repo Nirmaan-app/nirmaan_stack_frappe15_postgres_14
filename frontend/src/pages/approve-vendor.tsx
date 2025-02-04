@@ -197,23 +197,13 @@ const columns: TableColumnsType<DataType> = [
 const ApproveVendor = () => {
 
     const { prId: orderId } = useParams<{ prId: string }>()
-    const [project, setProject] = useState()
-    const [owner, setOwner] = useState()
     const { data: pr, isLoading: pr_loading, error: pr_error, mutate: pr_mutate } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", orderId);
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", pr?.project, pr?.project ? undefined : null);
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
-
-    useEffect(() => {
-        if (pr) {
-            setProject(pr?.project)
-            setOwner(pr?.modified_by)
-        }
-    }, [pr])
 
     const navigate = useNavigate()
 
@@ -224,8 +214,8 @@ const ApproveVendor = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-    if (pr_error || project_error || owner_error) return <h1>Error</h1>
+    if (pr_loading || project_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (pr_error || project_error || usersListError) return <h1>Error</h1>
 
     if (!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (
         <div className="flex items-center justify-center h-screen">
@@ -256,19 +246,18 @@ const ApproveVendor = () => {
         </div>
     );
     return (
-        <ApproveVendorPage pr_data={pr} project_data={project_data} usersList={usersList} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
+        <ApproveVendorPage pr_data={pr} project_data={project_data} usersList={usersList} procurement_list_mutate={pr_mutate} />
     )
 }
 
 interface ApproveVendorPageProps {
     pr_data: ProcurementRequestsType | undefined
     project_data: ProjectsType | undefined
-    owner_data: NirmaanUsersType | undefined | { full_name: String }
     procurement_list_mutate: any
     usersList?: any
 }
 
-export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate, usersList }: ApproveVendorPageProps) => {
+export const ApproveVendorPage = ({ pr_data, project_data, procurement_list_mutate, usersList }: ApproveVendorPageProps) => {
 
     const navigate = useNavigate()
 
@@ -496,7 +485,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             }
         });
         setData(newData)
-    }, [orderData, selectedVendors, quote_data]);
+    }, [orderData, selectedVendors, quote_data, vendor_list, quotation_request_list]);
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {

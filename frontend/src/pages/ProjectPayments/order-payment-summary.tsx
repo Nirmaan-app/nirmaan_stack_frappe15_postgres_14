@@ -32,9 +32,9 @@ const OrderPaymentSummary = () => {
 
     const [warning, setWarning] = useState("");
     
-    const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
+    const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
 
-    const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+    const { call } = useFrappePostCall('frappe.client.set_value')
 
     // const [vendorAddress, setVendorAddress] = useState<string | null>(null);
     // const [projectAddress, setProjectAddress] = useState<string | null>(null);
@@ -70,9 +70,9 @@ const OrderPaymentSummary = () => {
 
     const endpoint = isPO ? "Procurement Orders" : "Service Requests";
 
-    const { data: documentData, isLoading, error } = useFrappeGetDoc(endpoint, poId);
+    const { data: documentData, isLoading, error } = useFrappeGetDoc(endpoint, poId, poId ? undefined : null);
 
-    const {data : prData} = useFrappeGetDoc("Procurement Requests", documentData?.procurement_request, documentData?.procurement_request ? `Procurement Requests ${documentData?.procurement_request}` : null)
+    const {data : prData, isLoading: prData_loading, error: prData_error} = useFrappeGetDoc("Procurement Requests", documentData?.procurement_request, documentData?.procurement_request ? `Procurement Requests ${documentData?.procurement_request}` : null)
 
     // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
     //         {
@@ -82,9 +82,9 @@ const OrderPaymentSummary = () => {
     //         "Address"
     //     );
 
-    const {data : vendorData} = useFrappeGetDoc("Vendors", documentData?.vendor, documentData ? `Vendors ${documentData?.vendor}` : null)
+    const {data : vendorData, isLoading: vendorData_loading, error: vendorData_error} = useFrappeGetDoc("Vendors", documentData?.vendor, documentData ? `Vendors ${documentData?.vendor}` : null)
 
-    const {data : projectData} = useFrappeGetDoc("Projects", documentData?.project, documentData ? `Projects ${documentData?.project}` : null)
+    const {data : projectData, isLoading: projectData_loading, error: projectData_error} = useFrappeGetDoc("Projects", documentData?.project, documentData ? `Projects ${documentData?.project}` : null)
 
     const {data : projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate} = useFrappeGetDocList("Project Payments", {
             fields: ["*"],
@@ -117,10 +117,10 @@ const OrderPaymentSummary = () => {
 
     const calculateTotals = () => {
         let total = 0;
-        let totalWithGST = 0;
+        let totalGst = 0;
 
         if (isPO) {
-            JSON.parse(documentData?.order_list).list.forEach((item) => {
+            JSON.parse(documentData?.order_list || "[]")?.list?.forEach((item) => {
                 const price = parseFloat(item?.quote || 0);
                 const quantity = parseFloat(item?.quantity || 1);
                 const tax = parseFloat(item?.tax || 0);
@@ -128,10 +128,10 @@ const OrderPaymentSummary = () => {
                 const gstAmount = amount * (tax / 100);
 
                 total += amount;
-                totalWithGST += amount + gstAmount;
+                totalGst += gstAmount;
             });
             total += loadingCharges + freightCharges;
-            totalWithGST += loadingCharges * 0.18 + freightCharges * 0.18;
+            totalGst += loadingCharges * 0.18 + freightCharges * 0.18;
         } else {
             JSON.parse(documentData?.service_order_list).list.forEach((item) => {
                 const price = parseFloat(item?.rate || 0);
@@ -139,12 +139,13 @@ const OrderPaymentSummary = () => {
                 total += price * quantity;
             });
 
-            totalWithGST = total * 1.18;
+            totalGst = total * 0.18;
         }
 
         return {
             total,
-            totalWithGST,
+            totalWithGST : total + totalGst,
+            totalGst
         };
     };
 
@@ -176,9 +177,6 @@ const OrderPaymentSummary = () => {
     content: () => componentRef.current,
     documentTitle: `${endpoint}_${id}`,
 });
-
-    if (isLoading) return <h1>Loading...</h1>;
-    if (error) return <h1>Error loading {endpoint} data.</h1>;
 
     const totals = calculateTotals();
 
@@ -278,7 +276,17 @@ const OrderPaymentSummary = () => {
         validateAmount(amount);
       };
 
-      console.log("date", newPayment.payment_date)
+      if (isLoading || prData_loading ||
+        vendorData_loading || projectData_loading || projectPaymentsLoading ) {
+        return (
+          <div className="flex items-center h-[90vh] w-full justify-center">
+            <TailSpin color={"red"} />{" "}
+          </div>
+      )
+
+      } 
+  
+      if (error || prData_error || vendorData_error || projectData_error || projectPaymentsError) return <h1>Error loading {endpoint} data.</h1>;
 
     return (
         <div className="flex flex-col gap-4">
@@ -380,7 +388,7 @@ const OrderPaymentSummary = () => {
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(totals.totalWithGST)}</span>
+                                    <span className="">{formatToIndianRupee(Math.floor(totals.totalWithGST))}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
@@ -788,7 +796,7 @@ const OrderPaymentSummary = () => {
                   <tr className="border-t border-black">
                     <th
                       scope="col"
-                      className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider"
+                      className="py-3 px-2 text-left text-xs font-bold text-gray-800 tracking-wider"
                     >
                       S. No.
                     </th>
@@ -891,16 +899,18 @@ const OrderPaymentSummary = () => {
                           } page-break-inside-avoid ${index === 15 ? "page-break-before" : ""
                           }`}
                       >
-                        <td className="py-2 text-sm whitespace-nowrap w-[7%]">
+                        <td className="py-2 px-2 text-sm whitespace-nowrap w-[7%]">
                           {index + 1}.
                         </td>
-                        <td className="py-2 text-sm whitespace-nowrap text-wrap">
-                          {item.item}
-                          {item?.makes?.list?.length > 0 && (
-                            <p className="text-xs italic font-semibold text-gray-500">
-                              - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
-                            </p>
-                            )}{item.comment && (
+                        <td className="py-2 text-xs whitespace-nowrap text-wrap">
+                            {item.item?.toUpperCase()}
+                            {item?.makes?.list?.length > 0 && (
+                              <p className="text-xs italic font-semibold text-gray-500">
+                                - {item.makes.list.find((i) => i?.enabled === "true")?.make?.toLowerCase()
+                                      ?.replace(/\b\w/g, (char) => char.toUpperCase()) || "No Make Specified"}
+                              </p>
+                            )}
+                            {item.comment && (
                             <div className="flex gap-1 items-start block p-1">
                               <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
                               <div className="text-xs text-gray-400">
@@ -948,7 +958,7 @@ const OrderPaymentSummary = () => {
                       <td className="py-2 text-sm whitespace-nowrap w-[7%]">
                         -
                       </td>
-                      <td className=" py-2 text-sm whitespace-nowrap">
+                      <td className=" py-2 text-xs whitespace-nowrap">
                         LOADING CHARGES
                       </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">
@@ -975,7 +985,7 @@ const OrderPaymentSummary = () => {
                       <td className="py-2 text-sm whitespace-nowrap w-[7%]">
                         -
                       </td>
-                      <td className=" py-2 text-sm whitespace-nowrap">
+                      <td className=" py-2 text-xs whitespace-nowrap">
                         FREIGHT CHARGES
                       </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">
@@ -1025,7 +1035,7 @@ const OrderPaymentSummary = () => {
                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                       <div className="ml-4">
                         {formatToIndianRupee(
-                          totals.totalWithGST
+                          totals.totalGst
                         )}
                       </div>
                       <div className="ml-4">

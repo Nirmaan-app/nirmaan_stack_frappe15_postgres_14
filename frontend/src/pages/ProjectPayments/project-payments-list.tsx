@@ -164,6 +164,8 @@ export const ProjectPaymentsList = () => {
         if (type === "Purchase Order") {
             let total = 0;
             let totalWithTax = 0;
+            const loading_charges = parseFloat(order?.loading_charges || 0)
+            const freight_charges = parseFloat(order?.freight_charges || 0)
             const orderData = order.order_list;
             orderData?.list.forEach((item) => {
                 const price = parseFloat(item?.quote || 0);
@@ -172,6 +174,9 @@ export const ProjectPaymentsList = () => {
                 totalWithTax += price * quantity * (1 + tax / 100);
                 total += price * quantity;
             });
+
+            total += loading_charges + freight_charges
+            totalWithTax += loading_charges * 1.18 + freight_charges * 1.18
             return {total, totalWithTax};
         }
         if (type === "Service Order") {

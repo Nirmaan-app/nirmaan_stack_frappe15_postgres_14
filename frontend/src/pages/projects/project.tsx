@@ -1141,9 +1141,14 @@ const ProjectView = ({
     let total: number = 0;
     let totalWithGST: number = 0;
 
-    const orderData = po_data_for_posummary?.find(
+    const po = po_data_for_posummary?.find(
       (item) => item.name === order_id
-    )?.order_list;
+    )
+
+    const loading_charges = parseFloat(po?.loading_charges || 0)
+    const freight_charges = parseFloat(po?.freight_charges || 0)
+
+    const orderData = po?.order_list;
 
     orderData?.list.map((item) => {
       const price = parseFloat(item?.quote) || 0;
@@ -1155,6 +1160,9 @@ const ProjectView = ({
       const gstAmount = (price * gst) / 100;
       totalWithGST += (price + gstAmount) * quantity;
     });
+
+    total += loading_charges + freight_charges
+    totalWithGST += loading_charges * 1.18 + freight_charges * 1.18
 
     return {
       totalWithoutGST: total,
@@ -2197,16 +2205,14 @@ const ProjectView = ({
 
       {activePage === "prsummary" && (
         <div>
-          <Card className="flex border border-gray-100 rounded-lg p-4">
-            <CardContent className="w-full flex flex-row items-center justify-around">
-              {/* <CardHeader className=" w-full"> */}
+          <Card className="py-4 max-sm:py-2">
+            <CardContent className="w-full flex flex-row items-center justify-around max-sm:justify-between py-2">
               {Object.entries(statusCounts)?.map(([status, count]) => (
-                <div className="flex items-center gap-1 pt-3">
-                  <h3 className="font-semibold">{status}: </h3>
-                  <p className="italic">{count}</p>
+                <div>
+                  <span className="font-semibold">{status}: </span>
+                  <p className="italic inline-block">{count}</p>
                 </div>
               ))}
-              {/* </CardHeader> */}
             </CardContent>
           </Card>
           {prData_loading ? (

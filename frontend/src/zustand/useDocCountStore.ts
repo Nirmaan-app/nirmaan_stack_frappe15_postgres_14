@@ -163,10 +163,10 @@ export const useDocCountStore = create<StoreState>()(
                 }
             },
             updateSRCounts : (srData, admin) => {
-                const selectedSRCount = srData?.filter((sr) => ["Vendor Selected", "Edit"].includes(sr?.status))?.length
+                const selectedSRCount = srData?.filter((sr) => ["Vendor Selected"].includes(sr?.status))?.length
                 const approvedSRCount = srData?.filter((sr) => sr?.status === "Approved")?.length
                 const allSRCount = srData?.length
-                const pendingSRCount = srData?.filter((sr) => !["Vendor Selected", "Approved", "Edit", "Amendment"].includes(sr?.status))?.length
+                const pendingSRCount = srData?.filter((sr) => !["Vendor Selected", "Approved", "Amendment"].includes(sr?.status))?.length
 
                 const amendedSRCount = srData?.filter((sr) => sr?.status === "Amendment")?.length
 
