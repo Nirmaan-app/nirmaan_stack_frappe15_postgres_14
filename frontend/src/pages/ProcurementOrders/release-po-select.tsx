@@ -70,7 +70,12 @@ export const ReleasePOSelect = () => {
         let total: number = 0;
         let totalWithGST: number = 0;
 
-        const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
+        const po = procurement_order_list?.find(item => item.name === order_id)
+
+        const loading_charges = parseFloat(po?.loading_charges || 0)
+        const freight_charges = parseFloat(po?.freight_charges || 0)
+
+        const orderData = po?.order_list;
 
         orderData?.list.map((item) => {
             const price = parseFloat(item?.quote) || 0;
@@ -82,6 +87,9 @@ export const ReleasePOSelect = () => {
             const gstAmount = (price * gst) / 100;
             totalWithGST += (price + gstAmount) * quantity;
         });
+
+        total += loading_charges + freight_charges
+        totalWithGST += loading_charges * 1.18 + freight_charges * 1.18
 
         return {
             totalWithoutGST: total,
