@@ -218,7 +218,7 @@ const ApproveVendor = () => {
     if (pr_error || project_error || usersListError) return <h1>Error</h1>
 
     if (!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (
-        <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!

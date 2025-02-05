@@ -363,7 +363,7 @@ export const MainLayout = () => {
                           </BreadcrumbList>
                         </Breadcrumb> */}
               <Dropdown overlay={menu} trigger={["click"]}>
-                <div className="text-sm hover:text-gray-500">
+                <div className="text-sm max-sm:text-xs hover:text-gray-500">
                   {currentRoute}
                   {locationsPaths?.length !== 0 && (
                     <img className="inline-block ml-1 mb-1" src={svg} />
