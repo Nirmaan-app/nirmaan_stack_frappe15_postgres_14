@@ -1,5 +1,5 @@
-import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ArrowLeft, ArrowLeftToLine, Building, Calendar, CheckIcon, CirclePlus, Edit, Eye, MapPin, MessageCircleMore, NotebookPen, Package, PencilIcon, PencilRuler, Printer, ReceiptIndianRupee, Save, Trash, Undo2, User } from "lucide-react";
+import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { ArrowLeft, ArrowLeftToLine, Building, Calendar, CheckIcon, CirclePlus, Edit, Eye, MapPin, MessageCircleMore, NotebookPen, Package, Paperclip, PencilIcon, PencilRuler, Printer, ReceiptIndianRupee, Save, SquarePlus, Trash, Undo2, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
@@ -23,12 +23,23 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "../ui/sheet";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { AddressView } from "@/components/address-view";
+import { formatDate } from "@/utils/FormatDate";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { debounce } from "lodash";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger } from "../ui/alert-dialog";
 
 // const { Sider, Content } = Layout;
 
-export const ApprovedSR = () => {
+interface ApprovedSRProps {
+    summaryPage?: boolean;
+    accountsPage?: boolean;
+}
 
-    const { srId: id } = useParams()
+export const ApprovedSR = ({summaryPage = false, accountsPage = false} : ApprovedSRProps) => {
+
+    const params = useParams();
+  
+  const id = accountsPage ? params.id : params.srId;
 
     const [isRedirecting, setIsRedirecting] = useState(false)
 
@@ -57,11 +68,36 @@ export const ApprovedSR = () => {
         setEditSrTermsDialog((prevState) => !prevState)
     }
 
-    const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc("Vendors", orderData?.vendor, orderData?.vendor ? `Vendors ${orderData?.vendor}` : null)
+    const [warning, setWarning] = useState("");
+    
+    const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
 
-    const { data: project, isLoading: project_loading } = useFrappeGetDoc("Projects", orderData?.project, orderData?.project ? `Projects ${orderData?.project}` : null)
+    const { call } = useFrappePostCall('frappe.client.set_value')
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList("Project Payments", {
+    const [newPaymentDialog, setNewPaymentDialog] = useState(false);
+    
+    const toggleNewPaymentDialog = () => {
+        setNewPaymentDialog((prevState) => !prevState);
+    };
+
+    const [newPayment, setNewPayment] = useState({
+            amount: "",
+            payment_date: "",
+            utr: "",
+            tds: ""
+    });
+    
+    const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+
+    const handleFileChange = (event) => {
+        setPaymentScreenshot(event.target.files[0]);
+    };
+
+    const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
+
+    const { data: project, isLoading: project_loading } = useFrappeGetDoc("Projects", service_request?.project, service_request?.project ? `Projects ${service_request?.project}` : null)
+
+    const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
         filters: [["document_name", "=", id]],
         limit: 100
@@ -121,7 +157,11 @@ export const ApprovedSR = () => {
 
     // }, [orderData, address_list, project, service_vendor]);
 
+    
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
+
+    const {createDoc, loading: createLoading} = useFrappeCreateDoc()
+
     const componentRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
@@ -178,9 +218,8 @@ export const ApprovedSR = () => {
 
             let updatedData = {}
 
-            if (notes?.length) {
-                updatedData = { ...updatedData, notes: { list: notes } }
-            }
+            updatedData = { ...updatedData, notes: { list: notes } }
+
             if (service_request?.gst !== gstEnabled?.toString()) {
                 updatedData = { ...updatedData, gst: gstEnabled?.toString() }
             }
@@ -243,6 +282,95 @@ export const ApprovedSR = () => {
         }
     }
 
+    const AddPayment = async () => {
+        try {
+
+            const res = await createDoc("Project Payments", {
+                document_type: "Service Requests",
+                document_name: id,
+                project: service_request?.project,
+                vendor: service_request?.vendor,
+                utr: newPayment?.utr,
+                amount: newPayment?.amount,
+                tds: newPayment?.tds,
+                payment_date: newPayment?.payment_date,
+            })
+
+            const fileArgs = {
+                doctype: "Project Payments",
+                docname: res?.name,
+                fieldname: "payment_attachment",
+                isPrivate: true,
+              };
+      
+              const uploadedFile = await upload(paymentScreenshot, fileArgs);
+
+              await call({
+                doctype: "Project Payments",
+                name: res?.name,
+                fieldname: "payment_attachment",
+                value: uploadedFile.file_url,
+              });
+
+              await projectPaymentsMutate()
+
+              toggleNewPaymentDialog()
+
+              toast({
+                title: "Success!",
+                description: "Payment added successfully!",
+                variant: "success",
+              });
+
+              setNewPayment({
+                amount: "",
+                payment_date: "",
+                utr: "",
+                tds: ""
+            })
+
+            setPaymentScreenshot(null)
+            
+        } catch (error) {
+            console.log("error", error)
+            toast({
+                title: "Failed!",
+                description: "Failed to add Payment!",
+                variant: "destructive",
+              });
+        }
+    }
+
+    const validateAmount = debounce((amount) => {
+    
+        const total = getTotal()
+
+        const totalAmountPaid = getTotalAmountPaid()
+    
+        const compareAmount = service_request?.gst === "true"
+            ? (total * 1.18 - totalAmountPaid)
+            : (total - totalAmountPaid);
+    
+        if (parseFloat(amount) > compareAmount) {
+          setWarning(
+            `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount 
+            ${service_request?.gst === "true" ? "including" : "excluding"
+            } GST: ${formatToIndianRupee(compareAmount)}`
+          );
+        } else {
+          setWarning("");
+        }
+      }, 300);
+    
+    // Handle input change
+    const handleAmountChange = (e) => {
+      const amount = e.target.value;
+      setNewPayment({ ...newPayment, amount });
+      validateAmount(amount);
+    };
+
+    const siteUrl = `${window.location.protocol}//${window.location.host}`;
+
     if(isRedirecting) {
         return (
           <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
@@ -275,172 +403,18 @@ export const ApprovedSR = () => {
     // console.log("gstEnabled", gstEnabled)
 
     return (
-        // <div className='flex-1 md:space-y-4'>
-        //     <div className="flex justify-between items-center">
-        //         <div className="py-4 flex items-center gap-1">
-        //             <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-        //             <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
-        //         </div>
-        //         <ShadButton className='flex items-center gap-2' onClick={handlePrint}>
-        //             <Printer className='h-4 w-4' />
-        //             Print
-        //         </ShadButton>
-        //     </div>
-        //     <Layout>
-        //         <Sider theme='light' collapsedWidth={0} width={400} trigger={null} collapsible collapsed={collapsed}>
-        //             {gstEnabled !== null && (
-        //             <div className="flex flex-col gap-2 py-6 border-b border-gray-200">
-        //                 <p className="font-semibold">Enable/Disable Tax Calculation</p>
-        //                 <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)}  /> 
-        //             </div>
-        //             )}
-        //             {/* <div className="flex-1 py-6 border-b border-gray-200">
-        //                         <Label className="font-semibold">Advance (in %)</Label>
-        //                         <RadioGroup
-        //                                         onValueChange={(value) => {
-        //                                             setAdvance(value !== "Other" ? parseFloat(value) : 0);
-        //                                             setCustomAdvance(value === "Other");
-        //                                         }}
-        //                                         className="flex flex-col space-y-2 mt-2"
-        //                                     >
-        //                                         <div className="flex gap-4 items-center">
-        //                                             <RadioGroupItem value="25" id="advance-25" />
-        //                                             <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
-
-        //                                             <RadioGroupItem value="50" id="advance-50" />
-        //                                             <Label htmlFor="advance-50" className="font-medium text-gray-700">50%</Label>
-
-        //                                             <RadioGroupItem value="75" id="advance-75" />
-        //                                             <Label htmlFor="advance-75" className="font-medium text-gray-700">75%</Label>
-
-        //                                             <RadioGroupItem value="100" id="advance-100" />
-        //                                             <Label htmlFor="advance-100" className="font-medium text-gray-700">100%</Label>
-
-        //                                             <RadioGroupItem value="Other" id="advance-other" />
-        //                                             <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
-        //                                         </div>
-
-        //                                         {customAdvance && (
-        //                                             <div className="mt-4">
-        //                                                 <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
-        //                                                 <Input
-        //                                                     id="custom-advance"
-        //                                                     type="number"
-        //                                                     min="0"
-        //                                                     max="100"
-        //                                                     placeholder="Enter percentage"
-        //                                                     className="mt-2 border border-gray-300 rounded-lg p-2"
-        //                                                     value={advance}
-        //                                                     onChange={(e) => {
-        //                                                         const value = e.target.value
-        //                                                         if (value === "") {
-        //                                                             setAdvance(0);
-        //                                                         } else if (parseFloat(value) < 0) {
-        //                                                             setAdvance(0);
-        //                                                         } else if (parseFloat(value) > 100) {
-        //                                                             setAdvance(100);
-        //                                                         } else {
-        //                                                             setAdvance(parseFloat(value));
-        //                                                         }
-        //                                                     }}
-        //                                                 />
-        //                                             </div>
-        //                                         )}
-        //                         </RadioGroup>
-        //             </div>             */}
-        //             <div className="flex flex-col pt-4 gap-2">
-        //                 <h3 className="text-sm font-semibold">Create Note Points</h3>
-        //                 <div className="flex max-md:flex-col gap-4 md:items-center">
-        //                     <Input
-        //                         type="text"
-        //                         placeholder="type notes here..."
-        //                         value={curNote || ""}
-        //                         className="w-[90%]"
-        //                         onChange={(e) => setCurNote(e.target.value)}
-        //                     />
-        //                     <Button onClick={handleAddNote}
-        //                         className="w-20"
-        //                         disabled={!curNote}>
-        //                         {editingIndex === null ? <div className="flex gap-1 items-center"><CirclePlus className="w-4 h-4" /><span>Add</span></div> : <div className="flex gap-1 items-center"><Edit className="w-4 h-4" /><span>Update</span></div>}
-        //                     </Button>
-        //                 </div>
-        //             </div>
-
-        //             {notes?.length > 0 && (
-        //                 <div className="flex flex-col gap-2 pt-4">
-        //                     <h3 className="text-sm font-semibold">Notes Preview</h3>
-        //                     <ul className="list-[number] space-y-2">
-        //                         {notes.map((note) => (
-        //                             <li key={note?.id} className="ml-4">
-        //                                 <div className="flex items-center gap-2">
-        //                                     <p>{note?.note}</p>
-        //                                     <div className="flex gap-2 items-center">
-        //                                         {editingIndex === note?.id ? (
-        //                                             <CheckIcon
-        //                                                 className="w-4 h-4 cursor-pointer text-green-500"
-        //                                                 onClick={handleAddNote}
-        //                                             />
-        //                                         ) : (
-        //                                             <Pencil2Icon
-        //                                                 className="w-4 h-4 cursor-pointer"
-        //                                                 onClick={() => handleEditNote(note?.id)}
-        //                                             />
-        //                                         )}
-        //                                         <span>|</span>
-        //                                         <Trash
-        //                                             className="w-4 h-4 text-primary cursor-pointer"
-        //                                             onClick={() => handleDeleteNote(note?.id)}
-        //                                         />
-        //                                     </div>
-        //                                 </div>
-        //                             </li>
-        //                         ))}
-        //                     </ul>
-        //                 </div>
-        //             )}
-
-        //                 <Button disabled={update_loading || (!notes?.length && !(service_request?.notes && JSON.parse(service_request?.notes)?.list?.length > 0) && service_request?.gst === gstEnabled?.toString() && parseFloat(service_request?.advance || 0) === advance) } onClick={handleNotesSave} className="w-full mt-4 items-center flex gap-2">{update_loading ? <TailSpin width={20} height={20} color="red" /> : <div className="flex items-center gap-1"><Save className="w-4 h-4" /> <span>Save</span></div>}</Button>
-        //             {/* <Separator className="my-6" /> */}
-        //         </Sider>
-        //         <Layout className='bg-white'>
-        //             <div className="flex">
-        //                 <Button
-        //                     type="text"
-        //                     icon={collapsed ? <NotebookPen className='hover:text-primary/40' /> : <ArrowLeftToLine className='hover:text-primary/40' />}
-        //                     onClick={() => setCollapsed(!collapsed)}
-        //                     style={{
-        //                         fontSize: '16px',
-        //                         width: 64,
-        //                         height: 64,
-        //                         backgroundColor: "white"
-        //                     }}
-        //                 />
-        //                 <Content
-        //                     className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
-        //                 >
-
-        //                 </Content>
-        //             </div>
-        //         </Layout>
-        //     </Layout>
-        // </div>
-
         <div className="flex-1 space-y-4">
-            {/* <div className=" flex items-center gap-1">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                <p className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</p>
-            </div> */}
-            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-                <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-                    <CardHeader>
-                        <CardTitle className="text-xl text-red-600 flex items-center justify-between">
-                            SR Details
-                            <div className="flex items-center gap-2">
-                              {/* {po?.status === "Dispatched" && ( */}
-                                <button onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
-                                    <PencilRuler className="w-4 h-4" />
-                                    Amend
-                                </button>
+            <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+          <CardHeader>
+            <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
+              SR Details
+              <div className="flex items-center gap-2">
+                                {!summaryPage && !accountsPage && (
+                                    <button onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
+                                        <PencilRuler className="w-4 h-4" />
+                                        Amend
+                                    </button>
+                                )}
 
                                 <Dialog open={amendDialog} onOpenChange={toggleAmendDialog}>
                                   <DialogContent>
@@ -469,116 +443,252 @@ export const ApprovedSR = () => {
                                   
                                   </DialogContent>
                                 </Dialog>
-                              {/* )} */}
-                            {/* {po?.status !== "PO Approved" && ( */}
                               <button onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
                                 <Eye className="w-4 h-4" />
                                 Preview
                               </button>
-                            {/* )} */}
                             </div>
-                            {/* <Button onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1">
-                                <Eye className="w-4 h-4" />
-                                Preview
-                            </Button> */}
+            </CardTitle>
+          </CardHeader>
+
+            <CardContent className="max-sm:text-xs">
+                        <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
+                                  <div className="flex flex-col gap-2">
+                                      <Label className=" text-red-700">Vendor</Label>
+                                      <span>{service_vendor?.vendor_name}</span>
+                                  </div>
+                                  <div className="flex flex-col gap-2 sm:items-center max-sm:items-end">
+                                      <Label className=" text-red-700">Package</Label>
+                                      <span>Services</span>
+                                  </div>
+                                  <div className="flex flex-col gap-2 sm:items-end">
+                                      <Label className=" text-red-700">Date Created</Label>
+                                      <span>{formatDate(orderData?.creation)}</span>
+                                  </div>
+                                  <div className="flex flex-col gap-2 max-sm:items-end">
+                                      <Label className=" text-red-700">Total (Excl. GST)</Label>
+                                      <span>{formatToIndianRupee(getTotal())}</span>
+                                  </div>
+                                  <div className="flex flex-col gap-2 sm:items-center">
+                                      <Label className=" text-red-700">Total Amount Paid</Label>
+                                      <span>{getTotalAmountPaid() ? formatToIndianRupee(getTotalAmountPaid()) : "--"}</span>    
+                                  </div>
+                                  {gstEnabled && (
+                                    <div className="flex flex-col gap-2 items-end">
+                                        <Label className=" text-red-700">Total (Incl. GST)</Label>
+                                        <span>{formatToIndianRupee(getTotal() * 1.18)}</span>
+                                    </div>
+                                  )}
+                                  {/* <div className="flex flex-col gap-2">
+                                      <Label className=" text-red-700">Vendor GST</Label>
+                                      <span>{service_vendor?.vendor_gst || "--"}</span>
+                                  </div> */}
+                                  {/* <div>
+                                  <Label className="pr-1 text-red-700">Vendor Address</Label>
+                                  <AddressView className="block" id={service_vendor?.vendor_address}/>
+                                </div> */}
+
+                                  {/* <div className="flex flex-col gap-2">
+                                      <Label className=" text-red-700">Project</Label>
+                                      <span>{project?.project_name}</span>
+                                  </div> */}
+                                {/* <div className="text-end">
+                                  <Label className="text-red-700 pr-1">Project Address</Label>
+                                  <AddressView className="block" id={project?.project_address}/>
+                                </div> */}
+                        </div>
+            </CardContent>
+                </Card>
+            {!summaryPage && (
+            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+            <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+                    <CardHeader>
+                        <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
+                        Transaction Details
+                        {accountsPage && (
+                        <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
+                             <AlertDialogTrigger
+                            onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
+                            >
+                                <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                <AlertDialogHeader className="text-start">
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Project:</Label>
+                                    <span className="">{project?.project_name}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Vendor:</Label>
+                                    <span className="">{service_vendor?.vendor_name}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">PO Amt excl. Tax:</Label>
+                                    <span className="">{formatToIndianRupee(getTotal())}</span>
+                                </div>
+                                {service_request?.gst === "true" && (
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                                    <span className="">{formatToIndianRupee(Math.floor(getTotal()))}</span>
+                                </div>
+                                )}
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Amt Paid Till Now:</Label>
+                                    <span className="">{getTotalAmountPaid() ? formatToIndianRupee(getTotalAmountPaid()) : "--"}</span>
+                                </div>
+
+                                <div className="flex flex-col gap-4 pt-4">
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <div className="w-full">
+                                                                <Input
+                                                                    type="number"
+                                                                    placeholder="Enter Amount"
+                                                                    value={newPayment.amount}
+                                                                    onChange={(e) => handleAmountChange(e)}
+                                                                />
+                                                                    {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                                                </div> 
+                                                            </div>
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Input
+                                                                    type="text"
+                                                                    placeholder="Enter UTR"
+                                                                    value={newPayment.utr}
+                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                                                />
+                                                            </div>
+                                                            {service_request?.gst === "true" && <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">TDS Amount</Label>
+                                                                <div className="w-full">
+                                                                <Input
+                                                                    type="number"
+                                                                    placeholder="Enter TDS Amount"
+                                                                    value={newPayment.tds}
+                                                                    onChange={(e) => {
+                                                                        const tdsValue = e.target.value;
+                                                                        setNewPayment({ ...newPayment, tds: tdsValue })
+                                                                    }}
+                                                                />
+                                                                </div>
+                                                            </div>}
+
+                                                            <div className="flex gap-4 w-full" >
+                                                                <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Input
+                                                                        type="date"
+                                                                        value={newPayment.payment_date}
+                                                                        placeholder="DD/MM/YYYY"
+                                                                        onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
+                                                                        max={new Date().toISOString().split("T")[0]}
+                                                                        onKeyDown={(e) => e.preventDefault()}
+                                                                     />
+                                                            </div>
+
+                                                        </div>
+
+                                <div className="flex flex-col gap-2">
+                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
+                                    onClick={() => document.getElementById("file-upload")?.click()}
+                                    >
+                                        <Paperclip size="15px" />
+                                        <span className="p-0 text-sm">Attach Screenshot</span>
+                                        <input
+                                            type="file"
+                                            id={`file-upload`}
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                            disabled={paymentScreenshot ? true : false}
+                                        />
+                                    </div>
+                                    {(paymentScreenshot) && (
+                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
+                                            <span className="text-sm">{paymentScreenshot?.name}</span>
+                                            <button
+                                                className="ml-1 text-red-500"
+                                                onClick={() => setPaymentScreenshot(null)}
+                                            >
+                                                ✖
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex gap-2 items-center pt-4 justify-center">
+
+                                    {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
+                                        <>
+                                        <AlertDialogCancel className="flex-1" asChild>
+                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                        </AlertDialogCancel>
+                                        <Button
+                                            onClick={AddPayment}
+                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                            className="flex-1">Add Payment
+                                        </Button>
+                                        </>
+                                    )}
+                                </div>
+                                
+                                </AlertDialogHeader>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                        )}
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="flex flex-col gap-4 max-sm:text-sm w-full">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-start gap-1">
-                                <Building className="w-4 h-4 text-muted-foreground" />
-                                <Label className="font-light text-red-700">Project:</Label>
-                            </div>
-                            <span className=" font-light">{project?.project_name}</span>
-                        </div>
-                        {/* <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1">
-                          <Package className="w-4 h-4 text-muted-foreground" />
-                          <Label className="font-light text-red-700">Package:</Label>
-                        </div>
-                        <span className=" font-light">{pr?.work_package}</span>
-                    </div> */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1">
-                                <User className="w-4 h-4 text-muted-foreground" />
-                                <Label className="font-light text-red-700">Vendor:</Label>
-                            </div>
-                            <span className=" font-light">{service_vendor?.vendor_name}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <div className="">
-                                <Calendar className="w-4 h-4 text-muted-foreground inline-block" />
-                                <Label className="ml-1 font-light text-red-700">Date Created:</Label>
-                            </div>
-                            <span className=" font-light">{new Date(orderData?.creation).toDateString()}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <div className="">
-                                <ReceiptIndianRupee className="w-4 h-4 text-muted-foreground inline-block" />
-                                <Label className="ml-1 font-light text-red-700">Vendor GST:</Label>
-                            </div>
-                            <span className="font-light">{service_vendor?.vendor_gst || "--"}</span>
-                        </div>
-                        {/* <div className="flex items-start justify-between">
-                            <div className="w-[100%]">
-                                <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
-                                <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
-                            </div>
-                            <span className="font-light">
-                                {vendorAddress}
-                                <AddressView id={service_vendor?.vendor_address} />
-                            </span>
-                        </div> */}
-                        <div className="flex flex-col">
-                          <div>
-                            <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
-                            <Label className="ml-1 font-light text-red-700">Vendor Address:</Label>
-                          </div>
-                          <span className="font-light pl-6">
-                            {/* {vendor_address?.address_line1}, {vendor_address?.address_line2}, {vendor_address?.city}, {vendor_address?.state}-{vendor_address?.pincode} */}
-                            <AddressView id={service_vendor?.vendor_address}/>
-                          </span>
-                        </div>
-                        {/* <div className="flex items-start justify-between">
-                            <div className="w-[100%]">
-                                <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
-                                <Label className="ml-1 font-light text-red-700">Project Address:</Label>
-                            </div>
-                            <span className="font-light">
-                                {projectAddress}
-                                <AddressView id={project?.project_address}/>
-                            </span>
-                        </div> */}
-                        <div className="flex flex-col">
-                          <div>
-                            <MapPin className="w-4 h-4 text-muted-foreground inline-block" />
-                            <Label className="ml-1 font-light text-red-700">Project Address:</Label>
-                          </div>
-                          <span className="font-light pl-6">
-                            {/* {project_address?.address_line1}, {project_address?.address_line2}, {project_address?.city}, {project_address?.state}-{project_address?.pincode} */}
-                            <AddressView id={project?.project_address}/>
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <Label className="ml-1 font-light text-red-700">Total (Excl. GST):</Label>
-                            <span className="font-light">{formatToIndianRupee(getTotal())}</span>
-                        </div>
-                        {gstEnabled && (
-                            <div className="flex items-center justify-between">
-                                <Label className="ml-1 font-light text-red-700">Total (Incl. GST):</Label>
-                                <span className="font-light">{formatToIndianRupee(getTotal() * 1.18)}</span>
-                            </div>
-                        )}
-                        <div className="flex items-center justify-between">
-                            <Label className="ml-1 font-light text-red-700">Total Amt Paid:</Label>
-                            <span className="font-light">{formatToIndianRupee(getTotalAmountPaid())}</span>
-                        </div>
+                    <CardContent className="overflow-auto">
+                        <Table>
+                            <TableHeader className="bg-gray-300">
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Amount</TableHead>
+                                    {service_request?.gst === "true" && (
+                                         <TableHead>TDS Amt</TableHead>
+                                     )}
+                                    <TableHead>UTR No.</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {projectPayments?.length > 0 ? (
+                                    projectPayments?.map((payment) => {
+                                        return (
+                                            <TableRow key={payment?.name}>
+                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
+                                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                {service_request?.gst === "true" && (
+                                                     <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
+                                                 )}
+                                                <TableCell className="font-semibold text-blue-500 underline">
+                                                {import.meta.env.MODE === "development" ? (
+                                                    <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                        {payment?.utr}
+                                                    </a>
+                                                ) : (
+                                                    <a href={`${siteUrl}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                        {payment?.utr}
+                                                    </a>
+                                                )}
+                                                </TableCell>
+                                            </TableRow>
+                                        )
+                                    })
+                                ) : (
+                                  <TableRow>
+                                      <TableCell colSpan={service_request?.gst === "true" ? 4 : 3} className="text-center py-2">
+                                          No Payments Found
+                                      </TableCell>
+                                  </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
                     </CardContent>
-                </Card>
+            </Card>
                 <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
                     <CardHeader>
-                        <CardTitle className="text-xl text-red-600 flex items-center justify-between">
+                        <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                             SR Options
+                            {!summaryPage && !accountsPage && (
                             <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
                                 <DialogTrigger>
                                     <Button variant={"outline"} className="felx items-center gap-1">
@@ -652,16 +762,21 @@ export const ApprovedSR = () => {
                                     </Button>
                                 </DialogContent>
                             </Dialog>
+                            )}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-col gap-2 items-start mt-4">
                             <Label className="font-bold">Notes</Label>
+                            {notes?.length > 0 ? (
                             <ul className="list-[number]">
                                 {notes?.map((note) => (
                                     <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
                                 ))}
                             </ul>
+                            ) : (
+                                <span>--</span>
+                            )}
                         </div>
 
                         <Separator className="my-4" />
@@ -675,18 +790,19 @@ export const ApprovedSR = () => {
                     </CardContent>
                 </Card>
             </div>
+            )}
 
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
                 <CardHeader>
-                    <CardTitle className="text-xl text-red-600">
+                    <CardTitle className="text-xl max-sm:text-lg text-red-600">
                         Order Details
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
                     <table className="table-auto w-full">
                         <thead>
-                            <tr className="border-b border-gray-200 border-b-2 text-primary max-sm:text-sm">
+                            <tr className="border-gray-200 border-b-2 text-primary max-sm:text-sm">
                                 <th className="w-[5%] text-left ">
                                     S.No.
                                 </th>

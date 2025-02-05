@@ -364,7 +364,11 @@ export const ProjectPaymentsList = () => {
             },
             {
                 accessorKey: "creation",
-                header: "Date",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date" />
+                    )
+                },
                 cell: ({ row }) => (
                     <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>
                 ),
@@ -525,6 +529,7 @@ export const ProjectPaymentsList = () => {
                             ) : ""}
                             </span>
                         </div>
+                        {(newPayment?.doctype === "Procurement Orders" || (newPayment?.doctype === "Service Order" && serviceOrders?.find(i => i?.name === newPayment?.docname)?.gst !== "true")) && (
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">PO Amt incl. Tax:</Label>
                             <span className="">{newPayment?.doctype === "Procurement Orders" ? (
@@ -534,6 +539,7 @@ export const ProjectPaymentsList = () => {
                             ) : ""}
                             </span>
                         </div>
+                        )}
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">Amt Paid Till Now:</Label>
                             <span className="">{formatToIndianRupee(getTotalAmountPaid(newPayment?.docname))}</span>
@@ -582,6 +588,8 @@ export const ProjectPaymentsList = () => {
                                         value={newPayment.payment_date}
                                         placeholder="DD/MM/YYYY"
                                         onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
+                                        max={new Date().toISOString().split("T")[0]}
+                                        onKeyDown={(e) => e.preventDefault()}
                                      />
                             </div>
                         </div>
