@@ -70,7 +70,6 @@ export const UpdateQuote = () => {
   const {
     data: vendor_list,
     isLoading: vendor_list_loading,
-    error: vendor_list_error,
     mutate: vendor_list_mutate,
   } = useFrappeGetDocList(
     "Vendors",
@@ -108,9 +107,9 @@ export const UpdateQuote = () => {
   const {
     data: category_data,
     isLoading: category_loading,
-    error: category_error,
   } = useFrappeGetDocList("Category", {
     fields: ["*"],
+    filters: [["work_package", "!=", "Services"]],
     limit: 10000,
   });
 

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react"
 import { SheetClose } from "../ui/sheet";
 import { useToast } from "../ui/use-toast";
 import { ListChecks } from "lucide-react";
+import { TailSpin } from "react-loader-spinner";
 
 interface SelectOption {
     label: string;
@@ -19,7 +20,7 @@ export const AddVendorCategories = ({vendor_id, isSheet = false}) => {
 
     const service_categories = ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services", "Painting Services", "Carpentry Services", "POP Services"]
 
-    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
+    const { data: vendor_category_list, isLoading: vendor_category_list_loading, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
             fields: ["*"],
             filters: [["vendor", "=", vendor_id], ["category", "not in", service_categories]],
@@ -33,7 +34,7 @@ export const AddVendorCategories = ({vendor_id, isSheet = false}) => {
 
     const {mutate} = useSWRConfig()
     const {toast} = useToast()
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
+    const { data: category_list, isLoading: category_list_loading } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package'],
             filters:[["work_package", "!=", "Services"]],
@@ -41,7 +42,7 @@ export const AddVendorCategories = ({vendor_id, isSheet = false}) => {
             limit: 10000
         });
 
-    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const { updateDoc: updateDoc, loading: loading } = useFrappeUpdateDoc()
 
     async function onSubmit() {
         try {
@@ -100,6 +101,16 @@ export const AddVendorCategories = ({vendor_id, isSheet = false}) => {
         setCategories(selectedOptions)
         // console.log(categories)
     }
+
+    if (
+        vendor_category_list_loading ||
+        category_list_loading
+      )
+        return (
+          <div className="flex items-center h-[90vh] w-full justify-center">
+            <TailSpin color={"red"} />{" "}
+          </div>
+        );
 
     return (
             <div className="p-4 flex flex-col gap-2">

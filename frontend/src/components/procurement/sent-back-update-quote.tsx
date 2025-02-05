@@ -81,6 +81,7 @@ export const SentBackUpdateQuote = () => {
     isLoading: category_loading,
   } = useFrappeGetDocList("Category", {
     fields: ["*"],
+    filters: [["work_package", "!=", "Services"]],
     limit: 10000,
   });
 
