@@ -30,6 +30,7 @@ export interface NotificationStateType {
     notificationsCount: number;
     // eventBasedNotificationCount: any;
     clear_notifications: () => void;
+    add_all_notific_directly: (notifications: NotificationType[]) => void;
     add_new_notification: (notification: NotificationType) => void;
     mark_seen_notification: (db: any, notification: NotificationType) => void;
     delete_notification: (notificationId : string) => void;
@@ -65,6 +66,14 @@ export const useNotificationStore = create<NotificationStateType>()(
                     });
                 }
             },
+            add_all_notific_directly: (notifications : NotificationType[]) => {
+                set((state) => {
+                    return {
+                        notifications: [...notifications],
+                        notificationsCount: notifications.filter(i => i.seen === "false").length,
+                    }
+                });
+            },
 
             clear_notifications: () => {
                 set((state) => ({
@@ -88,14 +97,31 @@ export const useNotificationStore = create<NotificationStateType>()(
                         // } else if (currentEventCount > 1) {
                         //     updatedEventBasedNotificationCount[notification.event_id] = currentEventCount - 1;
                         // }
-            
+
+                        const toUpdateNotification = state.notifications.findIndex((item) => item.name === notification.name);
+                        if (toUpdateNotification !== -1) {
+                            const updatedNotifications = [...state.notifications];
+                            updatedNotifications[toUpdateNotification] = { ...notification, seen: "true" };
+                            return {
+                                notifications: updatedNotifications,
+                                notificationsCount: state.notificationsCount - 1,
+                                // eventBasedNotificationCount: updatedEventBasedNotificationCount
+                            };
+                        }
+
                         return {
-                            notifications: state.notifications.map((item) =>
-                                item.name === notification.name ? { ...item, seen: "true" } : item
-                            ),
+                            notifications: state.notifications,
                             notificationsCount: state.notificationsCount - 1,
                             // eventBasedNotificationCount: updatedEventBasedNotificationCount
-                        };
+                        }
+            
+                        // return {
+                        //     notifications: state.notifications.map((item) =>
+                        //         item.name === notification.name ? { ...item, seen: "true" } : item
+                        //     ),
+                        //     notificationsCount: state.notificationsCount - 1,
+                        //     // eventBasedNotificationCount: updatedEventBasedNotificationCount
+                        // };
                     });
                 } catch (error) {
                     console.error("Error marking notification as seen: ", error);

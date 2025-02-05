@@ -94,7 +94,11 @@ export const ProjectPaymentsPaymentWise = () => {
             },
             {
                 accessorKey: "payment_date",
-                header: "Date",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date" />
+                    )
+                },
                 cell: ({ row }) => {
                     const data = row.original
                     return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
@@ -135,7 +139,11 @@ export const ProjectPaymentsPaymentWise = () => {
             },
             {
                 accessorKey: "amount",
-                header: "Amount Paid",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Amount Paid" />
+                    )
+                },
                 cell: ({ row }) => {
                     return <div className="font-medium">
                         {formatToIndianRupee(row.getValue("amount"))}

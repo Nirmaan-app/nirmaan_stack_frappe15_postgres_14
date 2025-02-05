@@ -55,12 +55,13 @@ export const ProcurementOrder = () => {
 
   const [comments, setComments] = useState([])
 
-  const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+  const { data: category_data } = useFrappeGetDocList("Category", {
     fields: ["*"],
+    filters: [["work_package", "!=", "Services"]],
     limit: 10000
   })
 
-  const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+  const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
     {
       fields: ["*"],
       filters: [["name", "=", orderId]],
@@ -68,19 +69,18 @@ export const ProcurementOrder = () => {
     },
     `Procurement Requests ${orderId}`
   );
-  const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
+  const { data: vendor_category_list, isLoading: vendor_category_list_loading } = useFrappeGetDocList("Vendor Category",
     {
       fields: ["*"],
+      filters: [["category", "in", orderData?.category_list?.list?.map(i => i?.name)]],
       limit: 100000
     },
-    "Vendor Category"
+    orderData?.project ? "Vendor Category" : null
   );
 
   const {
     data: vendor_list,
     isLoading: vendor_list_loading,
-    error: vendor_list_error,
-    mutate: vendor_list_mutate,
   } = useFrappeGetDocList(
     "Vendors",
     {
@@ -119,8 +119,8 @@ export const ProcurementOrder = () => {
 
   // console.log("universalcomments", universalComments)
 
-  const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-  const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
+  const { createDoc: createDoc, loading: loading, error: submit_error } = useFrappeCreateDoc()
+  const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
   useEffect(() => {
     if (universalComments) {
@@ -130,7 +130,7 @@ export const ProcurementOrder = () => {
   }, [universalComments])
 
 
-  const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
+  const { data: category_list, isLoading: category_list_loading } = useFrappeGetDocList("Category",
     {
       fields: ['category_name', 'work_package'],
       orderBy: { field: 'category_name', order: 'asc' },
@@ -251,7 +251,7 @@ export const ProcurementOrder = () => {
 
   useEffect(() => {
     if (vendor_category_list && vendor_list) {
-      const updatedCategories = { ...categories };
+      const updatedCategories = {};
 
       vendor_category_list?.forEach((item) => {
         const fieldName = `${item.category}`;
@@ -259,7 +259,7 @@ export const ProcurementOrder = () => {
           updatedCategories[fieldName] = [];
         }
         const exists = updatedCategories[fieldName].some(
-          (entry) => entry.value === item.vendor
+          (entry) => entry?.value === item.vendor
         );
         if (!exists) {
           const venAddr = getVendorAddr(item.vendor_name)
@@ -360,7 +360,7 @@ export const ProcurementOrder = () => {
 
   if (orderData?.workflow_state !== "Approved") {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-[90vh]">
         <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
           <h2 className="text-2xl font-semibold text-gray-800">
             Heads Up!

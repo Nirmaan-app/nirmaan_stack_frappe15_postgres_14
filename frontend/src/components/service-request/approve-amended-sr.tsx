@@ -65,7 +65,7 @@ const ApproveAmendSO = () => {
     if (so_data_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (so_data_error || project_error || owner_error || versionsError) return <h1>Error</h1>
     if (so_data?.status !== "Amendment") return (
-        <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!

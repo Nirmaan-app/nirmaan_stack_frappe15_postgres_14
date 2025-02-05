@@ -211,7 +211,7 @@ export const ApproveServiceRequest = () => {
 
     if(serviceVendor_loading || service_request_loading || usersListLoading) {
         return (
-            <div className="flex items-center justify-center h-screen">
+            <div className="flex items-center justify-center h-[90vh]">
                 <TailSpin color={"red"} />{" "}
             </div>
         )
@@ -219,7 +219,7 @@ export const ApproveServiceRequest = () => {
 
 
     if (service_request?.status !== "Vendor Selected") return (
-        <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!
