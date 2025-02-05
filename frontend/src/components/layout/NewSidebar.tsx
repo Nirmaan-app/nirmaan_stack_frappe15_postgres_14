@@ -152,7 +152,7 @@ export function NewSidebar() {
     amendedSRCount
   } = useDocCountStore();
 
-  const { notifications, add_new_notification, delete_notification, clear_notifications } =
+  const { add_new_notification, delete_notification, clear_notifications, add_all_notific_directly } =
     useNotificationStore();
   const { db } = useContext(FrappeContext) as FrappeConfig;
 
@@ -160,10 +160,10 @@ export function NewSidebar() {
   const { data: notificationsData, mutate: notificationsDataMutate } = useFrappeGetDocList(
     "Nirmaan Notifications",
     {
-      fields: ["*"],
+      fields: ["name", "creation", "description", "docname", "document", "event_id", "project", "recipient", "recipient_role", "seen", "sender", "title", "type", "work_package", "action_url"],
       filters: [["recipient", "=", user_id]],
-      limit: 100000,
-      orderBy: { field: "creation", order: "asc" },
+      limit: 500,
+      orderBy: { field: "creation", order: "desc" },
     }
   );
 
@@ -171,25 +171,27 @@ export function NewSidebar() {
   useEffect(() => {
     if (notificationsData) {
       clear_notifications();
-      notificationsData.forEach((notification: any) => {
-        add_new_notification({
-          name: notification.name,
-          creation: notification.creation,
-          description: notification.description,
-          docname: notification.docname,
-          document: notification.document,
-          event_id: notification.event_id,
-          project: notification.project,
-          recipient: notification.recipient,
-          recipient_role: notification.recipient_role,
-          seen: notification.seen,
-          sender: notification?.sender,
-          title: notification.title,
-          type: notification.type,
-          work_package: notification.work_package,
-          action_url: notification?.action_url,
-        });
-      });
+      // notificationsData.forEach((notification: any) => {
+      //   add_new_notification({
+      //     name: notification.name,
+      //     creation: notification.creation,
+      //     description: notification.description,
+      //     docname: notification.docname,
+      //     document: notification.document,
+      //     event_id: notification.event_id,
+      //     project: notification.project,
+      //     recipient: notification.recipient,
+      //     recipient_role: notification.recipient_role,
+      //     seen: notification.seen,
+      //     sender: notification?.sender,
+      //     title: notification.title,
+      //     type: notification.type,
+      //     work_package: notification.work_package,
+      //     action_url: notification?.action_url,
+      //   });
+      // });
+
+      add_all_notific_directly(notificationsData)
     }
   }, [notificationsData, user_id]);
 
