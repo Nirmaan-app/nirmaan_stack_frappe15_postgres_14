@@ -25,3 +25,4 @@ nirmaan_stack.patches.v1_10.extend_wp_for_projects
 nirmaan_stack.patches.v1_10.add_makes_to_pr
 nirmaan_stack.patches.v2_0.quotation_request_make_fill
 nirmaan_stack.patches.v2_0.payment_date_fill
+nirmaan_stack.patches.v2_0.project_gst_patch

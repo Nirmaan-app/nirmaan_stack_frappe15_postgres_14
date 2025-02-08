@@ -27,6 +27,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { debounce } from "lodash";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger } from "../ui/alert-dialog";
+import { VendorHoverCard } from "../ui/vendor-hover-card";
 
 // const { Sider, Content } = Layout;
 
@@ -407,7 +408,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
           <CardHeader>
             <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-              SR Details
+                <div>
+                    <h2>SR Details</h2>
+                    <Badge>{service_request?.status}</Badge>
+                </div>
               <div className="flex items-center gap-2">
                                 {!summaryPage && !accountsPage && (
                                     <button onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
@@ -455,7 +459,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                         <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
                                   <div className="flex flex-col gap-2">
                                       <Label className=" text-red-700">Vendor</Label>
-                                      <span>{service_vendor?.vendor_name}</span>
+                                      <VendorHoverCard vendor_id={service_request?.vendor} />
                                   </div>
                                   <div className="flex flex-col gap-2 sm:items-center max-sm:items-end">
                                       <Label className=" text-red-700">Package</Label>
