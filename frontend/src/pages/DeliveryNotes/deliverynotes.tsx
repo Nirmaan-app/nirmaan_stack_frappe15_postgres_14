@@ -120,10 +120,10 @@ const DeliveryNotes = () => {
             </div> */}
             {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
 
-            <div className="border border-gray-200 rounded-lg p-0.5">
+            <div className="border border-gray-200 rounded-lg p-0.5 min-w-[400px]">
                 <ProjectSelect onChange={handleChange} />
                 {selectedProject && <div className="pt-4">
-                    <Table className="min-w-[400px] min-h-[30vh] overflow-auto">
+                    <Table className="min-h-[30vh] overflow-auto">
                         <TableHeader className="bg-red-100">
                             <TableRow>
                                 <TableHead className=" font-extrabold">Delivery Note</TableHead>

@@ -158,7 +158,13 @@ const projectFormSchema = z.object({
                     work_package: z.string()
                 })
             )
-        }),
+    }),
+    project_gst_number: z.object({
+        list : z.array(z.object({
+            location: z.string(),
+            gst: z.string(),
+        }))
+    }),
 })
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>
@@ -190,6 +196,14 @@ export const ProjectForm = () => {
         project_end_date: undefined,
         project_work_packages: {
             work_packages: []
+        },
+        project_gst_number: {
+            list: [
+                {
+                    location: "Bengaluru",
+                    gst: "29ABFCS9095N1Z9",
+                }
+            ]
         },
         project_scopes: {
             scopes: []
@@ -243,7 +257,7 @@ export const ProjectForm = () => {
         limit: 1000
     });
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
     const { deleteDoc } = useFrappeDeleteDoc()
     const [popoverOpen, setPopoverOpen] = useState(false);
     const [popoverOpen2, setPopoverOpen2] = useState(false);
@@ -274,7 +288,7 @@ export const ProjectForm = () => {
     };
 
     const [pincode, setPincode] = useState("")
-    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode)
+    const { data: pincode_data } = useFrappeGetDoc("Pincodes", pincode)
 
     const debouncedFetch = useCallback(
         (value: string) => {
@@ -352,6 +366,7 @@ export const ProjectForm = () => {
                     project_name: values.project_name,
                     customer: values.customer,
                     project_type: values.project_type,
+                    project_gst_number: values.project_gst_number,
                     project_start_date: formatted_start_date,
                     project_end_date: formatted_end_date,
                     project_address: addressDoc.name,
@@ -690,6 +705,42 @@ export const ProjectForm = () => {
                                             </FormItem>
                                         )
                                     }}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="project_gst_number"
+                                    render={({ field }) => (
+                                        <FormItem className="lg:flex lg:items-center gap-4">
+                                            <FormLabel className="md:basis-2/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                            <div className="md:basis-2/4">
+                                                <Select onValueChange={(selectedLocation) => {
+                                                    if(selectedLocation === "Both") {
+                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "Gurgoan GST" }] })
+                                                    } else if(selectedLocation === "Bengaluru") {
+                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
+                                                    } else {
+                                                        field.onChange({ list: [{ location: "Gurgoan", gst: "Gurgoan GST" }] })
+                                                    }
+                                                    }}
+                                                    defaultValue={"Bengaluru"}>
+                                                    <div className="flex flex-col items-start">
+                                                        <FormControl>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Select Project GST" />
+                                                            </SelectTrigger>
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </div>
+                                                    <SelectContent>
+                                                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "Gurgoan GST" }].map((option) => (
+                                                            <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
+                                                        ))}
+                                                        <SelectItem key="Both" value="Both">Both</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </FormItem>
+                                    )}
                                 />
                                 <FormField
                                     control={form.control}
