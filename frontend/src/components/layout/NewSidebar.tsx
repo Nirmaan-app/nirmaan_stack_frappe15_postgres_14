@@ -940,7 +940,7 @@ export function NewSidebar() {
                       {item.icon && <item.icon />}
                       <span className="font-medium">{item.label}</span>
                       {item?.count !== 0 && state === "expanded" && (
-                            <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
+                            <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center">
                               {item.count}
                         </span>
                       )}
@@ -986,11 +986,11 @@ export function NewSidebar() {
                             asChild
                           >
                             <Link to={subitem.key}>
-                              <span className=" text-xs">{subitem.label}</span>
+                              <span className="text-xs">{subitem.label}</span>
                             </Link>
                           </SidebarMenuSubButton>
                           {subitem?.count !== 0 && (
-                            <span className="absolute top-2 -right-2 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
+                            <span className="absolute top-2 -right-2 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center">
                               {subitem.count}
                             </span>
                           )}
