@@ -441,11 +441,11 @@ export default function Profile() {
       </Card>
       <div>
         <div className="flex justify-between items-center mb-2 mt-4">
-          <h2 className="text-2xl max-md:text-xl font-semibold font-bold pl-2">
+          <h2 className="text-2xl max-md:text-xl font-semibold pl-2">
             Assigned Projects
           </h2>
           {userData.role === "Nirmaan Admin Profile" &&
-            (data?.role_profile === "Nirmaan Admin Profile" ? (
+            (["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(data?.role_profile) ? (
               <Button disabled={true}>
                 <div className="flex items-center">
                   <CirclePlus className="w-5 h-5 mt- pr-1 " />

@@ -34,7 +34,7 @@ export const ReleasePOSelect = () => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", tab === "Released PO" ? "not in" : "in", tab === "Released PO" ? ["PO Approved", "PO Amendment", "Merged"] : ["PO Approved"]]],
+            filters: [["status", (tab === "Released PO" || role === "Nirmaan Estimates Executive Profile") ? "not in" : "in", tab === "Released PO" ? ["PO Approved", "PO Amendment", "Merged"] : (role === "Nirmaan Estimates Executive Profile" ? ["PO Amendment", "Merged"] : ["PO Approved"])]],
             limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         },
@@ -385,7 +385,7 @@ export const ReleasePOSelect = () => {
                     />
                   </ConfigProvider>
                 </div> */}
-                {items && (
+                {role !== "Nirmaan Estimates Executive Profile" && items && (
                     <Radio.Group
                         block
                         options={items}

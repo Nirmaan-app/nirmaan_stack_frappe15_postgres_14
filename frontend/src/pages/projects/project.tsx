@@ -509,7 +509,7 @@ const ProjectView = ({
           ?.filter(
             (user) =>
               !projectAssignees?.some((i) => i?.user === user?.name) &&
-              user?.role_profile !== "Nirmaan Admin Profile"
+              !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(user?.role_profile)
           )
           ?.map((op) => ({
             label: (
@@ -1332,7 +1332,14 @@ const ProjectView = ({
                 {formatToIndianRupee(amountPaid)}
             </div>
         },
-    },
+      },
+      {
+        accessorKey: 'order_list',
+        header: ({ column }) => {
+            return <h1 className="hidden">:</h1>
+        },
+        cell: ({ row }) => <span className="hidden">hh</span>
+      }
     ],
     [projectId, po_data_for_posummary, data, projectPayments]
   );
