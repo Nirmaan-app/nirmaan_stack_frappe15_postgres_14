@@ -1173,7 +1173,7 @@ export const ProjectForm = () => {
                                     )}
                                 />
 
-                                <FormField
+                                {/* <FormField
                                     control={form.control}
                                     name="estimates_exec"
                                     render={({ field }) => (
@@ -1203,7 +1203,7 @@ export const ProjectForm = () => {
                                             </FormDescription>
                                         </FormItem>
                                     )}
-                                />
+                                /> */}
 
                                 <FormField
                                     control={form.control}
@@ -1810,7 +1810,7 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
          <Detail label="Project Lead" value={form.getValues("project_lead") ? user?.find(u => u.name === form.getValues("project_lead"))?.full_name : ""} />
          <Detail label="Procurement Lead" value={form.getValues("procurement_lead") ? user?.find(u => u.name === form.getValues("procurement_lead"))?.full_name : ""} />
          <Detail label="Project Manager" value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""} />
-         <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} />
+         {/* <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} /> */}
          <Detail label="Accountant" value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""} />
          <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} />
         </Section>

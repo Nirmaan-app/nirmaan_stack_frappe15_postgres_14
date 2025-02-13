@@ -57,6 +57,14 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
 
   const userData = useUserData();
 
+  const [estimatesViewing, setEstimatesViewing] = useState(false)
+
+  useEffect(() => {
+    if(userData?.role === "Nirmaan Estimates Executive Profile") {
+      setEstimatesViewing(true)
+    }
+  }, [userData])
+
   const [advance, setAdvance] = useState(0)
   const [materialReadiness, setMaterialReadiness] = useState(0)
   const [afterDelivery, setAfterDelivery] = useState(0)
@@ -1034,7 +1042,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
       return usersList.find((user) => user?.name === id)?.full_name;
     }
   };
-
+  
   const handleConfirmGST = async () => {
     try {
       setLoadingFuncName("handleConfirmGST")
@@ -1103,7 +1111,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
     poPaymentsError
   )
     return <h1>Error</h1>;
-  if (!summaryPage && !accountsPage && tab === "Approved PO" && !["PO Approved"].includes(po?.status))
+  if (!summaryPage && !accountsPage && tab === "Approved PO" && !estimatesViewing && !["PO Approved"].includes(po?.status))
     return (
       <div className="flex items-center justify-center h-[90vh]">
         <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -1143,7 +1151,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
           Summary-<span className="text-red-700">{po?.name}</span>
         </span>
       </div> */}
-      {!summaryPage && !accountsPage && po?.status === "PO Approved" &&
+      {!summaryPage && !accountsPage && !estimatesViewing && po?.status === "PO Approved" &&
         po?.merged !== "true" &&
         !(poPayments?.length > 0) &&
         mergeablePOs.length > 0 && (
@@ -1425,20 +1433,20 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                 <Badge variant={po?.status === "PO Approved" ? "default" : po?.status === "Dispatched" ? "orange" : "green"}>{po?.status === "Partially Delivered" ? "Delivered" : po?.status}</Badge>
               </div>
               <div className="flex items-center gap-2">
-                {!summaryPage && !accountsPage && po?.status === "Dispatched" && !(poPayments?.length > 0) && (
+                {!summaryPage && !accountsPage && !estimatesViewing && po?.status === "Dispatched" && !(poPayments?.length > 0) && (
                   <button onClick={toggleRevertDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
                     <Undo2 className="w-4 h-4" />
                     Revert
                   </button>
                 )}
-              {(po?.status !== "PO Approved" || summaryPage || accountsPage) && (
+              {(po?.status !== "PO Approved" || summaryPage || accountsPage || estimatesViewing) && (
                 <button onClick={togglePoPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
                   <Eye className="w-4 h-4" />
                   Preview
                 </button>
               )}
               </div>
-              {!summaryPage && !accountsPage && po?.status === "PO Approved" && (
+              {!summaryPage && !accountsPage && !estimatesViewing && po?.status === "PO Approved" && (
                 <Sheet>
                   <SheetTrigger asChild>
                     <Button className="flex items-center gap-1">
@@ -2112,7 +2120,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
           <CardHeader>
             <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
               Payment Terms
-            {!summaryPage && !accountsPage && po?.status === "PO Approved" && (
+            {!summaryPage && !accountsPage && !estimatesViewing && po?.status === "PO Approved" && (
               <Dialog open={editPOTermsDialog} onOpenChange={toggleEditPOTermsDialog}>
                 <DialogTrigger>
                   <Button variant={"outline"} className="flex items-center gap-1">
@@ -2570,7 +2578,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
 
       {/* Unmerge */}
       <div className="flex items-center justify-between">
-        {(!summaryPage && !accountsPage && po?.merged === "true") ?
+        {(!summaryPage && !accountsPage && !estimatesViewing && po?.merged === "true") ?
         (
           po?.status === "PO Approved" && !(poPayments?.length > 0) && (
           <AlertDialog open={unMergeDialog} onOpenChange={toggleUnMergeDialog}>
@@ -2693,7 +2701,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
 
         {/* Amend PO */}
         <div className="flex gap-2 items-center justify-end">
-          {!summaryPage && !accountsPage && ["PO Approved"].includes(po?.status) && (
+          {!summaryPage && !accountsPage && !estimatesViewing && ["PO Approved"].includes(po?.status) && (
             po?.merged !== "true" && (
               <Button onClick={toggleAmendPOSheet} variant={"outline"} className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8">
                 <PencilRuler className="w-4 h-4" />
@@ -3078,7 +3086,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
           </Sheet>
 
           {/* Cancel PO */}
-          {(!summaryPage && !accountsPage && ["PO Approved"].includes(po?.status) && !(poPayments?.length > 0)) && (
+          {(!summaryPage && !accountsPage && !estimatesViewing && ["PO Approved"].includes(po?.status) && !(poPayments?.length > 0)) && (
             //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
             po?.merged !== "true" && (
               <Button onClick={toggleCancelPODialog} variant={"outline"} className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8">
