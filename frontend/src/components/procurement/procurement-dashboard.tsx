@@ -33,7 +33,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/procurement-requests?tab=New+PR+Request">
                         <p className="text-center py-6 font-bold text-gray-500">New PR Request</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {approvedPRCount || 0}
                         </p>
                     </Link>
@@ -42,7 +42,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/procurement-requests?tab=Update+Quote">
                         <p className="text-center py-6 font-bold text-gray-500">Update Quote</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {updateQuotePRCount || 0}
                         </p>
                     </Link>
@@ -50,7 +50,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/procurement-requests?tab=Choose+Vendor">
                         <p className="text-center py-6 font-bold text-gray-500">Choose Vendor</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {chooseVendorPRCount || 0}
                         </p>
                     </Link>
@@ -63,7 +63,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/service-requests">
                         <p className="text-center py-6 font-bold text-gray-500">All SRs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {allSRCount || 0}
                         </p>
                     </Link>
@@ -72,7 +72,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/choose-service-vendor">
                         <p className="text-center py-6 font-bold text-gray-500">Select SR Vendor</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {pendingSRCount || 0}
                         </p>
                     </Link>
@@ -81,7 +81,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/approved-sr">
                         <p className="text-center py-6 font-bold text-gray-500">Approved SR</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {approvedSRCount || 0}
                         </p>
                     </Link>
@@ -94,7 +94,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/purchase-orders?tab=Approved+PO">
                         <p className="text-center py-6 font-bold text-gray-500">Approved PO</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {newPOCount || 0}
                         </p>
                     </Link>
@@ -102,7 +102,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/purchase-orders?tab=Released+PO">
                         <p className="text-center py-6 font-bold text-gray-500">Released PO</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {otherPOCount || 0}
                         </p>
                     </Link>
@@ -115,7 +115,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/sent-back-requests?type=Rejected">
                         <p className="text-center py-6 font-bold text-gray-500">Rejected Sent Backs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {newSBCounts.rejected || 0}
                         </p>
                     </Link>
@@ -123,7 +123,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/sent-back-requests?type=Delayed">
                         <p className="text-center py-6 font-bold text-gray-500">Delayed Sent Backs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {newSBCounts.delayed || 0}
                         </p>
                     </Link>
@@ -131,7 +131,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/sent-back-requests?type=Cancelled">
                         <p className="text-center py-6 font-bold text-gray-500">Cancelled Sent Backs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
                             {newSBCounts.cancelled || 0}
                         </p>
                     </Link>
@@ -145,7 +145,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/projects">
                         <p className="text-center py-6 font-bold text-gray-500">Projects Assigned</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(projects_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                        <p className="text-center text-red-400 text-xl font-bold py-6">{(projects_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                             : (projects_data?.length)}
                             {projects_error && <p>Error</p>}</p>
                     </Link>
@@ -153,7 +153,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/vendors">
                         <p className="text-center py-6 font-bold text-gray-500">Total Vendors</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(vendor_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                        <p className="text-center text-red-400 text-xl font-bold py-6">{(vendor_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                             : (vendor_list)}
                             {vendor_list_error && <p>Error</p>}</p>
                     </Link>
@@ -161,7 +161,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/items">
                         <p className="text-center py-6 font-bold text-gray-500">Total Items</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(item_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                        <p className="text-center text-red-400 text-xl font-bold py-6">{(item_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                             : (item_list)}
                             {item_list_error && <p>Error</p>}</p>
                     </Link>
@@ -169,7 +169,7 @@ export default function ProcurementDashboard() {
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/approved-quotes">
                         <p className="text-center py-6 font-bold text-gray-500">Approved Quotations</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(approved_quotes_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                        <p className="text-center text-red-400 text-xl font-bold py-6">{(approved_quotes_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                             : (approved_quotes)}
                             {approved_quotes_error && <p>Error</p>}</p>
                     </Link>

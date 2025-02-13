@@ -30,6 +30,8 @@ import ReactSelect, { components } from 'react-select';
 import { AddressView } from '@/components/address-view'
 import { Checkbox } from "@/components/ui/checkbox";
 import { debounce } from "lodash";
+import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -76,6 +78,9 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
     name: "",
     number: "",
   });
+
+  const [selectedGST, setSelectedGST] = useState(null);
+
   const [phoneNumber, setPhoneNumber] = useState("");
   const [email, setEmail] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
@@ -169,6 +174,13 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
         setNewPaymentDialog((prevState) => !prevState);
     };
 
+
+    const [gstConfirmDialog, setGstConfirmDialog] = useState(false);
+
+  const toggleGstConfirmDialog = () => {
+      setGstConfirmDialog((prevState) => !prevState);
+  };
+
     const [warning, setWarning] = useState("");
 
     const [newPayment, setNewPayment] = useState({
@@ -189,7 +201,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
 
   const { deleteDoc } = useFrappeDeleteDoc()
 
-      const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
+      const { upload: upload } = useFrappeFileUpload()
 
     const { call } = useFrappePostCall('frappe.client.set_value')
 
@@ -200,6 +212,17 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
     limit: 100000,
   }
   )
+
+  const {data : poProject} = useFrappeGetDoc("Projects", po?.project, po ? undefined : null)
+
+  useEffect(() => {
+    if(poProject && poProject.project_gst_number) {
+      const gstArr = JSON.parse(poProject?.project_gst_number)?.list
+      if(gstArr?.length === 1) {
+        setSelectedGST(gstArr[0])
+      }
+    }
+  }, [poProject])
 
   const { data: pr, isLoading: prLoading, error: prError } = useFrappeGetDoc("Procurement Requests", po?.procurement_request)
 
@@ -992,7 +1015,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
 
   const amountPaid = poPayments?.reduce((acc, i) => acc + parseFloat(i?.amount), 0)
 
-      const validateAmount = debounce((amount) => {
+  const validateAmount = debounce((amount) => {
     
       const { totalAmt } = getTotal()
   
@@ -1019,6 +1042,36 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
       return usersList.find((user) => user?.name === id)?.full_name;
     }
   };
+  
+  const handleConfirmGST = async () => {
+    try {
+      setLoadingFuncName("handleConfirmGST")
+
+      await updateDoc("Procurement Orders", po?.name, {
+        project_gst: selectedGST?.gst
+      })
+
+      await poMutate()
+
+      toggleGstConfirmDialog()
+
+      toast({
+        title: "Success!",
+        description: "Company Gst updated successfully!",
+        variant: "success",
+      });
+      
+    } catch (error) {
+      console.log("error", error)
+      toast({
+          title: "Failed!",
+          description: "Failed to update company GST!",
+          variant: "destructive",
+        });
+    } finally {
+      setLoadingFuncName("")
+    }
+  }
 
   const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
@@ -1123,7 +1176,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                       Merge PO(s)
                     </Button>
                   </SheetTrigger>
-                  <SheetContent className="overflow-auto">
+                  <SheetContent className="overflow-y-auto">
                     <div className="md:p-6">
                       <h2 className="text-2xl font-bold mb-4">
                         Merge Purchase Orders
@@ -1151,11 +1204,12 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                       </Card>
 
                       {mergeablePOs.length > 0 ? (
-                        <Table>
+                        <div className="overflow-x-auto">
+                        <Table className="min-w-[500px]">
                           <TableHeader>
                             <TableRow className="bg-red-100">
                               <TableHead className="w-[15%]">
-                                ID(PO/Project)
+                                ID(PO/PR)
                               </TableHead>
                               <TableHead>Items Count</TableHead>
                               <TableHead>Items List</TableHead>
@@ -1165,7 +1219,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                           <TableBody>
                             <TableRow key={po?.name}>
                               <TableCell>
-                                {po?.name.slice(3, 12)}
+                                {po?.name?.slice(3, 6)}/{po?.procurement_request?.slice(9)}
                               </TableCell>
                               <TableCell>
                                 {
@@ -1214,7 +1268,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                               return (
                                 <TableRow key={po.name}>
                                   <TableCell>
-                                    {po.name.slice(3, 12)}
+                                    {po?.name?.slice(3, 6)}/{po?.procurement_request?.slice(9)}
                                   </TableCell>
                                   <TableCell>
                                     {po.order_list.list.length}
@@ -1285,6 +1339,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                             })}
                           </TableBody>
                         </Table>
+                        </div>
                       ) : (
                         <p>No mergeable POs available.</p>
                       )}
@@ -1373,7 +1428,10 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
         <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
           <CardHeader>
             <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-              PO Details
+              <div>
+                <h2>PO Details</h2>
+                <Badge variant={po?.status === "PO Approved" ? "default" : po?.status === "Dispatched" ? "orange" : "green"}>{po?.status === "Partially Delivered" ? "Delivered" : po?.status}</Badge>
+              </div>
               <div className="flex items-center gap-2">
                 {!summaryPage && !accountsPage && !estimatesViewing && po?.status === "Dispatched" && !(poPayments?.length > 0) && (
                   <button onClick={toggleRevertDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
@@ -1391,7 +1449,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
               {!summaryPage && !accountsPage && !estimatesViewing && po?.status === "PO Approved" && (
                 <Sheet>
                   <SheetTrigger asChild>
-                    <Button variant={"ghost"} className="flex items-center gap-1 border border-primary px-1">
+                    <Button className="flex items-center gap-1">
                       <Send className="h-4 w-4" />
                       Dispatch PO
                     </Button>
@@ -1438,6 +1496,76 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                             </ul>
                           </div>
                           <Separator />
+
+                        {!po?.project_gst && (
+                          <Alert variant="destructive">
+                            <AlertTitle className="text-sm flex items-center gap-2">
+                              <MessageCircleWarning className="h-4 w-4" />
+                              Company GST is not set
+                            </AlertTitle>
+                            <AlertDescription className="text-xs flex justify-between items-center">
+                                Please confirm and set the Company GST from below to proceed further!
+                            </AlertDescription>
+                            <div className="text-black flex max-sm:flex-col sm:items-end sm:justify-between gap-2 pt-2">
+                              <div className="max-sm:w-[80%] w-[70%]">
+                              {poProject && JSON.parse(poProject?.project_gst_number)?.list?.length > 1 ? (
+                                <Select onValueChange={(selectedLocation) => {
+                                  const gstArr = JSON.parse(poProject?.project_gst_number)?.list
+                                  setSelectedGST(gstArr.find(item => item.location === selectedLocation))
+                                }}>
+                                  <SelectTrigger>
+                                      <SelectValue placeholder="Select Company GST" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                      {JSON.parse(poProject?.project_gst_number)?.list?.map((option) => (
+                                          <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
+                                      ))}
+                                  </SelectContent>
+                              </Select>
+                              ) : (
+                                <p className="text-sm">Selected Company GST: <strong className="italic">{JSON.parse(poProject?.project_gst_number)?.list[0].location}{` (${JSON.parse(poProject?.project_gst_number)?.list[0].gst})`}</strong></p>
+                              )}
+                              </div>
+                              <div className="flex justify-end">
+                                <Button className="flex items-center justify-end gap-1" disabled={!selectedGST} onClick={toggleGstConfirmDialog}>
+                                  <CheckCheck className="h-4 w-4" />
+                                  Confirm
+                                  </Button>
+                                  <Dialog open={gstConfirmDialog} onOpenChange={toggleGstConfirmDialog}>
+                                    <DialogContent>
+                                      <DialogHeader>
+                                        <DialogTitle>
+                                          Are you sure?
+                                        </DialogTitle>
+                                        <DialogDescription className="flex flex-col gap-1">
+                                          Click on Submit to set the <p>Company GST: <strong>{selectedGST?.gst}</strong> for this PO!</p>
+                                          <div className="flex items-center justify-end">
+                                          {loadingFuncName === "handleConfirmGST" ? (
+                                              <TailSpin
+                                                width={40}
+                                                height={40}
+                                                color="red"
+                                              />
+                                          ) : (
+                                              <Button
+                                                onClick={handleConfirmGST}
+                                                className="flex items-center gap-1"
+                                              >
+                                                <CheckCheck className="h-4 w-4" />
+                                                Submit
+                                              </Button>
+                                          )}
+                                          </div>
+                                        </DialogDescription>
+                                      </DialogHeader>
+                                    </DialogContent>
+                                  </Dialog>
+
+                              </div>
+                            </div>
+                          </Alert>
+                          )}
+
                           <div className="space-y-4">
                             <h3 className="font-semibold text-lg">
                               Vendor Contact Options
@@ -1647,6 +1775,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                           <Dialog>
                             <DialogTrigger asChild>
                               <Button
+                                disabled={!po?.project_gst}
                                 variant="default"
                                 className="bg-yellow-500 hover:bg-yellow-600"
                               >
@@ -1781,7 +1910,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
                         <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
                                   <div className="flex flex-col gap-2">
                                       <Label className=" text-red-700">Vendor</Label>
-                                      <span>{po?.vendor_name}</span>
+                                      <VendorHoverCard vendor_id={po?.vendor} />
                                   </div>
                                   <div className="flex flex-col gap-2 sm:items-center max-sm:text-end">
                                       <Label className=" text-red-700">Package</Label>
@@ -3081,7 +3210,7 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
 
       <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
         <SheetContent className="overflow-y-auto md:min-w-[700px]">
-          <Button onClick={handlePrint} className="flex items-center gap-1">
+          <Button disabled={po?.status === "PO Approved" && !po?.project_gst} onClick={handlePrint} className="flex items-center gap-1">
             <Printer className="h-4 w-4" />
             Print
           </Button>
@@ -3122,11 +3251,16 @@ export const PurchaseOrder = ({summaryPage = false, accountsPage = false}: Purch
 
                         <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
                           <div className="text-xs text-gray-600 font-normal">
-                            1st Floor, 234, 9th Main, 16th Cross, Sector
-                            6, HSR Layout, Bengaluru - 560102, Karnataka
+                            {po?.project_gst ? (
+                              po?.project_gst === "29ABFCS9095N1Z9" ? 
+                              "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka" :
+                              "Gurgoan Address"
+                            ) : (
+                              "Please set company GST number in order to display the Address!"
+                            )}
                           </div>
                           <div className="text-xs text-gray-600 font-normal">
-                            GST: 29ABFCS9095N1Z9
+                            GST: {po?.project_gst || "N/A"}
                           </div>
                         </div>
 

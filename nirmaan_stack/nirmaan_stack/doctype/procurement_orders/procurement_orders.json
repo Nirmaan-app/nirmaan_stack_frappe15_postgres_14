@@ -18,6 +18,7 @@
   "vendor_name",
   "vendor_address",
   "vendor_gst",
+  "project_gst",
   "order_list",
   "category_list",
   "payment_terms_section",
@@ -153,11 +154,16 @@
    "fieldname": "merged",
    "fieldtype": "Data",
    "label": "Merged"
+  },
+  {
+   "fieldname": "project_gst",
+   "fieldtype": "Data",
+   "label": "Project GST"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:51:27.008199",
+ "modified": "2025-02-07 18:39:21.530464",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
