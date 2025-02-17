@@ -1,29 +1,20 @@
-import { useEffect, useState } from "react";
-import ProjectSelect from "./custom-select/project-select";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { UserContext } from "@/utils/auth/UserProvider";
+import { formatDate } from "@/utils/FormatDate";
+import { Pencil2Icon } from "@radix-ui/react-icons";
 import {
   useFrappeCreateDoc,
-  useFrappeDeleteDoc,
   useFrappeGetDoc,
   useFrappeGetDocList,
-  useFrappeUpdateDoc,
+  useFrappeUpdateDoc
 } from "frappe-react-sdk";
-import { Button } from "./ui/button";
-import { toast } from "./ui/use-toast";
-import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Copy, Trash } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "./ui/table";
-import { Badge } from "./ui/badge";
-import { formatDate } from "@/utils/FormatDate";
+import { Copy } from "lucide-react";
+import { useContext, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil2Icon } from "@radix-ui/react-icons";
+import { useNavigate } from "react-router-dom";
+import ProjectSelect from "./custom-select/project-select";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Card, CardContent } from "./ui/card";
 import {
   Dialog,
   DialogClose,
@@ -33,16 +24,26 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTrigger } from "./ui/sheet";
+import { Sheet, SheetContent } from "./ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./ui/table";
+import { toast } from "./ui/use-toast";
 
 export const ManPowerReport = () => {
-  const [project, setProject] = useState(null);
+
+  const {selectedProject, setSelectedProject} = useContext(UserContext)
   const navigate = useNavigate();
   const {
     data: projectData,
     isLoading: projectLoading,
     error: projectError,
-  } = useFrappeGetDoc("Projects", project, project ? undefined : null);
+  } = useFrappeGetDoc("Projects", selectedProject, selectedProject ? undefined : null);
   const { createDoc, loading: createLoading } = useFrappeCreateDoc();
   const [editReport, setEditReport] = useState(null);
 
@@ -70,10 +71,10 @@ export const ManPowerReport = () => {
     "Manpower Reports",
     {
       fields: ["*"],
-      filters: [["project", "=", project]],
+      filters: [["project", "=", selectedProject]],
       orderBy: { field: "creation", order: "desc" },
     },
-    project ? undefined : null
+    selectedProject ? undefined : null
   );
 
   useEffect(() => {
@@ -105,12 +106,16 @@ export const ManPowerReport = () => {
   // console.log("manpowerDetails", manpowerDetails)
 
   const handleChange = (selectedItem: any) => {
-    setProject(selectedItem ? selectedItem.value : null);
-    sessionStorage.setItem(
-      "selectedProject",
-      JSON.stringify(selectedItem.value)
-    );
-  };
+    setSelectedProject(selectedItem ? selectedItem.value : null);
+    if(selectedItem) {
+      sessionStorage.setItem(
+        "selectedProject",
+        JSON.stringify(selectedItem.value)
+      );
+    } else {
+      sessionStorage.removeItem("selectedProject");
+    }
+};
 
   const handleInputChange = (index: number, value: string) => {
     const updatedDetails = [...manpowerDetails];
@@ -176,7 +181,7 @@ Total - ${total.toString().padStart(2, "0")} Nos.
       handleCopy(undefined);
 
       await createDoc("Manpower Reports", {
-        project: project,
+        project: selectedProject,
         project_name: projectData.project_name,
         report: { data: manpowerJSON?.manpower },
       });
@@ -243,11 +248,11 @@ Total - ${total.toString().padStart(2, "0")} Nos.
             <div className="flex-1">
               <ProjectSelect onChange={handleChange} />
             </div>
-            <Button onClick={() => navigate(`${project}`)} className="text-xs">
+            <Button onClick={() => navigate(`${selectedProject}`)} className="text-xs">
               Overall Summary
             </Button>
           </div>
-          {project && (
+          {selectedProject && (
             <div className="mx-0 px-0 pt-4">
               <Table>
                 <TableHeader className="bg-red-100">
@@ -430,7 +435,7 @@ Total - ${total.toString().padStart(2, "0")} Nos.
               NEW MANPOWER REPORT
             </h2>
           </div>
-          {project && (
+          {selectedProject && (
             <Card>
               <CardContent>
                 <div className="flex flex-col gap-4 py-2 max-md:text-sm">

@@ -1,12 +1,10 @@
 import ProjectSelect from "@/components/custom-select/project-select"
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { UserContext } from "@/utils/auth/UserProvider"
 import { formatDate } from "@/utils/FormatDate"
 import { useFrappeGetDocList } from "frappe-react-sdk"
-import { ArrowLeft } from "lucide-react"
-import { useContext, useMemo, useState } from "react"
+import { useContext } from "react"
 import { Link } from "react-router-dom"
 
 const DeliveryNotes = () => {
@@ -103,9 +101,15 @@ const DeliveryNotes = () => {
     // )
 
     const handleChange = (selectedItem: any) => {
-        // console.log(selectedItem)
         setSelectedProject(selectedItem ? selectedItem.value : null);
-        sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
+        if(selectedItem) {
+          sessionStorage.setItem(
+            "selectedProject",
+            JSON.stringify(selectedItem.value)
+          );
+        } else {
+          sessionStorage.removeItem("selectedProject");
+        }
     };
 
     // console.log("project", project)

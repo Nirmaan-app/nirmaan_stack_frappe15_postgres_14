@@ -1,86 +1,84 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import {
-  useFrappeCreateDoc,
-  useFrappeGetDocList,
-  useFrappeGetDoc,
-  useFrappeUpdateDoc,
-  useFrappeFileUpload,
-  useFrappePostCall,
-  useFrappeDeleteDoc,
-  useSWRConfig,
-} from "frappe-react-sdk";
-import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
-import {
-  ArrowLeft,
-  CheckCheck,
-  ListChecks,
-  ListX,
-  MessageCircleMore,
-  Paperclip,
-  SquareCheckBig,
-  Trash,
-  Trash2,
-  Undo,
-  Undo2,
-} from "lucide-react";
-import imageUrl from "@/assets/user-icon.jpeg";
-import ReactSelect from "react-select";
-import { CirclePlus } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
-  AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
+  AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
-import { Pencil, X } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectValue,
-  SelectTrigger,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableHead,
-  TableHeader,
-  TableRow,
-  TableBody,
-  TableCell,
-} from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
-import { useToast } from "@/components/ui/use-toast";
-import { formatDate } from "@/utils/FormatDate";
-import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import TextArea from "antd/es/input/TextArea";
-import { useUserData } from "@/hooks/useUserData";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { TailSpin } from "react-loader-spinner";
+import { Input } from "@/components/ui/input";
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { useToast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { formatDate } from "@/utils/FormatDate";
+import TextArea from "antd/es/input/TextArea";
+import {
+  useFrappeCreateDoc,
+  useFrappeDeleteDoc,
+  useFrappeFileUpload,
+  useFrappeGetDoc,
+  useFrappeGetDocList,
+  useFrappePostCall,
+  useFrappeUpdateDoc,
+  useSWRConfig,
+} from "frappe-react-sdk";
 import Fuse from "fuse.js";
+import {
+  ArrowLeft,
+  CheckCheck,
+  CirclePlus,
+  ListChecks,
+  ListX,
+  MessageCircleMore,
+  Paperclip,
+  Pencil,
+  Trash,
+  Trash2,
+  Undo,
+  Undo2,
+  X
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { useNavigate, useParams } from "react-router-dom";
+import ReactSelect from "react-select";
 
 const ApprovePRList = () => {
   const { prId: id } = useParams<{ prId: string }>();
@@ -1066,6 +1064,8 @@ const ApprovePRListPage = ({
                     value={curItem}
                     options={itemOptions}
                     onChange={(selected) =>  setCurItem(selected)}
+                    isClearable
+                    onMenuOpen={() => setCurItem(null)}
                   />
                 </div>
                 <div className="flex-1">
@@ -2155,6 +2155,8 @@ const ApprovePRListPage = ({
                             onChange={(e) => {
                               setCurCategory(e);
                             }}
+                            isClearable
+                            onMenuOpen={() => setCurCategory(null)}
                           />
                         </div>
                         <div className="flex flex-col gap-1">

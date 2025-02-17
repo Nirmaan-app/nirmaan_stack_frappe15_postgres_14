@@ -42,21 +42,23 @@ export default function ProjectSelect({ onChange }: ProjectSelectProps) {
                 }
             }
         }
-    }, [data, onChange]);
+    }, [data]);
 
     const handleChange = (selectedOption: SelectOptions | null) => {
-        setSelectedOption(selectedOption);
+        setSelectedOption(selectedOption || null);
         onChange(selectedOption);
     };
 
-    if (loading) return <h1>Loading</h1>;
     if (error) return <h1>Error</h1>;
     return (
       <ReactSelect
         options={options}
+        isLoading={loading}
         value={selectedOption}
         onChange={handleChange}
         placeholder="Select Project"
+        isClearable
+        onMenuOpen={() => handleChange(null)}
       ></ReactSelect>
     );
 }
