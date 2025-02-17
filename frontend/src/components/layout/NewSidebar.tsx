@@ -1,86 +1,25 @@
+import logo from "@/assets/logo-svg.svg";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarTrigger,
-  useSidebar,
+  useSidebar
 } from "@/components/ui/sidebar";
 import {
-  BadgeCheck,
-  Bell,
-  Calendar,
-  ChevronDown,
+  BlendIcon,
   ChevronRight,
-  ChevronsUpDown,
-  ChevronUp,
-  CreditCard,
-  Home,
-  Inbox,
-  LogOut,
-  Search,
-  Settings,
-  Sparkles,
-  User2,
-  WalletCards,
-  BlendIcon
+  CircleDollarSign
 } from "lucide-react";
-import logo from "@/assets/logo-svg.svg";
-import nLogo from "@/assets/LOGO.png";
 
-import {
-  Building2,
-  LayoutGrid,
-  List,
-  SendToBack,
-  Shapes,
-  ShoppingCart,
-  SquareSquare,
-} from "lucide-react";
-import { useContext, useEffect, useState } from "react";
-import Cookies from "js-cookie";
-import {
-  FrappeConfig,
-  FrappeContext,
-  useFrappeDocTypeEventListener,
-  useFrappeEventListener,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappeUpdateDoc,
-} from "frappe-react-sdk";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../ui/collapsible";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { useUserData } from "@/hooks/useUserData";
-import { UserContext } from "@/utils/auth/UserProvider";
-import { Separator } from "../ui/separator";
-import { UserNav } from "../nav/user-nav";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 import {
   handlePOAmendedEvent,
@@ -91,10 +30,41 @@ import {
   handlePRVendorSelectedEvent,
   handleSBNewEvent,
   handleSBVendorSelectedEvent,
+  handleSOAmendedEvent,
   handleSRApprovedEvent,
-  handleSRVendorSelectedEvent,
-  handleSOAmendedEvent
+  handleSRVendorSelectedEvent
 } from "@/zustand/eventListeners";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { getToken } from "firebase/messaging";
+import {
+  FrappeConfig,
+  FrappeContext,
+  useFrappeDocTypeEventListener,
+  useFrappeEventListener,
+  useFrappeGetDoc,
+  useFrappeGetDocList,
+  useFrappeUpdateDoc,
+} from "frappe-react-sdk";
+import Cookies from "js-cookie";
+import {
+  Building2,
+  LayoutGrid,
+  List,
+  SendToBack,
+  Shapes,
+  ShoppingCart,
+  SquareSquare,
+} from "lucide-react";
+import { useContext, useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { UserNav } from "../nav/user-nav";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../ui/collapsible";
+import { Separator } from "../ui/separator";
 
 export function NewSidebar() {
   const [role, setRole] = useState(null);
@@ -628,6 +598,15 @@ export function NewSidebar() {
                     ? adminAmendedSRCount
                     : amendedSRCount,
               },
+              {
+                key: "/approve-payments",
+                label: "Approve Payments",
+                count:
+                  role === "Nirmaan Admin Profile" ||
+                  user_id === "Administrator"
+                    ? 0
+                    : 0,
+              },
             ],
           },
         ]
@@ -764,7 +743,7 @@ export function NewSidebar() {
         ? [
             {
                 key: '/project-payments',
-                icon: WalletCards,
+                icon: CircleDollarSign,
                 label: 'Project Payments',
                 // children: [
                 //     { key: '/projects', label: 'Projects' },
@@ -792,6 +771,7 @@ export function NewSidebar() {
     "approve-po",
     "approve-sent-back",
     "approve-amended-po",
+    "approve-payments",
     "procurement-requests",
     // "new-procure-request",
     // "update-quote",
@@ -836,6 +816,7 @@ export function NewSidebar() {
         "approve-amended-po",
         "approve-service-request",
         "approve-amended-so",
+        "approve-payments",
       ].includes(selectedKeys)
     ? "pl-actions"
     : ["procurement-requests"].includes(

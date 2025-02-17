@@ -1,80 +1,75 @@
+import { onMessage } from "firebase/messaging";
 import { FrappeProvider } from "frappe-react-sdk";
+import { FC, useEffect } from "react";
 import {
   Route,
   RouterProvider,
   createBrowserRouter,
   createRoutesFromElements,
 } from "react-router-dom";
-import Dashboard from "./pages/dashboard";
-import Login from "./pages/auth/old-login";
-import Projects from "./pages/projects/projects";
-import Customers from "./pages/customers/customers";
-import WorkPackages from "./pages/work-packages";
-import Profile from "./pages/users/user-profile";
-import { EditProjectForm } from "./pages/projects/edit-project-form";
-import { ApprovePR } from "./pages/approve-pr";
-import { ProcurementOrder } from "./components/procurement/procurement-vendor";
-import { SelectVendors } from "./components/procurement/select-vendors";
-import { UpdateQuote } from "./components/procurement/update-quote";
-import { SentBackRequest } from "./components/procurement/sent-back-request";
-import { SentBackUpdateQuote } from "./components/procurement/sent-back-update-quote";
-import { SentBackSelectVendor } from "./components/procurement/sent-back-select-vendor";
-import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
-import { ApproveSelectSentBack } from "./pages/approve-select-sent-back";
-import { PDF } from "./pages/pdf";
-import { ThemeProvider } from "./components/ui/theme-provider";
-import { ProtectedRoute } from "./utils/auth/ProtectedRoute";
-import { UserProvider } from "./utils/auth/UserProvider";
-import Users from "./pages/users/users";
-import Roles from "./pages/roles";
-import Debug from "./pages/debug";
-import { ApproveSelectVendor } from "./pages/approve-select-vendor";
-import { UserForm } from "./pages/users/user-form";
-import Items from "./pages/Items/items";
-import Vendors from "./pages/vendors/vendors";
-import ListPR from "./components/procurement-request/list-pr";
-import { EditVendor } from "./pages/vendors/edit-vendor";
-import { FC, useEffect } from "react";
-import { MainLayout } from "./components/layout/main-layout";
-import { ProjectManager } from "./components/dashboard-pm";
-import { DelayedPRSelect } from "./pages/delayed-pr-select";
-import { DelayedPR } from "./pages/delayed-pr";
-import NewCustomer from "./pages/customers/add-new-customer";
-import EditCustomer from "./pages/customers/edit-customer";
-import { NewVendor } from "./pages/vendors/new-vendor";
-import NewMilestones from "./components/updates/NewMilestones";
-import DeliveryNotes from "./pages/DeliveryNotes/deliverynotes";
-import DeliveryNote from "./pages/DeliveryNotes/deliverynote";
-import { ProjectForm } from "./pages/projects/project-form";
-import { ApprovedQuotationsTable } from "./pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
-import EditUserForm from "./pages/users/EditUserForm";
-import { messaging } from "./firebase/firebaseConfig";
-import { onMessage } from "firebase/messaging";
-import { ApproveSelectAmendPO } from "./pages/approve-select-amend-po";
-import ListSR from "./components/service-request/list-sr";
-import { ApproveSelectSR } from "./components/service-request/approve-service-request-list";
-import { ApproveServiceRequest } from "./components/service-request/approve-service-request";
-import { SelectServiceVendorList } from "./components/service-request/select-service-vendor-list";
-import { ApprovedSRList } from "./components/service-request/approved-sr-list";
-import { ApprovedSR } from "./components/service-request/approved-sr";
-import { ManPowerReport } from "./components/ManPowerReport";
-import ForgotPassword from "./pages/auth/forgot-password";
-import { SentBackSummary } from "./components/procurement/sent-back-summary";
-import { NotificationsPage } from "./components/nav/notifications";
-import { NewProcurementRequest } from "./components/procurement-request/new-new-pr";
-import { WPSelection } from "./components/procurement-request/wp_selection";
-import { SelectServiceVendorPage } from "@/components/service-request/select-service-vendor";
-import { SidebarProvider } from "./components/ui/sidebar";
-import { ProcurementPackages } from "./components/procurement-packages";
-import { EstimatedPriceOverview } from "./components/procurement/EstimatedPriceOverview";
 import { ManPowerOverallSummary } from "./components/ManPowerOverallSummary";
+import { ManPowerReport } from "./components/ManPowerReport";
+import { ProjectManager } from "./components/dashboard-pm";
+import { MainLayout } from "./components/layout/main-layout";
+import { NotificationsPage } from "./components/nav/notifications";
+import { ProcurementPackages } from "./components/procurement-packages";
 import { LivePRTrackingTable } from "./components/procurement-request/LivePRTrackingTable";
-import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
-import { ProjectPaymentsList } from "./pages/ProjectPayments/project-payments-list";
-import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
+import ListPR from "./components/procurement-request/list-pr";
+import { NewProcurementRequest } from "./components/procurement-request/new-new-pr";
+import { EstimatedPriceOverview } from "./components/procurement/EstimatedPriceOverview";
 import { ProcurementRequests } from "./components/procurement/procurement-requests";
 import { RenderProcurementRequest } from "./components/procurement/render-procurement-requests";
+import { SentBackRequest } from "./components/procurement/sent-back-request";
+import { SentBackSelectVendor } from "./components/procurement/sent-back-select-vendor";
+import { SentBackSummary } from "./components/procurement/sent-back-summary";
+import { SentBackUpdateQuote } from "./components/procurement/sent-back-update-quote";
 import { ApproveSelectAmendSR } from "./components/service-request/approve-amend-sr-list";
+import { ApproveServiceRequest } from "./components/service-request/approve-service-request";
+import { ApproveSelectSR } from "./components/service-request/approve-service-request-list";
+import { ApprovedSR } from "./components/service-request/approved-sr";
+import { ApprovedSRList } from "./components/service-request/approved-sr-list";
+import ListSR from "./components/service-request/list-sr";
+import { SelectServiceVendorList } from "./components/service-request/select-service-vendor-list";
+import { SidebarProvider } from "./components/ui/sidebar";
+import { ThemeProvider } from "./components/ui/theme-provider";
+import NewMilestones from "./components/updates/NewMilestones";
+import { messaging } from "./firebase/firebaseConfig";
+import { ApprovedQuotationsTable } from "./pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
+import DeliveryNote from "./pages/DeliveryNotes/deliverynote";
+import DeliveryNotes from "./pages/DeliveryNotes/deliverynotes";
+import Items from "./pages/Items/items";
+import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
+import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
+import { ApprovePayments } from "./pages/ProjectPayments/approve-payments";
+import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
+import { ProjectPaymentsList } from "./pages/ProjectPayments/project-payments-list";
+import { ApprovePR } from "./pages/approve-pr";
+import { ApproveSelectAmendPO } from "./pages/approve-select-amend-po";
+import { ApproveSelectSentBack } from "./pages/approve-select-sent-back";
+import { ApproveSelectVendor } from "./pages/approve-select-vendor";
+import ForgotPassword from "./pages/auth/forgot-password";
+import Login from "./pages/auth/old-login";
+import NewCustomer from "./pages/customers/add-new-customer";
+import Customers from "./pages/customers/customers";
+import EditCustomer from "./pages/customers/edit-customer";
+import Dashboard from "./pages/dashboard";
+import { DelayedPR } from "./pages/delayed-pr";
+import { DelayedPRSelect } from "./pages/delayed-pr-select";
+import { PDF } from "./pages/pdf";
+import { EditProjectForm } from "./pages/projects/edit-project-form";
+import { ProjectForm } from "./pages/projects/project-form";
+import Projects from "./pages/projects/projects";
+import Roles from "./pages/roles";
+import EditUserForm from "./pages/users/EditUserForm";
+import { UserForm } from "./pages/users/user-form";
+import Profile from "./pages/users/user-profile";
+import Users from "./pages/users/users";
+import { EditVendor } from "./pages/vendors/edit-vendor";
+import { NewVendor } from "./pages/vendors/new-vendor";
+import Vendors from "./pages/vendors/vendors";
+import WorkPackages from "./pages/work-packages";
+import { ProtectedRoute } from "./utils/auth/ProtectedRoute";
+import { UserProvider } from "./utils/auth/UserProvider";
 // import { SentBackSummary } from './components/procurement/sent-back-summary'
 // import { ManPowerReport } from './components/ManPowerReport'
 
@@ -210,6 +205,10 @@ const router = createBrowserRouter(
             <Route path=":soId" 
               lazy={() => import("@/components/service-request/approve-amended-sr")}
              />
+          </Route>
+
+          <Route path="approve-payments">
+            <Route index element={<ApprovePayments />} />
           </Route>
 
           <Route path="approved-sr">
