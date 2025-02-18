@@ -18,6 +18,12 @@
   "vendor_contact_person_name",
   "vendor_mobile",
   "vendor_email",
+  "vendor_bank_details_section",
+  "account_name",
+  "account_number",
+  "ifsc",
+  "bank_name",
+  "bank_branch",
   "vendor_taxation_details_section",
   "vendor_gst"
  ],
@@ -98,11 +104,41 @@
    "fieldname": "vendor_category",
    "fieldtype": "JSON",
    "label": "Vendor Category"
+  },
+  {
+   "fieldname": "vendor_bank_details_section",
+   "fieldtype": "Section Break",
+   "label": "Vendor Bank Details"
+  },
+  {
+   "fieldname": "account_name",
+   "fieldtype": "Data",
+   "label": "Account Name"
+  },
+  {
+   "fieldname": "account_number",
+   "fieldtype": "Data",
+   "label": "Account Number"
+  },
+  {
+   "fieldname": "ifsc",
+   "fieldtype": "Data",
+   "label": "IFSC"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name"
+  },
+  {
+   "fieldname": "bank_branch",
+   "fieldtype": "Data",
+   "label": "Bank Branch"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-28 11:47:01.565503",
+ "modified": "2025-02-18 19:42:59.115060",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

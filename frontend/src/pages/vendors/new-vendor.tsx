@@ -1,19 +1,20 @@
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
-import { useForm } from "react-hook-form"
-import * as z from "zod"
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/ui/button-loading"
-import ReactSelect from 'react-select';
-import { useState, useEffect, useCallback } from "react"
-import { Link, useNavigate } from "react-router-dom"
-import { ArrowLeft, ListChecks, ListRestart, Undo2 } from "lucide-react"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
+import { ListChecks, ListRestart } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { useForm } from "react-hook-form"
+import { useNavigate } from "react-router-dom"
+import ReactSelect from 'react-select'
+import * as z from "zod"
 
 const getVendorFormSchema = (service: boolean) => {
     return z.object({
@@ -90,6 +91,14 @@ const getVendorFormSchema = (service: boolean) => {
                 .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
                     message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
                 }),
+        taxation_type: service
+        ? z.string().optional()
+        : z.string(),
+        account_number: z.string().optional(),
+        account_name: z.string().optional(),
+        bank_name: z.string().optional(),
+        bank_branch: z.string().optional(),
+        ifsc: z.string().optional(),
     })
 };
 
@@ -107,11 +116,13 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     const VendorFormSchema = getVendorFormSchema(vendorType === "Service");
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        defaultValues: {},
+        defaultValues: {
+            "taxation_type": "GST"
+        },
         mode: "onBlur",
     })
 
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
+    const { data: category_list } = useFrappeGetDocList("Category",
         {
             fields: ["*"],
             filters: [["work_package", "!=", "Services"]],
@@ -123,7 +134,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
     const { mutate } = useSWRConfig()
     const { toast } = useToast()
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
     const { deleteDoc } = useFrappeDeleteDoc()
 
     const [categories, setCategories] = useState<SelectOption[]>([])
@@ -155,6 +166,12 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
             vendor_email: undefined,
             vendor_mobile: undefined,
             vendor_gst: undefined,
+            taxation_type: "GST",
+            account_number: undefined,
+            account_name: undefined,
+            bank_name: undefined,
+            bank_branch: undefined,
+            ifsc: undefined,
         });
         setCategories([]);
         form.clearErrors();
@@ -331,6 +348,10 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         debouncedFetch(value)
     }
 
+    const taxationType = form.watch("taxation_type");
+
+    console.log("taxationType", taxationType)
+
     return (
         <>
             <div className={`flex-1 space-x-2 ${navigation ? "flex-1 md:space-y-4" : ""} `}>
@@ -341,7 +362,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 )}
 
                 <div className="flex flex-col items-start mt-2 px-6 max-md:px-2 space-y-2">
-                    <label htmlFor="vendorType" className="block text-sm font-medium text-gray-700">Vendor_Type<sup className="text-sm text-red-600">*</sup></label>
+                    <Label htmlFor="vendorType">Vendor_Type<sup className="text-sm text-red-600">*</sup></Label>
                     <Select value={vendorType} onValueChange={(value) => setVendorType(value)} defaultValue={service ? "Service" : "Material"}>
                         <SelectTrigger className="">
                             <SelectValue className="text-gray-200" placeholder="Select Vendor Type" />
@@ -393,6 +414,19 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
                                     )}
                                 />
+
+                                <div className="flex flex-col items-start space-y-2">
+                                    <Label htmlFor="taxationType" >Taxation Type<sup className="text-sm text-red-600">*</sup></Label>
+                                    <Select value={taxationType} onValueChange={(value) => form.setValue("taxation_type", value)} defaultValue={"GST"}>
+                                        <SelectTrigger className="">
+                                            <SelectValue className="text-gray-200" placeholder="Select Taxation Type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                                <SelectItem value="GST">GST</SelectItem>
+                                                <SelectItem value="PAN">PAN</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
 
                                 <FormField
                                     control={form.control}
@@ -515,6 +549,72 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                             <FormLabel>Email</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="Enter Email ID" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <p className="text-sky-600 font-semibold pb-2">Vendor Bank Details</p>
+                                <FormField
+                                    control={form.control}
+                                    name="account_name"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Account Name</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Account Name" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="account_number"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Account Number</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Account Number" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="ifsc"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>IFSC Code</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter IFSC Code" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="bank_name"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Bank Name</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Bank Name" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="bank_branch"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Bank Branch</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Bank Branch" {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
