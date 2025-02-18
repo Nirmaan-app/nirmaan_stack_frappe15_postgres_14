@@ -22,10 +22,11 @@ interface NewSBCounts {
     cancelled: number | null;
 }
 
-interface AdminNewSBCounts {
+interface PaymentCountsInterface {
     rejected : number | null;
-    delayed: number | null;
-    cancelled: number | null;
+    requested: number | null;
+    approved: number | null;
+    paid: number | null;
 }
 
 interface StoreState {
@@ -47,7 +48,7 @@ interface StoreState {
     newPOCount: number | null;
     adminNewPOCount: number | null;
     newSBCounts : NewSBCounts;
-    adminNewSBCounts: AdminNewSBCounts;
+    adminNewSBCounts: NewSBCounts;
     updateQuotePRCount: number | null;
     adminUpdateQuotePRCount: number | null;
     chooseVendorPRCount: number | null;
@@ -65,6 +66,9 @@ interface StoreState {
     adminPendingSRCount: number | null;
     amendedSRCount: number | null;
     adminAmendedSRCount: number | null;
+    paymentsCount: PaymentCountsInterface;
+    adminPaymentsCount: PaymentCountsInterface;
+    updatePaymentsCount: (paymentData : any, admin: boolean) => void;
 }
 
 export const useDocCountStore = create<StoreState>()(
@@ -102,6 +106,8 @@ export const useDocCountStore = create<StoreState>()(
             adminAllSRCount: null,
             pendingSRCount: null,
             adminPendingSRCount: null,
+            paymentsCount: {requested: null, approved: null, rejected: null, paid: null},
+            adminPaymentsCount: {requested: null, approved: null, rejected: null, paid: null},
             updatePRCounts: (prData, admin) => {
                 const pendingCount = prData.filter((pr) => pr.workflow_state === 'Pending').length;
                 const approveCount = prData.filter((pr) => ['Vendor Selected', 'Partially Approved'].includes(pr.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending")).length;
@@ -187,7 +193,23 @@ export const useDocCountStore = create<StoreState>()(
                         amendedSRCount: amendedSRCount
                     });
                 }
-            }
+            },
+            updatePaymentsCount: (paymentData, admin) => {
+                const approvedPaymentsCount = paymentData?.filter((p) => p?.status === "Approved")?.length
+                const rejectedPaymentsCount = paymentData?.filter((p) => p?.status === "Rejected")?.length
+                const requestedPaymentsCount = paymentData?.filter((p) => p?.status === "Requested")?.length
+                const paidPaymentsCount = paymentData?.filter((p) => p?.status === "Paid")?.length
+
+                if(admin) {
+                    set({
+                        adminPaymentsCount: {requested: requestedPaymentsCount, approved: approvedPaymentsCount, rejected: rejectedPaymentsCount, paid: paidPaymentsCount}
+                    });
+                } else {
+                    set({
+                        paymentsCount: {requested: requestedPaymentsCount, approved: approvedPaymentsCount, rejected: rejectedPaymentsCount, paid: paidPaymentsCount}
+                    });
+                }
+            },
         }),
         {
             name: 'docCounts-store',

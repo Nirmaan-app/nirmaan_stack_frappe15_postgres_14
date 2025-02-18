@@ -1,21 +1,21 @@
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link, useSearchParams } from "react-router-dom";
-import { useContext, useEffect, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { useUserData } from "@/hooks/useUserData";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { useToast } from "../../components/ui/use-toast";
-import { TableSkeleton } from "../../components/ui/skeleton";
-import { Badge } from "../../components/ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { Button } from "@/components/ui/button";
-import { ConfigProvider, Menu, MenuProps, Radio } from "antd";
+import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { useUserData } from "@/hooks/useUserData";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { ColumnDef } from "@tanstack/react-table";
+import { Radio } from "antd";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Badge } from "../../components/ui/badge";
+import { TableSkeleton } from "../../components/ui/skeleton";
+import { useToast } from "../../components/ui/use-toast";
 
 
 // interface ReleasePOSelectProps {
@@ -66,47 +66,9 @@ export const ReleasePOSelect = () => {
     const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
-    const getTotal = (order_id: string) => {
-        let total: number = 0;
-        let totalWithGST: number = 0;
-
-        const po = procurement_order_list?.find(item => item.name === order_id)
-
-        const loading_charges = parseFloat(po?.loading_charges || 0)
-        const freight_charges = parseFloat(po?.freight_charges || 0)
-
-        const orderData = po?.order_list;
-
-        orderData?.list.map((item) => {
-            const price = parseFloat(item?.quote) || 0;
-            const quantity = parseFloat(item?.quantity) || 1;
-            const gst = parseFloat(item?.tax) || 0;
-
-            total += price * quantity;
-
-            const gstAmount = (price * gst) / 100;
-            totalWithGST += (price + gstAmount) * quantity;
-        });
-
-        total += loading_charges + freight_charges
-        totalWithGST += loading_charges * 1.18 + freight_charges * 1.18
-
-        return {
-            totalWithoutGST: total,
-            totalWithGST: totalWithGST
-        };
-    };
-
-
-    const getTotalAmountPaid = (id) => {
+    const getAmountPaid = (id) => {
         const payments = projectPayments?.filter((payment) => payment.document_name === id);
-
-
-        return payments?.reduce((acc, payment) => {
-            const amount = parseFloat(payment.amount || 0)
-            const tds = parseFloat(payment.tds || 0)
-            return acc + amount;
-        }, 0);
+        return getTotalAmountPaid(payments);
     }
 
     const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount } = useDocCountStore()
@@ -299,9 +261,10 @@ export const ReleasePOSelect = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const data = row.original;
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")).totalWithoutGST)}
+                            {formatToIndianRupee(getPOTotal(data,  parseFloat(data?.loading_charges), parseFloat(data?.freight_charges))?.total)}
                         </div>
                     )
                 }
@@ -314,9 +277,10 @@ export const ReleasePOSelect = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const data = row.original;
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")).totalWithGST)}
+                            {formatToIndianRupee(getPOTotal(data,  parseFloat(data?.loading_charges), parseFloat(data?.freight_charges))?.totalAmt)}
                         </div>
                     )
                 }
@@ -326,9 +290,8 @@ export const ReleasePOSelect = () => {
                 header: "Amt Paid",
                 cell: ({ row }) => {
                     const data = row.original
-                    const amountPaid = getTotalAmountPaid(data?.name);
                     return <div className="font-medium">
-                        {formatToIndianRupee(amountPaid)}
+                        {formatToIndianRupee(getAmountPaid(data?.name))}
                     </div>
                 },
             },

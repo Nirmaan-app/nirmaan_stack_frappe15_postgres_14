@@ -11,22 +11,36 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { toast } from "@/components/ui/use-toast";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeCreateDoc } from "frappe-react-sdk";
 import { debounce } from "lodash";
 import { useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 
+interface RequestPaymentDialogProps {
+  totalAmount: number;
+  totalAmountWithoutGST: number;
+  totalPaid: number;
+  po?: any;
+  sr?: any;
+  gst?: any
+  isSr?: boolean;
+  paymentsMutate?: any;
+}
+
 const RequestPaymentDialog = ({
-  requestPaymentDialog,
-  toggleRequestPaymentDialog,
   totalAmount,
   totalAmountWithoutGST,
   totalPaid,
   po,
-  AllPoPaymentsListMutate,
-  poPaymentsMutate,
+  sr,
+  paymentsMutate,
+  isSr=false,
+  gst = true
+} : RequestPaymentDialogProps) => {
 
-}) => {
+  const {requestPaymentDialog, toggleRequestPaymentDialog} = useDialogStore()
+
   const [amountRequesting, setAmountRequesting] = useState(0);
   const [selectedOption, setSelectedOption] = useState(""); // Track selected radio option
   const [customAmount, setCustomAmount] = useState("");
@@ -39,28 +53,28 @@ const RequestPaymentDialog = ({
     setSelectedOption(value);
 
     if (value === "full") {
-      setAmountRequesting(totalAmount);
+      setAmountRequesting(gst ? totalAmount : totalAmountWithoutGST);
     } else if (value === "withoutGST") {
       setAmountRequesting(totalAmountWithoutGST);
     } else if (value === "due") {
-      setAmountRequesting(totalAmount - totalPaid);
+      setAmountRequesting((gst ? totalAmount : totalAmountWithoutGST) - totalPaid);
     }
     else if (value === "custom") {
       setAmountRequesting(Number(customAmount));
     } else {
-      setAmountRequesting((totalAmount * Number(percentage)) / 100);
+      setAmountRequesting(((gst ? totalAmount : totalAmountWithoutGST) * Number(percentage)) / 100);
     }
   };
 
   const validateAmount = debounce((amount) => {
 
-    const compareAmount = totalAmount - totalPaid;
+    const compareAmount =  gst ? totalAmount - totalPaid : totalAmountWithoutGST - totalPaid;
 
     if (parseFloat(amount) > compareAmount) {
       setWarning(
         `Entered amount exceeds the total ${
           totalPaid ? "remaining" : ""
-        } amount including GST: ${formatToIndianRupee(compareAmount)}`
+        } amount ${gst ? "including" : "excluding"} GST: ${formatToIndianRupee(compareAmount)}`
       );
     } else {
       setWarning(""); // Clear warning if within the limit
@@ -70,17 +84,15 @@ const RequestPaymentDialog = ({
   const AddPayment = async () => {
     try {
       await createDoc("Project Payments", {
-        document_type: "Procurement Orders",
-        document_name: po?.name,
-        project: po?.project,
-        vendor: po?.vendor,
+        document_type: !isSr ? "Procurement Orders" : "Service Requests",
+        document_name: !isSr ? po?.name : sr?.name,
+        project: !isSr ? po?.project : sr?.project,
+        vendor: !isSr ? po?.vendor : sr?.vendor,
         amount: amountRequesting,
         status: "Requested"
       });
 
-      await AllPoPaymentsListMutate();
-
-      await poPaymentsMutate();
+      await paymentsMutate();
 
       toggleRequestPaymentDialog()
 
@@ -140,17 +152,20 @@ const RequestPaymentDialog = ({
             value={percentage}
             onChange={(e) => {
               setPercentage(e.target.value);
-              setAmountRequesting((totalAmount * Number(e.target.value)) / 100);
+              setAmountRequesting(((gst ? totalAmount : totalAmountWithoutGST) * Number(e.target.value)) / 100);
             }}
           />
           <Label htmlFor="percentage">% of the Amount</Label>
         </div>
 
         {/* 3️⃣ Total Amount Without GST */}
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="withoutGST" id="withoutGST" />
-          <Label htmlFor="withoutGST">Total Amount Holding GST</Label>
-        </div>
+        {gst && (
+           <div className="flex items-center space-x-2">
+           <RadioGroupItem value="withoutGST" id="withoutGST" />
+           <Label htmlFor="withoutGST">Total Amount Holding GST</Label>
+         </div>
+
+        )}
 
         {/* 4️⃣ Full Amount */}
         <div className="flex items-center space-x-2">
@@ -163,7 +178,7 @@ const RequestPaymentDialog = ({
           {totalPaid > 0 && (
           <div className="flex items-center space-x-2">
             <RadioGroupItem value="due" id="due" />
-            <Label htmlFor="due">Due amount: {formatToIndianRupee(totalAmount - totalPaid)}</Label>
+            <Label htmlFor="due">Due amount: {formatToIndianRupee((gst ? totalAmount : totalAmountWithoutGST) - totalPaid)}</Label>
           </div>
           )}
         </RadioGroup>

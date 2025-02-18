@@ -1,41 +1,32 @@
-import React, { useContext, useEffect, useMemo, useState } from "react";
-import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import { Link, useSearchParams } from "react-router-dom";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/components/ui/use-toast";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { toast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { CalendarIcon, Paperclip, SquarePlus } from "lucide-react";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns"
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger, AlertDialogCancel } from "@/components/ui/alert-dialog";
-import { Toast } from "@/components/ui/toast";
+import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { debounce } from "lodash";
+import { Paperclip, SquarePlus } from "lucide-react";
+import { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ProjectPaymentsPaymentWise } from "./project-payments-payment-wise";
-import { ConfigProvider, Menu, MenuProps, Radio } from "antd";
-import { debounce } from "lodash"; 
+import { Link } from "react-router-dom";
 
 export const ProjectPaymentsList = () => {
 
-    const [searchParams] = useSearchParams();
-
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || "PO Wise");
-
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
-    const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
+    const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
 
-    const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+    const { call } = useFrappePostCall('frappe.client.set_value')
 
     const [warning, setWarning] = useState("");
 
@@ -65,39 +56,10 @@ export const ProjectPaymentsList = () => {
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
+        filters: [["status", "=", "Paid"]],
         limit: 100000
     })
 
-    // useEffect(() => {
-    //     const currentTab = searchParams.get("tab") || "PO Wise";
-    //     setTab(currentTab);
-    //     updateURL("tab", currentTab);
-    // }, []);
-
-    const updateURL = (key, value) => {
-        const url = new URL(window.location);
-        url.searchParams.set(key, value);
-        window.history.pushState({}, "", url);
-    };
-
-    // const setPaymentsTab = (changeTab) => {
-    //   if (tab === changeTab) return; // Prevent redundant updates
-    //   setTab(changeTab);
-    //   updateURL("tab", changeTab);
-    // };
-
-    const onClick = (value) => {
-        if (tab === value) return; // Prevent redundant updates
-
-        const newTab = value;
-        setTab(newTab);
-        updateURL("tab", newTab);
-
-    };
-
-    // type MenuItem = Required<MenuProps>["items"][number];
-
-    const items = ["PO Wise", "Payment Wise"];
 
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
         await poMutate();
@@ -192,15 +154,9 @@ export const ProjectPaymentsList = () => {
         return 0;
     };
 
-    const getTotalAmountPaid = (id) => {
+    const getAmountPaid = (id) => {
         const payments = projectPayments?.filter((payment) => payment.document_name === id);
-
-
-        return payments?.reduce((acc, payment) => {
-            const amount = parseFloat(payment.amount || 0)
-            const tds = parseFloat(payment.tds || 0)
-            return acc + amount;
-        }, 0);
+        return getTotalAmountPaid(payments);
     }
 
     const combinedData = [
@@ -235,7 +191,8 @@ export const ProjectPaymentsList = () => {
                 utr: newPayment?.utr,
                 amount: newPayment?.amount,
                 tds: newPayment?.tds,
-                payment_date: newPayment?.payment_date
+                payment_date: newPayment?.payment_date,
+                status: "Paid"
             })
 
             const fileArgs = {
@@ -305,7 +262,7 @@ export const ProjectPaymentsList = () => {
           newPayment?.doctype === "Procurement Orders" ? "Purchase Order" : "Service Order"
         );
 
-        const totalAmountPaid = getTotalAmountPaid(order?.name)
+        const totalAmountPaid = getAmountPaid(order?.name)
     
         const compareAmount =
           newPayment?.doctype === "Procurement Orders"
@@ -426,7 +383,7 @@ export const ProjectPaymentsList = () => {
                 header: "Amt Paid",
                 cell: ({ row }) => {
                     const data = row.original
-                    const amountPaid = getTotalAmountPaid(data?.name);
+                    const amountPaid = getAmountPaid(data?.name);
                     const { project, vendor, vendor_id, project_id, document_type, document_name, gst } = getDataAttributes(data)
                     return <div onClick={() => {
                         setCurrentPayments({ project, vendor, vendor_id, project_id, document_type, document_name, gst })
@@ -455,8 +412,6 @@ export const ProjectPaymentsList = () => {
         [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments]
     );
 
-    const { toast } = useToast();
-
     if (poError || srError || projectsError || vendorsError) {
         toast({
             title: "Error!",
@@ -469,45 +424,6 @@ export const ProjectPaymentsList = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            {/* <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Project Payments List</h2>
-            </div> */}
-
-            {/* <div className="flex items-center gap-4">
-                    <Button variant={`${tab === "po-wise" ? "default" : "outline"}`} onClick={() => setPaymentsTab("po-wise")}>PO Wise</Button>
-                    <Button variant={`${tab === "payment-wise" ? "default" : "outline"}`} onClick={() => setPaymentsTab("payment-wise")}>Payment Wise</Button>
-                </div> */}
-            {/* <div className="w-full">
-                  <ConfigProvider
-                    theme={{
-                      components: {
-                        Menu: {
-                          horizontalItemSelectedColor: "#D03B45",
-                          itemSelectedBg: "#FFD3CC",
-                          itemSelectedColor: "#D03B45",
-                        },
-                      },
-                    }}
-                  >
-                    <Menu
-                      selectedKeys={[tab]}
-                      onClick={onClick}
-                      mode="horizontal"
-                      items={items}
-                    />
-                  </ConfigProvider>
-                </div> */}
-            {items && (
-                <Radio.Group
-                    block
-                    options={items}
-                    defaultValue="PO Wise"
-                    optionType="button"
-                    buttonStyle="solid"
-                    value={tab}
-                    onChange={(e) => onClick(e.target.value)}
-                />
-            )}
 
             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
@@ -542,7 +458,7 @@ export const ProjectPaymentsList = () => {
                         )}
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                            <span className="">{formatToIndianRupee(getTotalAmountPaid(newPayment?.docname))}</span>
+                            <span className="">{formatToIndianRupee(getAmountPaid(newPayment?.docname))}</span>
                         </div>
 
                         <div className="flex flex-col gap-4 pt-4">
@@ -703,15 +619,13 @@ export const ProjectPaymentsList = () => {
                     </DialogHeader>
                 </DialogContent>
             </Dialog>
-            {tab === "PO Wise" ? (
+            {
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable columns={columns} data={combinedData} project_values={projectValues} approvedQuotesVendors={vendorValues} />
                 )
-            ) : (
-                <ProjectPaymentsPaymentWise />
-            )}
+            }
         </div>
     );
 };

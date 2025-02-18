@@ -7,9 +7,11 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
+import { useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CircleCheck, CircleX, SquarePen } from "lucide-react";
 import { useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 
 export const ApprovePayments = () => {
 
@@ -18,6 +20,10 @@ export const ApprovePayments = () => {
   const [dialogType, setDialogType] = useState<"approve" | "reject" | "edit">("approve");
 
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  const [amountInput, setAmountInput] = useState("");
+
+  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
 
   const toggleDialog = () => {
     setDialogOpen(!dialogOpen);
@@ -40,14 +46,14 @@ export const ApprovePayments = () => {
         orderBy: { field: "payment_date", order: "desc" }
     })
 
-    const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList("Procurement Orders", {
+    const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList("Procurement Orders", {
             fields: ["*"],
             filters: [["status", "not in", ["Cancelled", "Merged"]]],
             limit: 100000,
             orderBy: { field: "modified", order: "desc" },
         });
     
-    const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList("Service Requests", {
+    const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList("Service Requests", {
         fields: ["*"],
         filters: [["status", "=", "Approved"]],
         limit: 10000,
@@ -68,37 +74,32 @@ export const ApprovePayments = () => {
         value: item.name,
     })) || [];
 
-    const getTotalAmount = (order, type: "Procurement Orders" | "Service Requests") => {
-      if (type === "Procurement Orders") {
-          let total = 0;
-          let totalWithTax = 0;
-          const loading_charges = parseFloat(order?.loading_charges || 0)
-          const freight_charges = parseFloat(order?.freight_charges || 0)
-          const orderData = order.order_list;
-          orderData?.list.forEach((item) => {
-              const price = parseFloat(item?.quote || 0);
-              const quantity = parseFloat(item?.quantity || 1);
-              const tax = parseFloat(item?.tax || 0);
-              totalWithTax += price * quantity * (1 + tax / 100);
-              total += price * quantity;
-          });
+  const handleSubmit = async () => {
+    try {
+      await updateDoc("Project Payments", selectedPO?.name, {
+        status: ["edit", "approve"].includes(dialogType) ? "Approved" : "Rejected",
+        amount: dialogType === "edit" ? Number(amountInput) : selectedPO?.amount
+      })
 
-          total += loading_charges + freight_charges
-          totalWithTax += loading_charges * 1.18 + freight_charges * 1.18
-          return {total, totalWithTax};
-      }
-      if (type === "Service Requests") {
-          let total = 0;
-          const orderData = order.service_order_list;
-          orderData?.list.forEach((item) => {
-              const price = parseFloat(item?.rate) || 0;
-              const quantity = parseFloat(item?.quantity) || 1;
-              total += price * quantity;
-          });
-          return {total, totalWithTax : total * 1.18};
-      }
-      return 0;
-  };
+      await projectPaymentsMutate()
+
+      toggleDialog()
+
+      toast({
+        title: "Success!",
+        description: `Payment ${dialogType === "edit" ? "edited and approved" : dialogType === "approve" ? "approved" :"rejected"} successfully!`,
+        variant: "success",
+      });
+      
+    } catch (error) {
+      console.log("error", error);
+      toast({
+        title: "Failed!",
+        description: "Failed to update payment!",
+        variant: "destructive",
+      });
+    }
+  }
 
     const columns = useMemo(
         () => [
@@ -155,15 +156,17 @@ export const ApprovePayments = () => {
                   )
               },
               cell: ({ row }) => {
-                  const data = row.original
+                  const data = row.original;
+                  const isSr = data.document_type === "Service Requests";
                   let order;
-                  if(row.original.document_type === "Procurement Orders") {
+                  if(!isSr) {
                     order = purchaseOrders?.find(i => i?.name === data?.document_name)
                   } else {
                     order = serviceOrders?.find(i => i?.name === data?.document_name)
                   }
                   return <div className="font-medium">
-                      {formatToIndianRupee(getTotalAmount(order, row.original.document_type)?.totalWithTax)}
+                      {formatToIndianRupee(isSr ? (order?.gst === "true" ? getSRTotal(order) : getSRTotal(order) * 1.18 ) : 
+                      getPOTotal(order, parseFloat(order?.loading_charges), parseFloat(order?.freight_charges))?.totalAmt)}
                   </div>
               },
           },
@@ -195,6 +198,7 @@ export const ApprovePayments = () => {
                       <CircleCheck
                       onClick={() => {
                         setSelectedPO(data)
+                        setAmountInput(data.amount)
                         setDialogType("approve")
                         toggleDialog()
                       }}
@@ -202,6 +206,7 @@ export const ApprovePayments = () => {
                       <CircleX
                        onClick={() => {
                          setSelectedPO(data)
+                         setAmountInput(data.amount)
                          setDialogType("reject")
                          toggleDialog()
                        }}
@@ -222,10 +227,11 @@ export const ApprovePayments = () => {
                   <div className="">
                     <SquarePen
                       className="cursor-pointer"
-                    onClick={() => {
-                      setSelectedPO(row.original)
-                      setDialogType("edit")
-                      toggleDialog()
+                      onClick={() => {
+                        setSelectedPO(row.original)
+                        setAmountInput(row.original.amount)
+                        setDialogType("edit")
+                        toggleDialog()
                     }}
                      />
                   </div>
@@ -253,24 +259,33 @@ export const ApprovePayments = () => {
             <AlertDialogContent className="max-w-sm">
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  {dialogType === "approve" ? `Are you sure you want to approve #${selectedPO?.document_name} of 
-                  ${formatToIndianRupee(selectedPO?.amount)} to ${vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}?` : 
-                  dialogType === "reject" ? `Are you sure you want to reject #${selectedPO?.document_name} of 
-                  ${formatToIndianRupee(selectedPO?.amount)} to ${vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}?` :
+                  {["approve", "reject"] .includes(dialogType) ? (
+                    <p>Are you sure you want to {dialogType} the payment of <span className="text-primary">{formatToIndianRupee(selectedPO?.amount)} to the {vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}</span> for PO <i>#{selectedPO?.document_name}</i>?</p>
+                  ) : 
                   "Edit Payment"} 
                 </AlertDialogTitle>
               </AlertDialogHeader>
 
               {dialogType === "edit" && (
-                <div className="grid grid-cols-3 gap-4 items-center">
+                <div className="grid grid-cols-3 gap-4 items-start">
                   <p className="col-span-1">Amount </p>
-                  <Input className="col-span-2" type="number" value={selectedPO?.amount} />
+                  <div className="col-span-2">
+                    <Input type="number" onChange={(e) => setAmountInput(e.target.value)}  value={amountInput} />
+                    <p className="text-sm mt-1 ml-1 text-primary">To: {vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}</p>
+                  </div>
                 </div>
               )}
 
               <div className="mt-2 flex items-center justify-center space-x-2">
-                  <Button className="flex-1">Confirm</Button>
-                  <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
+                {updateLoading ? (
+                  <TailSpin width={40} color="red"  />
+                ) : (
+                  <>
+                    <Button disabled={updateLoading} onClick={handleSubmit} className="flex-1">Confirm</Button>
+                    <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
+                  </>
+
+                )}
               </div>
 
             </AlertDialogContent>

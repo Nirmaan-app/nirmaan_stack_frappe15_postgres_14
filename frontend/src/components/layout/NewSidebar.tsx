@@ -119,7 +119,10 @@ export function NewSidebar() {
     approvedSRCount,
     adminApprovedSRCount,
     adminAmendedSRCount,
-    amendedSRCount
+    amendedSRCount,
+    updatePaymentsCount,
+    paymentsCount,
+    adminPaymentsCount,
   } = useDocCountStore();
 
   const { add_new_notification, delete_notification, clear_notifications, add_all_notific_directly } =
@@ -313,6 +316,28 @@ export function NewSidebar() {
       : null
   );
 
+  const { data: paymentsData, mutate: paymentsDataMutate } = useFrappeGetDocList(
+    "Project Payments",
+    {
+      fields: ["status", "project", "vendor", "name"],
+      filters: [["project", "in", permissionsList || []]],
+      limit: 100000,
+    },
+    user_id === "Administrator" || !permissionsList ? null : undefined
+  );
+
+  const { data: adminPaymentsData, mutate: adminPaymentsDataMutate } = useFrappeGetDocList(
+    "Project Payments",
+    {
+      fields: ["status", "project", "vendor", "name"],
+      limit: 100000,
+    },
+
+    user_id === "Administrator" || role === "Nirmaan Admin Profile"
+      ? undefined
+      : null
+  );
+
   useEffect(() => {
     if (
       (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
@@ -356,6 +381,18 @@ export function NewSidebar() {
       updateSRCounts(srData, false);
     }
   }, [srData, adminSRData]);
+
+  useEffect(() => {
+    if (
+      (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
+      adminPOData
+    ) {
+      updatePaymentsCount(adminPaymentsData, true);
+    } else if (poData) {
+      updatePaymentsCount(paymentsData, false);
+    }
+  }, [paymentsData, adminPaymentsData]);
+
 
   //  ***** PR Events *****
   useFrappeEventListener("pr:new", async (event) => {
@@ -451,6 +488,22 @@ export function NewSidebar() {
 
   useFrappeEventListener("sr:amended", (event) => {
     handleSOAmendedEvent(db, event, add_new_notification);
+  });
+
+  useFrappeDocTypeEventListener("Service Requests", async (event) => {
+    if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+      await adminSRDataMutate();
+    } else {
+      await srDataMutate();
+    }
+  });
+
+  useFrappeDocTypeEventListener("Project Payments", async (event) => {
+    if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+      await adminPaymentsDataMutate();
+    } else {
+      await paymentsDataMutate();
+    }
   });
 
   // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
@@ -604,8 +657,8 @@ export function NewSidebar() {
                 count:
                   role === "Nirmaan Admin Profile" ||
                   user_id === "Administrator"
-                    ? 0
-                    : 0,
+                    ? adminPaymentsCount.requested
+                    : paymentsCount.requested,
               },
             ],
           },

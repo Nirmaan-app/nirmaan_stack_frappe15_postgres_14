@@ -42,7 +42,7 @@ import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
 import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
 import { ApprovePayments } from "./pages/ProjectPayments/approve-payments";
 import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
-import { ProjectPaymentsList } from "./pages/ProjectPayments/project-payments-list";
+import { ProjectPaymentsPaymentWise } from "./pages/ProjectPayments/project-payments-payment-wise";
 import { ApprovePR } from "./pages/approve-pr";
 import { ApproveSelectAmendPO } from "./pages/approve-select-amend-po";
 import { ApproveSelectSentBack } from "./pages/approve-select-sent-back";
@@ -356,7 +356,7 @@ const router = createBrowserRouter(
 
           <Route
             path="project-payments">
-            <Route index element={<ProjectPaymentsList />} />
+            <Route index element={<ProjectPaymentsPaymentWise />} />
             <Route path=":id" element={<OrderPaymentSummary />} />
           </Route>
 

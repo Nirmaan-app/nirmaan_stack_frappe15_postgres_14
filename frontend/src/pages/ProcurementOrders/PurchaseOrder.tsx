@@ -66,6 +66,8 @@ import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
 import {
   useFrappeCreateDoc,
@@ -76,6 +78,7 @@ import {
   useFrappePostCall,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
+import { debounce } from "lodash";
 import {
   AlertTriangle,
   BookCheck,
@@ -92,6 +95,7 @@ import {
   Merge,
   MessageCircleMore,
   MessageCircleWarning,
+  Paperclip,
   Pencil,
   PencilIcon,
   PencilRuler,
@@ -99,6 +103,7 @@ import {
   Printer,
   Send,
   Split,
+  SquarePlus,
   Trash2,
   TriangleAlert,
   Truck,
@@ -106,7 +111,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -256,17 +261,7 @@ export const PurchaseOrder = ({
     setNewPaymentDialog((prevState) => !prevState);
   };
 
-  const [gstConfirmDialog, setGstConfirmDialog] = useState(false);
-
-  const toggleGstConfirmDialog = () => {
-    setGstConfirmDialog((prevState) => !prevState);
-  };
-
-  const [requestPaymentDialog, setRequestPaymentDialog] = useState(false);
-
-  const toggleRequestPaymentDialog = () => {
-    setRequestPaymentDialog((prevState) => !prevState);
-  };
+  const { toggleRequestPaymentDialog} = useDialogStore()
 
   const [warning, setWarning] = useState("");
 
@@ -403,9 +398,9 @@ export const PurchaseOrder = ({
             item.project === po?.project &&
             item.vendor === po?.vendor &&
             item.status === "PO Approved" &&
-            !AllPoPaymentsList?.some((j) => j?.document_name === item.name) &&
+            item.name !== poId &&
+            !AllPoPaymentsList?.some((j) => j?.document_name === item.name)
             // item.merged !== "true" &&
-            item.name !== poId
         );
         setMergeablePOs(mergeablePOs);
         if (po?.merged === "true") {
@@ -443,28 +438,6 @@ export const PurchaseOrder = ({
     documentTitle: `${po?.name}_${po?.vendor_name}`,
   });
 
-  const getTotal = () => {
-    let total: number = 0;
-    let totalGst = 0;
-    orderData?.list?.map((item) => {
-      const price = item.quote;
-      const gst = price * item.quantity * (item.tax / 100);
-
-      totalGst += gst;
-      total += parseFloat(price || 0) * parseFloat(item.quantity || 1);
-    });
-
-    total += loadingCharges + freightCharges;
-    totalGst += loadingCharges * 0.18 + freightCharges * 0.18;
-
-    return { total, totalGst: totalGst, totalAmt: total + totalGst };
-  };
-
-  // console.log("total", getTotal()?.total)
-
-  // console.log("totalGst", getTotal()?.totalGst)
-
-  // console.log("totalAmt+gst", getTotal()?.totalAmt)
 
   const onSubmit = async (data: any) => {
     try {
@@ -546,6 +519,12 @@ export const PurchaseOrder = ({
       });
     }
   }, [editPOTermsDialog]);
+
+  const getTotal = useMemo(() => {
+    if (po) {
+      return getPOTotal(po, freightCharges, loadingCharges);
+    }
+  }, [po, freightCharges, loadingCharges]);
 
   const handleMerge = (po) => {
     let updatedOrderList = po.order_list.list;
@@ -1088,65 +1067,66 @@ export const PurchaseOrder = ({
     },
   ];
 
-  // const AddPayment = async () => {
-  //   try {
-  //     setLoadingFuncName("AddPayment");
-  //     const res = await createDoc("Project Payments", {
-  //       document_type: "Procurement Orders",
-  //       document_name: poId,
-  //       project: po?.project,
-  //       vendor: po?.vendor,
-  //       utr: newPayment?.utr,
-  //       amount: newPayment?.amount,
-  //       payment_date: newPayment?.payment_date,
-  //     });
+  const AddPayment = async () => {
+    try {
+      setLoadingFuncName("AddPayment");
+      const res = await createDoc("Project Payments", {
+        document_type: "Procurement Orders",
+        document_name: poId,
+        project: po?.project,
+        vendor: po?.vendor,
+        utr: newPayment?.utr,
+        amount: newPayment?.amount,
+        payment_date: newPayment?.payment_date,
+        status: "Paid"
+      });
 
-  //     const fileArgs = {
-  //       doctype: "Project Payments",
-  //       docname: res?.name,
-  //       fieldname: "payment_attachment",
-  //       isPrivate: true,
-  //     };
+      const fileArgs = {
+        doctype: "Project Payments",
+        docname: res?.name,
+        fieldname: "payment_attachment",
+        isPrivate: true,
+      };
 
-  //     const uploadedFile = await upload(paymentScreenshot, fileArgs);
+      const uploadedFile = await upload(paymentScreenshot, fileArgs);
 
-  //     await call({
-  //       doctype: "Project Payments",
-  //       name: res?.name,
-  //       fieldname: "payment_attachment",
-  //       value: uploadedFile.file_url,
-  //     });
+      await call({
+        doctype: "Project Payments",
+        name: res?.name,
+        fieldname: "payment_attachment",
+        value: uploadedFile.file_url,
+      });
 
-  //     await AllPoPaymentsListMutate();
+      await AllPoPaymentsListMutate();
 
-  //     await poPaymentsMutate();
+      await poPaymentsMutate();
 
-  //     toggleNewPaymentDialog();
+      toggleNewPaymentDialog();
 
-  //     toast({
-  //       title: "Success!",
-  //       description: "Payment added successfully!",
-  //       variant: "success",
-  //     });
+      toast({
+        title: "Success!",
+        description: "Payment added successfully!",
+        variant: "success",
+      });
 
-  //     setNewPayment({
-  //       amount: "",
-  //       payment_date: "",
-  //       utr: "",
-  //     });
+      setNewPayment({
+        amount: "",
+        payment_date: "",
+        utr: "",
+      });
 
-  //     setPaymentScreenshot(null);
-  //   } catch (error) {
-  //     console.log("error", error);
-  //     toast({
-  //       title: "Failed!",
-  //       description: "Failed to add Payment!",
-  //       variant: "destructive",
-  //     });
-  //   } finally {
-  //     setLoadingFuncName("");
-  //   }
-  // };
+      setPaymentScreenshot(null);
+    } catch (error) {
+      console.log("error", error);
+      toast({
+        title: "Failed!",
+        description: "Failed to add Payment!",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingFuncName("");
+    }
+  };
 
 
   const handleDeletePayment = async () => {
@@ -1176,68 +1156,37 @@ export const PurchaseOrder = ({
       setLoadingFuncName("");
     }
   }
-  const amountPaid = poPayments?.reduce(
-    (acc, i) => acc + parseFloat(i?.amount),
-    0
-  );
 
-  // const validateAmount = debounce((amount) => {
-  //   const { totalAmt } = getTotal();
+  const amountPaid = getTotalAmountPaid(poPayments);
 
-  //   const compareAmount = totalAmt - amountPaid;
+  const validateAmount = debounce((amount) => {
+    const { totalAmt } = getTotal;
 
-  //   if (parseFloat(amount) > compareAmount) {
-  //     setWarning(
-  //       `Entered amount exceeds the total ${
-  //         amountPaid ? "remaining" : ""
-  //       } amount including GST: ${formatToIndianRupee(compareAmount)}`
-  //     );
-  //   } else {
-  //     setWarning(""); // Clear warning if within the limit
-  //   }
-  // }, 300);
+    const compareAmount = totalAmt - amountPaid;
+
+    if (parseFloat(amount) > compareAmount) {
+      setWarning(
+        `Entered amount exceeds the total ${
+          amountPaid ? "remaining" : ""
+        } amount including GST: ${formatToIndianRupee(compareAmount)}`
+      );
+    } else {
+      setWarning(""); // Clear warning if within the limit
+    }
+  }, 300);
 
   // Handle input change
-  // const handleAmountChange = (e) => {
-  //   const amount = e.target.value;
-  //   setNewPayment({ ...newPayment, amount });
-  //   validateAmount(amount);
-  // };
+  const handleAmountChange = (e) => {
+    const amount = e.target.value;
+    setNewPayment({ ...newPayment, amount });
+    validateAmount(amount);
+  };
 
   const getUserName = (id) => {
     if (usersList) {
       return usersList.find((user) => user?.name === id)?.full_name;
     }
   };
-
-  // const handleConfirmGST = async () => {
-  //   try {
-  //     setLoadingFuncName("handleConfirmGST");
-
-  //     await updateDoc("Procurement Orders", po?.name, {
-  //       project_gst: selectedGST?.gst,
-  //     });
-
-  //     await poMutate();
-
-  //     toggleGstConfirmDialog();
-
-  //     toast({
-  //       title: "Success!",
-  //       description: "Company Gst updated successfully!",
-  //       variant: "success",
-  //     });
-  //   } catch (error) {
-  //     console.log("error", error);
-  //     toast({
-  //       title: "Failed!",
-  //       description: "Failed to update company GST!",
-  //       variant: "destructive",
-  //     });
-  //   } finally {
-  //     setLoadingFuncName("");
-  //   }
-  // };
 
   const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
@@ -2096,7 +2045,7 @@ export const PurchaseOrder = ({
             </div>
             <div className="flex flex-col gap-2 max-sm:items-end">
               <Label className=" text-red-700">Total (Excl. GST)</Label>
-              <span>{formatToIndianRupee(getTotal()?.total)}</span>
+              <span>{formatToIndianRupee(getTotal?.total)}</span>
             </div>
             <div className="flex flex-col gap-2 sm:items-center">
               <Label className=" text-red-700">Total Amount Paid</Label>
@@ -2105,7 +2054,7 @@ export const PurchaseOrder = ({
             <div className="flex flex-col gap-2 items-end">
               <Label className=" text-red-700">Total (Incl. GST)</Label>
               <span>
-                {formatToIndianRupee(Math.floor(getTotal()?.totalAmt))}
+                {formatToIndianRupee(Math.floor(getTotal?.totalAmt))}
               </span>
             </div>
             {/* <div className="flex flex-col gap-2">
@@ -2138,19 +2087,23 @@ export const PurchaseOrder = ({
                 <p className="text-xl max-sm:text-lg text-red-600">
                   Transaction Details
                 </p>
-                <Button
+
+                {!accountsPage && !estimatesViewing && (
+                  <>
+                  <Button
                   variant="outline"
                   className="text-primary border-primary text-xs px-2"
                   onClick={toggleRequestPaymentDialog}
                 >
                   Request Payment
                 </Button>
+                <RequestPaymentDialog totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
+                  po={po} paymentsMutate={poPaymentsMutate}
+                  />
+                </>
+                )}
 
-                <RequestPaymentDialog requestPaymentDialog={requestPaymentDialog} toggleRequestPaymentDialog={toggleRequestPaymentDialog} totalAmount={getTotal()?.totalAmt} totalAmountWithoutGST={getTotal()?.total} totalPaid={amountPaid}
-                 po={po} AllPoPaymentsListMutate={AllPoPaymentsListMutate} poPaymentsMutate={poPaymentsMutate}
-                 />
-
-                {/* {accountsPage && (
+                {accountsPage && (
                         <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                             <AlertDialogTrigger
                             onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
@@ -2169,11 +2122,11 @@ export const PurchaseOrder = ({
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(getTotal()?.total)}</span>
+                                    <span className="">{formatToIndianRupee(getTotal?.total)}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(Math.floor(getTotal()?.totalAmt))}</span>
+                                    <span className="">{formatToIndianRupee(Math.floor(getTotal?.totalAmt))}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
@@ -2262,18 +2215,18 @@ export const PurchaseOrder = ({
                                 </AlertDialogHeader>
                             </AlertDialogContent>
                         </AlertDialog>
-                        )} */}
+                        )}
               </CardTitle>
             </CardHeader>
             <CardContent className="overflow-auto">
               <Table>
-                <TableHeader className="bg-gray-300">
+                <TableHeader>
                   <TableRow>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>UTR No.</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="w-[5%]">Status</TableHead>
-                    <TableHead></TableHead>
+                    <TableHead className="text-black font-bold">Amount</TableHead>
+                    <TableHead className="text-black font-bold">UTR No.</TableHead>
+                    <TableHead className="text-black font-bold">Date</TableHead>
+                    <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
+                    <TableHead ></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -2316,7 +2269,7 @@ export const PurchaseOrder = ({
                           </TableCell>
                           <TableCell>{payment?.status}</TableCell>
                           <TableCell className="text-red-500 text-end w-[5%]">
-                            {payment?.status !== "Paid" && 
+                            {payment?.status !== "Paid" && !estimatesViewing && 
                             <Dialog>
                               <DialogTrigger>
                                 <Trash2
@@ -2769,28 +2722,28 @@ export const PurchaseOrder = ({
                   <div className="flex items-center gap-1">
                     <Label className="font-light">
                       {formatToIndianRupee(
-                        getTotal()?.totalAmt * (advance / 100)
+                        getTotal?.totalAmt * (advance / 100)
                       )}
                     </Label>
                   </div>
                   <div className="flex items-center gap-1">
                     <Label className="font-light">
                       {formatToIndianRupee(
-                        getTotal()?.totalAmt * (materialReadiness / 100)
+                        getTotal?.totalAmt * (materialReadiness / 100)
                       )}
                     </Label>
                   </div>
                   <div className="flex items-center gap-1">
                     <Label className="font-light">
                       {formatToIndianRupee(
-                        getTotal()?.totalAmt * (afterDelivery / 100)
+                        getTotal?.totalAmt * (afterDelivery / 100)
                       )}
                     </Label>
                   </div>
                   <div className="flex items-center gap-1">
                     <Label className="font-light">
                       {formatToIndianRupee(
-                        getTotal()?.totalAmt * (xDaysAfterDelivery / 100)
+                        getTotal?.totalAmt * (xDaysAfterDelivery / 100)
                       )}
                     </Label>
                   </div>
@@ -3936,7 +3889,7 @@ export const PurchaseOrder = ({
                         Sub-Total
                       </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">
-                        {formatToIndianRupee(getTotal().total)}
+                        {formatToIndianRupee(getTotal?.total)}
                       </td>
                     </tr>
                     <tr className="border-none">
@@ -3953,17 +3906,17 @@ export const PurchaseOrder = ({
 
                       <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                         <div className="ml-4">
-                          {formatToIndianRupee(getTotal().totalGst)}
+                          {formatToIndianRupee(getTotal?.totalGst)}
                         </div>
                         <div className="ml-4">
                           -{" "}
                           {formatToIndianRupee(
-                            getTotal().totalAmt -
-                              Math.floor(getTotal().totalAmt)
+                            getTotal?.totalAmt -
+                              Math.floor(getTotal?.totalAmt)
                           )}
                         </div>
                         <div className="ml-4">
-                          {formatToIndianRupee(Math.floor(getTotal().totalAmt))}
+                          {formatToIndianRupee(Math.floor(getTotal?.totalAmt))}
                         </div>
                       </td>
                     </tr>
