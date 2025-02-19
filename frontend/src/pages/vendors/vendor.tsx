@@ -7,6 +7,7 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ApprovedSRList } from "@/components/service-request/approved-sr-list";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -20,21 +21,19 @@ import {
   Skeleton,
   TableSkeleton,
 } from "@/components/ui/skeleton";
+import formatToIndianRupee from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { ConfigProvider, Menu, MenuProps } from "antd";
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import {
-  ArrowLeft,
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  FilePenLine,
+  FilePenLine
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { EditVendor } from "./edit-vendor";
-import { Badge } from "@/components/ui/badge";
-import formatToIndianRupee from "@/utils/FormatPrice";
 
 // const Vendor = () => {
 
@@ -148,8 +147,6 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
   const {
     data: Categories,
-    isLoading: categoriesLoading,
-    error: categoriesError,
   } = useFrappeGetDocList(
     "Category",
     {
@@ -568,93 +565,118 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
           <div className="flex flex-col gap-4">
             <Card>
               <CardHeader>
-                <CardTitle>{data?.vendor_name}</CardTitle>
+                <CardTitle className="text-primary">Vendor Details</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-10 w-full">
-                {/* <Card className="bg-[#F9FAFB]">
-                              <CardHeader>
-                                <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
-                <div className="flex max-lg:flex-col max-lg:gap-10">
-                  <div className="space-y-4 lg:w-[50%]">
+                <div className="flex lg:justify-between max-lg:flex-col max-lg:gap-10">
+                  <div className="space-y-6 max-sm:space-y-4">
                     <CardDescription className="space-y-2">
-                      <span>Vendor ID</span>
-                      <p className="font-bold text-black">{data?.name}</p>
+                      <p className="text-primary font-semibold">Vendor ID</p>
+                      <span className=" text-black">{data?.name}</span>
                     </CardDescription>
 
                     <CardDescription className="space-y-2">
-                      <span>Contact Person</span>
-                      <p className="font-bold text-black">
+                      <p className="text-primary font-semibold">Contact Person</p>
+                      <span className=" text-black">
                         {data?.vendor_contact_person_name
                           || "N/A"}
-                      </p>
+                      </span>
                     </CardDescription>
 
                     <CardDescription className="space-y-2">
-                      <span>Contact Number</span>
-                      <p className="font-bold text-black">
+                      <p className="text-primary font-semibold">Contact Number</p>
+                      <span className=" text-black">
                         {data?.vendor_mobile || "N/A"}
-                      </p>
+                      </span>
                     </CardDescription>
                     <CardDescription className="space-y-2">
-                      <span>GST Number</span>
-                      <p className="font-bold text-black">{data?.vendor_gst || "N/A"}</p>
+                      <p className="text-primary font-semibold">GST Number</p>
+                      <span className=" text-black">{data?.vendor_gst || "N/A"}</span>
                     </CardDescription>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-6 max-sm:space-y-4 lg:text-end">
                     <CardDescription className="space-y-2">
-                      <span>Address</span>
-                      <p className="font-bold text-black">
+                      <p className="text-primary font-semibold">Address</p>
+                      <span className=" text-black">
                         {vendorAddress?.address_line1},{" "}
                         {vendorAddress?.address_line2}, {vendorAddress?.city},{" "}
                         {vendorAddress?.state}
-                      </p>
+                      </span>
                     </CardDescription>
 
                     <CardDescription className="space-y-2">
-                      <span>City</span>
-                      <p className="font-bold text-black">
+                      <p className="text-primary font-semibold">City</p>
+                      <span className=" text-black">
                         {vendorAddress?.city}
-                      </p>
+                      </span>
                     </CardDescription>
 
                     <CardDescription className="space-y-2">
-                      <span>State</span>
-                      <p className="font-bold text-black">
+                      <p className="text-primary font-semibold">State</p>
+                      <span className=" text-black">
                         {vendorAddress?.state}
-                      </p>
+                      </span>
                     </CardDescription>
                     <CardDescription className="space-y-2">
-                      <span>pincode</span>
-                      <p className="font-bold text-black">
+                      <p className="text-primary font-semibold">pincode</p>
+                      <span className=" text-black">
                         {vendorAddress?.pincode}
-                      </p>
+                      </span>
                     </CardDescription>
-
-                    {/* <CardDescription className="space-y-2">
-                                          <span>Categories</span>
-                                        <ul className="space-y-2">
-                                              {vendorCategories.map((cat, index) => (
-                                                <li
-                                                  key={index}
-                                                  className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
-                                                >
-                                                  <CheckCircleIcon className="w-5 h-5 text-green-500" />
-                                                  <span className="text-sm font-medium text-gray-600">{cat}</span>
-                                                </li>
-                                              ))}
-                                        </ul>
-                                      </CardDescription> */}
                   </div>
                 </div>
-                {/* </CardContent>
-                              </CardHeader>
-                            </Card> */}
               </CardContent>
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle>Packages-Categories Offered</CardTitle>
+                <CardTitle className="text-primary">Account Details</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-10 w-full">
+                <div className="flex lg:justify-between max-lg:flex-col max-lg:gap-10">
+                  <div className="space-y-6 max-sm:space-y-4">
+                    <CardDescription className="space-y-2">
+                      <p className="text-primary font-semibold">Account Name</p>
+                      <span className=" text-black">{data?.account_name || "N/A"}</span>
+                    </CardDescription>
+
+                    <CardDescription className="space-y-2">
+                      <p className="text-primary font-semibold">IFSC</p>
+                      <span className=" text-black">
+                        {data?.ifsc
+                          || "N/A"}
+                      </span>
+                    </CardDescription>
+
+                    <CardDescription className="space-y-2">
+                      <p className="text-primary font-semibold">Branch</p>
+                      <span className=" text-black">
+                        {data?.bank_branch || "N/A"}
+                      </span>
+                    </CardDescription>
+                  </div>
+
+                  <div className="space-y-6 max-sm:space-y-4 lg:text-end">
+                    <CardDescription className="space-y-2">
+                      <p className="text-primary font-semibold">Account Number</p>
+                      <span className=" text-black">
+                        {data?.account_number || "N/A"}
+                      </span>
+                    </CardDescription>
+
+                    <CardDescription className="space-y-2">
+                      <p className="text-primary font-semibold">Bank</p>
+                      <span className=" text-black">
+                        {data?.bank_name || "N/A"}
+                      </span>
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-primary">Packages-Categories Offered</CardTitle>
               </CardHeader>
               <CardContent>
                 <CardDescription className="space-y-2">

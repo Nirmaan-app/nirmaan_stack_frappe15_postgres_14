@@ -1,10 +1,4 @@
-import {
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappeUpdateDoc,
-} from "frappe-react-sdk";
-import { useForm } from "react-hook-form";
-import * as z from "zod";
+import { Button } from "@/components/ui/button";
 import {
   Form,
   FormControl,
@@ -14,18 +8,45 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
-import ReactSelect from "react-select";
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+import {
+  useFrappeGetDoc,
+  useFrappeGetDocList,
+  useFrappeUpdateDoc,
+} from "frappe-react-sdk";
+import { ListChecks, ListRestart } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { useParams } from "react-router-dom";
+import ReactSelect from "react-select";
+import * as z from "zod";
 
-const getVendorFormSchema = (service: boolean) => {
+const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
+const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+
+const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
+    const vendorGstSchema = isTaxGSTType
+        ? z
+            .string({
+              required_error: "Vendor GST is required",
+            })
+            .regex(GST_REGEX, {
+              message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
+            })
+        : z
+            .string({
+              required_error: "Vendor PAN is required",
+            })
+            .regex(PAN_REGEX, {
+              message: "Invalid PAN format. Example: ABCDE1234F",
+            });
+  
+    const finalVendorGstSchema = service ? vendorGstSchema.optional() : vendorGstSchema;
     return z.object({
         vendor_contact_person_name: z
             .string()
@@ -90,16 +111,12 @@ const getVendorFormSchema = (service: boolean) => {
         //     .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
         //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
         //     }),
-        vendor_gst: service
-            ? z.string()
-                .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-                    message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-                }).optional()
-            : z.string()
-                .min(1, { message: "Vendor GST Required" })
-                .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-                    message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-                }),
+        vendor_gst: finalVendorGstSchema,
+        account_number: z.string().optional(),
+        account_name: z.string().optional(),
+        bank_name: z.string().optional(),
+        bank_branch: z.string().optional(),
+        ifsc: z.string().optional(),
     })
 };
 
@@ -132,8 +149,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
   );
 
   const [vendorChange, setVendorChange] = useState(false)
+  const [taxationType, setTaxationType] = useState<string | null>("GST")
 
-  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange);
+  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, taxationType === "GST");
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(VendorFormSchema),
@@ -146,6 +164,11 @@ export const EditVendor = ({ toggleEditSheet }) => {
       vendor_email: data?.vendor_email,
       vendor_mobile: data?.vendor_mobile,
       vendor_gst: data?.vendor_gst,
+      account_number: data?.account_number,
+      account_name: data?.account_name,
+      bank_name: data?.bank_name,
+      bank_branch: data?.bank_branch,
+      ifsc: data?.ifsc,
     },
     mode: "onBlur",
   });
@@ -161,8 +184,16 @@ export const EditVendor = ({ toggleEditSheet }) => {
         vendor_email: data?.vendor_email,
         vendor_mobile: data?.vendor_mobile,
         vendor_gst: data?.vendor_gst,
+        account_number: data?.account_number,
+        account_name: data?.account_name,
+        bank_name: data?.bank_name,
+        bank_branch: data?.bank_branch,
+        ifsc: data?.ifsc,
       });
       setPincode(vendorAddress?.pincode);
+      if(data?.vendor_gst) {
+        setTaxationType(data?.vendor_gst?.length === 10 ? "PAN" : "GST")
+      }
     }
   }, [data, vendorAddress, form]);
 
@@ -239,8 +270,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
       category_json = [...categoriesSelected, ...service_categories]
     }
 
-    console.log("category_json", category_json)
-
     try {
       if (city === "Not Found" || state === "Not Found") {
         throw new Error(
@@ -268,6 +297,11 @@ export const EditVendor = ({ toggleEditSheet }) => {
         vendor_mobile: values.vendor_mobile,
         vendor_name: values.vendor_name,
         vendor_state: state,
+        account_number: values.account_number,
+        account_name: values.account_name,
+        bank_name: values.bank_name,
+        bank_branch: values.bank_branch,
+        ifsc: values.ifsc,
       });
 
       await vendorMutate();
@@ -349,12 +383,30 @@ export const EditVendor = ({ toggleEditSheet }) => {
               </FormItem>
             )}
           />
+
+            <div className="flex flex-col items-start space-y-2">
+                <Label htmlFor="taxationType">Taxation Type</Label>
+                <Select value={taxationType} onValueChange={(value) => {
+                    setTaxationType(value)
+                    form.trigger("vendor_gst", {
+                        shouldFocus: true
+                    })
+                }} defaultValue={"GST"}>
+                    <SelectTrigger className="">
+                        <SelectValue className="text-gray-200" placeholder="Select Taxation Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                            <SelectItem value="GST">GST</SelectItem>
+                            <SelectItem value="PAN">PAN</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
           <FormField
             control={form.control}
             name="vendor_gst"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Vendor GST {vendorChange ? <sup className="text-sm text-red-600">*</sup> : ["Material", "Material & Service"].includes(data?.vendor_type) && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
+                <FormLabel>Vendor {taxationType === "GST" ? "GST" : "PAN"} {vendorChange ? <sup className="text-sm text-red-600">*</sup> : ["Material", "Material & Service"].includes(data?.vendor_type) && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                 <FormControl>
                   <Input {...field} value={field.value || ""} />
                 </FormControl>
@@ -456,6 +508,76 @@ export const EditVendor = ({ toggleEditSheet }) => {
               </FormItem>
             )}
           />
+
+        <Separator className="my-3" />
+          <p className="text-sky-600 font-semibold pb-2">
+            Change Vendor Bank Details
+          </p>
+          <FormField
+                                    control={form.control}
+                                    name="account_name"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Account Name</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Account Name" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="account_number"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Account Number</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Account Number" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="ifsc"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>IFSC Code</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter IFSC Code" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="bank_name"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Bank Name</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Bank Name" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="bank_branch"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Bank Branch</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Enter Bank Branch" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
           {data?.vendor_type !== "Service" && (
             <>
             <Separator className="my-3" />

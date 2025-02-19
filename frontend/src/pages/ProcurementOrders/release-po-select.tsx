@@ -34,7 +34,7 @@ export const ReleasePOSelect = () => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", (tab === "Released PO" || role === "Nirmaan Estimates Executive Profile") ? "not in" : "in", tab === "Released PO" ? ["PO Approved", "PO Amendment", "Merged"] : (role === "Nirmaan Estimates Executive Profile" ? ["PO Amendment", "Merged"] : ["PO Approved"])]],
+            filters: [["status", (tab === "Dispatched PO" || role === "Nirmaan Estimates Executive Profile") ? "not in" : "in", tab === "Dispatched PO" ? ["PO Approved", "PO Amendment", "Merged", "Partially Delivered", "Delivered"] : (role === "Nirmaan Estimates Executive Profile" ? ["PO Amendment", "Merged"] : tab === "Approved PO" ? ["PO Approved"] : ["Partially Delivered", "Delivered"])]],
             limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         },
@@ -71,7 +71,7 @@ export const ReleasePOSelect = () => {
         return getTotalAmountPaid(payments);
     }
 
-    const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount } = useDocCountStore()
+    const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount, adminDispatchedPOCount, dispatchedPOCount } = useDocCountStore()
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
@@ -127,13 +127,24 @@ export const ReleasePOSelect = () => {
         {
             label: (
                 <div className="flex items-center">
-                    <span>Released PO</span>
+                    <span>Dispatched PO</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminDispatchedPOCount : dispatchedPOCount}
+                    </span>
+                </div>
+            ),
+            value: "Dispatched PO",
+        },
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Delivered PO</span>
                     <span className="ml-2 rounded text-xs font-bold">
                         {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminOtherPOCount : otherPOCount}
                     </span>
                 </div>
             ),
-            value: "Released PO",
+            value: "Delivered PO",
         },
     ];
 

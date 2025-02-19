@@ -2,6 +2,7 @@ import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -13,7 +14,7 @@ import { useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload,
 import { Paperclip, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ProjectPaymentsList } from "./project-payments-list";
 
 export const ProjectPaymentsPaymentWise = () => {
@@ -46,7 +47,7 @@ export const ProjectPaymentsPaymentWise = () => {
     });
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name"],
+        fields: ["*"],
         limit: 10000,
     });
 
@@ -157,6 +158,14 @@ export const ProjectPaymentsPaymentWise = () => {
         }
     }
 
+    const getRowSelection = (vendor) => {
+        const data = vendors?.find((item) => item.name === vendor);
+        if (data?.account_number) {
+            return false
+        }
+        return true;
+    }
+
     const projectValues = projects?.map((item) => ({
         label: item.project_name,
         value: item.name,
@@ -171,6 +180,51 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const columns = useMemo(
         () => [
+                ...(tab === "New Payments" ? [
+                    {
+                        id: "select",
+                        header: ({ table }) => {
+                            const visibleRows = table.getRowModel().rows;
+                            const selectableRows = visibleRows.filter(
+                              (row) => !getRowSelection(row.original.vendor)
+                            );
+                        
+                            const allSelected =
+                              selectableRows.length > 0 &&
+                              selectableRows.every((row) => row.getIsSelected());
+                            const someSelected =
+                              selectableRows.some((row) => row.getIsSelected()) && !allSelected;
+                        
+                            return (
+                              <Checkbox
+                                checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                                disabled={selectableRows.length === 0}
+                                onCheckedChange={(value) => {
+                                  selectableRows.forEach((row) => {
+                                    if (value) {
+                                      if (!row.getIsSelected()) row.toggleSelected(true);
+                                    } else {
+                                      if (row.getIsSelected()) row.toggleSelected(false);
+                                    }
+                                  });
+                                }}
+                                aria-label="Select all"
+                              />
+                            );
+                          },
+                        cell: ({ row }) => {
+                            const rowDisabled = getRowSelection(row.original.vendor)
+                          return <Checkbox
+                            checked={row.getIsSelected()}
+                            disabled={rowDisabled}
+                            onCheckedChange={(value) => row.toggleSelected(!!value)}
+                            aria-label="Select row"
+                          />
+                        },
+                        enableSorting: false,
+                        enableHiding: false,
+                      },
+                ] : []),
             ...(tab === "Fulfilled Payments" ? [
                 {
                     accessorKey: "utr",
@@ -232,7 +286,7 @@ export const ProjectPaymentsPaymentWise = () => {
                     const vendor = vendorValues.find(
                         (vendor) => vendor.value === row.getValue("vendor")
                     );
-                    return vendor ? <div className="font-medium">{vendor.label}</div> : null;
+                    return vendor ? <div className="font-medium text-blue-600 underline"><Link to={`/vendors/${vendor.value}`}>{vendor.label}</Link></div> : null;
                 },
                 filterFn: (row, id, value) => {
                     return value.includes(row.getValue(id))
@@ -293,8 +347,7 @@ export const ProjectPaymentsPaymentWise = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            <div className="flex items-center space-x-6">
-
+            <div className="flex items-center max-sm:items-start gap-6 max-sm:flex-col">
             {items && (
                 <Radio.Group
                     block
@@ -319,7 +372,7 @@ export const ProjectPaymentsPaymentWise = () => {
                 projectsLoading || vendorsLoading || projectPaymentsLoading ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={projectPayments?.filter(p => p?.status === (tab === "New Payments" ? "Approved" : "Paid")) || []} project_values={projectValues} approvedQuotesVendors={vendorValues} />
+                    <DataTable columns={columns} data={projectPayments?.filter(p => p?.status === (tab === "New Payments" ? "Approved" : "Paid")) || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} isExport={tab === "New Payments"} />
                 )
             ) : (
                 <ProjectPaymentsList />

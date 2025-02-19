@@ -16,7 +16,28 @@ import { useNavigate } from "react-router-dom"
 import ReactSelect from 'react-select'
 import * as z from "zod"
 
-const getVendorFormSchema = (service: boolean) => {
+const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
+const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+
+const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
+      const vendorGstSchema = isTaxGSTType
+      ? z
+          .string({
+            required_error: "Vendor GST is required",
+          })
+          .regex(GST_REGEX, {
+            message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
+          })
+      : z
+          .string({
+            required_error: "Vendor PAN is required",
+          })
+          .regex(PAN_REGEX, {
+            message: "Invalid PAN format. Example: ABCDE1234F",
+          });
+
+    const finalVendorGstSchema = service ? vendorGstSchema.optional() : vendorGstSchema;
+
     return z.object({
         vendor_contact_person_name: z
             .string()
@@ -81,24 +102,17 @@ const getVendorFormSchema = (service: boolean) => {
         //     .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
         //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
         //     }),
-        vendor_gst: service
-            ? z.string()
-                .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-                    message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-                }).optional()
-            : z.string()
-                .min(1, { message: "Vendor GST Required" })
-                .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-                    message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-                }),
-        taxation_type: service
-        ? z.string().optional()
-        : z.string(),
+        vendor_gst: finalVendorGstSchema,
         account_number: z.string().optional(),
         account_name: z.string().optional(),
         bank_name: z.string().optional(),
         bank_branch: z.string().optional(),
-        ifsc: z.string().optional(),
+        ifsc: z
+        .string()
+        .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, {
+          message: "Invalid IFSC code. Example: SBIN0005943"
+        })
+        .optional(),
     })
 };
 
@@ -112,13 +126,12 @@ interface SelectOption {
 export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined, service = false }) => {
 
     const navigate = useNavigate()
-    const [vendorType, setVendorType] = useState(null)
-    const VendorFormSchema = getVendorFormSchema(vendorType === "Service");
+    const [vendorType, setVendorType] = useState<string | null>(null)
+    const [taxationType, setTaxationType] = useState<string | null>("GST")
+    const VendorFormSchema = getVendorFormSchema(vendorType === "Service", taxationType === "GST");
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        defaultValues: {
-            "taxation_type": "GST"
-        },
+        defaultValues: {},
         mode: "onBlur",
     })
 
@@ -166,7 +179,6 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
             vendor_email: undefined,
             vendor_mobile: undefined,
             vendor_gst: undefined,
-            taxation_type: "GST",
             account_number: undefined,
             account_name: undefined,
             bank_name: undefined,
@@ -214,6 +226,11 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     vendor_mobile: values.vendor_mobile,
                     vendor_email: values.vendor_email,
                     vendor_gst: values.vendor_gst,
+                    account_number: values.account_number,
+                    account_name: values.account_name,
+                    bank_name: values.bank_name,
+                    bank_branch: values.bank_branch,
+                    ifsc: values.ifsc,
                     vendor_category: vendorType === "Service" ? { categories: service_categories }
                         :
                         vendorType === "Material" ?
@@ -311,8 +328,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
     const [pincode, setPincode] = useState("")
 
-    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode)
-    // const { city, state } = usePincode(pincode)
+    const { data: pincode_data } = useFrappeGetDoc("Pincodes", pincode)
 
     const debouncedFetch = useCallback(
         (value: string) => {
@@ -348,9 +364,38 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         debouncedFetch(value)
     }
 
-    const taxationType = form.watch("taxation_type");
+    // const ifscCode = form.watch("ifsc")
 
-    console.log("taxationType", taxationType)
+    // const fetchBankDetails = async (ifscCode: string) => {
+    //     if((ifscCode || "").length !== 11) {
+    //         return ""
+    //     }
+    //     const res = await fetch(`https://ifsc.razorpay.com/${ifscCode}`, {
+    //         method: 'GET',
+    //         headers: {
+    //             'Accept': 'application/json',
+    //             "x-frappe-site-name": "localhost",
+    //             'Content-Type': 'application/json'
+    //         }
+    //     })
+
+    //     return res.json()
+    // }
+
+    // console.log("ifscCode", fetchBankDetails(ifscCode))
+
+    // useEffect(() => {
+    //     if(ifscCode.length === 11) {
+    //         const res = await fetch(`https://ifsc.razorpay.com/${ifscCode}`, {
+    //             method: 'GET',
+    //             headers: {
+    //                 'Content-Type': 'application/json'
+    //             }
+    //         })
+
+    //         console.log("res", res)
+    //     }
+    // }, [ifscCode]) 
 
     return (
         <>
@@ -416,8 +461,13 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                 />
 
                                 <div className="flex flex-col items-start space-y-2">
-                                    <Label htmlFor="taxationType" >Taxation Type<sup className="text-sm text-red-600">*</sup></Label>
-                                    <Select value={taxationType} onValueChange={(value) => form.setValue("taxation_type", value)} defaultValue={"GST"}>
+                                    <Label htmlFor="taxationType" >Taxation Type</Label>
+                                    <Select value={taxationType} onValueChange={(value) => {
+                                        setTaxationType(value)
+                                        form.trigger("vendor_gst", {
+                                            shouldFocus: true
+                                        })
+                                    }} defaultValue={"GST"}>
                                         <SelectTrigger className="">
                                             <SelectValue className="text-gray-200" placeholder="Select Taxation Type" />
                                         </SelectTrigger>
@@ -433,9 +483,9 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                     name="vendor_gst"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel className="flex">GST Number{vendorType !== "Service" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
+                                            <FormLabel className="flex">{taxationType === "GST" ? "GST Number" : "PAN Number"} {vendorType !== "Service" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="enter gst..." {...field} />
+                                                <Input placeholder={taxationType === "GST" ? "enter gst..." : "enter pan..."} {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -581,7 +631,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                         </FormItem>
                                     )}
                                 />
-                                <FormField
+                                {/* <FormField
                                     control={form.control}
                                     name="ifsc"
                                     render={({ field }) => (
@@ -593,7 +643,62 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                             <FormMessage />
                                         </FormItem>
                                     )}
-                                />
+                                /> */}
+                                <FormField
+  control={form.control}
+  name="ifsc"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>IFSC Code</FormLabel>
+      <FormControl>
+        <Input 
+          placeholder="Enter IFSC Code" 
+          {...field} 
+          onChange={async (e) => {
+            const value = e.target.value.toUpperCase();
+            field.onChange(value);
+            
+            // Trigger API call when 11 characters are entered
+            if (value.length === 11) {
+              try {
+                // Use a public CORS proxy
+                // const proxyUrl = "https://cors-anywhere.herokuapp.com/";
+                const targetUrl = `https://ifsc.razorpay.com/${value}`;
+                const response = await fetch(targetUrl, {
+                    mode : "no-cors",
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                });
+                
+                if (response.ok) {
+                  const data = await response.json();
+                  form.setValue("bank_branch", data.BRANCH);
+                  form.setValue("bank_name", data.BANK);
+                } else {
+                  form.setError("ifsc", {
+                    type: "manual",
+                    message: "Invalid IFSC code"
+                  });
+                }
+                console.log("response", response);
+              } catch (error) {
+                console.error("IFSC validation failed:", error);
+                form.setError("ifsc", {
+                  type: "manual",
+                  message: "Invalid IFSC code"
+                });
+              }
+            }
+          }}
+        />
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+
                                 <FormField
                                     control={form.control}
                                     name="bank_name"
@@ -601,7 +706,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                         <FormItem>
                                             <FormLabel>Bank Name</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Enter Bank Name" {...field} />
+                                                <Input disabled={true} placeholder="Enter Bank Name" {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -614,7 +719,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                         <FormItem>
                                             <FormLabel>Bank Branch</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Enter Bank Branch" {...field} />
+                                                <Input disabled={true} placeholder="Enter Bank Branch" {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
