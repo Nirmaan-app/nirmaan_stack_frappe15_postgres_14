@@ -1,6 +1,7 @@
 import logo from "@/assets/logo-svg.svg";
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { AddressView } from "@/components/address-view";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -109,7 +110,7 @@ import {
   Truck,
   Undo,
   Undo2,
-  X,
+  X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -754,7 +755,7 @@ export const PurchaseOrder = ({
         variant: "success",
       });
 
-      navigate(`/purchase-orders/${id}?tab=Released+PO`);
+      navigate(`/purchase-orders/${id}?tab=Dispatched+PO`);
     } catch (error) {
       console.log(
         "error while updating the status of the PO to dispatch",
@@ -2079,7 +2080,19 @@ export const PurchaseOrder = ({
         </CardContent>
       </Card>
 
-      {!summaryPage && (
+      <Accordion type="multiple" 
+      // defaultValue={["transac&payments"]} 
+      className="w-full">
+        <AccordionItem key="transac&payments" value="transac&payments">
+          {tab === "Delivered PO" && (
+            <AccordionTrigger>
+            <p className="font-semibold text-lg text-red-600 pl-6">
+              Payment Details
+            </p>
+          </AccordionTrigger>
+          )}
+          <AccordionContent>
+        {!summaryPage && (
         <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
           <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
             <CardHeader>
@@ -2795,6 +2808,10 @@ export const PurchaseOrder = ({
           </Card>
         </div>
       )}
+      </AccordionContent>
+
+        </AccordionItem>
+      </Accordion>
 
       {/* Order Details  */}
       <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
@@ -2822,6 +2839,9 @@ export const PurchaseOrder = ({
                 <th className="w-[10%]  text-center px-2">Quantity</th>
                 <th className="w-[10%]  text-center px-2">Rate</th>
                 <th className="w-[10%]  text-center px-2">Amount</th>
+                {tab === "Delivered PO" && (
+                   <th className="w-[5%] text-center px-2">OD</th>
+                )}
               </tr>
             </thead>
             {/* <tbody className="max-sm:text-xs text-sm max-h-[100px] overflow-y-auto">
@@ -2893,6 +2913,9 @@ export const PurchaseOrder = ({
                     <td className="w-[10%] text-center">
                       {formatToIndianRupee(item?.quote * item?.quantity)}
                     </td>
+                    {tab === "Delivered PO" && (
+                   <th className={`w-[5%] text-center ${item?.received === item?.quantity ? "text-green-600" : "text-red-700"}`}>{item?.received || 0}</th>
+                )}
                   </tr>
                 ))}
               </tbody>
@@ -3605,7 +3628,7 @@ export const PurchaseOrder = ({
                             {po?.project_gst
                               ? po?.project_gst === "29ABFCS9095N1Z9"
                                 ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
-                                : "Gurgoan Address"
+                                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
                               : "Please set company GST number in order to display the Address!"}
                           </div>
                           <div className="text-xs text-gray-600 font-normal">

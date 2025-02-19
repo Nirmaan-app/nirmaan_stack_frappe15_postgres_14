@@ -1,12 +1,54 @@
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { toast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { formatToLocalDateTimeString } from "@/utils/FormatDate";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { format } from "date-fns";
 import {
   useFrappeDocTypeEventListener,
-  useFrappeGetDocList,
   useFrappeGetDoc,
+  useFrappeGetDocList,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
+import {
+  CalendarIcon,
+  CirclePlus,
+  ListChecks,
+  MessageCircleWarning
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { useParams } from "react-router-dom";
+import ReactSelect from "react-select";
 import * as z from "zod";
+import ProjectTypeForm from "../../components/project-type-form";
+import { Button } from "../../components/ui/button";
+import { ButtonLoading } from "../../components/ui/button-loading";
+import { Calendar } from "../../components/ui/calendar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../../components/ui/dialog";
 import {
   Form,
   FormControl,
@@ -18,63 +60,19 @@ import {
 } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Button } from "../../components/ui/button";
-import { ButtonLoading } from "../../components/ui/button-loading";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "../../components/ui/dialog";
-import ProjectTypeForm from "../../components/project-type-form";
 import { Separator } from "../../components/ui/separator";
-import { useNavigate, useParams } from "react-router-dom";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../../components/ui/popover";
-import { cn } from "@/lib/utils";
-import {
-  ArrowLeft,
-  CalendarIcon,
-  CirclePlus,
-  GitCommitVertical,
-  ListChecks,
-  MessageCircleWarning,
-} from "lucide-react";
-import { Calendar } from "../../components/ui/calendar";
-import { format } from "date-fns";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { useCallback, useEffect, useState } from "react";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import NewCustomer from "../customers/add-new-customer";
-import { formatToLocalDateTimeString } from "@/utils/FormatDate";
-import { toast } from "@/components/ui/use-toast";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Checkbox } from "@/components/ui/checkbox";
-import ReactSelect from "react-select";
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -634,11 +632,11 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                                                                               <div className="md:basis-2/4">
                                                                                   <Select onValueChange={(selectedLocation) => {
                                                                                       if(selectedLocation === "Both") {
-                                                                                          field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "Gurgoan GST" }] })
+                                                                                          field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
                                                                                       } else if(selectedLocation === "Bengaluru") {
                                                                                           field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
                                                                                       } else {
-                                                                                          field.onChange({ list: [{ location: "Gurgoan", gst: "Gurgoan GST" }] })
+                                                                                          field.onChange({ list: [{ location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
                                                                                       }
                                                                                       }}
                                                                                       defaultValue={field.value.list.length === 2 ? "Both" : field.value.list?.[0]?.location || ""}>
@@ -651,7 +649,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                                                                                           <FormMessage />
                                                                                       </div>
                                                                                       <SelectContent>
-                                                                                          {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "Gurgoan GST" }].map((option) => (
+                                                                                          {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }].map((option) => (
                                                                                               <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
                                                                                           ))}
                                                                                           <SelectItem key="Both" value="Both">Both</SelectItem>
