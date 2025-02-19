@@ -1,14 +1,16 @@
-import { ArrowLeft, CirclePlus } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
 import ProjectSelect from "@/components/custom-select/project-select";
-import { useContext, useState } from "react";
+import { useUserData } from "@/hooks/useUserData";
+import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
+import { UserContext } from "@/utils/auth/UserProvider";
 import {
   FrappeConfig,
   FrappeContext,
   useFrappeDocTypeEventListener,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
-import { Button } from "@/components/ui/button";
+import { useContext } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ProcurementRequestsSkeleton } from "../ui/skeleton";
 import {
   Table,
   TableBody,
@@ -17,13 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import { useUserData } from "@/hooks/useUserData";
-import { Badge } from "../ui/badge";
-import { ProcurementRequestsSkeleton } from "../ui/skeleton";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
-import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
-import { UserContext } from "@/utils/auth/UserProvider";
 
 export default function ListSR() {
   const navigate = useNavigate();
@@ -64,11 +59,15 @@ export default function ListSR() {
 
   const handleChange = (selectedItem: any) => {
     setSelectedProject(selectedItem ? selectedItem.value : null);
-    sessionStorage.setItem(
-      "selectedProject",
-      JSON.stringify(selectedItem.value)
-    );
-  };
+    if(selectedItem) {
+      sessionStorage.setItem(
+        "selectedProject",
+        JSON.stringify(selectedItem.value)
+      );
+    } else {
+      sessionStorage.removeItem("selectedProject");
+    }
+};
 
   const { db } = useContext(FrappeContext) as FrappeConfig;
   // const handleRejectPRSeen = (notification) => {

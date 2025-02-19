@@ -1,32 +1,40 @@
-import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ArrowLeft, ArrowLeftToLine, Building, Calendar, CheckIcon, CirclePlus, Edit, Eye, MapPin, MessageCircleMore, NotebookPen, Package, Paperclip, PencilIcon, PencilRuler, Printer, ReceiptIndianRupee, Save, SquarePlus, Trash, Undo2, User } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { useReactToPrint } from "react-to-print";
-import redlogo from "@/assets/red-logo.png"
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { CheckIcon, CirclePlus, Edit, Eye, Paperclip, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useReactToPrint } from "react-to-print";
 // import { Button } from "../ui/button";
+import { Pencil2Icon } from "@radix-ui/react-icons";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
-import { Pencil2Icon } from "@radix-ui/react-icons";
 // import { Button, Layout } from 'antd';
-import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
-import { toast } from "../ui/use-toast";
-import { TailSpin } from "react-loader-spinner";
-import { Button } from "../ui/button"
-import { Separator } from "../ui/separator";
-import { Label } from "../ui/label";
-import { Switch } from "../ui/switch";
-import logo from "@/assets/logo-svg.svg"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../ui/card";
-import { Sheet, SheetClose, SheetContent, SheetTrigger } from "../ui/sheet";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
+import {
+    AlertDialog,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogHeader,
+    AlertDialogTrigger
+} from "@/components/ui/alert-dialog";
+import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
 import { formatDate } from "@/utils/FormatDate";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { useDialogStore } from "@/zustand/useDialogStore";
 import { debounce } from "lodash";
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger } from "../ui/alert-dialog";
+import { TailSpin } from "react-loader-spinner";
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
+import { Button } from "../ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { Label } from "../ui/label";
+import { Separator } from "../ui/separator";
+import { Sheet, SheetContent } from "../ui/sheet";
+import { Switch } from "../ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { toast } from "../ui/use-toast";
 import { VendorHoverCard } from "../ui/vendor-hover-card";
 
 // const { Sider, Content } = Layout;
@@ -40,9 +48,11 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     const params = useParams();
   
-  const id = accountsPage ? params.id : params.srId;
+    const id = accountsPage ? params.id : params.srId;
 
     const [isRedirecting, setIsRedirecting] = useState(false)
+
+    const {toggleRequestPaymentDialog} = useDialogStore()
 
     const navigate = useNavigate()
 
@@ -58,6 +68,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     // const [customAdvance, setCustomAdvance] = useState(false);
 
     const [srPdfSheet, setSrPdfSheet] = useState(false)
+    const [deleteFlagged, setDeleteFlagged] = useState(null);
 
     const toggleSrPdfSheet = () => {
         setSrPdfSheet((prevState) => !prevState)
@@ -72,6 +83,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     const [warning, setWarning] = useState("");
     
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
+
+    const {deleteDoc, loading: deleteLoading} = useFrappeDeleteDoc()
 
     const { call } = useFrappePostCall('frappe.client.set_value')
 
@@ -104,26 +117,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         limit: 100
     })
 
-    const getTotalAmountPaid = () => {
-
-        return projectPayments?.reduce((acc, payment) => {
-            const amount = parseFloat(payment.amount || 0)
-            const tds = parseFloat(payment.tds || 0)
-            return acc + amount;
-        }, 0);
-    }
-
-    // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-    //     {
-    //         fields: ["*"],
-    //         limit: 1000
-    //     },
-    //     "Address"
-    // );
+    const getAmountPaid = getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid"))
 
     useEffect(() => {
         if (service_request) {
-            // console.log("running")
             setOrderData(service_request)
             const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
             setNotes(notes || [])
@@ -170,17 +167,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         documentTitle: `${orderData?.name}_${orderData?.vendor}`
     });
 
-    const getTotal = () => {
-        let total: number = 0;
-        if (orderData) {
-            const serviceOrder = JSON.parse(orderData?.service_order_list);
-            serviceOrder?.list?.map((item) => {
-                const price = item.quantity * item.rate;
-                total += price ? parseFloat(price) : 0
-            })
-        }
-        return total;
-    }
+    const getTotal = useMemo(() => getSRTotal(orderData), [orderData])
 
     const [editingIndex, setEditingIndex] = useState(null);
 
@@ -295,6 +282,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 amount: newPayment?.amount,
                 tds: newPayment?.tds,
                 payment_date: newPayment?.payment_date,
+                status: "Paid"
             })
 
             const fileArgs = {
@@ -344,17 +332,13 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     const validateAmount = debounce((amount) => {
     
-        const total = getTotal()
-
-        const totalAmountPaid = getTotalAmountPaid()
-    
         const compareAmount = service_request?.gst === "true"
-            ? (total * 1.18 - totalAmountPaid)
-            : (total - totalAmountPaid);
+            ? (getTotal * 1.18 - getAmountPaid)
+            : (getTotal - getAmountPaid);
     
         if (parseFloat(amount) > compareAmount) {
           setWarning(
-            `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount 
+            `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
             ${service_request?.gst === "true" ? "including" : "excluding"
             } GST: ${formatToIndianRupee(compareAmount)}`
           );
@@ -369,6 +353,29 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
       setNewPayment({ ...newPayment, amount });
       validateAmount(amount);
     };
+
+    const handleDeletePayment = async () => {
+        try {
+    
+          await deleteDoc("Project Payments", deleteFlagged?.name);
+    
+          await projectPaymentsMutate();
+    
+          toast({
+            title: "Success!",
+            description: "Payment deleted successfully!",
+            variant: "success",
+          });
+          
+        } catch (error) {
+          console.log("error", error);
+          toast({
+            title: "Failed!",
+            description: "Failed to delete Payment!",
+            variant: "destructive",
+          });
+        } 
+      }
 
     const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
@@ -394,14 +401,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             <TailSpin color={"red"} />{" "}
           </div>
         );
-
-    // console.log("notes", notes)
-
-    // console.log("orderData", orderData)
-
-    // console.log("advance", advance, customAdvance)
-
-    // console.log("gstEnabled", gstEnabled)
 
     return (
         <div className="flex-1 space-y-4">
@@ -471,35 +470,18 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                   </div>
                                   <div className="flex flex-col gap-2 max-sm:items-end">
                                       <Label className=" text-red-700">Total (Excl. GST)</Label>
-                                      <span>{formatToIndianRupee(getTotal())}</span>
+                                      <span>{formatToIndianRupee(getTotal)}</span>
                                   </div>
                                   <div className="flex flex-col gap-2 sm:items-center">
                                       <Label className=" text-red-700">Total Amount Paid</Label>
-                                      <span>{getTotalAmountPaid() ? formatToIndianRupee(getTotalAmountPaid()) : "--"}</span>    
+                                      <span>{getAmountPaid ? formatToIndianRupee(getAmountPaid) : "--"}</span>    
                                   </div>
                                   {gstEnabled && (
                                     <div className="flex flex-col gap-2 items-end">
                                         <Label className=" text-red-700">Total (Incl. GST)</Label>
-                                        <span>{formatToIndianRupee(getTotal() * 1.18)}</span>
+                                        <span>{formatToIndianRupee(getTotal * 1.18)}</span>
                                     </div>
                                   )}
-                                  {/* <div className="flex flex-col gap-2">
-                                      <Label className=" text-red-700">Vendor GST</Label>
-                                      <span>{service_vendor?.vendor_gst || "--"}</span>
-                                  </div> */}
-                                  {/* <div>
-                                  <Label className="pr-1 text-red-700">Vendor Address</Label>
-                                  <AddressView className="block" id={service_vendor?.vendor_address}/>
-                                </div> */}
-
-                                  {/* <div className="flex flex-col gap-2">
-                                      <Label className=" text-red-700">Project</Label>
-                                      <span>{project?.project_name}</span>
-                                  </div> */}
-                                {/* <div className="text-end">
-                                  <Label className="text-red-700 pr-1">Project Address</Label>
-                                  <AddressView className="block" id={project?.project_address}/>
-                                </div> */}
                         </div>
             </CardContent>
                 </Card>
@@ -508,7 +490,26 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                        Transaction Details
+                        <p>Transaction Details</p>
+
+                        {!accountsPage && (
+                            <>
+                            <Button
+                          variant="outline"
+                          className="text-primary border-primary text-xs px-2"
+                          onClick={toggleRequestPaymentDialog}
+                        >
+                          Request Payment
+                        </Button>
+
+                        <RequestPaymentDialog totalAmount={getTotal * 1.18} totalAmountWithoutGST={getTotal} 
+                            totalPaid={getAmountPaid}
+                            gst={service_request?.gst === "true"}
+                            isSr={true}
+                            sr={service_request} paymentsMutate={projectPaymentsMutate}
+                        />
+                            </>
+                        )}
                         {accountsPage && (
                         <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                              <AlertDialogTrigger
@@ -528,17 +529,17 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(getTotal())}</span>
+                                    <span className="">{formatToIndianRupee(getTotal)}</span>
                                 </div>
                                 {service_request?.gst === "true" && (
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(Math.floor(getTotal()))}</span>
+                                    <span className="">{formatToIndianRupee(Math.floor(getTotal))}</span>
                                 </div>
                                 )}
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                    <span className="">{getTotalAmountPaid() ? formatToIndianRupee(getTotalAmountPaid()) : "--"}</span>
+                                    <span className="">{getAmountPaid ? formatToIndianRupee(getAmountPaid) : "--"}</span>
                                 </div>
 
                                 <div className="flex flex-col gap-4 pt-4">
@@ -643,14 +644,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     </CardHeader>
                     <CardContent className="overflow-auto">
                         <Table>
-                            <TableHeader className="bg-gray-300">
+                            <TableHeader>
                                 <TableRow>
-                                    <TableHead>Date</TableHead>
-                                    <TableHead>Amount</TableHead>
-                                    {service_request?.gst === "true" && (
-                                         <TableHead>TDS Amt</TableHead>
-                                     )}
-                                    <TableHead>UTR No.</TableHead>
+                                <TableHead className="text-black font-bold">Amount</TableHead>
+                                {service_request?.gst === "true" && (
+                                    <TableHead className="text-black font-bold">TDS Amt</TableHead>
+                                )}
+                                <TableHead className="text-black font-bold">UTR No.</TableHead>
+                                <TableHead className="text-black font-bold">Date</TableHead>
+                                <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
+                                <TableHead></TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -658,13 +661,13 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                     projectPayments?.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
                                                 {service_request?.gst === "true" && (
                                                      <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
                                                  )}
-                                                <TableCell className="font-semibold text-blue-500 underline">
-                                                {import.meta.env.MODE === "development" ? (
+                                                 {payment?.utr ? (
+                                                    <TableCell className="font-semibold text-blue-500 underline">
+                                                        {import.meta.env.MODE === "development" ? (
                                                     <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
                                                         {payment?.utr}
                                                     </a>
@@ -673,6 +676,40 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                         {payment?.utr}
                                                     </a>
                                                 )}
+                                                    </TableCell>
+                                                 ) : (
+                                                    <TableCell>
+                                                        --
+                                                    </TableCell>
+                                                 )}
+                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
+                                                <TableCell className="font-semibold">{payment?.status}</TableCell>
+                                                <TableCell className="text-red-500 text-end w-[5%]">
+                                                  {payment?.status !== "Paid" && 
+                                                  <Dialog>
+                                                    <DialogTrigger>
+                                                      <Trash2
+                                                        onClick={() => setDeleteFlagged(payment)}
+                                                        className="w-4 h-4" />
+                                                    </DialogTrigger>
+                                                    <DialogContent>
+                                                      <DialogHeader>
+                                                        <DialogTitle>Are you sure?</DialogTitle>
+                                                      </DialogHeader>
+                                                      <div className="flex items-center justify-end gap-2">
+                                                        {deleteLoading ? <TailSpin color="red" height={40} width={40} /> : (
+                                                          <>
+                                                            <DialogClose asChild>
+                                                              <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                              </DialogClose>
+                                                            <Button onClick={() => handleDeletePayment()}>Delete</Button>
+                                                          </>
+                                                        )}
+                                                      </div>
+                                                    
+                                                    </DialogContent>
+                                                  </Dialog>
+                                                  }
                                                 </TableCell>
                                             </TableRow>
                                         )
@@ -958,7 +995,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                             {/* <td className="px-4 py-2 text-sm whitespace-nowrap"></td> */}
                                             {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                             <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal)}</td>
                                         </tr>
                                         <tr className="border-none">
                                             <td></td>
@@ -974,9 +1011,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                             </td>
 
                                             <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                                {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>}
-                                                <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
-                                                <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal * 1.18 - getTotal)}</div>}
+                                                <div className="ml-4">- {formatToIndianRupee((getTotal * (gstEnabled ? 1.18 : 1)) - Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
+                                                <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
                                             </td>
 
                                         </tr>

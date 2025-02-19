@@ -1,32 +1,32 @@
+import { FormSkeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
+import NewCustomer from "@/pages/customers/add-new-customer"
+import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeGetDoc, useSWR } from "frappe-react-sdk"
+import { Steps } from "antd"
+import { format } from "date-fns"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { BadgeIndianRupee, CalendarIcon, CirclePlus, ListChecks, Pencil, Undo2 } from "lucide-react"
+import React, { useCallback, useEffect, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
+import { useNavigate } from "react-router-dom"
+import ReactSelect from "react-select"
 import * as z from "zod"
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "../../components/ui/form"
-import { Input } from "../../components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select"
+import ProjectTypeForm from "../../components/project-type-form"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../components/ui/accordion"
+import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../../components/ui/alert-dialog"
 import { Button } from "../../components/ui/button"
 import { ButtonLoading } from "../../components/ui/button-loading"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../../components/ui/dialog"
-import ProjectTypeForm from "../../components/project-type-form"
-import { Separator } from "../../components/ui/separator"
-import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
-import { cn } from "@/lib/utils"
-import { ArrowLeft, BadgeIndianRupee, CalendarIcon, CirclePlus, GitCommitVertical, ListChecks, Pencil, Undo2 } from "lucide-react"
 import { Calendar } from "../../components/ui/calendar"
-import { format } from "date-fns"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../components/ui/accordion"
 import { Checkbox } from "../../components/ui/checkbox"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../../components/ui/dialog"
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "../../components/ui/form"
+import { Input } from "../../components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select"
+import { Separator } from "../../components/ui/separator"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "../../components/ui/sheet"
-import { useNavigate } from "react-router-dom"
-import React, { useEffect, useState, useCallback } from "react"
-import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { useToast } from "../../components/ui/use-toast"
-import NewCustomer from "@/pages/customers/add-new-customer"
-import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogAction } from "../../components/ui/alert-dialog"
-import { Steps } from "antd"
-import { FormSkeleton } from "@/components/ui/skeleton"
-import ReactSelect from "react-select";
 import useSectionContext, { SectionProvider } from "./SectionContext"
 
 
@@ -715,11 +715,11 @@ export const ProjectForm = () => {
                                             <div className="md:basis-2/4">
                                                 <Select onValueChange={(selectedLocation) => {
                                                     if(selectedLocation === "Both") {
-                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "Gurgoan GST" }] })
+                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
                                                     } else if(selectedLocation === "Bengaluru") {
                                                         field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
                                                     } else {
-                                                        field.onChange({ list: [{ location: "Gurgoan", gst: "Gurgoan GST" }] })
+                                                        field.onChange({ list: [{ location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
                                                     }
                                                     }}
                                                     defaultValue={"Bengaluru"}>
@@ -732,7 +732,7 @@ export const ProjectForm = () => {
                                                         <FormMessage />
                                                     </div>
                                                     <SelectContent>
-                                                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "Gurgoan GST" }].map((option) => (
+                                                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }].map((option) => (
                                                             <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
                                                         ))}
                                                         <SelectItem key="Both" value="Both">Both</SelectItem>

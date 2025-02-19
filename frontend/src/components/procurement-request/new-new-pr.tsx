@@ -1,7 +1,15 @@
-import ReactSelect, { components } from "react-select";
-import { Input } from "../ui/input";
-import { Button } from "../ui/button";
-import { useEffect, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from "@/components/ui/alert-dialog";
+import { useUserData } from "@/hooks/useUserData";
+import { formatDate } from "@/utils/FormatDate";
 import {
   useFrappeCreateDoc,
   useFrappeGetDoc,
@@ -9,49 +17,42 @@ import {
   useFrappeUpdateDoc,
   useSWRConfig,
 } from "frappe-react-sdk";
-import { useNavigate, useParams } from "react-router-dom";
+import Fuse from "fuse.js";
 import {
   CheckCheck,
   CirclePlus,
   CircleX,
-  Import,
   ListChecks,
   MessageCircleMore,
   MessageCircleWarning,
   Pencil,
-  Sparkles,
   Trash2,
-  Undo,
+  Undo
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { useNavigate, useParams } from "react-router-dom";
+import ReactSelect, { components } from "react-select";
+import { v4 as uuidv4 } from "uuid";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { Button } from "../ui/button";
+import { Card, CardHeader, CardTitle } from "../ui/card";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { toast } from "../ui/use-toast";
-import { useUserData } from "@/hooks/useUserData";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "../ui/dialog";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "../ui/hover-card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-  DialogFooter,
-} from "../ui/dialog";
-import { TailSpin } from "react-loader-spinner";
+import { Input } from "../ui/input";
 import {
   Select,
   SelectContent,
@@ -59,12 +60,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { Card, CardHeader, CardTitle } from "../ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { formatDate } from "@/utils/FormatDate";
-import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
-import { v4 as uuidv4 } from "uuid";
-import Fuse from "fuse.js";
+import { toast } from "../ui/use-toast";
 
 export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const { projectId, prId } = useParams();
@@ -752,6 +748,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                   setCurItem("");
                   setCurCategory(e);
                 }}
+                isClearable
               />
             </div>
           </div>
@@ -770,6 +767,8 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
             //     ? true
             //     : false
             // }
+            isClearable
+            onMenuOpen={() => setCurItem(null)}
           />
           <div className="flex items-center gap-4">
             <div className="w-1/2">
@@ -1505,6 +1504,9 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             onChange={(e) => {
                               setCurCategory(e);
                             }}
+                            isClearable
+                            onMenuOpen={() => setCurCategory(null)}
+
                           />
                           {isNewItemsDisabled && <p className="text-red-500 text-sm">New Items Creation is disabled for this category, proceed to request item instead!</p>}
                         </div>

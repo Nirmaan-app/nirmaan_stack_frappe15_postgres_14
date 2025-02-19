@@ -1,15 +1,18 @@
-import { ArrowLeft, CirclePlus } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
 import ProjectSelect from "@/components/custom-select/project-select";
-import { useContext, useState } from "react";
+import { useUserData } from "@/hooks/useUserData";
+import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
+import { UserContext } from "@/utils/auth/UserProvider";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 import {
   FrappeConfig,
   FrappeContext,
   useFrappeDocTypeEventListener,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
-import { Button } from "@/components/ui/button";
-import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
+import { useContext } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Badge } from "../ui/badge";
+import { ProcurementRequestsSkeleton } from "../ui/skeleton";
 import {
   Table,
   TableBody,
@@ -18,11 +21,6 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import { useUserData } from "@/hooks/useUserData";
-import { Badge } from "../ui/badge";
-import { ProcurementRequestsSkeleton } from "../ui/skeleton";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { UserContext } from "@/utils/auth/UserProvider";
 
 export default function ListPR() {
   const navigate = useNavigate();
@@ -67,11 +65,15 @@ export default function ListPR() {
   };
 
   const handleChange = (selectedItem: any) => {
-    setSelectedProject(selectedItem ? selectedItem.value : null);
-    sessionStorage.setItem(
-      "selectedProject",
-      JSON.stringify(selectedItem.value)
-    );
+      setSelectedProject(selectedItem ? selectedItem.value : null);
+      if(selectedItem) {
+        sessionStorage.setItem(
+          "selectedProject",
+          JSON.stringify(selectedItem.value)
+        );
+      } else {
+        sessionStorage.removeItem("selectedProject");
+      }
   };
 
   const { db } = useContext(FrappeContext) as FrappeConfig;

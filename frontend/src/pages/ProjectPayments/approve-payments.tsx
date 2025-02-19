@@ -1,0 +1,300 @@
+import { DataTable } from "@/components/data-table/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
+import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
+import { useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { CircleCheck, CircleX, SquarePen } from "lucide-react";
+import { useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+
+export const ApprovePayments = () => {
+
+  const [selectedPO, setSelectedPO] = useState<any>(null);
+
+  const [dialogType, setDialogType] = useState<"approve" | "reject" | "edit">("approve");
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const [amountInput, setAmountInput] = useState("");
+
+  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+
+  const toggleDialog = () => {
+    setDialogOpen(!dialogOpen);
+  };
+
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
+        fields: ["name", "project_name"],
+        limit: 1000,
+    });
+
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+        fields: ["name", "vendor_name"],
+        limit: 10000,
+    });
+
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+        fields: ["*"],
+        filters: [["status", "=", "Requested"]],
+        limit: 100000,
+        orderBy: { field: "payment_date", order: "desc" }
+    })
+
+    const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList("Procurement Orders", {
+            fields: ["*"],
+            filters: [["status", "not in", ["Cancelled", "Merged"]]],
+            limit: 100000,
+            orderBy: { field: "modified", order: "desc" },
+        });
+    
+    const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList("Service Requests", {
+        fields: ["*"],
+        filters: [["status", "=", "Approved"]],
+        limit: 10000,
+        orderBy: { field: "modified", order: "desc" },
+      });
+
+    useFrappeDocTypeEventListener("Project Payments", async () => {
+        await projectPaymentsMutate();
+    });
+
+    const projectValues = projects?.map((item) => ({
+        label: item.project_name,
+        value: item.name,
+    })) || [];
+
+    const vendorValues = vendors?.map((item) => ({
+        label: item.vendor_name,
+        value: item.name,
+    })) || [];
+
+  const handleSubmit = async () => {
+    try {
+      await updateDoc("Project Payments", selectedPO?.name, {
+        status: ["edit", "approve"].includes(dialogType) ? "Approved" : "Rejected",
+        amount: dialogType === "edit" ? Number(amountInput) : selectedPO?.amount
+      })
+
+      await projectPaymentsMutate()
+
+      toggleDialog()
+
+      toast({
+        title: "Success!",
+        description: `Payment ${dialogType === "edit" ? "edited and approved" : dialogType === "approve" ? "approved" :"rejected"} successfully!`,
+        variant: "success",
+      });
+      
+    } catch (error) {
+      console.log("error", error);
+      toast({
+        title: "Failed!",
+        description: "Failed to update payment!",
+        variant: "destructive",
+      });
+    }
+  }
+
+    const columns = useMemo(
+        () => [
+          {
+            accessorKey: "document_name",
+            header: "#PO",
+            cell: ({ row }) => {
+                return <div className="font-medium">{row.getValue("document_name")}</div>;
+            }
+        },
+            {
+                accessorKey: "payment_date",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date" />
+                    )
+                },
+                cell: ({ row }) => {
+                    const data = row.original
+                    return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
+                },
+            },
+            {
+              accessorKey: "vendor",
+              header: "Vendor",
+              cell: ({ row }) => {
+                  const vendor = vendorValues.find(
+                      (vendor) => vendor.value === row.getValue("vendor")
+                  );
+                  return vendor ? <div className="font-medium">{vendor.label}</div> : null;
+              },
+              filterFn: (row, id, value) => {
+                  return value.includes(row.getValue(id))
+              }
+          },
+            {
+                accessorKey: "project",
+                header: "Project",
+                cell: ({ row }) => {
+                    const project = projectValues.find(
+                        (project) => project.value === row.getValue("project")
+                    );
+                    return project ? <div className="font-medium">{project.label}</div> : null;
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                },
+            },
+            {
+              id: "po_value",
+              header: ({ column }) => {
+                  return (
+                      <DataTableColumnHeader column={column} title="PO Value" />
+                  )
+              },
+              cell: ({ row }) => {
+                  const data = row.original;
+                  const isSr = data.document_type === "Service Requests";
+                  let order;
+                  if(!isSr) {
+                    order = purchaseOrders?.find(i => i?.name === data?.document_name)
+                  } else {
+                    order = serviceOrders?.find(i => i?.name === data?.document_name)
+                  }
+                  return <div className="font-medium">
+                      {formatToIndianRupee(isSr ? (order?.gst === "true" ? getSRTotal(order) : getSRTotal(order) * 1.18 ) : 
+                      getPOTotal(order, parseFloat(order?.loading_charges), parseFloat(order?.freight_charges))?.totalAmt)}
+                  </div>
+              },
+          },
+            {
+                accessorKey: "amount",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Requested Amount" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return <div className="font-medium">
+                        {formatToIndianRupee(row.getValue("amount"))}
+                    </div>
+                },
+            },
+            {
+              id: "options",
+              header: ({ column }) => {
+                  return (
+                      <DataTableColumnHeader column={column} title="Options" />
+                  )
+              },
+              cell: ({ row }) => {
+                  const data = row.original
+
+                  return (
+                    <div className="flex items-center gap-3">
+                      <CircleCheck
+                      onClick={() => {
+                        setSelectedPO(data)
+                        setAmountInput(data.amount)
+                        setDialogType("approve")
+                        toggleDialog()
+                      }}
+                       className="text-green-500 cursor-pointer" />
+                      <CircleX
+                       onClick={() => {
+                         setSelectedPO(data)
+                         setAmountInput(data.amount)
+                         setDialogType("reject")
+                         toggleDialog()
+                       }}
+                       className="text-primary cursor-pointer" />
+                    </div>
+                  )
+              },
+          },
+          {
+            id: "editOption",
+            // header: ({ column }) => {
+            //     return (
+            //         <DataTableColumnHeader column={column} title="Options" />
+            //     )
+            // },
+            cell: ({ row }) => {
+                return (
+                  <div className="">
+                    <SquarePen
+                      className="cursor-pointer"
+                      onClick={() => {
+                        setSelectedPO(row.original)
+                        setAmountInput(row.original.amount)
+                        setDialogType("edit")
+                        toggleDialog()
+                    }}
+                     />
+                  </div>
+                )
+            },
+        },
+        ],
+        [projectValues, vendorValues, projectPayments, purchaseOrders, serviceOrders]
+    );
+
+    const { toast } = useToast();
+
+    if (projectsError || vendorsError || projectPaymentsError || poError || srError) {
+        toast({
+            title: "Error!",
+            description: `Error: ${vendorsError?.message || projectsError?.message || projectPaymentsError?.message}`,
+            variant: "destructive",
+        });
+    }
+
+    return (
+        <div className="flex-1 space-y-4">
+
+          <AlertDialog open={dialogOpen} onOpenChange={toggleDialog}>
+            <AlertDialogContent className="max-w-sm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {["approve", "reject"] .includes(dialogType) ? (
+                    <p>Are you sure you want to {dialogType} the payment of <span className="text-primary">{formatToIndianRupee(selectedPO?.amount)} to the {vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}</span> for PO <i>#{selectedPO?.document_name}</i>?</p>
+                  ) : 
+                  "Edit Payment"} 
+                </AlertDialogTitle>
+              </AlertDialogHeader>
+
+              {dialogType === "edit" && (
+                <div className="grid grid-cols-3 gap-4 items-start">
+                  <p className="col-span-1">Amount </p>
+                  <div className="col-span-2">
+                    <Input type="number" onChange={(e) => setAmountInput(e.target.value)}  value={amountInput} />
+                    <p className="text-sm mt-1 ml-1 text-primary">To: {vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2 flex items-center justify-center space-x-2">
+                {updateLoading ? (
+                  <TailSpin width={40} color="red"  />
+                ) : (
+                  <>
+                    <Button disabled={updateLoading} onClick={handleSubmit} className="flex-1">Confirm</Button>
+                    <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
+                  </>
+
+                )}
+              </div>
+
+            </AlertDialogContent>
+          </AlertDialog>
+            {projectsLoading || vendorsLoading || projectPaymentsLoading || poLoading || srLoading ? (
+                <TableSkeleton />
+            ) : (
+                <DataTable columns={columns} data={projectPayments || []} project_values={projectValues} approvedQuotesVendors={vendorValues} />
+            )}
+        </div>
+    );
+};

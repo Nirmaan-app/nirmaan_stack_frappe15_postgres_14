@@ -15,7 +15,8 @@
   "payment_attachment",
   "amount",
   "tds",
-  "payment_date"
+  "payment_date",
+  "status"
  ],
  "fields": [
   {
@@ -76,11 +77,16 @@
    "fieldname": "payment_date",
    "fieldtype": "Date",
    "label": "Payment Date"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-29 16:37:30.733433",
+ "modified": "2025-02-17 17:10:32.577583",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",
