@@ -498,6 +498,19 @@ export function NewSidebar() {
     }
   });
 
+   //  ***** Project Payment Events *****
+   useFrappeEventListener("payment:new", async (event) => {
+    await handlePONewEvent(db, event, add_new_notification);
+  });
+
+  useFrappeEventListener("payment:approved", async (event) => {
+    await handleSRApprovedEvent(db, event, add_new_notification);
+  });
+
+  useFrappeEventListener("payment:delete", (event) => {
+    handlePRDeleteEvent(event, delete_notification);
+  });
+
   useFrappeDocTypeEventListener("Project Payments", async (event) => {
     if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
       await adminPaymentsDataMutate();

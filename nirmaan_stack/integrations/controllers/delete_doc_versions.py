@@ -21,6 +21,23 @@ def generate_versions(doc, method):
         data["changed"].append(["category_list", doc.category_list, []])
 
         data["changed"].append(["pr_details", pr_details, []])
+    
+    elif doc.doctype == "Project Payments":
+        previous_state = doc.status
+
+        payment_details = {
+            "project": doc.project,
+            "document_type": doc.document_type,
+            "document_name": doc.document_name,
+            "vendor": doc.vendor,
+            "amount": doc.amount,
+            "payment_date": doc.payment_date,
+            "utr": doc.utr,
+            "tds": doc.tds,
+            "owner": doc.owner,
+        }
+
+        data["changed"].append(["payment_details", payment_details, []])
 
     elif doc.doctype == "Procurement Orders":
         previous_state = doc.status
