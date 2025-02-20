@@ -158,9 +158,9 @@ const projectFormSchema = z.object({
                     work_package: z.string()
                 })
             )
-    }),
+        }),
     project_gst_number: z.object({
-        list : z.array(z.object({
+        list: z.array(z.object({
             location: z.string(),
             gst: z.string(),
         }))
@@ -499,7 +499,7 @@ export const ProjectForm = () => {
             return
         }
 
-        if(section === "packageSelection" && !form.getValues("project_work_packages.work_packages").length) {
+        if (section === "packageSelection" && !form.getValues("project_work_packages.work_packages").length) {
             toast({
                 title: "Failed!",
                 description: "Non Procurement Package Selected!",
@@ -507,7 +507,7 @@ export const ProjectForm = () => {
             })
             return
         }
-        
+
         const nextSec = nextSection(section)
         const nextIndex = currentStep + 1
 
@@ -714,14 +714,14 @@ export const ProjectForm = () => {
                                             <FormLabel className="md:basis-2/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                             <div className="md:basis-2/4">
                                                 <Select onValueChange={(selectedLocation) => {
-                                                    if(selectedLocation === "Both") {
-                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
-                                                    } else if(selectedLocation === "Bengaluru") {
+                                                    if (selectedLocation === "Both") {
+                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
+                                                    } else if (selectedLocation === "Bengaluru") {
                                                         field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
                                                     } else {
-                                                        field.onChange({ list: [{ location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
+                                                        field.onChange({ list: [{ location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
                                                     }
-                                                    }}
+                                                }}
                                                     defaultValue={"Bengaluru"}>
                                                     <div className="flex flex-col items-start">
                                                         <FormControl>
@@ -732,7 +732,7 @@ export const ProjectForm = () => {
                                                         <FormMessage />
                                                     </div>
                                                     <SelectContent>
-                                                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }].map((option) => (
+                                                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }].map((option) => (
                                                             <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
                                                         ))}
                                                         <SelectItem key="Both" value="Both">Both</SelectItem>
@@ -1507,8 +1507,8 @@ export const ProjectForm = () => {
                                 </div>
                             </>)}
 
-                            {section === "reviewDetails" && (
-                                <>
+                        {section === "reviewDetails" && (
+                            <>
 
                                 <ReviewDetails company={company} user={user} form={form} duration={duration} setSection={setSection} sections={sections} setCurrentStep={setCurrentStep} sectionTitles={sectionTitles} />
 
@@ -1526,38 +1526,38 @@ export const ProjectForm = () => {
                                 </div>
 
                                 <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <button className="hidden" id="alertOpenProject" >Trigger Dialog</button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader className="flex items-center justify-center">
-                                        <AlertDialogTitle className="text-green-500">
-                                            Project Created Successfully! You can start adding project estimates.
-                                        </AlertDialogTitle>
-                                        <div className="flex gap-2">
-                                            <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
-                                                <Undo2 className="h-4 w-4" />
-                                                Go Back
-                                            </AlertDialogAction>
-                                            <AlertDialogAction onClick={() => {
-                                                form.reset()
-                                                form.clearErrors()
-                                            }}
-                                                className="flex items-center gap-1"
-                                            >
-                                                <CirclePlus className="h-4 w-4" />
-                                                Create New</AlertDialogAction>
-                                            <AlertDialogAction onClick={() => navigate(`/projects/${newProjectId}/add-estimates`)} className="flex items-center gap-1 bg-gray-100 text-black">
-                                                <BadgeIndianRupee className="h-4 w-4" />
-                                                Next: Fill Estimates
-                                            </AlertDialogAction>
-                                        </div>
-                                    </AlertDialogHeader>
+                                    <AlertDialogTrigger asChild>
+                                        <button className="hidden" id="alertOpenProject" >Trigger Dialog</button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader className="flex items-center justify-center">
+                                            <AlertDialogTitle className="text-green-500">
+                                                Project Created Successfully! You can start adding project estimates.
+                                            </AlertDialogTitle>
+                                            <div className="flex gap-2">
+                                                <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
+                                                    <Undo2 className="h-4 w-4" />
+                                                    Go Back
+                                                </AlertDialogAction>
+                                                <AlertDialogAction onClick={() => {
+                                                    form.reset()
+                                                    form.clearErrors()
+                                                }}
+                                                    className="flex items-center gap-1"
+                                                >
+                                                    <CirclePlus className="h-4 w-4" />
+                                                    Create New</AlertDialogAction>
+                                                <AlertDialogAction onClick={() => navigate(`/projects/${newProjectId}/add-estimates`)} className="flex items-center gap-1 bg-gray-100 text-black">
+                                                    <BadgeIndianRupee className="h-4 w-4" />
+                                                    Next: Fill Estimates
+                                                </AlertDialogAction>
+                                            </div>
+                                        </AlertDialogHeader>
 
-                                </AlertDialogContent>
-                            </AlertDialog>
-                                </>
-                            )}
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            </>
+                        )}
                     </div>
                 </form >
             </Form >
@@ -1770,126 +1770,125 @@ const WorkPackageSelection = ({ form, wp_list }) => {
 
 const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
 
-    const {setSection, setCurrentStep} = sectionProps
+    const { setSection, setCurrentStep } = sectionProps
 
     return (
-    <SectionProvider value={sectionProps}>
-        <div className="p-6 bg-white shadow rounded-lg">
-        <Section sectionKey="projectDetails">
-          <Detail label="Project Name" value={form.getValues("project_name")} />
-          <Detail label="Project Type" value={form.getValues("project_type")} />
-          <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
-        </Section>
-  
-        <Section sectionKey="projectAddressDetails">
-          <Detail label="Address Line 1" value={form.getValues("address_line_1")} />
-          <Detail label="City" value={form.getValues("project_city")} />
-          <Detail label="Address Line 2" value={form.getValues("address_line_2")} />
-          <Detail label="State" value={form.getValues("project_state")} />
-          <Detail label="Pincode" value={form.getValues("pin")} />
-          <Detail label="Phone" value={form.getValues("phone")} />
-          <Detail label="Email" value={form.getValues("email")} />
-        </Section>
-  
-        <Section sectionKey="projectTimeline">
-          <Detail
-            label="Start Date"
-            value={form.getValues("project_start_date")?.toLocaleDateString()}
-          />
-          <Detail
-            label="End Date"
-            value={form.getValues("project_end_date")?.toLocaleDateString()}
-          />
-          <Detail
-            label="Duration"
-            value={`${duration} days`}
-          />
-        </Section>
-  
-        <Section sectionKey={"projectAssignees"}>
-         <Detail label="Project Lead" value={form.getValues("project_lead") ? user?.find(u => u.name === form.getValues("project_lead"))?.full_name : ""} />
-         <Detail label="Procurement Lead" value={form.getValues("procurement_lead") ? user?.find(u => u.name === form.getValues("procurement_lead"))?.full_name : ""} />
-         <Detail label="Project Manager" value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""} />
-         {/* <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} /> */}
-         <Detail label="Accountant" value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""} />
-         <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} />
-        </Section>
+        <SectionProvider value={sectionProps}>
+            <div className="p-6 bg-white shadow rounded-lg">
+                <Section sectionKey="projectDetails">
+                    <Detail label="Project Name" value={form.getValues("project_name")} />
+                    <Detail label="Project Type" value={form.getValues("project_type")} />
+                    <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
+                </Section>
 
-        <div>
-            <div className="flex gap-1 items-center mb-4">
-                <h2 className="text-lg font-semibold text-sky-600">Selected Packages</h2>
-                <Pencil className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600" onClick={() => {
-                     setSection("packageSelection")
-                     setCurrentStep(4)
-                }} />
+                <Section sectionKey="projectAddressDetails">
+                    <Detail label="Address Line 1" value={form.getValues("address_line_1")} />
+                    <Detail label="City" value={form.getValues("project_city")} />
+                    <Detail label="Address Line 2" value={form.getValues("address_line_2")} />
+                    <Detail label="State" value={form.getValues("project_state")} />
+                    <Detail label="Pincode" value={form.getValues("pin")} />
+                    <Detail label="Phone" value={form.getValues("phone")} />
+                    <Detail label="Email" value={form.getValues("email")} />
+                </Section>
+
+                <Section sectionKey="projectTimeline">
+                    <Detail
+                        label="Start Date"
+                        value={form.getValues("project_start_date")?.toLocaleDateString()}
+                    />
+                    <Detail
+                        label="End Date"
+                        value={form.getValues("project_end_date")?.toLocaleDateString()}
+                    />
+                    <Detail
+                        label="Duration"
+                        value={`${duration} days`}
+                    />
+                </Section>
+
+                <Section sectionKey={"projectAssignees"}>
+                    <Detail label="Project Lead" value={form.getValues("project_lead") ? user?.find(u => u.name === form.getValues("project_lead"))?.full_name : ""} />
+                    <Detail label="Procurement Lead" value={form.getValues("procurement_lead") ? user?.find(u => u.name === form.getValues("procurement_lead"))?.full_name : ""} />
+                    <Detail label="Project Manager" value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""} />
+                    {/* <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} /> */}
+                    <Detail label="Accountant" value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""} />
+                    <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} />
+                </Section>
+
+                <div>
+                    <div className="flex gap-1 items-center mb-4">
+                        <h2 className="text-lg font-semibold text-sky-600">Selected Packages</h2>
+                        <Pencil className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600" onClick={() => {
+                            setSection("packageSelection")
+                            setCurrentStep(4)
+                        }} />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {form
+                            .getValues("project_work_packages")?.work_packages?.map((workPackage, index) => (
+                                <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} border-b pb-4`}>
+                                    <p className="text-md font-medium text-gray-700">
+                                        {workPackage.work_package_name}
+                                    </p>
+                                    <ul className="pl-4 mt-2 space-y-2">
+                                        {workPackage.category_list?.list.map((category, idx) => (
+                                            <li key={idx} className="text-sm text-gray-600">
+                                                <span className="font-semibold">- {category.name}:</span>{" "}
+                                                {category.makes.length > 0
+                                                    ? category.makes.map((make) => make.label).join(", ")
+                                                    : "N/A"}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )) || (
+                                <p className="text-sm text-gray-600">No packages selected</p>
+                            )}
+                    </div>
+                </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {form
-                .getValues("project_work_packages")?.work_packages?.map((workPackage, index) => (
-                  <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} border-b pb-4`}>
-                    <p className="text-md font-medium text-gray-700">
-                      {workPackage.work_package_name}
-                    </p>
-                    <ul className="pl-4 mt-2 space-y-2">
-                      {workPackage.category_list?.list.map((category, idx) => (
-                        <li key={idx} className="text-sm text-gray-600">
-                          <span className="font-semibold">- {category.name}:</span>{" "}
-                          {category.makes.length > 0
-                            ? category.makes.map((make) => make.label).join(", ")
-                            : "N/A"}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )) || (
-                <p className="text-sm text-gray-600">No packages selected</p>
-              )}
-            </div>
-            </div>
-        </div>
-    </SectionProvider>
+        </SectionProvider>
     );
-  };
-  
+};
+
 const Section = ({ sectionKey, children }) => {
     const { setSection, sections, setCurrentStep, sectionTitles } = useSectionContext();
-  
+
     // Flatten children to handle fragments and arrays of elements
     // const flattenedChildren = React.Children.toArray(children).flat();
 
     console.log("children", children)
-  
+
     const handleClick = () => {
-      setSection(sectionKey);
-      const index = sections.findIndex((val) => val === sectionKey);
-      setCurrentStep(index);
+        setSection(sectionKey);
+        const index = sections.findIndex((val) => val === sectionKey);
+        setCurrentStep(index);
     };
-  
+
     return (
-      <div className="mb-8">
-        <div className="flex gap-1 items-center mb-4">
-          <h2 className="text-lg font-semibold text-sky-600">{sectionTitles[sectionKey]}</h2>
-          <Pencil
-            className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600"
-            onClick={handleClick}
-          />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {children.map((child, index) => (
-            <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} h-full`}>
-              {child}
+        <div className="mb-8">
+            <div className="flex gap-1 items-center mb-4">
+                <h2 className="text-lg font-semibold text-sky-600">{sectionTitles[sectionKey]}</h2>
+                <Pencil
+                    className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600"
+                    onClick={handleClick}
+                />
             </div>
-          ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {children.map((child, index) => (
+                    <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} h-full`}>
+                        {child}
+                    </div>
+                ))}
+            </div>
         </div>
-      </div>
     );
-  };
-  
-  
-  const Detail = ({ label, value }) => (
+};
+
+
+const Detail = ({ label, value }) => (
     <div className="flex justify-between items-start border-b pb-2 mb-2">
-      <p className="text-sm text-gray-600 font-semibold">{label}</p>
-      <p className="text-sm text-gray-800 italic">{value || "N/A"}</p>
+        <p className="text-sm text-gray-600 font-semibold">{label}</p>
+        <p className="text-sm text-gray-800 italic">{value || "N/A"}</p>
     </div>
-  );
-  
+);

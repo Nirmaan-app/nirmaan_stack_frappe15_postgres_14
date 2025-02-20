@@ -149,11 +149,11 @@ const projectFormSchema = z.object({
       })
     ),
   }),
-   project_gst_number: z.object({
-      list : z.array(z.object({
-          location: z.string(),
-          gst: z.string(),
-      }))
+  project_gst_number: z.object({
+    list: z.array(z.object({
+      location: z.string(),
+      gst: z.string(),
+    }))
   }),
 });
 
@@ -245,13 +245,13 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         : {
           work_packages: [],
         },
-        project_gst_number: data?.project_gst_number
+      project_gst_number: data?.project_gst_number
         ? JSON.parse(data?.project_gst_number)
         : {
-          list : [
+          list: [
             {
-              location : "Bengaluru",
-              gst : "29ABFCS9095N1Z9",
+              location: "Bengaluru",
+              gst: "29ABFCS9095N1Z9",
             }
           ]
         },
@@ -300,15 +300,15 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
           work_packages: reformattedWorkPackages || [],
         },
         project_gst_number: data?.project_gst_number
-        ? JSON.parse(data?.project_gst_number)
-        : {
-          list : [
-            {
-              location : "Bengaluru",
-              gst : "29ABFCS9095N1Z9",
-            }
-          ]
-        },
+          ? JSON.parse(data?.project_gst_number)
+          : {
+            list: [
+              {
+                location: "Bengaluru",
+                gst: "29ABFCS9095N1Z9",
+              }
+            ]
+          },
         project_scopes: data?.project_scopes
           ? JSON.parse(data?.project_scopes)
           : {
@@ -623,42 +623,42 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                 </FormItem>
               )}
             />
-                                  <FormField
-                                                                      control={form.control}
-                                                                      name="project_gst_number"
-                                                                      render={({ field }) => (
-                                                                          <FormItem className="lg:flex lg:items-center gap-4">
-                                                                              <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                                                              <div className="md:basis-2/4">
-                                                                                  <Select onValueChange={(selectedLocation) => {
-                                                                                      if(selectedLocation === "Both") {
-                                                                                          field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
-                                                                                      } else if(selectedLocation === "Bengaluru") {
-                                                                                          field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
-                                                                                      } else {
-                                                                                          field.onChange({ list: [{ location: "Gurgoan", gst: "06ABFCS9095N1ZH" }] })
-                                                                                      }
-                                                                                      }}
-                                                                                      defaultValue={field.value.list.length === 2 ? "Both" : field.value.list?.[0]?.location || ""}>
-                                                                                      <div className="flex flex-col items-start">
-                                                                                          <FormControl>
-                                                                                              <SelectTrigger>
-                                                                                                  <SelectValue placeholder="Select Project GST" />
-                                                                                              </SelectTrigger>
-                                                                                          </FormControl>
-                                                                                          <FormMessage />
-                                                                                      </div>
-                                                                                      <SelectContent>
-                                                                                          {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurgoan", gst: "06ABFCS9095N1ZH" }].map((option) => (
-                                                                                              <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
-                                                                                          ))}
-                                                                                          <SelectItem key="Both" value="Both">Both</SelectItem>
-                                                                                      </SelectContent>
-                                                                                  </Select>
-                                                                              </div>
-                                                                          </FormItem>
-                                                                      )}
-                                                                  />
+            <FormField
+              control={form.control}
+              name="project_gst_number"
+              render={({ field }) => (
+                <FormItem className="lg:flex lg:items-center gap-4">
+                  <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                  <div className="md:basis-2/4">
+                    <Select onValueChange={(selectedLocation) => {
+                      if (selectedLocation === "Both") {
+                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
+                      } else if (selectedLocation === "Bengaluru") {
+                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
+                      } else {
+                        field.onChange({ list: [{ location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
+                      }
+                    }}
+                      defaultValue={field.value.list.length === 2 ? "Both" : field.value.list?.[0]?.location || ""}>
+                      <div className="flex flex-col items-start">
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Project GST" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <FormMessage />
+                      </div>
+                      <SelectContent>
+                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }].map((option) => (
+                          <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
+                        ))}
+                        <SelectItem key="Both" value="Both">Both</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </FormItem>
+              )}
+            />
           </div>
           <Separator className="my-6" />
           <p className="text-sky-600 font-semibold pb-2">
