@@ -7,7 +7,9 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ApprovedSRList } from "@/components/service-request/approved-sr-list";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -15,23 +17,28 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   OverviewSkeleton2,
   Skeleton,
   TableSkeleton,
 } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/use-toast";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { ConfigProvider, Menu, MenuProps } from "antd";
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { debounce } from "lodash";
 import {
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   FilePenLine
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { Link, useParams } from "react-router-dom";
 import { EditVendor } from "./edit-vendor";
 
@@ -112,11 +119,92 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     setEditSheetOpen((prevState) => !prevState);
   };
 
-  const { data, error, isLoading } = useFrappeGetDoc(
+  const [editBankDetailsDialog, setEditBankDetailsDialog] = useState(false);
+  const toggleEditBankDetailsDialog = () => {
+    setEditBankDetailsDialog((prevState) => !prevState);
+  };
+
+  const [editBankDetails, setEditBankDetails] = useState({
+    account_name: "",
+    account_number: "", 
+    ifsc: "",
+  });
+
+  const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc();
+
+  const { data, error, isLoading, mutate } = useFrappeGetDoc(
     "Vendors",
     vendorId,
     `Vendors ${vendorId}`
   );
+
+  useEffect(() => {
+    if (data) {
+      setEditBankDetails({
+        account_name: data?.account_name,
+        account_number: data?.account_number,
+        ifsc: data?.ifsc
+      });
+    }
+  }, [data]);
+
+  const { data: bank_details } = useFrappeGetCall(
+        "nirmaan_stack.api.bank_details.generate_bank_details",
+        { ifsc_code:  editBankDetails?.ifsc},
+        editBankDetails?.ifsc && editBankDetails?.ifsc?.length === 11 ? undefined : null
+      );
+
+  const [ifscError, setIfscError] = useState("");
+  const debouncedIFSCChange = useCallback(
+    debounce((value: string) => {
+      if(!value) {
+        setIfscError("");
+        return;
+      }
+      if (value.length < 11) {
+        setIfscError("IFSC code must be 11 characters long");
+        return;
+      }
+
+      const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+      if (!ifscRegex.test(value)) {
+        setIfscError("Invalid IFSC code format. Example: SBIN0005943");
+      } else {
+        setIfscError("");
+      }
+    }, 500),
+    []
+  );
+
+
+  const handleUpdateVendor = async () => {
+    try {
+
+      await updateDoc("Vendors", data?.name, {
+        ...editBankDetails,
+        bank_name: bank_details?.message?.BANK,
+        bank_branch: bank_details?.message?.BRANCH,
+      })
+
+      await mutate()
+
+      toast({
+        title: "Success!",
+        description: `Vendor: ${data?.name} updated successfully!`,
+        variant: "success",
+      });
+
+      toggleEditBankDetailsDialog()
+      
+    } catch (error) {
+      console.log("error", error);
+      toast({
+        title: "Failed!",
+        description: `${error}`,
+        variant: "destructive",
+      });
+    }
+  }
 
   const {
     data: vendorAddress,
@@ -224,34 +312,6 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     return Array.from(new Set(ol?.list?.map((order: any) => order.category)));
   };
 
-  type Item = {
-    quantity: number;
-    quote: number;
-  };
-
-  interface OrderList {
-    list: Item[];
-  }
-
-  //   const getTotal = (ol: OrderList) => {
-  //     return useMemo(
-  //       () =>
-  //         ol.list.reduce((total: number, item) => {
-  //           return total + item.quantity * item.quote;
-  //         }, 0),
-  //       [ol]
-  //     );
-  //   };
-
-  //   const getTotalAmountPaid = (id) => {
-  //     const payments = projectPayments?.filter((payment) => payment.document_name === id);
-
-
-  //     return payments?.reduce((acc, payment) => {
-  //         const amount = parseFloat(payment.amount || 0)
-  //         return acc + amount;
-  //     }, 0);
-  // }
 
   const getTotal = (ol, id) => {
     return useMemo(() => {
@@ -519,6 +579,12 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
       </h1>
     );
 
+    console.log("error", ifscError);
+
+    console.log("bank_details", bank_details);
+
+    console.log("editBankDetails", editBankDetails);
+
   return (
     <div className="flex-1 space-y-2 md:space-y-4">
       <div className="flex items-center gap-1">
@@ -630,7 +696,13 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="text-primary">Account Details</CardTitle>
+                <CardTitle className="text-primary flex items-center justify-between">
+                  <p>Account Details</p>
+                  <Button onClick={toggleEditBankDetailsDialog} variant={"outline"} className="flex items-center gap-1 border-primary">
+                    Edit
+                    <FilePenLine className="w-4 h-4" />
+                  </Button>
+                </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-10 w-full">
                 <div className="flex lg:justify-between max-lg:flex-col max-lg:gap-10">
@@ -729,6 +801,74 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             </Card>
           </div>
         ))}
+
+              <AlertDialog open={editBankDetailsDialog} onOpenChange={toggleEditBankDetailsDialog}>
+                <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                    <AlertDialogHeader className="text-start">
+                        <AlertDialogTitle className="text-center">
+                            Account Details
+                        </AlertDialogTitle>
+
+                        <div className="flex flex-col gap-4 pt-4">
+                            <div className="flex items-center gap-4 w-full">
+                                <Label className="w-[60%]">Holder Name<sup className="text-sm text-red-600">*</sup></Label>
+                                <Input
+                                    type="text"
+                                    placeholder="Enter Holder Name"
+                                    value={editBankDetails?.account_name || ""}
+                                    onChange={(e) => setEditBankDetails({ ...editBankDetails, account_name: e.target.value })}
+                                />
+                            </div>
+                            <div className="flex items-center gap-4 w-full">
+                                <Label className="w-[60%]">Account number<sup className=" text-sm text-red-600">*</sup></Label>
+                                <Input
+                                    type="text"
+                                    placeholder="Enter Account number"
+                                    value={editBankDetails?.account_number || ""}
+                                    onChange={(e) => setEditBankDetails({ ...editBankDetails, account_number: e.target.value })}
+                                />
+                            </div>
+                            <div className="flex items-center gap-4 w-full">
+                                <Label className="w-[60%]">IFSC<sup className=" text-sm text-red-600">*</sup></Label>
+                                <div className="flex flex-col gap-1 w-full">
+                                <Input
+                                    type="text"
+                                    placeholder="Enter 11 character IFSC code"
+                                    value={editBankDetails?.ifsc || ""}
+                                    onChange={(e) => {
+                                      const value = e.target.value.toUpperCase();
+                                      setEditBankDetails(prev => ({ ...prev, ifsc: value }));
+                                      debouncedIFSCChange(value)
+                                    }}
+                                />
+                                {bank_details && !bank_details.message.error && <span className="text-xs">{bank_details.message.BANK} - {bank_details.message.BRANCH}</span>}
+                                {bank_details && bank_details.message.error && <span className="text-red-500 text-xs">{bank_details.message.error}</span>}
+                                {ifscError && (
+                                  <span className="text-red-500 text-xs">{ifscError}</span>
+                                )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2 items-end pt-4 justify-center">
+                            {updateLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                <>
+                                    <AlertDialogCancel className="flex-1" asChild>
+                                        <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                    </AlertDialogCancel>
+                                     <Button
+                                        disabled={ifscError || (bank_details && bank_details.message.error)}
+                                        onClick={handleUpdateVendor}
+                                        className="flex-1">
+                                            Confirm
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+
+                    </AlertDialogHeader>
+                </AlertDialogContent>
+            </AlertDialog>
 
 
     {current === "materialOrders" &&

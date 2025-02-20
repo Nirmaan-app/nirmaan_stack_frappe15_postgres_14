@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
 import { ListChecks, ListRestart } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
@@ -190,6 +190,32 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         document.getElementById("vendorShopName")?.focus()
     }
 
+    const IFSC = form.watch("ifsc")
+
+    const { data: bank_details } = useFrappeGetCall(
+        "nirmaan_stack.api.bank_details.generate_bank_details",
+        { ifsc_code:  IFSC},
+        IFSC && IFSC?.length === 11 ? undefined : null
+      );
+
+    useEffect(() => {
+        if (bank_details && !bank_details.message.error) {
+            form.setValue("bank_branch", bank_details.message.BRANCH);
+            form.setValue("bank_name", bank_details.message.BANK);
+            return;
+            }
+        if (bank_details && bank_details.message.error) {
+            form.setError("ifsc", 
+                {
+                type: "manual",
+                message: "Invalid IFSC code"
+            }); 
+        }
+        form.setValue("bank_branch", undefined);
+        form.setValue("bank_name", undefined);
+
+    }, [bank_details, IFSC]) 
+
     const onSubmit = async (values: VendorFormValues) => {
 
         try {
@@ -230,7 +256,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     account_name: values.account_name,
                     bank_name: values.bank_name,
                     bank_branch: values.bank_branch,
-                    ifsc: values.ifsc,
+                    ifsc: bank_details && bank_details.message.error ? undefined : values.ifsc,
                     vendor_category: vendorType === "Service" ? { categories: service_categories }
                         :
                         vendorType === "Material" ?
@@ -363,39 +389,6 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         const value = event.target.value
         debouncedFetch(value)
     }
-
-    // const ifscCode = form.watch("ifsc")
-
-    // const fetchBankDetails = async (ifscCode: string) => {
-    //     if((ifscCode || "").length !== 11) {
-    //         return ""
-    //     }
-    //     const res = await fetch(`https://ifsc.razorpay.com/${ifscCode}`, {
-    //         method: 'GET',
-    //         headers: {
-    //             'Accept': 'application/json',
-    //             "x-frappe-site-name": "localhost",
-    //             'Content-Type': 'application/json'
-    //         }
-    //     })
-
-    //     return res.json()
-    // }
-
-    // console.log("ifscCode", fetchBankDetails(ifscCode))
-
-    // useEffect(() => {
-    //     if(ifscCode.length === 11) {
-    //         const res = await fetch(`https://ifsc.razorpay.com/${ifscCode}`, {
-    //             method: 'GET',
-    //             headers: {
-    //                 'Content-Type': 'application/json'
-    //             }
-    //         })
-
-    //         console.log("res", res)
-    //     }
-    // }, [ifscCode]) 
 
     return (
         <>
@@ -631,73 +624,26 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                         </FormItem>
                                     )}
                                 />
-                                {/* <FormField
-                                    control={form.control}
-                                    name="ifsc"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>IFSC Code</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="Enter IFSC Code" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                /> */}
                                 <FormField
-  control={form.control}
-  name="ifsc"
-  render={({ field }) => (
-    <FormItem>
-      <FormLabel>IFSC Code</FormLabel>
-      <FormControl>
-        <Input 
-          placeholder="Enter IFSC Code" 
-          {...field} 
-          onChange={async (e) => {
-            const value = e.target.value.toUpperCase();
-            field.onChange(value);
-            
-            // Trigger API call when 11 characters are entered
-            if (value.length === 11) {
-              try {
-                // Use a public CORS proxy
-                // const proxyUrl = "https://cors-anywhere.herokuapp.com/";
-                const targetUrl = `https://ifsc.razorpay.com/${value}`;
-                const response = await fetch(targetUrl, {
-                    mode : "no-cors",
-                    method: "GET",
-                    headers: {
-                        "Content-Type": "application/json"
-                    }
-                });
-                
-                if (response.ok) {
-                  const data = await response.json();
-                  form.setValue("bank_branch", data.BRANCH);
-                  form.setValue("bank_name", data.BANK);
-                } else {
-                  form.setError("ifsc", {
-                    type: "manual",
-                    message: "Invalid IFSC code"
-                  });
-                }
-                console.log("response", response);
-              } catch (error) {
-                console.error("IFSC validation failed:", error);
-                form.setError("ifsc", {
-                  type: "manual",
-                  message: "Invalid IFSC code"
-                });
-              }
-            }
-          }}
-        />
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  )}
-/>
+                                  control={form.control}
+                                  name="ifsc"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>IFSC Code</FormLabel>
+                                      <FormControl>
+                                        <Input 
+                                          placeholder="Enter IFSC Code" 
+                                          {...field} 
+                                          onChange={(e) => {
+                                            const value = e.target.value.toUpperCase();
+                                            field.onChange(value);
+                                          }}
+                                        />
+                                      </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
 
                                 <FormField
                                     control={form.control}
@@ -706,7 +652,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                         <FormItem>
                                             <FormLabel>Bank Name</FormLabel>
                                             <FormControl>
-                                                <Input disabled={true} placeholder="Enter Bank Name" {...field} />
+                                                <Input disabled={true} placeholder="Enter Bank Name" {...field} value={field.value || ""} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -719,7 +665,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                         <FormItem>
                                             <FormLabel>Bank Branch</FormLabel>
                                             <FormControl>
-                                                <Input disabled={true} placeholder="Enter Bank Branch" {...field} />
+                                                <Input disabled={true} placeholder="Enter Bank Branch" {...field} value={field.value || ""} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
