@@ -67,7 +67,7 @@ export const ReleasePOSelect = () => {
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const getAmountPaid = (id) => {
-        const payments = projectPayments?.filter((payment) => payment.document_name === id);
+        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid");
         return getTotalAmountPaid(payments);
     }
 
