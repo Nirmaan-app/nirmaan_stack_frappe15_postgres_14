@@ -1,5 +1,12 @@
+import { useUserData } from "@/hooks/useUserData";
+import { NewVendor } from "@/pages/vendors/new-vendor";
+import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
+import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { Table as AntTable, ConfigProvider } from "antd";
 import {
   useFrappeCreateDoc,
   useFrappeGetDoc,
@@ -7,11 +14,6 @@ import {
   useFrappeUpdateDoc,
   useSWRConfig,
 } from "frappe-react-sdk";
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { NewPRSkeleton } from "../ui/skeleton";
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
 import {
   ArrowBigUpDash,
   ArrowLeft,
@@ -22,29 +24,13 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react";
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { formatDate } from "@/utils/FormatDate";
+import { useEffect, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect from "react-select";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "../ui/sheet";
-import { NewVendor } from "@/pages/vendors/new-vendor";
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Button } from "../ui/button";
-import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd";
-import formatToIndianRupee from "@/utils/FormatPrice";
 import {
   Dialog,
   DialogClose,
@@ -54,13 +40,26 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { Textarea } from "../ui/textarea";
-import { useUserData } from "@/hooks/useUserData";
-import { toast } from "../ui/use-toast";
-import { TailSpin } from "react-loader-spinner";
 import { Input } from "../ui/input";
-import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "../ui/select";
-import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "../ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../ui/table";
+import { Textarea } from "../ui/textarea";
+import { toast } from "../ui/use-toast";
 
 const SelectServiceVendor = () => {
   const { srId: id }: any = useParams();
@@ -697,6 +696,8 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                 SingleValue: CustomSingleValue,
                 Option: CustomOption,
               }}
+              isClearable
+              onMenuOpen={() => setSelectedvendor(null)}
             />
             <div className="overflow-x-auto">
               <div className="min-w-full inline-block align-middle">

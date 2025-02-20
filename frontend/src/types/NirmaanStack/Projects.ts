@@ -46,4 +46,6 @@ export interface Projects{
 	subdivisions?: string
 	/**	Subdivision List : JSON	*/
 	subdivision_list?: any
+	/**	Project GST : JSON	*/
+	project_gst_number?: any
 }

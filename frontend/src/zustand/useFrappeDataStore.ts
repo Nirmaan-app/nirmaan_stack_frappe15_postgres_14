@@ -14,6 +14,8 @@ interface FrappeDataStoreType {
     setProjects: (data: any[]) => void;
     setProjectsLoading: (loading: boolean) => void;
     setProjectsError: (error: string | null) => void;
+    selectedData: any[];
+    setSelectedData: (data: any[]) => void;
 }
 
 export const useFrappeDataStore = create<FrappeDataStoreType>()(
@@ -25,6 +27,8 @@ export const useFrappeDataStore = create<FrappeDataStoreType>()(
             projects: [],
             projectsLoading: true,
             projectsError: null,
+            selectedData: [],
+            setSelectedData: (data) => set({selectedData: data}),
             setProcurementRequestList: (data) => set({ procurementRequestList: data }),
             setProcurementRequestLoading: (loading) => set({ procurementRequestLoading: loading }),
             setProcurementRequestError: (error) => set({ procurementRequestError: error }),

@@ -1,10 +1,10 @@
+import { AlertTriangle } from 'lucide-react';
 import React, { Component, ReactNode, useEffect } from 'react';
 import { useLocation } from 'react-router-dom'; // Import useLocation from React Router
-import { AlertTriangle } from 'lucide-react';
 
 // Error fallback component
 const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error, resetErrorBoundary: () => void }) => (
-  <div className="flex flex-col items-center justify-center h-[95vh]">
+  <div className="flex flex-col items-center justify-center h-full">
     <div className="flex flex-col items-center p-6 bg-white rounded-lg shadow-lg">
       {/* Icon */}
       <AlertTriangle size={60} className="text-red-500 mb-4" />

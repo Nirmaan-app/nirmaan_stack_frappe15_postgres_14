@@ -104,8 +104,8 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
       )}
       {sentBack && (
         <div className="border-0 flex flex-col justify-center">
-          <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-          <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
+          <p className="text-left py-1 font-light text-sm text-red-700">PR ID:</p>
+          <p className="text-left font-bold py-1 text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
         </div>
       )}
       <div className="border-0 flex flex-col justify-center max-sm:hidden">

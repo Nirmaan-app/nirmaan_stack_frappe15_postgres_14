@@ -1,19 +1,23 @@
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link, useSearchParams } from "react-router-dom";
-import { useContext, useEffect, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { useToast } from "../ui/use-toast";
-import { TableSkeleton } from "../ui/skeleton";
-import { formatDate } from "@/utils/FormatDate";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { EstimatedPriceHoverCard } from "./EstimatedPriceHoverCard";
-import { Radio } from "antd";
-import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { formatDate } from "@/utils/FormatDate";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { ColumnDef } from "@tanstack/react-table";
+import { Radio } from "antd";
+import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { Trash2 } from "lucide-react";
+import { useContext, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { Link, useSearchParams } from "react-router-dom";
+import { TableSkeleton } from "../ui/skeleton";
+import { EstimatedPriceHoverCard } from "./EstimatedPriceHoverCard";
 
 type PRTable = {
     name: string
@@ -27,6 +31,8 @@ export const ProcurementRequests = () => {
     const [searchParams] = useSearchParams();
 
     const { role, user_id } = useUserData()
+
+    const {deleteDoc, loading: deleteLoading} = useFrappeDeleteDoc()
 
     const [tab, setTab] = useState<string>(searchParams.get("tab") || "New PR Request");
 
@@ -110,6 +116,31 @@ export const ProcurementRequests = () => {
         updateURL("tab", newTab);
 
     };
+
+    const [deleteDialog, setDeleteDialog] = useState(false);
+    const toggleDeleteDialog = () => setDeleteDialog(!deleteDialog);
+
+    const [deleteFlagged, setDeleteFlagged] = useState(null);
+
+    const handleDeletePR = async () => {
+        try {
+            await deleteDoc("Procurement Requests", deleteFlagged?.name);
+            await prListMutate();
+            toast({
+                title: "Success!",
+                description: `PR: ${deleteFlagged?.name} deleted successfully!`,
+                variant: "success"
+            })
+            toggleDeleteDialog()
+        } catch (error) {
+            console.log("error while deleting procurement request", error);
+            toast({
+                title: "Failed!",
+                description: `Procurement Request: ${deleteFlagged?.name} Deletion Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
 
     // type MenuItem = Required<MenuProps>["items"][number];
 
@@ -271,12 +302,24 @@ export const ProcurementRequests = () => {
                         )
                     )
                 }
-            }
+            },
+            ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [
+                {
+                    id: "deleteOption",
+                    cell: ({row}) => {
+                        return (
+                            <Trash2 className="text-primary cursor-pointer" onClick={() => {
+                                setDeleteFlagged(row.original)
+                                toggleDeleteDialog()
+                            }} />
+                        )
+                    }
+                }
+            ] : []),
 
         ],
         [project_values, procurement_request_list]
     )
-    const { toast } = useToast()
 
     if (procurement_request_list_error || projects_error) {
         console.log("Error in Procurement-approved.tsx", procurement_request_list_error?.message, projects_error?.message)
@@ -290,9 +333,7 @@ export const ProcurementRequests = () => {
     return (
         <>
             <div className="flex-1 space-y-4">
-                {/* <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">New PR Request</h2>
-                </div> */}
+                
 
                 {items && (
                     <Radio.Group
@@ -305,6 +346,32 @@ export const ProcurementRequests = () => {
                         onChange={(e) => onClick(e.target.value)}
                     />
                 )}
+
+            <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                    <AlertDialogHeader className="text-start">
+                        <AlertDialogTitle className="text-center">
+                            Delete Procurement Request
+                        </AlertDialogTitle>
+                            <AlertDialogDescription>Are you sure you want to delete this PR : {deleteFlagged?.name}?</AlertDialogDescription>
+                        <div className="flex gap-2 items-center pt-4 justify-center">
+                            {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                <>
+                                    <AlertDialogCancel className="flex-1" asChild>
+                                        <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                    </AlertDialogCancel>
+                                     <Button
+                                        onClick={handleDeletePR}
+                                        className="flex-1">
+                                            Confirm
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+
+                    </AlertDialogHeader>
+                </AlertDialogContent>
+            </AlertDialog>
 
                 {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />

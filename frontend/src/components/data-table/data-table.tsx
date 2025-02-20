@@ -21,17 +21,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import * as React from "react";
-import { DataTablePagination } from "./data-table-pagination";
-import { DataTableToolbar } from "./data-table-toolbar";
-import { fuzzyFilter } from "./data-table-models";
-import DebouncedInput from "./debounced-input";
-import { DataTableViewOptions } from "./data-table-view-options";
-import { DataTableFacetedFilter } from "./data-table-faceted-filter";
-import { useFilterStore } from "@/zustand/useFilterStore";
-import { useSearchParams } from "react-router-dom";
-import { Input } from "../ui/input";
+import { formatDateToDDMMYYYY } from "@/utils/FormatDate";
+import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
 import { debounce } from "lodash";
+import { FileUp } from "lucide-react";
+import * as React from "react";
+import { useSearchParams } from "react-router-dom";
+import { Button } from "../ui/button";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
+import { toast } from "../ui/use-toast";
+import { DataTableFacetedFilter } from "./data-table-faceted-filter";
+import { fuzzyFilter } from "./data-table-models";
+import { DataTablePagination } from "./data-table-pagination";
+import { DataTableViewOptions } from "./data-table-view-options";
 
 type ProjectOptions = {
   label: string;
@@ -54,6 +59,9 @@ interface DataTableProps<TData, TValue> {
   approvedQuotesVendors?: any;
   itemOptions?: any;
   wpOptions?: any;
+  projectStatusOptions?: any;
+  isExport?: boolean;
+  vendorData?: any;
 }
 
 export function DataTable<TData, TValue>({
@@ -71,15 +79,14 @@ export function DataTable<TData, TValue>({
   itemOptions = undefined,
   wpOptions = undefined,
   projectStatusOptions = undefined,
+  isExport = false,
+  vendorData = undefined,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([
-    {
-      id: "creation",
-      desc: true,
-    },
+
   ]);
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     []
   );
@@ -176,6 +183,8 @@ export function DataTable<TData, TValue>({
     updateURL("rows", newPageSize);
   };
 
+  const { setSelectedData, selectedData } = useFrappeDataStore()
+
   const table = useReactTable({
     data,
     columns,
@@ -202,6 +211,67 @@ export function DataTable<TData, TValue>({
     },
   });
 
+  React.useEffect(() => {
+    if (columns?.some(i => i?.accessorKey === "creation")) {
+      setSorting([{
+        id: "creation",
+        desc: true,
+      },])
+    }
+  }, [columns])
+
+  React.useEffect(() => {
+    setSelectedData(table.getSelectedRowModel().rows)
+  }, [table.getSelectedRowModel().rows])
+
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+
+  const toggleDialog = () => {
+    setDialogOpen((prevState) => !prevState);
+  };
+  const [debitAccountNumber, setDebitAccountNumber] = React.useState("093705003327")
+
+  const [paymentMode, setPaymentMode] = React.useState("IMPS")
+
+  const exportToCSV = () => {
+    const csvHeaders = ['PYMT_PROD_TYPE_CODE', 'PYMT_MODE', 'DEBIT_ACC_NO', 'BNF_NAME', 'BENE_ACC_NO', 'BENE_IFSC',
+      'AMOUNT', 'DEBIT_NARR', 'CREDIT_NARR', 'MOBILE_NUM', 'EMAIL_ID', 'REMARK', 'PYMT_DATE',
+      'REF_NO', 'ADDL_INFO1', 'ADDL_INFO2', 'ADDL_INFO3', 'ADDL_INFO4', 'ADDL_INFO5', 'LEI_NUMBER'
+    ];
+
+    const csvRows = [];
+
+    const todayDate = formatDateToDDMMYYYY(new Date());
+
+    csvRows.push(csvHeaders.join(','));
+    selectedData?.forEach(i => {
+      const data = i?.original;
+      const vendor = vendorData?.find(v => v.name === data.vendor);
+      const row = ['PAB_VENDOR', paymentMode, debitAccountNumber, vendor?.account_name, vendor?.account_number, vendor?.ifsc,
+        data?.amount, '', '', '', '', data.document_name, todayDate, '', '', '', '', '', '', ''
+      ]
+      csvRows.push(row.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${formatDateToDDMMYYYY(new Date())}_payments.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Success!",
+      description: "Payments CSV Exported Successfully!",
+      variant: "success"
+    })
+    toggleDialog()
+  };
+
   // Show selected rows
   // ------------------
   // You can show the number of selected rows using the table.getFilteredSelectedRowModel() API.
@@ -216,7 +286,7 @@ export function DataTable<TData, TValue>({
       {/* Look for data-table-toolbar in tasks example */}
 
       <div className="flex justify-between items-center">
-        <div className="flex gap-2 items-center py-4 sm:w-full">
+        <div className="flex justify-between items-center py-4 w-full">
           <Input
             id="globalFilter"
             placeholder="Search..."
@@ -226,8 +296,52 @@ export function DataTable<TData, TValue>({
               setGlobalFilter(e.target.value); // Update local state
               handleGlobalFilterChange(e.target.value); // Debounced update
             }}
-            className="max-w-sm"
+            className="w-[50%] max-sm:w-[60%]"
           />
+
+          {isExport && (
+            <Button onClick={toggleDialog} disabled={!selectedData?.length} variant={"outline"} className="flex items-center gap-1 h-8 px-2 border-primary text-primary">
+              Export
+              <FileUp className="w-4 h-4" />
+            </Button>
+          )}
+
+          <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="text-center">Export to CSV</DialogTitle>
+              </DialogHeader>
+              <h2 className="font-semibold text-primary">Debit Account</h2>
+              <RadioGroup defaultValue="ICICI" className="space-y-2" >
+                {/* 1️⃣ Custom Amount */}
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="ICICI" id="icici" />
+                  <div className="flex items-center space-x-6">
+                    <Label htmlFor="icici">ICICI</Label>
+                    <Input
+                      className="h-8"
+                      value={debitAccountNumber}
+                      onChange={(e) => setDebitAccountNumber(e.target.value)}
+                    />
+                  </div>
+                  <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="border border-gray-300 rounded-md">
+                    <option value="IMPS">IMPS</option>
+                    <option value="NEFT">NEFT</option>
+                  </select>
+                </div>
+              </RadioGroup>
+
+              <div className="mt-2 flex items-center justify-center space-x-2">
+                <DialogClose className="flex-1" asChild>
+                  <Button variant={"outline"}>
+                    Cancel
+                  </Button>
+                </DialogClose>
+                <Button onClick={exportToCSV} className="flex-1">Confirm</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
         </div>
         {totalPOsRaised && (
@@ -249,7 +363,7 @@ export function DataTable<TData, TValue>({
                 <DataTableViewOptions table={table} />
                 {headerGroup.headers.map((header) => {
                   return (
-                    <TableHead key={header.id} colSpan={header.colSpan}>
+                    <TableHead className="pl-4" key={header.id} colSpan={header.colSpan}>
                       {header.isPlaceholder ? null : (
                         <div className="flex items-center gap-2">
                           {statusOptions &&
@@ -361,7 +475,7 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
-                        {projectStatusOptions &&
+                          {projectStatusOptions &&
                             header.id === table.getColumn("status")?.id &&
                             (table.getColumn("status") ? (
                               <DataTableFacetedFilter

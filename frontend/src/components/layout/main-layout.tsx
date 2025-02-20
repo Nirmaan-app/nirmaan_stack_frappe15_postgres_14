@@ -257,7 +257,7 @@ export const MainLayout = () => {
     setProjectsLoading(projects_loading);
   }, [projects, projects_loading, projects_error]);
 
-  const { state, isMobile } = useSidebar();
+  const { isMobile } = useSidebar();
 
   // console.log("currentRoute", currentRoute)
 
@@ -265,29 +265,20 @@ export const MainLayout = () => {
 
   return (
     <>
-      <div className="flex w-full relative h-auto">
+      <div className="flex w-full h-screen relative">
         {isMobile && (
           <div className="absolute top-[10px] -left-2 shadow-2xl">
             <SidebarTrigger />
           </div>
         )}
         <NewSidebar />
-        <div className="w-full h-auto overflow-auto">
+        <div className="w-full h-full flex flex-col flex-1 overflow-hidden transition-all duration-200 ease-linear">
           <header
-            className={`flex justify-between h-12 shrink-0 items-center pt-2 gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}
+            className={`flex justify-between h-12 shrink-0 items-center pt-2 gap-2`}
           >
             <div
-              className={`${isMobile ? "ml-2" : ""
-                } flex items-center gap-2 px-4`}
+              className={`${isMobile ? "ml-2" : ""} flex items-center gap-2 px-4`}
             >
-              {/* {isMobile && (
-                        <>
-                          <Link to={`/`}>
-                            <img src={nLogoBlack} alt="Nirmaan" width="24" height="25" />
-                          </Link>
-                          <Separator orientation="vertical" className="mr-1 h-4" />
-                        </>
-                      )} */}
               {location.pathname !== "/" && (
                 <>
                 <ArrowLeft
@@ -297,71 +288,6 @@ export const MainLayout = () => {
               <Separator orientation="vertical" className="mr-1 h-4" />
                 </>
               )}
-              {/* <Breadcrumb>
-                          <BreadcrumbList>
-                            {locationsPaths?.length > (isMobile ? 1 : 2) ? (
-                              <>
-                                First Item
-                                {!isMobile && (
-                                  <>
-                                  <BreadcrumbItem>
-                                  <Link to={`/${locationsPaths[0]}`}>
-                                    <BreadcrumbLink>{locationsPaths[0]?.toUpperCase()}</BreadcrumbLink>
-                                  </Link>
-                                </BreadcrumbItem>
-                                <BreadcrumbSeparator />
-                                   </>
-                                )}
-              
-                                Ellipsis Dropdown
-                                <BreadcrumbItem>
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger className="flex items-center gap-1">
-                                      <BreadcrumbEllipsis className="h-4 w-4" />
-                                      <span className="sr-only">Toggle menu</span>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="start">
-                                      {locationsPaths.slice((isMobile ? 0 : 1), -1).map((route, index) => (
-                                        <DropdownMenuItem key={index}>
-                                          <Link to={`/${locationsPaths.slice(0, index + (isMobile ? 1 : 2)).join('/')}`}>
-                                            {route.toUpperCase()}
-                                          </Link>
-                                        </DropdownMenuItem>
-                                      ))}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </BreadcrumbItem>
-                                <BreadcrumbSeparator />
-                                    
-                                Last Item
-                                <BreadcrumbItem>
-                                  <BreadcrumbPage className='max-sm:text-xs'>{locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
-                                </BreadcrumbItem>
-                              </>
-                            ) : (
-                              // Render normally if paths are less than or equal to 2
-                              locationsPaths?.map((route, index) => {
-                                const toNavigate = locationsPaths.slice(0, index + 1).join('/');
-                                return (
-                                  index < locationsPaths.length - 1 ? (
-                                    <React.Fragment key={index}>
-                                      <BreadcrumbItem>
-                                        <Link to={`/${toNavigate}`}>
-                                          <BreadcrumbLink>{route?.toUpperCase()}</BreadcrumbLink>
-                                        </Link>
-                                      </BreadcrumbItem>
-                                      <BreadcrumbSeparator />
-                                    </React.Fragment>
-                                  ) : (
-                                    <BreadcrumbItem key={index}>
-                                      <BreadcrumbPage>{route?.includes("&=") ? route?.replaceAll("&=", "/") : route?.toUpperCase()}</BreadcrumbPage>
-                                    </BreadcrumbItem>
-                                  )
-                                );
-                              })
-                            )}
-                          </BreadcrumbList>
-                        </Breadcrumb> */}
               <Dropdown overlay={menu} trigger={["click"]}>
                 <div className="text-sm max-sm:text-xs hover:text-gray-500">
                   {currentRoute}
@@ -371,15 +297,6 @@ export const MainLayout = () => {
                 </div>
               </Dropdown>
             </div>
-            {/*
-                    {isMobile ? (
-                    <div className='flex items-center space-x-4 mr-4'>
-                        <Notifications isMobileMain />
-                        <UserNav isMobileMain />
-                    </div>
-                    ) : (
-                        projectData && <Badge className='mr-4'>{projectData?.project_name}</Badge>
-                    )} */}
             {Object.keys(newButtonRoutes)?.includes(location.pathname) ? (
               <Button
                 className="sm:mr-4 mr-2"
@@ -447,8 +364,7 @@ export const MainLayout = () => {
             )}
           </header>
           <main
-            className={`pb-4 pt-2 px-2 transition-all ${!isMobile && state === "expanded" ? "" : ""
-              } duration-300 ease-in-out overflow-auto md:max-h-[94vh] 2xl:max-h-[95vh] max-md:max-h-[93vh]`}
+            className={`flex-1 pb-4 pt-2 px-2 overflow-auto`}
           >
             <ErrorBoundaryWithNavigationReset>
               <ScrollToTop />

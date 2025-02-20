@@ -1,12 +1,10 @@
 import ProjectSelect from "@/components/custom-select/project-select"
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { UserContext } from "@/utils/auth/UserProvider"
 import { formatDate } from "@/utils/FormatDate"
 import { useFrappeGetDocList } from "frappe-react-sdk"
-import { ArrowLeft } from "lucide-react"
-import { useContext, useMemo, useState } from "react"
+import { useContext } from "react"
 import { Link } from "react-router-dom"
 
 const DeliveryNotes = () => {
@@ -103,9 +101,15 @@ const DeliveryNotes = () => {
     // )
 
     const handleChange = (selectedItem: any) => {
-        // console.log(selectedItem)
         setSelectedProject(selectedItem ? selectedItem.value : null);
-        sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
+        if(selectedItem) {
+          sessionStorage.setItem(
+            "selectedProject",
+            JSON.stringify(selectedItem.value)
+          );
+        } else {
+          sessionStorage.removeItem("selectedProject");
+        }
     };
 
     // console.log("project", project)
@@ -120,10 +124,10 @@ const DeliveryNotes = () => {
             </div> */}
             {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
 
-            <div className="border border-gray-200 rounded-lg p-0.5">
+            <div className="border border-gray-200 rounded-lg p-0.5 min-w-[400px]">
                 <ProjectSelect onChange={handleChange} />
                 {selectedProject && <div className="pt-4">
-                    <Table className="min-w-[400px] min-h-[30vh] overflow-auto">
+                    <Table className="min-h-[30vh] overflow-auto">
                         <TableHeader className="bg-red-100">
                             <TableRow>
                                 <TableHead className=" font-extrabold">Delivery Note</TableHead>

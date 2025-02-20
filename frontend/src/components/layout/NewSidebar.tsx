@@ -1,86 +1,25 @@
+import logo from "@/assets/logo-svg.svg";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarTrigger,
-  useSidebar,
+  useSidebar
 } from "@/components/ui/sidebar";
 import {
-  BadgeCheck,
-  Bell,
-  Calendar,
-  ChevronDown,
+  BlendIcon,
   ChevronRight,
-  ChevronsUpDown,
-  ChevronUp,
-  CreditCard,
-  Home,
-  Inbox,
-  LogOut,
-  Search,
-  Settings,
-  Sparkles,
-  User2,
-  WalletCards,
-  BlendIcon
+  CircleDollarSign
 } from "lucide-react";
-import logo from "@/assets/logo-svg.svg";
-import nLogo from "@/assets/LOGO.png";
 
-import {
-  Building2,
-  LayoutGrid,
-  List,
-  SendToBack,
-  Shapes,
-  ShoppingCart,
-  SquareSquare,
-} from "lucide-react";
-import { useContext, useEffect, useState } from "react";
-import Cookies from "js-cookie";
-import {
-  FrappeConfig,
-  FrappeContext,
-  useFrappeDocTypeEventListener,
-  useFrappeEventListener,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappeUpdateDoc,
-} from "frappe-react-sdk";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../ui/collapsible";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { useUserData } from "@/hooks/useUserData";
-import { UserContext } from "@/utils/auth/UserProvider";
-import { Separator } from "../ui/separator";
-import { UserNav } from "../nav/user-nav";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 import {
   handlePOAmendedEvent,
@@ -91,10 +30,41 @@ import {
   handlePRVendorSelectedEvent,
   handleSBNewEvent,
   handleSBVendorSelectedEvent,
+  handleSOAmendedEvent,
   handleSRApprovedEvent,
-  handleSRVendorSelectedEvent,
-  handleSOAmendedEvent
+  handleSRVendorSelectedEvent
 } from "@/zustand/eventListeners";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { getToken } from "firebase/messaging";
+import {
+  FrappeConfig,
+  FrappeContext,
+  useFrappeDocTypeEventListener,
+  useFrappeEventListener,
+  useFrappeGetDoc,
+  useFrappeGetDocList,
+  useFrappeUpdateDoc,
+} from "frappe-react-sdk";
+import Cookies from "js-cookie";
+import {
+  Building2,
+  LayoutGrid,
+  List,
+  SendToBack,
+  Shapes,
+  ShoppingCart,
+  SquareSquare,
+} from "lucide-react";
+import { useContext, useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { UserNav } from "../nav/user-nav";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../ui/collapsible";
+import { Separator } from "../ui/separator";
 
 export function NewSidebar() {
   const [role, setRole] = useState(null);
@@ -149,7 +119,10 @@ export function NewSidebar() {
     approvedSRCount,
     adminApprovedSRCount,
     adminAmendedSRCount,
-    amendedSRCount
+    amendedSRCount,
+    updatePaymentsCount,
+    paymentsCount,
+    adminPaymentsCount,
   } = useDocCountStore();
 
   const { add_new_notification, delete_notification, clear_notifications, add_all_notific_directly } =
@@ -343,6 +316,28 @@ export function NewSidebar() {
       : null
   );
 
+  const { data: paymentsData, mutate: paymentsDataMutate } = useFrappeGetDocList(
+    "Project Payments",
+    {
+      fields: ["status", "project", "vendor", "name"],
+      filters: [["project", "in", permissionsList || []]],
+      limit: 100000,
+    },
+    user_id === "Administrator" || !permissionsList ? null : undefined
+  );
+
+  const { data: adminPaymentsData, mutate: adminPaymentsDataMutate } = useFrappeGetDocList(
+    "Project Payments",
+    {
+      fields: ["status", "project", "vendor", "name"],
+      limit: 100000,
+    },
+
+    user_id === "Administrator" || role === "Nirmaan Admin Profile"
+      ? undefined
+      : null
+  );
+
   useEffect(() => {
     if (
       (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
@@ -386,6 +381,18 @@ export function NewSidebar() {
       updateSRCounts(srData, false);
     }
   }, [srData, adminSRData]);
+
+  useEffect(() => {
+    if (
+      (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
+      adminPOData
+    ) {
+      updatePaymentsCount(adminPaymentsData, true);
+    } else if (poData) {
+      updatePaymentsCount(paymentsData, false);
+    }
+  }, [paymentsData, adminPaymentsData]);
+
 
   //  ***** PR Events *****
   useFrappeEventListener("pr:new", async (event) => {
@@ -481,6 +488,35 @@ export function NewSidebar() {
 
   useFrappeEventListener("sr:amended", (event) => {
     handleSOAmendedEvent(db, event, add_new_notification);
+  });
+
+  useFrappeDocTypeEventListener("Service Requests", async (event) => {
+    if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+      await adminSRDataMutate();
+    } else {
+      await srDataMutate();
+    }
+  });
+
+   //  ***** Project Payment Events *****
+   useFrappeEventListener("payment:new", async (event) => {
+    await handlePONewEvent(db, event, add_new_notification);
+  });
+
+  useFrappeEventListener("payment:approved", async (event) => {
+    await handleSRApprovedEvent(db, event, add_new_notification);
+  });
+
+  useFrappeEventListener("payment:delete", (event) => {
+    handlePRDeleteEvent(event, delete_notification);
+  });
+
+  useFrappeDocTypeEventListener("Project Payments", async (event) => {
+    if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+      await adminPaymentsDataMutate();
+    } else {
+      await paymentsDataMutate();
+    }
   });
 
   // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
@@ -628,6 +664,15 @@ export function NewSidebar() {
                     ? adminAmendedSRCount
                     : amendedSRCount,
               },
+              {
+                key: "/approve-payments",
+                label: "Approve Payments",
+                count:
+                  role === "Nirmaan Admin Profile" ||
+                  user_id === "Administrator"
+                    ? adminPaymentsCount.requested
+                    : paymentsCount.requested,
+              },
             ],
           },
         ]
@@ -764,7 +809,7 @@ export function NewSidebar() {
         ? [
             {
                 key: '/project-payments',
-                icon: WalletCards,
+                icon: CircleDollarSign,
                 label: 'Project Payments',
                 // children: [
                 //     { key: '/projects', label: 'Projects' },
@@ -792,6 +837,7 @@ export function NewSidebar() {
     "approve-po",
     "approve-sent-back",
     "approve-amended-po",
+    "approve-payments",
     "procurement-requests",
     // "new-procure-request",
     // "update-quote",
@@ -836,6 +882,7 @@ export function NewSidebar() {
         "approve-amended-po",
         "approve-service-request",
         "approve-amended-so",
+        "approve-payments",
       ].includes(selectedKeys)
     ? "pl-actions"
     : ["procurement-requests"].includes(
@@ -940,7 +987,7 @@ export function NewSidebar() {
                       {item.icon && <item.icon />}
                       <span className="font-medium">{item.label}</span>
                       {item?.count !== 0 && state === "expanded" && (
-                            <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
+                            <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center">
                               {item.count}
                         </span>
                       )}
@@ -986,11 +1033,11 @@ export function NewSidebar() {
                             asChild
                           >
                             <Link to={subitem.key}>
-                              <span className=" text-xs">{subitem.label}</span>
+                              <span className="text-xs">{subitem.label}</span>
                             </Link>
                           </SidebarMenuSubButton>
                           {subitem?.count !== 0 && (
-                            <span className="absolute top-2 -right-2 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
+                            <span className="absolute top-2 -right-2 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center">
                               {subitem.count}
                             </span>
                           )}
