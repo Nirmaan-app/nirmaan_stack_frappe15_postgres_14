@@ -208,8 +208,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
     }
   }, [data, vendorAddress]);
 
-  console.log("bank, branch", bankAndBranch)
-
   const { data: category_list } = useFrappeGetDocList("Category", {
     fields: ["*"],
     filters: [["work_package", "!=", "Services"]],
@@ -274,16 +272,12 @@ export const EditVendor = ({ toggleEditSheet }) => {
   };
 
   const IFSC = form.watch("ifsc")
-
-  console.log("IFSC", IFSC)
   
   const { data: bank_details } = useFrappeGetCall(
       "nirmaan_stack.api.bank_details.generate_bank_details",
       { ifsc_code:  IFSC},
       IFSC && IFSC?.length === 11 ? undefined : null
     );
-
-    console.log("bank_details", bank_details)
 
   useEffect(() => {
       if (bank_details && !bank_details.message.error) {
@@ -297,7 +291,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
           form.setError("ifsc", 
               {
               type: "manual",
-              message: "Invalid IFSC code"
+              message: "IFSC Code Not Found"
           }); 
       }
       setBankAndBranch({

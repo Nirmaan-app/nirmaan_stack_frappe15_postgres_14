@@ -1,15 +1,16 @@
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useContext, useMemo } from "react";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { Badge } from "../ui/badge";
-import { useToast } from "../ui/use-toast";
-import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useMemo } from "react";
+import { Link } from "react-router-dom";
+import { Badge } from "../ui/badge";
+import { TableSkeleton } from "../ui/skeleton";
+import { useToast } from "../ui/use-toast";
 
 interface ApprovedSRListProps {
     for_vendor?: string
@@ -57,24 +58,14 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const getTotal = (order_id: string) => {
-        let total: number = 0;
-        const orderData = service_list?.find(item => item.name === order_id)?.service_order_list;
-        orderData?.list.map((item) => {
-            const price = item.rate * item.quantity;
-            total += price ? parseFloat(price) : 0
-        })
-        return total;
+        const orderData = service_list?.find(item => item.name === order_id);
+        return getSRTotal(orderData)
     }
 
-    const getTotalAmountPaid = (id) => {
-        const payments = projectPayments?.filter((payment) => payment.document_name === id);
+    const getAmountPaid = (id) => {
+        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid");
 
-
-        return payments?.reduce((acc, payment) => {
-            const amount = parseFloat(payment.amount || 0)
-            const tds = parseFloat(payment.tds || 0)
-            return acc + amount;
-        }, 0);
+        return getTotalAmountPaid(payments)
     }
 
     const { notifications, mark_seen_notification } = useNotificationStore()
@@ -214,7 +205,7 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
                 header: "Amt Paid",
                 cell: ({ row }) => {
                     const data = row.original
-                    const amountPaid = getTotalAmountPaid(data?.name);
+                    const amountPaid = getAmountPaid(data?.name);
                     return <div className="font-medium">
                         {formatToIndianRupee(amountPaid)}
                     </div>

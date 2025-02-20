@@ -258,7 +258,7 @@ export const ApprovePayments = () => {
             },
         },
         ],
-        [projectValues, vendorValues, projectPayments, purchaseOrders, serviceOrders]
+        [projectValues, vendorValues, projectPayments, purchaseOrders, serviceOrders, notifications]
     );
 
     const { toast } = useToast();

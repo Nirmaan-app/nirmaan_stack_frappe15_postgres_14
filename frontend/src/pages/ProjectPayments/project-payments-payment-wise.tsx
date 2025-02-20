@@ -99,7 +99,7 @@ export const ProjectPaymentsPaymentWise = () => {
                 payment_date: paymentData?.payment_date,
                 utr: paymentData?.utr,
                 tds: paymentData?.tds,
-                amount: tds ? paymentData?.amount - paymentData?.tds : paymentData?.amount
+                amount: paymentData?.tds ? paymentData?.amount - paymentData?.tds : paymentData?.amount
             })
 
             const fileArgs = {
@@ -272,7 +272,7 @@ export const ProjectPaymentsPaymentWise = () => {
                     )
                     return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative">
                         {(isNew && tab === "New Payments")  && (
-                            <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-14 animate-pulse" />
+                            <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-14 2xl:-left-20  animate-pulse" />
                         )}
                         {formatDate(data?.payment_date || data?.creation)}
                     </div>;
@@ -353,7 +353,7 @@ export const ProjectPaymentsPaymentWise = () => {
                 }
             ] : [])
         ],
-        [projectValues, vendorValues, projectPayments, tab]
+        [projectValues, vendorValues, projectPayments, tab, notifications]
     );
 
     if (projectsError || vendorsError || projectPaymentsError) {

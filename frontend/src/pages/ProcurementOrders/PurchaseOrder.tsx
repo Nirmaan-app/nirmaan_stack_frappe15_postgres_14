@@ -1158,7 +1158,7 @@ export const PurchaseOrder = ({
     }
   }
 
-  const amountPaid = getTotalAmountPaid(poPayments);
+  const amountPaid = getTotalAmountPaid(poPayments?.filter(i => i?.status === "Paid"));
 
   const validateAmount = debounce((amount) => {
     const { totalAmt } = getTotal;

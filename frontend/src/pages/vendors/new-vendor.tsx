@@ -208,7 +208,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
             form.setError("ifsc", 
                 {
                 type: "manual",
-                message: "Invalid IFSC code"
+                message: "IFSC Code Not Found"
             }); 
         }
         form.setValue("bank_branch", undefined);
@@ -640,7 +640,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                           }}
                                         />
                                       </FormControl>
-                                        <FormMessage />
+                                      {(bank_details && bank_details.message.error) ? <FormMessage>IFSC Code Not Found</FormMessage> : <FormMessage />}
                                     </FormItem>
                                   )}
                                 />
