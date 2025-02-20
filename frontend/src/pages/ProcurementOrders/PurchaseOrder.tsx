@@ -2081,7 +2081,7 @@ export const PurchaseOrder = ({
       </Card>
 
       <Accordion type="multiple" 
-      // defaultValue={["transac&payments"]} 
+      defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
       className="w-full">
         <AccordionItem key="transac&payments" value="transac&payments">
           {tab === "Delivered PO" && (
