@@ -9,10 +9,11 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { Radio } from "antd";
-import { useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Paperclip, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useSearchParams } from "react-router-dom";
 import { ProjectPaymentsList } from "./project-payments-list";
@@ -178,6 +179,16 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
+    const { notifications, mark_seen_notification } = useNotificationStore()
+
+    const { db } = useContext(FrappeContext) as FrappeConfig
+
+    const handleNewPRSeen = (notification) => {
+        if (notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
+
     const columns = useMemo(
         () => [
                 ...(tab === "New Payments" ? [
@@ -256,7 +267,15 @@ export const ProjectPaymentsPaymentWise = () => {
                 },
                 cell: ({ row }) => {
                     const data = row.original
-                    return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
+                    const isNew = notifications.find(
+                        (item) => item.docname === data?.name && item.seen === "false" && item.event_id === "payment:approved"
+                    )
+                    return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative">
+                        {(isNew && tab === "New Payments")  && (
+                            <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-14 animate-pulse" />
+                        )}
+                        {formatDate(data?.payment_date || data?.creation)}
+                    </div>;
                 },
             },
             {

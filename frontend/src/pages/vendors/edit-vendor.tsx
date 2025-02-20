@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+  useFrappeGetCall,
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
@@ -114,9 +115,12 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
         vendor_gst: finalVendorGstSchema,
         account_number: z.string().optional(),
         account_name: z.string().optional(),
-        bank_name: z.string().optional(),
-        bank_branch: z.string().optional(),
-        ifsc: z.string().optional(),
+        ifsc: z
+                .string()
+                .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, {
+                  message: "Invalid IFSC code. Example: SBIN0005943"
+                })
+                .optional(),
     })
 };
 
@@ -166,11 +170,14 @@ export const EditVendor = ({ toggleEditSheet }) => {
       vendor_gst: data?.vendor_gst,
       account_number: data?.account_number,
       account_name: data?.account_name,
-      bank_name: data?.bank_name,
-      bank_branch: data?.bank_branch,
       ifsc: data?.ifsc,
     },
     mode: "onBlur",
+  });
+
+  const [bankAndBranch, setBankAndBranch] = useState({
+    bank: "",
+    branch: "",
   });
 
   useEffect(() => {
@@ -186,16 +193,22 @@ export const EditVendor = ({ toggleEditSheet }) => {
         vendor_gst: data?.vendor_gst,
         account_number: data?.account_number,
         account_name: data?.account_name,
-        bank_name: data?.bank_name,
-        bank_branch: data?.bank_branch,
         ifsc: data?.ifsc,
       });
+
+      setBankAndBranch({
+        bank: data?.bank_name,
+        branch: data?.bank_branch,
+      });
+
       setPincode(vendorAddress?.pincode);
       if(data?.vendor_gst) {
         setTaxationType(data?.vendor_gst?.length === 10 ? "PAN" : "GST")
       }
     }
-  }, [data, vendorAddress, form]);
+  }, [data, vendorAddress]);
+
+  console.log("bank, branch", bankAndBranch)
 
   const { data: category_list } = useFrappeGetDocList("Category", {
     fields: ["*"],
@@ -260,6 +273,39 @@ export const EditVendor = ({ toggleEditSheet }) => {
     debouncedFetch(value);
   };
 
+  const IFSC = form.watch("ifsc")
+
+  console.log("IFSC", IFSC)
+  
+  const { data: bank_details } = useFrappeGetCall(
+      "nirmaan_stack.api.bank_details.generate_bank_details",
+      { ifsc_code:  IFSC},
+      IFSC && IFSC?.length === 11 ? undefined : null
+    );
+
+    console.log("bank_details", bank_details)
+
+  useEffect(() => {
+      if (bank_details && !bank_details.message.error) {
+          setBankAndBranch({
+            bank: bank_details.message.BANK,
+            branch: bank_details.message.BRANCH,
+          });
+          return;
+          }
+      if (bank_details && bank_details.message.error) {
+          form.setError("ifsc", 
+              {
+              type: "manual",
+              message: "Invalid IFSC code"
+          }); 
+      }
+      setBankAndBranch({
+        bank: "",
+        branch: "",
+      });
+  }, [bank_details, IFSC]) 
+
   const onSubmit = async (values: VendorFormValues) => {
 
     const categoriesSelected = categories.map((c) => c.value) || [];
@@ -299,9 +345,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
         vendor_state: state,
         account_number: values.account_number,
         account_name: values.account_name,
-        bank_name: values.bank_name,
-        bank_branch: values.bank_branch,
-        ifsc: values.ifsc,
+        bank_name: bankAndBranch.bank,
+        bank_branch: bankAndBranch.branch,
+        ifsc: values.ifsc && bank_details && bank_details.message.error ? undefined : values.ifsc,
       });
 
       await vendorMutate();
@@ -546,38 +592,26 @@ export const EditVendor = ({ toggleEditSheet }) => {
                                         <FormItem>
                                             <FormLabel>IFSC Code</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Enter IFSC Code" {...field} />
+                                                <Input placeholder="Enter IFSC Code" {...field} value={field.value || ""} />
                                             </FormControl>
-                                            <FormMessage />
+                                            {(bank_details && bank_details.message.error) ? <FormMessage>IFSC Code Not Found</FormMessage> : <FormMessage />}
                                         </FormItem>
                                     )}
                                 />
-                                <FormField
-                                    control={form.control}
-                                    name="bank_name"
-                                    render={({ field }) => (
                                         <FormItem>
                                             <FormLabel>Bank Name</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Enter Bank Name" {...field} />
+                                                <Input disabled={true}  placeholder="Enter Bank Name"  value={bankAndBranch.bank} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="bank_branch"
-                                    render={({ field }) => (
                                         <FormItem>
                                             <FormLabel>Bank Branch</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Enter Bank Branch" {...field} />
+                                                <Input disabled={true} placeholder="Enter Bank Branch" value={bankAndBranch.branch} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
-                                    )}
-                                />
           {data?.vendor_type !== "Service" && (
             <>
             <Separator className="my-3" />

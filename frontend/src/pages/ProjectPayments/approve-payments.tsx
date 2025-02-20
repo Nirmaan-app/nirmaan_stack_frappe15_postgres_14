@@ -8,9 +8,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
-import { useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CircleCheck, CircleX, SquarePen } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 
 export const ApprovePayments = () => {
@@ -64,6 +65,8 @@ export const ApprovePayments = () => {
         await projectPaymentsMutate();
     });
 
+    const { notifications, mark_seen_notification } = useNotificationStore()
+
     const projectValues = projects?.map((item) => ({
         label: item.project_name,
         value: item.name,
@@ -101,13 +104,29 @@ export const ApprovePayments = () => {
     }
   }
 
+  const { db } = useContext(FrappeContext) as FrappeConfig
+  
+  const handleNewPRSeen = (notification) => {
+      if (notification) {
+          mark_seen_notification(db, notification)
+      }
+  }
+
     const columns = useMemo(
         () => [
           {
             accessorKey: "document_name",
             header: "#PO",
             cell: ({ row }) => {
-                return <div className="font-medium">{row.getValue("document_name")}</div>;
+              const paymentId = row.original.name
+                const isNew = notifications.find(
+                    (item) => item.docname === paymentId && item.seen === "false" && item.event_id === "payment:new"
+                )
+                return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative">
+                  {isNew && (
+                      <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                  )}
+                  {row.getValue("document_name")}</div>;
             }
         },
             {

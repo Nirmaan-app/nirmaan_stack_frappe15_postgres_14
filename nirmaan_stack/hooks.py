@@ -201,7 +201,15 @@ doc_events = {
     },
     "Project Estimates" : {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-    }
+    },
+    "Project Payments": {
+        "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.project_payments.on_update",
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.project_payments.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        ]
+    },
 }
 
 # Scheduled Tasks
