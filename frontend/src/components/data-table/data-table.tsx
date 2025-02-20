@@ -80,10 +80,10 @@ export function DataTable<TData, TValue>({
   wpOptions = undefined,
   projectStatusOptions = undefined,
   isExport = false,
-  vendorData= undefined,
+  vendorData = undefined,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([
-    
+
   ]);
 
   const [searchParams] = useSearchParams();
@@ -183,7 +183,7 @@ export function DataTable<TData, TValue>({
     updateURL("rows", newPageSize);
   };
 
-  const { setSelectedData, selectedData} = useFrappeDataStore()
+  const { setSelectedData, selectedData } = useFrappeDataStore()
 
   const table = useReactTable({
     data,
@@ -212,7 +212,7 @@ export function DataTable<TData, TValue>({
   });
 
   React.useEffect(() => {
-    if(columns?.some(i => i?.accessorKey === "creation")){
+    if (columns?.some(i => i?.accessorKey === "creation")) {
       setSorting([{
         id: "creation",
         desc: true,
@@ -234,7 +234,7 @@ export function DataTable<TData, TValue>({
   const [paymentMode, setPaymentMode] = React.useState("IMPS")
 
   const exportToCSV = () => {
-    const csvHeaders = ['PYMT_PROD_TYPE_CODE', 'PYMT_MODE', 'DEBIT_ACC_NO', 'BNF_NAME', 'BENE_IFSC',
+    const csvHeaders = ['PYMT_PROD_TYPE_CODE', 'PYMT_MODE', 'DEBIT_ACC_NO', 'BNF_NAME', 'BENE_ACC_NO', 'BENE_IFSC',
       'AMOUNT', 'DEBIT_NARR', 'CREDIT_NARR', 'MOBILE_NUM', 'EMAIL_ID', 'REMARK', 'PYMT_DATE',
       'REF_NO', 'ADDL_INFO1', 'ADDL_INFO2', 'ADDL_INFO3', 'ADDL_INFO4', 'ADDL_INFO5', 'LEI_NUMBER'
     ];
@@ -247,8 +247,8 @@ export function DataTable<TData, TValue>({
     selectedData?.forEach(i => {
       const data = i?.original;
       const vendor = vendorData?.find(v => v.name === data.vendor);
-      const row = ['PAB_VENDOR', paymentMode, debitAccountNumber, vendor?.account_name, vendor?.ifsc,
-        data?.amount, '', '', '', '', 'TEST', todayDate, '', '', '', '', '', '', ''
+      const row = ['PAB_VENDOR', paymentMode, debitAccountNumber, vendor?.account_name, vendor?.account_number, vendor?.ifsc,
+        data?.amount, '', '', '', '', data.document_name, todayDate, '', '', '', '', '', '', ''
       ]
       csvRows.push(row.join(','));
     });
@@ -270,7 +270,7 @@ export function DataTable<TData, TValue>({
       variant: "success"
     })
     toggleDialog()
-};
+  };
 
   // Show selected rows
   // ------------------
@@ -299,17 +299,17 @@ export function DataTable<TData, TValue>({
             className="w-[50%] max-sm:w-[60%]"
           />
 
-        {isExport && (
-          <Button onClick={toggleDialog} disabled={!selectedData?.length} variant={"outline"} className="flex items-center gap-1 h-8 px-2 border-primary text-primary">
-            Export
-            <FileUp className="w-4 h-4" />
-          </Button>
-        )}
+          {isExport && (
+            <Button onClick={toggleDialog} disabled={!selectedData?.length} variant={"outline"} className="flex items-center gap-1 h-8 px-2 border-primary text-primary">
+              Export
+              <FileUp className="w-4 h-4" />
+            </Button>
+          )}
 
-        <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="text-center">Export to CSV</DialogTitle>
+          <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="text-center">Export to CSV</DialogTitle>
               </DialogHeader>
               <h2 className="font-semibold text-primary">Debit Account</h2>
               <RadioGroup defaultValue="ICICI" className="space-y-2" >
@@ -317,30 +317,30 @@ export function DataTable<TData, TValue>({
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="ICICI" id="icici" />
                   <div className="flex items-center space-x-6">
-                  <Label htmlFor="icici">ICICI</Label>
-                  <Input
-                    className="h-8"
-                    value={debitAccountNumber}
-                    onChange={(e) => setDebitAccountNumber(e.target.value)}
-                  />
+                    <Label htmlFor="icici">ICICI</Label>
+                    <Input
+                      className="h-8"
+                      value={debitAccountNumber}
+                      onChange={(e) => setDebitAccountNumber(e.target.value)}
+                    />
                   </div>
                   <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="border border-gray-300 rounded-md">
                     <option value="IMPS">IMPS</option>
                     <option value="NEFT">NEFT</option>
                   </select>
                 </div>
-                </RadioGroup>
+              </RadioGroup>
 
-                <div className="mt-2 flex items-center justify-center space-x-2">
-                    <DialogClose className="flex-1" asChild>
-                      <Button variant={"outline"}>
-                        Cancel
-                      </Button>
-                    </DialogClose>
-                    <Button onClick={exportToCSV} className="flex-1">Confirm</Button>
-                </div>
-          </DialogContent>
-        </Dialog>
+              <div className="mt-2 flex items-center justify-center space-x-2">
+                <DialogClose className="flex-1" asChild>
+                  <Button variant={"outline"}>
+                    Cancel
+                  </Button>
+                </DialogClose>
+                <Button onClick={exportToCSV} className="flex-1">Confirm</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
         </div>
@@ -475,7 +475,7 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
-                        {projectStatusOptions &&
+                          {projectStatusOptions &&
                             header.id === table.getColumn("status")?.id &&
                             (table.getColumn("status") ? (
                               <DataTableFacetedFilter

@@ -27,7 +27,7 @@ export const ProjectPaymentsPaymentWise = () => {
     const [dialogType, setDialogType] = useState<"fulfill" | "delete">("fulfill");
 
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
-    
+
     const { call } = useFrappePostCall('frappe.client.set_value')
 
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
@@ -191,51 +191,51 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const columns = useMemo(
         () => [
-                ...(tab === "New Payments" ? [
-                    {
-                        id: "select",
-                        header: ({ table }) => {
-                            const visibleRows = table.getRowModel().rows;
-                            const selectableRows = visibleRows.filter(
-                              (row) => !getRowSelection(row.original.vendor)
-                            );
-                        
-                            const allSelected =
-                              selectableRows.length > 0 &&
-                              selectableRows.every((row) => row.getIsSelected());
-                            const someSelected =
-                              selectableRows.some((row) => row.getIsSelected()) && !allSelected;
-                        
-                            return (
-                              <Checkbox
+            ...(tab === "New Payments" ? [
+                {
+                    id: "select",
+                    header: ({ table }) => {
+                        const visibleRows = table.getRowModel().rows;
+                        const selectableRows = visibleRows.filter(
+                            (row) => !getRowSelection(row.original.vendor)
+                        );
+
+                        const allSelected =
+                            selectableRows.length > 0 &&
+                            selectableRows.every((row) => row.getIsSelected());
+                        const someSelected =
+                            selectableRows.some((row) => row.getIsSelected()) && !allSelected;
+
+                        return (
+                            <Checkbox
                                 checked={allSelected ? true : someSelected ? "indeterminate" : false}
                                 disabled={selectableRows.length === 0}
                                 onCheckedChange={(value) => {
-                                  selectableRows.forEach((row) => {
-                                    if (value) {
-                                      if (!row.getIsSelected()) row.toggleSelected(true);
-                                    } else {
-                                      if (row.getIsSelected()) row.toggleSelected(false);
-                                    }
-                                  });
+                                    selectableRows.forEach((row) => {
+                                        if (value) {
+                                            if (!row.getIsSelected()) row.toggleSelected(true);
+                                        } else {
+                                            if (row.getIsSelected()) row.toggleSelected(false);
+                                        }
+                                    });
                                 }}
                                 aria-label="Select all"
-                              />
-                            );
-                          },
-                        cell: ({ row }) => {
-                            const rowDisabled = getRowSelection(row.original.vendor)
-                          return <Checkbox
+                            />
+                        );
+                    },
+                    cell: ({ row }) => {
+                        const rowDisabled = getRowSelection(row.original.vendor)
+                        return <Checkbox
                             checked={row.getIsSelected()}
                             disabled={rowDisabled}
                             onCheckedChange={(value) => row.toggleSelected(!!value)}
                             aria-label="Select row"
-                          />
-                        },
-                        enableSorting: false,
-                        enableHiding: false,
-                      },
-                ] : []),
+                        />
+                    },
+                    enableSorting: false,
+                    enableHiding: false,
+                },
+            ] : []),
             ...(tab === "Fulfilled Payments" ? [
                 {
                     accessorKey: "utr",
@@ -271,7 +271,7 @@ export const ProjectPaymentsPaymentWise = () => {
                         (item) => item.docname === data?.name && item.seen === "false" && item.event_id === "payment:approved"
                     )
                     return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative">
-                        {(isNew && tab === "New Payments")  && (
+                        {(isNew && tab === "New Payments") && (
                             <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-14 2xl:-left-20  animate-pulse" />
                         )}
                         {formatDate(data?.payment_date || data?.creation)}
@@ -280,7 +280,7 @@ export const ProjectPaymentsPaymentWise = () => {
             },
             {
                 accessorKey: "document_name",
-                header: "#PO",
+                header: "PO/SR ID",
                 cell: ({ row }) => {
                     return <div className="font-medium">{row.getValue("document_name")}</div>;
                 }
@@ -332,7 +332,7 @@ export const ProjectPaymentsPaymentWise = () => {
                             <DataTableColumnHeader column={column} title="Actions" />
                         )
                     },
-                    cell: ({row}) => {
+                    cell: ({ row }) => {
                         return (
                             <div className="flex items-center gap-3">
                                 <Button onClick={() => {
@@ -341,12 +341,12 @@ export const ProjectPaymentsPaymentWise = () => {
                                     toggleFulFillPaymentDialog()
                                 }} variant={"outline"} className="bg-[#00AC06] h-6 text-white">Pay</Button>
                                 <Trash2
-                                onClick={() => {
-                                    setDialogType("delete")
-                                    setPaymentData(row.original)
-                                    toggleFulFillPaymentDialog()
-                                }}
-                                 className="text-red-500 cursor-pointer" />
+                                    onClick={() => {
+                                        setDialogType("delete")
+                                        setPaymentData(row.original)
+                                        toggleFulFillPaymentDialog()
+                                    }}
+                                    className="text-red-500 cursor-pointer" />
                             </div>
                         )
                     }
@@ -367,25 +367,25 @@ export const ProjectPaymentsPaymentWise = () => {
     return (
         <div className="flex-1 space-y-4">
             <div className="flex items-center max-sm:items-start gap-6 max-sm:flex-col">
-            {items && (
+                {items && (
+                    <Radio.Group
+                        block
+                        options={items}
+                        defaultValue="New Payments"
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
                 <Radio.Group
                     block
-                    options={items}
-                    defaultValue="New Payments"
+                    options={["PO Wise"]}
                     optionType="button"
                     buttonStyle="solid"
                     value={tab}
                     onChange={(e) => onClick(e.target.value)}
                 />
-            )}
-            <Radio.Group
-                block
-                options={["PO Wise"]}
-                optionType="button"
-                buttonStyle="solid"
-                value={tab}
-                onChange={(e) => onClick(e.target.value)}
-            />
             </div>
             {["New Payments", "Fulfilled Payments"].includes(tab) ? (
                 projectsLoading || vendorsLoading || projectPaymentsLoading ? (
@@ -401,90 +401,90 @@ export const ProjectPaymentsPaymentWise = () => {
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
                     <AlertDialogHeader className="text-start">
                         <AlertDialogTitle className="text-center">
-                            { dialogType === "fulfill" ? "Fulfill Payment" : "Delete Payment" }
+                            {dialogType === "fulfill" ? "Fulfill Payment" : "Delete Payment"}
                         </AlertDialogTitle>
                         {dialogType === "fulfill" ? (
                             <>
-                            <div className="flex items-center justify-between">
-                            <Label className=" text-red-700">Project:</Label>
-                            <span className="">{projectValues?.find(i => i?.value === paymentData?.project)?.label}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <Label className=" text-red-700">Vendor:</Label>
-                            <span className="">{vendorValues?.find(i => i?.value === paymentData?.vendor)?.label}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <Label className=" text-red-700">PO Number:</Label>
-                            <span className="">{paymentData?.document_name}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <Label className=" text-red-700">Amount:</Label>
-                            <span className="">{formatToIndianRupee(paymentData?.amount - paymentData?.tds)}</span>
-                        </div>
-
-                        <div className="flex flex-col gap-4 pt-4">
-                            <div className="flex items-center gap-4 w-full">
-                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                <Input
-                                    type="text"
-                                    placeholder="Enter UTR"
-                                    value={paymentData?.utr || ""}
-                                    onChange={(e) => setPaymentData({ ...paymentData, utr: e.target.value })}
-                                />
-                            </div>
-                            {(paymentData?.document_type === "Service Requests" && serviceOrders?.find(i => i?.name === paymentData?.document_name).gst === "true") && <div className="flex items-center gap-4 w-full">
-                                <Label className="w-[40%]">TDS Deduction</Label>
-                                <div className="w-full"> 
-                                <Input
-                                    type="number"
-                                    placeholder="Enter TDS Amount"
-                                    value={paymentData?.tds || ""}
-                                    onChange={(e) => {
-                                        const tdsValue = parseFloat(e.target.value || 0);
-                                        setPaymentData({ ...paymentData, tds: tdsValue })
-                                    }}
-                                />
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Project:</Label>
+                                    <span className="">{projectValues?.find(i => i?.value === paymentData?.project)?.label}</span>
                                 </div>
-                            </div>}
-                            <div className="flex items-center gap-4 w-full" >
-                                <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
-                                <Input
-                                        type="date"
-                                        value={paymentData?.payment_date || ""}
-                                        placeholder="DD/MM/YYYY"
-                                        onChange={(e) => setPaymentData({...paymentData, payment_date: e.target.value})}
-                                        max={new Date().toISOString().split("T")[0]}
-                                        onKeyDown={(e) => e.preventDefault()}
-                                     />
-                            </div>
-                        </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Vendor:</Label>
+                                    <span className="">{vendorValues?.find(i => i?.value === paymentData?.vendor)?.label}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">PO Number:</Label>
+                                    <span className="">{paymentData?.document_name}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Amount:</Label>
+                                    <span className="">{formatToIndianRupee(paymentData?.amount - paymentData?.tds)}</span>
+                                </div>
 
-                        <div className="flex flex-col gap-2">
-                            <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
-                                onClick={() => document.getElementById("file-upload")?.click()}
-                            >
-                                <Paperclip size="15px" />
-                                <span className="p-0 text-sm">Attach Screenshot</span>
-                                <input
-                                    type="file"
-                                    id={`file-upload`}
-                                    className="hidden"
-                                    onChange={handleFileChange}
-                                    disabled={paymentScreenshot ? true : false}
-                                />
-                            </div>
-                            {(paymentScreenshot) && (
-                                <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                                    <span className="text-sm">{paymentScreenshot?.name}</span>
-                                    <button
-                                        className="ml-1 text-red-500"
-                                        onClick={() => setPaymentScreenshot(null)}
+                                <div className="flex flex-col gap-4 pt-4">
+                                    <div className="flex items-center gap-4 w-full">
+                                        <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                        <Input
+                                            type="text"
+                                            placeholder="Enter UTR"
+                                            value={paymentData?.utr || ""}
+                                            onChange={(e) => setPaymentData({ ...paymentData, utr: e.target.value })}
+                                        />
+                                    </div>
+                                    {(paymentData?.document_type === "Service Requests" && serviceOrders?.find(i => i?.name === paymentData?.document_name).gst === "true") && <div className="flex items-center gap-4 w-full">
+                                        <Label className="w-[40%]">TDS Deduction</Label>
+                                        <div className="w-full">
+                                            <Input
+                                                type="number"
+                                                placeholder="Enter TDS Amount"
+                                                value={paymentData?.tds || ""}
+                                                onChange={(e) => {
+                                                    const tdsValue = parseFloat(e.target.value || 0);
+                                                    setPaymentData({ ...paymentData, tds: tdsValue })
+                                                }}
+                                            />
+                                        </div>
+                                    </div>}
+                                    <div className="flex items-center gap-4 w-full" >
+                                        <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                                        <Input
+                                            type="date"
+                                            value={paymentData?.payment_date || ""}
+                                            placeholder="DD/MM/YYYY"
+                                            onChange={(e) => setPaymentData({ ...paymentData, payment_date: e.target.value })}
+                                            max={new Date().toISOString().split("T")[0]}
+                                            onKeyDown={(e) => e.preventDefault()}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col gap-2">
+                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
+                                        onClick={() => document.getElementById("file-upload")?.click()}
                                     >
-                                        ✖
-                                    </button>
+                                        <Paperclip size="15px" />
+                                        <span className="p-0 text-sm">Attach Screenshot</span>
+                                        <input
+                                            type="file"
+                                            id={`file-upload`}
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                            disabled={paymentScreenshot ? true : false}
+                                        />
+                                    </div>
+                                    {(paymentScreenshot) && (
+                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
+                                            <span className="text-sm">{paymentScreenshot?.name}</span>
+                                            <button
+                                                className="ml-1 text-red-500"
+                                                onClick={() => setPaymentScreenshot(null)}
+                                            >
+                                                ✖
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
                             </>
 
                         ) : (
@@ -497,18 +497,18 @@ export const ProjectPaymentsPaymentWise = () => {
                                         <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                                     </AlertDialogCancel>
                                     {dialogType === "fulfill" ?
-                                    <Button
-                                        onClick={FilfillPayment}
-                                        disabled={!paymentScreenshot || !paymentData.utr || !paymentData.payment_date}
-                                        className="flex-1">Confirm
-                                    </Button>
-                                     :
-                                     <Button
-                                        onClick={DeletePayment}
-                                        className="flex-1">
+                                        <Button
+                                            onClick={FilfillPayment}
+                                            disabled={!paymentScreenshot || !paymentData.utr || !paymentData.payment_date}
+                                            className="flex-1">Confirm
+                                        </Button>
+                                        :
+                                        <Button
+                                            onClick={DeletePayment}
+                                            className="flex-1">
                                             Confirm
-                                    </Button>
-                                     }
+                                        </Button>
+                                    }
                                 </>
                             )}
                         </div>
