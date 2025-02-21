@@ -88,7 +88,7 @@ const RequestPaymentDialog = ({
         document_name: !isSr ? po?.name : sr?.name,
         project: !isSr ? po?.project : sr?.project,
         vendor: !isSr ? po?.vendor : sr?.vendor,
-        amount: amountRequesting,
+        amount: Math.floor(amountRequesting),
         status: "Requested"
       });
 

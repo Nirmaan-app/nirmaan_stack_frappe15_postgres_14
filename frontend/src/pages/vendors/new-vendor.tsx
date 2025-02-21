@@ -256,7 +256,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     account_name: values.account_name,
                     bank_name: values.bank_name,
                     bank_branch: values.bank_branch,
-                    ifsc: bank_details && bank_details.message.error ? undefined : values.ifsc,
+                    ifsc: bank_details && bank_details.message.error ? null : values.ifsc,
                     vendor_category: vendorType === "Service" ? { categories: service_categories }
                         :
                         vendorType === "Material" ?

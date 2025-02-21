@@ -26,6 +26,7 @@ import {
   TableSkeleton,
 } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
+import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { ConfigProvider, Menu, MenuProps } from "antd";
@@ -257,11 +258,21 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     `Procurement Requests`
   );
 
+  const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
+    fields: ["name", "project_name"],
+    limit: 1000,
+  });
+
+const projectValues = projects?.map((item) => ({
+  label: item.project_name,
+  value: item.name,
+})) || [];
+
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments",
     {
       fields: ["*"],
-      limit: 100000,
-      filters: [["vendor", "=", vendorId]]
+      filters: [["vendor", "=", vendorId], ["status", "=", "Paid"]],
+      limit: 100000
     }
   );
 
@@ -296,6 +307,10 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         key: "serviceOrders",
       }
       : null,
+      {
+        label: "Vendor Payments",
+        key: "vendorPayments",
+      },
   ];
 
   const [current, setCurrent] = useState("overview");
@@ -457,7 +472,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         },
       },
       {
-        accessorKey: "project_name",
+        accessorKey: "project",
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
@@ -468,9 +483,12 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
           );
         },
         cell: ({ row }) => {
+          const project = projectValues.find(
+            (project) => project.value === row.getValue("project")
+        );
           return (
-            <div className="text-[#11050599]">
-              {row.getValue("project_name")}
+            <div className="text-[#11050599] min-w-[100px]">
+              {project?.label}
             </div>
           );
         },
@@ -491,7 +509,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         },
         cell: ({ row }) => {
           return (
-            <div className="text-[#11050599]">
+            <div className="text-[#11050599] min-w-[160px]">
               {row.getValue("procurement_request")}
             </div>
           );
@@ -566,6 +584,105 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     [procurementOrders, procurementRequests, projectPayments]
   );
 
+  const siteUrl = `${window.location.protocol}//${window.location.host}`;
+
+  const paymentColumns = useMemo(
+    () => [
+      {
+        accessorKey: "utr",
+        header: "Payment UTR",
+        cell: ({ row }) => {
+            const data = row.original;
+            return <div  className="font-medium min-w-[130px]">
+              {data?.utr ? (
+                <div className="text-blue-500 underline">
+                    {import.meta.env.MODE === "development" ? (
+                      <a
+                        href={`http://localhost:8000${data?.payment_attachment}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {data?.utr}
+                      </a>
+                    ) : (
+                      <a
+                        href={`${siteUrl}${data?.payment_attachment}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {data?.utr}
+                      </a>
+                    )}
+                  </div>
+                  ) : "--"}
+              </div>;
+        }
+    },
+      {
+        accessorKey: "document_name",
+        header: "#PO",
+        cell: ({ row }) => {
+            const data = row.original;
+            return <div  className="font-medium min-w-[170px]">
+              {data?.document_name}
+              </div>;
+        }
+    },
+    {
+      accessorKey: "project",
+      header: "Project",
+      cell: ({ row }) => {
+          const project = projectValues.find(
+              (project) => project.value === row.getValue("project")
+          );
+          return project ? <div className="font-medium">{project.label}</div> : null;
+      },
+      filterFn: (row, id, value) => {
+          return value.includes(row.getValue(id))
+      },
+  },
+        {
+            accessorKey: "payment_date",
+            header: ({ column }) => {
+                return (
+                    <DataTableColumnHeader column={column} title="Date" />
+                )
+            },
+            cell: ({ row }) => {
+                const data = row.original
+                return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
+            },
+        },
+        {
+            accessorKey: "amount",
+            header: ({ column }) => {
+                return (
+                    <DataTableColumnHeader column={column} title="Amount" />
+                )
+            },
+            cell: ({ row }) => {
+                return <div className="font-medium">
+                    {formatToIndianRupee(row.getValue("amount"))}
+                </div>
+            },
+        },
+        {
+          accessorKey: "status",
+          header: ({ column }) => {
+              return (
+                  <DataTableColumnHeader column={column} title="Status" />
+              )
+          },
+          cell: ({ row }) => {
+              return <div className="font-medium">
+                  {row.getValue("status")}
+              </div>
+          },
+      },
+    ],
+    [projectValues, projectPayments]
+);
+
   if (
     error ||
     vendorAddressError ||
@@ -578,12 +695,6 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         There is an error while fetching the document, please check!
       </h1>
     );
-
-    console.log("error", ifscError);
-
-    console.log("bank_details", bank_details);
-
-    console.log("editBankDetails", editBankDetails);
 
   return (
     <div className="flex-1 space-y-2 md:space-y-4">
@@ -878,6 +989,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
           <DataTable
             columns={columns}
             data={procurementOrders || []}
+            project_values={projectValues}
           />
         ))}
 
@@ -915,6 +1027,21 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
       {current === "serviceOrders" && (
         <ApprovedSRList for_vendor={data?.name} />
+      )}
+
+      {current === "vendorPayments" &&
+        (projectPaymentsLoading || projectsLoading ? (
+          <TableSkeleton />
+        ) : (
+          <DataTable
+            columns={paymentColumns}
+            data={projectPayments || []}
+            project_values={projectValues}
+          />
+        ))}
+
+      {current === "vendorPayments"  && (
+        <div>hello payments</div>
       )}
     </div>
   );
