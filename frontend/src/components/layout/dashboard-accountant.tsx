@@ -1,4 +1,4 @@
-import { WalletCards } from "lucide-react";
+import { UsersRound, WalletCards } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../ui/button";
 
@@ -32,6 +32,12 @@ export const Accountant = () => {
                         title="Project Payments"
                         icon={<WalletCards className="h-8 w-8 text-white" />}
                         onClick={() => navigate("/project-payments")}
+                        className="bg-red-600"
+                    />
+                    <DashboardCard
+                        title="Vendors"
+                        icon={<UsersRound className="h-8 w-8 text-white" />}
+                        onClick={() => navigate("/vendors")}
                         className="bg-red-600"
                     />
                 </div>

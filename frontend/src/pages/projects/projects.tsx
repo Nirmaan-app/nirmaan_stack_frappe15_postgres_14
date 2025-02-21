@@ -127,6 +127,7 @@ export default function Projects() {
 
   const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList("Project Payments", {
           fields: ["*"],
+          filters: [["status", "=", "Paid"]],
           limit: 100000
   })
 
