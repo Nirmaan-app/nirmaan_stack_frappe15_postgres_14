@@ -1,129 +1,12 @@
-import redlogo from "@/assets/red-logo.png";
-import { ColumnDef } from "@tanstack/react-table";
+import logo from "@/assets/logo-svg.svg";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  OverviewSkeleton,
-  OverviewSkeleton2,
-  Skeleton,
-  TableSkeleton,
-} from "@/components/ui/skeleton";
-import { toast } from "@/components/ui/use-toast";
-import {
-  ConfigProvider,
-  Menu,
-  MenuProps,
-  Radio,
-  Tree,
-  Table as AntTable,
-} from "antd";
-import {
-  useFrappeCreateDoc,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappeGetCall,
-  useFrappeUpdateDoc,
-} from "frappe-react-sdk";
-import {
-  ArrowBigRightIcon,
-  ArrowDown,
-  ArrowLeft,
-  Check,
-  CheckCircleIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  ChevronsUpDown,
-  CircleCheckBig,
-  CirclePlus,
-  CornerRightDown,
-  Download,
-  FilePenLine,
-  HardHat,
-  ListChecks,
-  OctagonMinus,
-  UserCheckIcon,
-} from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  Link,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
-import StatusBar from "@/components/ui/status-bar";
-import { Button } from "@/components/ui/button";
-import { useReactToPrint } from "react-to-print";
-import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import {
-  Pie,
-  PieChart,
-  Label,
-  BarChart,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Legend,
-  Bar,
-  Tooltip,
-} from "recharts";
-import { useUserData } from "@/hooks/useUserData";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  CommandGroup,
-  CommandItem,
-  Command,
-  CommandEmpty,
-  CommandList,
-} from "@/components/ui/command";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -134,21 +17,114 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  ChartConfig
+} from "@/components/ui/chart";
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import { DownOutlined } from "@ant-design/icons";
-import { v4 as uuidv4 } from "uuid";
-import logo from "@/assets/logo-svg.svg";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { EditProjectForm } from "./edit-project-form";
-import { Component as ProjectEstimates } from '../../components/add-project-estimates';
-import ReactSelect from "react-select";
+import {
+  OverviewSkeleton2,
+  Skeleton,
+  TableSkeleton
+} from "@/components/ui/skeleton";
+import StatusBar from "@/components/ui/status-bar";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { DownOutlined } from "@ant-design/icons";
+import { ColumnDef } from "@tanstack/react-table";
+import {
+  Table as AntTable,
+  ConfigProvider,
+  Menu,
+  MenuProps,
+  Radio,
+  Tree,
+} from "antd";
+import {
+  useFrappeCreateDoc,
+  useFrappeGetCall,
+  useFrappeGetDoc,
+  useFrappeGetDocList,
+  useFrappeUpdateDoc,
+} from "frappe-react-sdk";
+import {
+  ArrowDown,
+  CheckCircleIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ChevronsUpDown,
+  CircleCheckBig,
+  CirclePlus,
+  Download,
+  FilePenLine,
+  HardHat,
+  ListChecks,
+  OctagonMinus
+} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import ReactSelect from "react-select";
+import { useReactToPrint } from "react-to-print";
+import { v4 as uuidv4 } from "uuid";
+import { Component as ProjectEstimates } from '../../components/add-project-estimates';
+import { EditProjectForm } from "./edit-project-form";
 
 
 const projectStatuses = [
@@ -393,21 +369,20 @@ const ProjectView = ({
 
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
-    filters : [['project', '=', projectId]],
+    filters : [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 1000
   })
 
   const getTotalAmountPaid = () => {
     const poAmount =  projectPayments?.filter(i => i?.document_type === "Procurement Orders")?.reduce((acc, payment) => {
         const amount = parseFloat(payment.amount || 0)
-        const tds = parseFloat(payment.tds || 0)
         return acc + amount;
     }, 0);
 
     const srAmount = projectPayments?.filter(i => i?.document_type === "Service Requests")?.reduce((acc, payment) => {
       const amount = parseFloat(payment.amount || 0)
       const tds = parseFloat(payment.tds || 0)
-      return acc + amount;
+      return acc + amount + tds;
   }, 0);
 
   return {poAmount, srAmount, totalAmount : poAmount + srAmount}
@@ -1189,7 +1164,6 @@ const ProjectView = ({
 
       return payments?.reduce((acc, payment) => {
           const amount = parseFloat(payment.amount || 0)
-          const tds = parseFloat(payment.tds || 0)
           return acc + amount;
       }, 0);
   }
@@ -2001,9 +1975,8 @@ const ProjectView = ({
                     </CardDescription>
                   </div>
                 </div>
-                <div className="flex max-lg:flex-col max-lg:gap-10">
-                  <div className="space-y-4 max-lg:w-full w-[50%]">
-                    <CardDescription className="space-y-2">
+                  <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
+                    <CardDescription className="space-y-2 lg:w-[50%]">
                       <span>Work Package</span>
                       <div className="flex gap-1 flex-wrap">
                         {JSON.parse(
@@ -2015,12 +1988,7 @@ const ProjectView = ({
                         ))}
                       </div>
                     </CardDescription>
-                    <CardDescription className="space-y-2">
-                      <span>Health Score</span>
-                      <StatusBar currentValue={6} totalValue={10} />
-                    </CardDescription>
-                  </div>
-                  <div className="space-y-4">
+                    <div className="space-y-4">
                     <CardDescription className="space-y-2">
                       <span>PO Amount (ex. GST)</span>
                       <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}</p>
@@ -2036,7 +2004,22 @@ const ProjectView = ({
                       </p>
                     </CardDescription>
                   </div>
-
+                </div>
+                <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
+                    <CardDescription className="space-y-2 lg:w-[50%]">
+                      <span>Health Score</span>
+                      <StatusBar currentValue={6} totalValue={10} />
+                    </CardDescription>
+                    <CardDescription className="space-y-2 lg:w-[50%]">
+                      <span>Project GST(s)</span>
+                      <ul className="list-disc list-inside space-y-1">
+                        {JSON.parse(data?.project_gst_number)?.list?.map((item) => (
+                          <li key={item?.location}>
+                            <span className="font-bold">{item?.location}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardDescription>
                 </div>
               </CardContent>
               {/* </CardHeader>

@@ -2,6 +2,7 @@ import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
@@ -10,12 +11,14 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CircleCheck, CircleX, SquarePen } from "lucide-react";
+import { CircleCheck, CircleX, Info, SquarePen } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
+import { useNavigate } from "react-router-dom";
 
 export const ApprovePayments = () => {
 
+  const navigate = useNavigate()
   const [selectedPO, setSelectedPO] = useState<any>(null);
 
   const [dialogType, setDialogType] = useState<"approve" | "reject" | "edit">("approve");
@@ -118,15 +121,31 @@ export const ApprovePayments = () => {
             accessorKey: "document_name",
             header: "#PO",
             cell: ({ row }) => {
-              const paymentId = row.original.name
+                const data = row.original;
+                const paymentId = data.name
                 const isNew = notifications.find(
                     (item) => item.docname === paymentId && item.seen === "false" && item.event_id === "payment:new"
                 )
-                return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative">
+                return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative flex items-center gap-1 min-w-[170px]">
                   {isNew && (
                       <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                   )}
-                  {row.getValue("document_name")}</div>;
+                  {data?.document_name}
+                  <HoverCard>
+                        <HoverCardTrigger>
+                            <Info onClick={() => {
+                              if (data?.document_type === "Procurement Orders") {
+                                navigate(`/purchase-orders/${data?.document_name?.replaceAll("/", "&=")}`)
+                              } else {
+                                navigate(`/approved-sr/${data?.document_name}`)
+                              }
+                            }} className="w-4 h-4 text-blue-600 cursor-pointer" />
+                        </HoverCardTrigger>
+                        <HoverCardContent>
+                            Click on to navigate to the PO screen!
+                        </HoverCardContent>
+                    </HoverCard>
+                  </div>;
             }
         },
             {

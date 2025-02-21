@@ -3,6 +3,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -12,15 +13,17 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { Paperclip, Trash2 } from "lucide-react";
+import { Info, Paperclip, Trash2 } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ProjectPaymentsList } from "./project-payments-list";
 
 export const ProjectPaymentsPaymentWise = () => {
 
     const [searchParams] = useSearchParams();
+
+    const navigate = useNavigate()
 
     const [tab, setTab] = useState<string>(searchParams.get("tab") || "New Payments");
 
@@ -282,7 +285,24 @@ export const ProjectPaymentsPaymentWise = () => {
                 accessorKey: "document_name",
                 header: "PO/SR ID",
                 cell: ({ row }) => {
-                    return <div className="font-medium">{row.getValue("document_name")}</div>;
+                    const data = row.original;
+                    let id;
+                    if (data?.document_type === "Procurement Orders") {
+                        id = data?.document_name.replaceAll("/", "&=")
+                    } else {
+                        id = data?.document_name
+                    }
+                    return <div className="font-medium flex items-center gap-1 min-w-[170px]">
+                        {data?.document_name}
+                        <HoverCard>
+                            <HoverCardTrigger>
+                                <Info onClick={() => navigate(`/project-payments/${id}`)} className="w-4 h-4 text-blue-600 cursor-pointer" />
+                            </HoverCardTrigger>
+                            <HoverCardContent>
+                                Click on to navigate to the PO screen!
+                            </HoverCardContent>
+                        </HoverCard>
+                    </div>;
                 }
             },
             {
