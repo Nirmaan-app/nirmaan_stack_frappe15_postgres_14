@@ -341,7 +341,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
         account_name: values.account_name,
         bank_name: bankAndBranch.bank,
         bank_branch: bankAndBranch.branch,
-        ifsc: values.ifsc && bank_details && bank_details.message.error ? undefined : values.ifsc,
+        ifsc: values.ifsc && bank_details && bank_details.message.error ? null : values.ifsc,
       });
 
       await vendorMutate();
@@ -364,7 +364,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
       console.log("Error while updating vendor", error);
     }
   };
-
 
   return (
     <div className="flex-1 space-y-4">
