@@ -54,7 +54,7 @@ export const ProjectPaymentsList = () => {
         limit: 10000,
     });
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
         fields: ["*"],
         filters: [["status", "=", "Paid"]],
         limit: 100000
@@ -195,21 +195,23 @@ export const ProjectPaymentsList = () => {
                 status: "Paid"
             })
 
-            const fileArgs = {
-                doctype: "Project Payments",
-                docname: res?.name,
-                fieldname: "payment_attachment",
-                isPrivate: true,
-            };
-
-            const uploadedFile = await upload(paymentScreenshot, fileArgs);
-
-            await call({
-                doctype: "Project Payments",
-                name: res?.name,
-                fieldname: "payment_attachment",
-                value: uploadedFile.file_url,
-            });
+            if(paymentScreenshot) {
+                const fileArgs = {
+                    doctype: "Project Payments",
+                    docname: res?.name,
+                    fieldname: "payment_attachment",
+                    isPrivate: true,
+                };
+    
+                const uploadedFile = await upload(paymentScreenshot, fileArgs);
+    
+                await call({
+                    doctype: "Project Payments",
+                    name: res?.name,
+                    fieldname: "payment_attachment",
+                    value: uploadedFile.file_url,
+                });
+            }
 
             await projectPaymentsMutate()
 
@@ -463,7 +465,7 @@ export const ProjectPaymentsList = () => {
 
                         <div className="flex flex-col gap-4 pt-4">
                             <div className="flex gap-4 w-full">
-                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
                                 <div className="w-full">
                                 <Input
                                     type="number"
@@ -475,15 +477,6 @@ export const ProjectPaymentsList = () => {
                                 </div> 
                             </div>
                             <div className="flex gap-4 w-full">
-                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                <Input
-                                    type="text"
-                                    placeholder="Enter UTR"
-                                    value={newPayment.utr}
-                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                />
-                            </div>
-                            {(newPayment?.doctype === "Service Requests" && serviceOrders?.find(i => i?.name === newPayment?.docname).gst === "true") && <div className="flex gap-4 w-full">
                                 <Label className="w-[40%]">TDS Amount</Label>
                                 <div className="w-full">
                                 <Input
@@ -495,8 +488,18 @@ export const ProjectPaymentsList = () => {
                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                     }}
                                 />
+                                {newPayment?.tds > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((newPayment?.amount || 0) - newPayment?.tds)}</span>}
                                 </div>
-                            </div>}
+                            </div>
+                            <div className="flex gap-4 w-full">
+                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                <Input
+                                    type="text"
+                                    placeholder="Enter UTR"
+                                    value={newPayment.utr}
+                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                />
+                            </div>
                             <div className="flex gap-4 w-full" >
                                 <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
                                 <Input
@@ -546,7 +549,7 @@ export const ProjectPaymentsList = () => {
                                     </AlertDialogCancel>
                                     <Button
                                         onClick={AddPayment}
-                                        disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                        disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
                                         className="flex-1">Add Payment
                                     </Button>
                                 </>
@@ -578,11 +581,11 @@ export const ProjectPaymentsList = () => {
                         <Table>
                             <TableHeader className="bg-gray-300">
                                 <TableRow>
-                                    <TableHead>Date</TableHead>
+                                    <TableHead>Payment Date</TableHead>
                                     <TableHead>Amount</TableHead>
-                                    {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && (
+                                    {/* {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && ( */}
                                         <TableHead>TDS Amt</TableHead>
-                                    )}
+                                    {/* )} */}
                                     <TableHead>UTR No.</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -592,11 +595,12 @@ export const ProjectPaymentsList = () => {
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
-                                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
-                                                {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && (
+                                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount - (payment?.tds || 0))}</TableCell>
+                                                {/* {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && ( */}
                                                     <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
-                                                )}
-                                                <TableCell className="font-semibold text-blue-500 underline">
+                                                {/* )} */}
+                                                {payment?.payment_attachment ? (
+                                                    <TableCell className="font-semibold text-blue-500 underline">
                                                     {import.meta.env.MODE === "development" ? (
                                                         <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
                                                             {payment?.utr}
@@ -607,6 +611,9 @@ export const ProjectPaymentsList = () => {
                                                         </a>
                                                     )}
                                                 </TableCell>
+                                                ) : (
+                                                    <TableCell className="font-semibold">{payment?.utr}</TableCell>
+                                                )}
                                             </TableRow>
                                         )
                                     })

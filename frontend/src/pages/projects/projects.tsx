@@ -135,7 +135,7 @@ export default function Projects() {
     const payments = projectPayments?.filter((payment) => payment.project === id);
     return payments?.reduce((acc, payment) => {
         const amount = parseFloat(payment.amount || 0)
-        const tds = parseFloat(payment.tds || 0)
+        // const tds = parseFloat(payment.tds || 0)
         return acc + amount;
     }, 0);
 }

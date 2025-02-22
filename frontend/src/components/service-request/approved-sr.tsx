@@ -30,6 +30,7 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Label } from "../ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Separator } from "../ui/separator";
 import { Sheet, SheetContent } from "../ui/sheet";
 import { Switch } from "../ui/switch";
@@ -55,6 +56,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     const {toggleRequestPaymentDialog} = useDialogStore()
 
     const navigate = useNavigate()
+
+    const [selectedGST, setSelectedGST] = useState(null);
 
     const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
 
@@ -131,6 +134,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 setGstEnabled(false)
             }
             setAdvance(parseFloat(service_request?.advance) || 0)
+            if (service_request?.project_gst) {
+                setSelectedGST((prev) => ({ ...prev, gst: service_request?.project_gst }));
+              }
         }
     }, [service_request])
 
@@ -211,6 +217,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             if (service_request?.gst !== gstEnabled?.toString()) {
                 updatedData = { ...updatedData, gst: gstEnabled?.toString() }
             }
+
+            if (service_request?.project_gst !== selectedGST?.gst) {
+                updatedData = { ...updatedData, project_gst: selectedGST?.gst }
+            }
         
             // if(parseFloat(service_request?.advance || 0) !== advance) {
             //     updatedData = {...updatedData, advance: advance}
@@ -285,21 +295,23 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 status: "Paid"
             })
 
-            const fileArgs = {
-                doctype: "Project Payments",
-                docname: res?.name,
-                fieldname: "payment_attachment",
-                isPrivate: true,
-              };
-      
-              const uploadedFile = await upload(paymentScreenshot, fileArgs);
-
-              await call({
-                doctype: "Project Payments",
-                name: res?.name,
-                fieldname: "payment_attachment",
-                value: uploadedFile.file_url,
-              });
+            if(paymentScreenshot) {
+                const fileArgs = {
+                    doctype: "Project Payments",
+                    docname: res?.name,
+                    fieldname: "payment_attachment",
+                    isPrivate: true,
+                  };
+          
+                  const uploadedFile = await upload(paymentScreenshot, fileArgs);
+    
+                  await call({
+                    doctype: "Project Payments",
+                    name: res?.name,
+                    fieldname: "payment_attachment",
+                    value: uploadedFile.file_url,
+                  });
+            }
 
               await projectPaymentsMutate()
 
@@ -413,10 +425,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 </div>
               <div className="flex items-center gap-2">
                                 {!summaryPage && !accountsPage && (
-                                    <button onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
+                                    <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8">
                                         <PencilRuler className="w-4 h-4" />
                                         Amend
-                                    </button>
+                                    </Button>
                                 )}
 
                                 <Dialog open={amendDialog} onOpenChange={toggleAmendDialog}>
@@ -446,10 +458,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                   
                                   </DialogContent>
                                 </Dialog>
-                              <button onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20">
+                              <Button variant={"outline"} disabled={!service_request?.project_gst}  onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md h-8 p-1">
                                 <Eye className="w-4 h-4" />
                                 Preview
-                              </button>
+                              </Button>
                             </div>
             </CardTitle>
           </CardHeader>
@@ -544,7 +556,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
                                 <div className="flex flex-col gap-4 pt-4">
                                                             <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
                                                                 <div className="w-full">
                                                                 <Input
                                                                     type="number"
@@ -556,15 +568,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                                 </div> 
                                                             </div>
                                                             <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <Input
-                                                                    type="text"
-                                                                    placeholder="Enter UTR"
-                                                                    value={newPayment.utr}
-                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                                                />
-                                                            </div>
-                                                            {service_request?.gst === "true" && <div className="flex gap-4 w-full">
                                                                 <Label className="w-[40%]">TDS Amount</Label>
                                                                 <div className="w-full">
                                                                 <Input
@@ -576,8 +579,18 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                                                     }}
                                                                 />
+                                                                {parseFloat(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((newPayment?.amount || 0) - newPayment?.tds)}</span>}
                                                                 </div>
-                                                            </div>}
+                                                            </div>
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Input
+                                                                    type="text"
+                                                                    placeholder="Enter UTR"
+                                                                    value={newPayment.utr}
+                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                                                />
+                                                            </div>
 
                                                             <div className="flex gap-4 w-full" >
                                                                 <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
@@ -629,7 +642,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                            disabled={ !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -647,9 +660,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                             <TableHeader>
                                 <TableRow>
                                 <TableHead className="text-black font-bold">Amount</TableHead>
-                                {service_request?.gst === "true" && (
+                                {/* {service_request?.gst === "true" && (
                                     <TableHead className="text-black font-bold">TDS Amt</TableHead>
-                                )}
+                                )} */}
                                 <TableHead className="text-black font-bold">UTR No.</TableHead>
                                 <TableHead className="text-black font-bold">Date</TableHead>
                                 <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
@@ -662,10 +675,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
-                                                {service_request?.gst === "true" && (
+                                                {/* {service_request?.gst === "true" && (
                                                      <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
-                                                 )}
-                                                 {payment?.utr ? (
+                                                 )} */}
+                                                 {(payment?.utr && payment?.payment_attachment) ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
                                                         {import.meta.env.MODE === "development" ? (
                                                     <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
@@ -678,8 +691,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 )}
                                                     </TableCell>
                                                  ) : (
-                                                    <TableCell>
-                                                        --
+                                                    <TableCell className="font-semibold">
+                                                        {payment?.utr || "--"}
                                                     </TableCell>
                                                  )}
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
@@ -738,8 +751,71 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent className="overflow-auto max-h-[80vh] w-full">
+                                <div className="flex flex-col gap-1 pt-6">
+                              <h3
+                                className={`font-semibold text-lg tracking-tight ${
+                                  !selectedGST?.gst ? "text-primary" : ""
+                                }`}
+                              >
+                                Project GST Selection
+                                <sup className="text-sm text-red-600">*</sup>
+                              </h3>
+                              {project &&
+                                JSON.parse(project?.project_gst_number)?.list
+                                  ?.length > 0 && (
+                                  <>
+                                    <Select
+                                      value={selectedGST?.gst}
+                                      defaultValue={service_request?.project_gst}
+                                      onValueChange={(selectedOption) => {
+                                        const gstArr = JSON.parse(
+                                            project?.project_gst_number
+                                        )?.list;
+                                        setSelectedGST(
+                                          gstArr.find(
+                                            (item) =>
+                                              item.gst === selectedOption
+                                          )
+                                        );
+                                      }}
+                                    >
+                                      <SelectTrigger
+                                        className={`${
+                                          !selectedGST?.gst
+                                            ? "text-primary border-primary ring-1 ring-inset ring-primary"
+                                            : ""
+                                        }`}
+                                      >
+                                        <SelectValue placeholder="Select Project GST" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {JSON.parse(
+                                          project?.project_gst_number
+                                        )?.list?.map((option) => (
+                                          <SelectItem
+                                            key={option.location}
+                                            value={option.gst}
+                                          >
+                                            {option.location}
+                                            {` (${option.gst})`}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    {selectedGST?.gst && !service_request?.project_gst && (
+                                      <span className="text-sm">
+                                        <strong>Note:</strong>{" "}
+                                        <span className="text-primary">
+                                          GST selected but not saved, click on
+                                          Save below!
+                                        </span>
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                            </div>
                                     {gstEnabled !== null && (
-                                        <div className="flex flex-col gap-2 py-6 border-b border-gray-200">
+                                        <div className="flex flex-col gap-2 pb-6 border-b border-gray-200">
                                             <p className="font-semibold">GST?</p>
                                             <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)} />
                                         </div>
@@ -796,7 +872,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         </div>
                                     )}
 
-                                    <Button disabled={update_loading || (!notes?.length && !(service_request?.notes && JSON.parse(service_request?.notes)?.list?.length > 0) && service_request?.gst === gstEnabled?.toString() && parseFloat(service_request?.advance || 0) === advance)}
+                                    <Button disabled={update_loading || (!notes?.length && !(service_request?.notes && JSON.parse(service_request?.notes)?.list?.length > 0) && service_request?.gst === gstEnabled?.toString() &&
+                                        (service_request?.project_gst || undefined) === selectedGST?.gst)
+                                    }
                                         onClick={handleNotesSave}
                                         className="w-full mt-4 items-center flex gap-2">
                                         {update_loading ? <TailSpin width={20} height={20} color="red" /> : <><Save className="w-4 h-4" /> <span>Save</span></>}
@@ -922,8 +1000,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 </div>
 
                                                 <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
-                                                    <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
-                                                    <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                                <div className="text-xs text-gray-600 font-normal">
+                                                      {service_request?.project_gst
+                                                        ? service_request?.project_gst === "29ABFCS9095N1Z9"
+                                                          ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
+                                                          : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
+                                                        : "Please set company GST number in order to display the Address!"}
+                                                    </div>
+                                                    <div className="text-xs text-gray-600 font-normal">
+                                                      GST: {service_request?.project_gst || "N/A"}
+                                                    </div>
                                                 </div>
 
                                                 <div className="flex justify-between">
@@ -1063,10 +1149,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                     </div>
                                                 </div>
 
-                                                <div className=" border-b-2 border-gray-600 pb-1 mb-1">
-                                                    <div className="flex justify-between">
-                                                        <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
-                                                        <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                                <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
+                                                <div className="text-xs text-gray-600 font-normal">
+                                                      {service_request?.project_gst
+                                                        ? service_request?.project_gst === "29ABFCS9095N1Z9"
+                                                          ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
+                                                          : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
+                                                        : "Please set company GST number in order to display the Address!"}
+                                                    </div>
+                                                    <div className="text-xs text-gray-600 font-normal">
+                                                      GST: {service_request?.project_gst || "N/A"}
                                                     </div>
                                                 </div>
                                             </th>

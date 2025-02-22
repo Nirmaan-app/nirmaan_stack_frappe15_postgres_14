@@ -270,6 +270,7 @@ export const PurchaseOrder = ({
     amount: "",
     payment_date: "",
     utr: "",
+    tds: ""
   });
 
   const [paymentScreenshot, setPaymentScreenshot] = useState(null);
@@ -1077,26 +1078,29 @@ export const PurchaseOrder = ({
         project: po?.project,
         vendor: po?.vendor,
         utr: newPayment?.utr,
+        tds: newPayment?.tds,
         amount: newPayment?.amount,
         payment_date: newPayment?.payment_date,
         status: "Paid"
       });
 
-      const fileArgs = {
-        doctype: "Project Payments",
-        docname: res?.name,
-        fieldname: "payment_attachment",
-        isPrivate: true,
-      };
-
-      const uploadedFile = await upload(paymentScreenshot, fileArgs);
-
-      await call({
-        doctype: "Project Payments",
-        name: res?.name,
-        fieldname: "payment_attachment",
-        value: uploadedFile.file_url,
-      });
+      if(paymentScreenshot) {
+        const fileArgs = {
+          doctype: "Project Payments",
+          docname: res?.name,
+          fieldname: "payment_attachment",
+          isPrivate: true,
+        };
+  
+        const uploadedFile = await upload(paymentScreenshot, fileArgs);
+  
+        await call({
+          doctype: "Project Payments",
+          name: res?.name,
+          fieldname: "payment_attachment",
+          value: uploadedFile.file_url,
+        });
+      }
 
       await AllPoPaymentsListMutate();
 
@@ -1114,6 +1118,7 @@ export const PurchaseOrder = ({
         amount: "",
         payment_date: "",
         utr: "",
+        tds: ""
       });
 
       setPaymentScreenshot(null);
@@ -1569,25 +1574,27 @@ export const PurchaseOrder = ({
                 !estimatesViewing &&
                 po?.status === "Dispatched" &&
                 !(poPayments?.length > 0) && (
-                  <button
+                  <Button
+                  variant="outline"
                     onClick={toggleRevertDialog}
-                    className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20"
+                    className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                   >
                     <Undo2 className="w-4 h-4" />
                     Revert
-                  </button>
+                  </Button>
                 )}
               {(po?.status !== "PO Approved" ||
                 summaryPage ||
                 accountsPage ||
                 estimatesViewing) && (
-                <button
+                <Button
+                  variant="outline"
                   onClick={togglePoPdfSheet}
-                  className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20"
+                  className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                 >
                   <Eye className="w-4 h-4" />
                   Preview
-                </button>
+                </Button>
               )}
             </div>
             {!summaryPage &&
@@ -2148,7 +2155,7 @@ export const PurchaseOrder = ({
 
                                 <div className="flex flex-col gap-4 pt-4">
                                                             <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
                                                                 <div className="w-full">
                                                                 <Input
                                                                     type="number"
@@ -2158,6 +2165,21 @@ export const PurchaseOrder = ({
                                                                 />
                                                                     {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
                                                                 </div> 
+                                                            </div>
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">TDS Amount</Label>
+                                                                <div className="w-full">
+                                                                <Input
+                                                                    type="number"
+                                                                    placeholder="Enter TDS Amount"
+                                                                    value={newPayment.tds}
+                                                                    onChange={(e) => {
+                                                                        const tdsValue = e.target.value;
+                                                                        setNewPayment({ ...newPayment, tds: tdsValue })
+                                                                    }}
+                                                                />
+                                                                {newPayment?.tds > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((newPayment?.amount || 0) - newPayment?.tds)}</span>}
+                                                                </div>
                                                             </div>
                                                             <div className="flex gap-4 w-full">
                                                                 <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
@@ -2218,7 +2240,7 @@ export const PurchaseOrder = ({
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -2250,7 +2272,7 @@ export const PurchaseOrder = ({
                           <TableCell>
                             {formatToIndianRupee(payment?.amount)}
                           </TableCell>
-                            {payment?.utr ? (
+                            {(payment?.utr && payment?.payment_attachment) ? (
                               <TableCell className="text-blue-500 underline">
                               {import.meta.env.MODE === "development" ? (
                                 <a
@@ -2272,7 +2294,7 @@ export const PurchaseOrder = ({
                               </TableCell>
                             ) : (
                               <TableCell>
-                                --
+                                {payment?.utr || "--"}
                               </TableCell>
                             )}
                           <TableCell>
@@ -4046,15 +4068,16 @@ export const PurchaseOrder = ({
                           </div>
                         </div>
 
-                        <div className=" border-b-2 border-gray-600 pb-1 mb-1">
-                          <div className="flex justify-between">
-                            <div className="text-xs text-gray-600 font-normal">
-                              1st Floor, 234, 9th Main, 16th Cross, Sector 6,
-                              HSR Layout, Bengaluru - 560102, Karnataka
-                            </div>
-                            <div className="text-xs text-gray-600 font-normal">
-                              GST: 29ABFCS9095N1Z9
-                            </div>
+                        <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
+                          <div className="text-xs text-gray-600 font-normal">
+                            {po?.project_gst
+                              ? po?.project_gst === "29ABFCS9095N1Z9"
+                                ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
+                                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
+                              : "Please set company GST number in order to display the Address!"}
+                          </div>
+                          <div className="text-xs text-gray-600 font-normal">
+                            GST: {po?.project_gst || "N/A"}
                           </div>
                         </div>
                       </th>

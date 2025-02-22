@@ -55,7 +55,7 @@ export const getTotalAmountPaid = (payments: Payment[]): number => {
 
   let total = 0;
   for (const payment of payments) {
-    total += parseFloat(payment?.amount || 0) + parseFloat(payment?.tds || 0);
+    total += parseFloat(payment?.amount || 0)
   }
 
   totalAmountCache.set(key, total);
