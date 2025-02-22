@@ -2272,7 +2272,7 @@ export const PurchaseOrder = ({
                           <TableCell>
                             {formatToIndianRupee(payment?.amount)}
                           </TableCell>
-                            {payment?.utr ? (
+                            {(payment?.utr && payment?.payment_attachment) ? (
                               <TableCell className="text-blue-500 underline">
                               {import.meta.env.MODE === "development" ? (
                                 <a
@@ -2294,7 +2294,7 @@ export const PurchaseOrder = ({
                               </TableCell>
                             ) : (
                               <TableCell>
-                                --
+                                {payment?.utr || "--"}
                               </TableCell>
                             )}
                           <TableCell>
