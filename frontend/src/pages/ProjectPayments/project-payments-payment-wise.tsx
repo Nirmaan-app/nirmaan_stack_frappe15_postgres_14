@@ -105,16 +105,16 @@ export const ProjectPaymentsPaymentWise = () => {
                 amount: paymentData?.amount
             })
 
-            if(paymentScreenshot) {
+            if (paymentScreenshot) {
                 const fileArgs = {
                     doctype: "Project Payments",
                     docname: paymentData?.name,
                     fieldname: "payment_attachment",
                     isPrivate: true,
                 };
-    
+
                 const uploadedFile = await upload(paymentScreenshot, fileArgs);
-    
+
                 await call({
                     doctype: "Project Payments",
                     name: paymentData?.name,
@@ -288,7 +288,7 @@ export const ProjectPaymentsPaymentWise = () => {
             //             );
             //         },
             //     },
-                
+
             // ] : []),
             {
                 accessorKey: "document_name",
@@ -344,12 +344,12 @@ export const ProjectPaymentsPaymentWise = () => {
                 accessorKey: "amount",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Amount Requested"  />
+                        <DataTableColumnHeader column={column} title="Amount Requested" />
                     )
                 },
                 cell: ({ row }) => {
                     return <div className="font-medium">
-                        {formatToIndianRupee(parseFloat(row.original?.amount) + parseFloat(row.original?.tds || 0))}
+                        {formatToIndianRupee(parseFloat(row.original?.amount))}
                     </div>
                 },
             },
@@ -358,7 +358,7 @@ export const ProjectPaymentsPaymentWise = () => {
                     id: "amountPaid",
                     header: ({ column }) => {
                         return (
-                            <DataTableColumnHeader column={column} title="Amount Paid"  />
+                            <DataTableColumnHeader column={column} title="Amount Paid" />
                         )
                     },
                     cell: ({ row }) => {
@@ -372,7 +372,7 @@ export const ProjectPaymentsPaymentWise = () => {
                     accessorKey: "tds",
                     header: ({ column }) => {
                         return (
-                            <DataTableColumnHeader column={column} title="TDS Amount"  />
+                            <DataTableColumnHeader column={column} title="TDS Amount" />
                         )
                     },
                     cell: ({ row }) => {
