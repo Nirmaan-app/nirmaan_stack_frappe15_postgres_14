@@ -292,21 +292,23 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 status: "Paid"
             })
 
-            const fileArgs = {
-                doctype: "Project Payments",
-                docname: res?.name,
-                fieldname: "payment_attachment",
-                isPrivate: true,
-              };
-      
-              const uploadedFile = await upload(paymentScreenshot, fileArgs);
-
-              await call({
-                doctype: "Project Payments",
-                name: res?.name,
-                fieldname: "payment_attachment",
-                value: uploadedFile.file_url,
-              });
+            if(paymentScreenshot) {
+                const fileArgs = {
+                    doctype: "Project Payments",
+                    docname: res?.name,
+                    fieldname: "payment_attachment",
+                    isPrivate: true,
+                  };
+          
+                  const uploadedFile = await upload(paymentScreenshot, fileArgs);
+    
+                  await call({
+                    doctype: "Project Payments",
+                    name: res?.name,
+                    fieldname: "payment_attachment",
+                    value: uploadedFile.file_url,
+                  });
+            }
 
               await projectPaymentsMutate()
 
@@ -551,7 +553,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
                                 <div className="flex flex-col gap-4 pt-4">
                                                             <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
                                                                 <div className="w-full">
                                                                 <Input
                                                                     type="number"
@@ -563,15 +565,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                                 </div> 
                                                             </div>
                                                             <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <Input
-                                                                    type="text"
-                                                                    placeholder="Enter UTR"
-                                                                    value={newPayment.utr}
-                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                                                />
-                                                            </div>
-                                                            {service_request?.gst === "true" && <div className="flex gap-4 w-full">
                                                                 <Label className="w-[40%]">TDS Amount</Label>
                                                                 <div className="w-full">
                                                                 <Input
@@ -583,8 +576,18 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                                                     }}
                                                                 />
+                                                                {parseFloat(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((newPayment?.amount || 0) - newPayment?.tds)}</span>}
                                                                 </div>
-                                                            </div>}
+                                                            </div>
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Input
+                                                                    type="text"
+                                                                    placeholder="Enter UTR"
+                                                                    value={newPayment.utr}
+                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                                                />
+                                                            </div>
 
                                                             <div className="flex gap-4 w-full" >
                                                                 <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
@@ -636,7 +639,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                            disabled={ !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -654,9 +657,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                             <TableHeader>
                                 <TableRow>
                                 <TableHead className="text-black font-bold">Amount</TableHead>
-                                {service_request?.gst === "true" && (
+                                {/* {service_request?.gst === "true" && (
                                     <TableHead className="text-black font-bold">TDS Amt</TableHead>
-                                )}
+                                )} */}
                                 <TableHead className="text-black font-bold">UTR No.</TableHead>
                                 <TableHead className="text-black font-bold">Date</TableHead>
                                 <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
@@ -669,10 +672,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
-                                                {service_request?.gst === "true" && (
+                                                {/* {service_request?.gst === "true" && (
                                                      <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
-                                                 )}
-                                                 {payment?.utr ? (
+                                                 )} */}
+                                                 {(payment?.utr && payment?.payment_attachment) ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
                                                         {import.meta.env.MODE === "development" ? (
                                                     <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
@@ -685,8 +688,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 )}
                                                     </TableCell>
                                                  ) : (
-                                                    <TableCell>
-                                                        --
+                                                    <TableCell className="font-semibold">
+                                                        {payment?.utr || "--"}
                                                     </TableCell>
                                                  )}
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>

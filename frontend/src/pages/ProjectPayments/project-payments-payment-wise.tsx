@@ -61,7 +61,7 @@ export const ProjectPaymentsPaymentWise = () => {
         orderBy: { field: "payment_date", order: "desc" }
     })
 
-    const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList("Service Requests", {
+    const { data: serviceOrders, isLoading: srLoading } = useFrappeGetDocList("Service Requests", {
         fields: ["*"],
         filters: [["status", "=", "Approved"]],
         limit: 10000,
@@ -102,24 +102,26 @@ export const ProjectPaymentsPaymentWise = () => {
                 payment_date: paymentData?.payment_date,
                 utr: paymentData?.utr,
                 tds: paymentData?.tds,
-                amount: paymentData?.tds ? paymentData?.amount - paymentData?.tds : paymentData?.amount
+                amount: paymentData?.amount
             })
 
-            const fileArgs = {
-                doctype: "Project Payments",
-                docname: paymentData?.name,
-                fieldname: "payment_attachment",
-                isPrivate: true,
-            };
-
-            const uploadedFile = await upload(paymentScreenshot, fileArgs);
-
-            await call({
-                doctype: "Project Payments",
-                name: paymentData?.name,
-                fieldname: "payment_attachment",
-                value: uploadedFile.file_url,
-            });
+            if(paymentScreenshot) {
+                const fileArgs = {
+                    doctype: "Project Payments",
+                    docname: paymentData?.name,
+                    fieldname: "payment_attachment",
+                    isPrivate: true,
+                };
+    
+                const uploadedFile = await upload(paymentScreenshot, fileArgs);
+    
+                await call({
+                    doctype: "Project Payments",
+                    name: paymentData?.name,
+                    fieldname: "payment_attachment",
+                    value: uploadedFile.file_url,
+                });
+            }
 
             await projectPaymentsMutate()
             toggleFulFillPaymentDialog()
@@ -238,49 +240,56 @@ export const ProjectPaymentsPaymentWise = () => {
                     enableSorting: false,
                     enableHiding: false,
                 },
-            ] : []),
-            ...(tab === "Fulfilled Payments" ? [
                 {
-                    accessorKey: "utr",
-                    header: "UTR",
+                    accessorKey: "creation",
+                    header: ({ column }) => {
+                        return (
+                            <DataTableColumnHeader column={column} title="Date" />
+                        )
+                    },
                     cell: ({ row }) => {
                         const data = row.original
-                        return (
-                            <div className="font-medium text-blue-500 underline hover:underline-offset-2">
-                                {import.meta.env.MODE === "development" ? (
-                                    <a href={`http://localhost:8000${data?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                        {data?.utr}
-                                    </a>
-                                ) : (
-                                    <a href={`${siteUrl}${data?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                        {data?.utr}
-                                    </a>
-                                )}
-                            </div>
-                        );
+                        const isNew = notifications.find(
+                            (item) => item.docname === data?.name && item.seen === "false" && item.event_id === "payment:approved"
+                        )
+                        return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative">
+                            {(isNew && tab === "New Payments") && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-14 2xl:-left-20  animate-pulse" />
+                            )}
+                            {formatDate(data?.creation)}
+                        </div>;
                     },
                 },
             ] : []),
-            {
-                accessorKey: "payment_date",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Date" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const data = row.original
-                    const isNew = notifications.find(
-                        (item) => item.docname === data?.name && item.seen === "false" && item.event_id === "payment:approved"
-                    )
-                    return <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative">
-                        {(isNew && tab === "New Payments") && (
-                            <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-14 2xl:-left-20  animate-pulse" />
-                        )}
-                        {formatDate(data?.payment_date || data?.creation)}
-                    </div>;
-                },
-            },
+            // ...(tab === "Fulfilled Payments" ? [
+            //     {
+            //         accessorKey: "utr",
+            //         header: "UTR",
+            //         cell: ({ row }) => {
+            //             const data = row.original
+            //             return (
+            //                 data?.payment_attachment ? (
+            //                     <div className="font-medium text-blue-500 underline hover:underline-offset-2">
+            //                     {import.meta.env.MODE === "development" ? (
+            //                         <a href={`http://localhost:8000${data?.payment_attachment}`} target="_blank" rel="noreferrer">
+            //                             {data?.utr}
+            //                         </a>
+            //                     ) : (
+            //                         <a href={`${siteUrl}${data?.payment_attachment}`} target="_blank" rel="noreferrer">
+            //                             {data?.utr}
+            //                         </a>
+            //                     )}
+            //                 </div>
+            //                 ) : (
+            //                     <div className="font-medium">
+            //                         {data?.utr}
+            //                     </div>
+            //                 )
+            //             );
+            //         },
+            //     },
+                
+            // ] : []),
             {
                 accessorKey: "document_name",
                 header: "PO/SR ID",
@@ -306,19 +315,6 @@ export const ProjectPaymentsPaymentWise = () => {
                 }
             },
             {
-                accessorKey: "project",
-                header: "Project",
-                cell: ({ row }) => {
-                    const project = projectValues.find(
-                        (project) => project.value === row.getValue("project")
-                    );
-                    return project ? <div className="font-medium">{project.label}</div> : null;
-                },
-                filterFn: (row, id, value) => {
-                    return value.includes(row.getValue(id))
-                },
-            },
-            {
                 accessorKey: "vendor",
                 header: "Vendor",
                 cell: ({ row }) => {
@@ -332,10 +328,23 @@ export const ProjectPaymentsPaymentWise = () => {
                 }
             },
             {
+                accessorKey: "project",
+                header: "Project",
+                cell: ({ row }) => {
+                    const project = projectValues.find(
+                        (project) => project.value === row.getValue("project")
+                    );
+                    return project ? <div className="font-medium">{project.label}</div> : null;
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                },
+            },
+            {
                 accessorKey: "amount",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Amount Requested" : "Amount Paid"} />
+                        <DataTableColumnHeader column={column} title="Amount Requested"  />
                     )
                 },
                 cell: ({ row }) => {
@@ -344,6 +353,35 @@ export const ProjectPaymentsPaymentWise = () => {
                     </div>
                 },
             },
+            ...(tab === "Fulfilled Payments" ? [
+                {
+                    id: "amountPaid",
+                    header: ({ column }) => {
+                        return (
+                            <DataTableColumnHeader column={column} title="Amount Paid"  />
+                        )
+                    },
+                    cell: ({ row }) => {
+                        const data = row.original
+                        return <div className="font-medium">
+                            {formatToIndianRupee(parseFloat(data?.amount) - parseFloat(data?.tds || 0))}
+                        </div>
+                    },
+                },
+                {
+                    accessorKey: "tds",
+                    header: ({ column }) => {
+                        return (
+                            <DataTableColumnHeader column={column} title="TDS Amount"  />
+                        )
+                    },
+                    cell: ({ row }) => {
+                        return <div className="font-medium">
+                            {row.original?.tds ? formatToIndianRupee(parseFloat(row.original?.tds)) : "--"}
+                        </div>
+                    },
+                },
+            ] : []),
             ...(tab === "New Payments" ? [
                 {
                     id: "actions",
@@ -408,7 +446,7 @@ export const ProjectPaymentsPaymentWise = () => {
                 />
             </div>
             {["New Payments", "Fulfilled Payments"].includes(tab) ? (
-                projectsLoading || vendorsLoading || projectPaymentsLoading ? (
+                projectsLoading || vendorsLoading || projectPaymentsLoading || srLoading ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable columns={columns} data={projectPayments?.filter(p => p?.status === (tab === "New Payments" ? "Approved" : "Paid")) || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} isExport={tab === "New Payments"} />
@@ -438,12 +476,12 @@ export const ProjectPaymentsPaymentWise = () => {
                                     <span className="">{paymentData?.document_name}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">Amount:</Label>
-                                    <span className="">{formatToIndianRupee(paymentData?.amount - paymentData?.tds)}</span>
+                                    <Label className=" text-red-700">Requested Amount:</Label>
+                                    <span className="">{formatToIndianRupee(paymentData?.amount)}</span>
                                 </div>
 
                                 <div className="flex flex-col gap-4 pt-4">
-                                    <div className="flex items-center gap-4 w-full">
+                                    <div className="flex gap-4 w-full">
                                         <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                         <Input
                                             type="text"
@@ -452,7 +490,7 @@ export const ProjectPaymentsPaymentWise = () => {
                                             onChange={(e) => setPaymentData({ ...paymentData, utr: e.target.value })}
                                         />
                                     </div>
-                                    {(paymentData?.document_type === "Service Requests" && serviceOrders?.find(i => i?.name === paymentData?.document_name).gst === "true") && <div className="flex items-center gap-4 w-full">
+                                    <div className="flex gap-4 w-full">
                                         <Label className="w-[40%]">TDS Deduction</Label>
                                         <div className="w-full">
                                             <Input
@@ -464,9 +502,10 @@ export const ProjectPaymentsPaymentWise = () => {
                                                     setPaymentData({ ...paymentData, tds: tdsValue })
                                                 }}
                                             />
+                                            {paymentData?.tds > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((paymentData?.amount || 0) - paymentData?.tds)}</span>}
                                         </div>
-                                    </div>}
-                                    <div className="flex items-center gap-4 w-full" >
+                                    </div>
+                                    <div className="flex gap-4 w-full" >
                                         <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
                                         <Input
                                             type="date"
@@ -519,7 +558,7 @@ export const ProjectPaymentsPaymentWise = () => {
                                     {dialogType === "fulfill" ?
                                         <Button
                                             onClick={FilfillPayment}
-                                            disabled={!paymentScreenshot || !paymentData.utr || !paymentData.payment_date}
+                                            disabled={!paymentData.utr || !paymentData.payment_date}
                                             className="flex-1">Confirm
                                         </Button>
                                         :
