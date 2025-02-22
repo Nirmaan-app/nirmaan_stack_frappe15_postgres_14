@@ -270,6 +270,7 @@ export const PurchaseOrder = ({
     amount: "",
     payment_date: "",
     utr: "",
+    tds: ""
   });
 
   const [paymentScreenshot, setPaymentScreenshot] = useState(null);
@@ -1077,26 +1078,29 @@ export const PurchaseOrder = ({
         project: po?.project,
         vendor: po?.vendor,
         utr: newPayment?.utr,
+        tds: newPayment?.tds,
         amount: newPayment?.amount,
         payment_date: newPayment?.payment_date,
         status: "Paid"
       });
 
-      const fileArgs = {
-        doctype: "Project Payments",
-        docname: res?.name,
-        fieldname: "payment_attachment",
-        isPrivate: true,
-      };
-
-      const uploadedFile = await upload(paymentScreenshot, fileArgs);
-
-      await call({
-        doctype: "Project Payments",
-        name: res?.name,
-        fieldname: "payment_attachment",
-        value: uploadedFile.file_url,
-      });
+      if(paymentScreenshot) {
+        const fileArgs = {
+          doctype: "Project Payments",
+          docname: res?.name,
+          fieldname: "payment_attachment",
+          isPrivate: true,
+        };
+  
+        const uploadedFile = await upload(paymentScreenshot, fileArgs);
+  
+        await call({
+          doctype: "Project Payments",
+          name: res?.name,
+          fieldname: "payment_attachment",
+          value: uploadedFile.file_url,
+        });
+      }
 
       await AllPoPaymentsListMutate();
 
@@ -1114,6 +1118,7 @@ export const PurchaseOrder = ({
         amount: "",
         payment_date: "",
         utr: "",
+        tds: ""
       });
 
       setPaymentScreenshot(null);
@@ -2150,7 +2155,7 @@ export const PurchaseOrder = ({
 
                                 <div className="flex flex-col gap-4 pt-4">
                                                             <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                                                <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
                                                                 <div className="w-full">
                                                                 <Input
                                                                     type="number"
@@ -2160,6 +2165,21 @@ export const PurchaseOrder = ({
                                                                 />
                                                                     {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
                                                                 </div> 
+                                                            </div>
+                                                            <div className="flex gap-4 w-full">
+                                                                <Label className="w-[40%]">TDS Amount</Label>
+                                                                <div className="w-full">
+                                                                <Input
+                                                                    type="number"
+                                                                    placeholder="Enter TDS Amount"
+                                                                    value={newPayment.tds}
+                                                                    onChange={(e) => {
+                                                                        const tdsValue = e.target.value;
+                                                                        setNewPayment({ ...newPayment, tds: tdsValue })
+                                                                    }}
+                                                                />
+                                                                {newPayment?.tds > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((newPayment?.amount || 0) - newPayment?.tds)}</span>}
+                                                                </div>
                                                             </div>
                                                             <div className="flex gap-4 w-full">
                                                                 <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
@@ -2220,7 +2240,7 @@ export const PurchaseOrder = ({
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>

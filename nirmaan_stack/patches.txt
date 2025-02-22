@@ -27,3 +27,5 @@ nirmaan_stack.patches.v2_0.quotation_request_make_fill
 nirmaan_stack.patches.v2_0.payment_date_fill
 nirmaan_stack.patches.v2_0.project_gst_patch
 nirmaan_stack.patches.v2_1.project_payments_status
+nirmaan_stack.patches.v2_1.project_payments_amount
+nirmaan_stack.patches.v2_1.project_gst_patch_sr

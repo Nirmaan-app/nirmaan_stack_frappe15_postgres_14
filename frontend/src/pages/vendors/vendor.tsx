@@ -30,13 +30,14 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { ConfigProvider, Menu, MenuProps } from "antd";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { debounce } from "lodash";
 import {
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  FilePenLine
+  FilePenLine,
+  Paperclip
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -131,7 +132,25 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     ifsc: "",
   });
 
+  const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+
+  const handleFileChange = (event) => {
+    setPaymentScreenshot(event.target.files[0]);
+  };
+
+  const [currentPayment, setCurrentPayment] = useState(null);
+
+  const [screenShotDialog, setScreenShotDialog] = useState(false);
+
+  const toggleScreenShotDialog = () => {
+    setScreenShotDialog((prevState) => !prevState);
+  };
+
   const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc();
+
+  const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
+  
+  const { call, loading: callLoading } = useFrappePostCall('frappe.client.set_value')
 
   const { data, error, isLoading, mutate } = useFrappeGetDoc(
     "Vendors",
@@ -258,7 +277,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     `Procurement Requests`
   );
 
-  const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
+  const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList("Projects", {
     fields: ["name", "project_name"],
     limit: 1000,
   });
@@ -268,7 +287,7 @@ const projectValues = projects?.map((item) => ({
   value: item.name,
 })) || [];
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments",
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments",
     {
       fields: ["*"],
       filters: [["vendor", "=", vendorId], ["status", "=", "Paid"]],
@@ -594,7 +613,7 @@ const projectValues = projects?.map((item) => ({
         cell: ({ row }) => {
             const data = row.original;
             return <div  className="font-medium min-w-[130px]">
-              {data?.utr ? (
+              {(data?.utr && data?.payment_attachment) ? (
                 <div className="text-blue-500 underline">
                     {import.meta.env.MODE === "development" ? (
                       <a
@@ -614,6 +633,14 @@ const projectValues = projects?.map((item) => ({
                       </a>
                     )}
                   </div>
+                  ) : data?.utr ? (
+                    <div className="flex items-center gap-1">
+                      {data?.utr}
+                      <Paperclip onClick={() => {
+                        setCurrentPayment(data?.name)
+                        toggleScreenShotDialog()
+                      }} className="w-4 h-4 text-primary cursor-pointer" />
+                    </div>
                   ) : "--"}
               </div>;
         }
@@ -645,7 +672,7 @@ const projectValues = projects?.map((item) => ({
             accessorKey: "payment_date",
             header: ({ column }) => {
                 return (
-                    <DataTableColumnHeader column={column} title="Date" />
+                    <DataTableColumnHeader column={column} title="Payment Date" />
                 )
             },
             cell: ({ row }) => {
@@ -657,7 +684,7 @@ const projectValues = projects?.map((item) => ({
             accessorKey: "amount",
             header: ({ column }) => {
                 return (
-                    <DataTableColumnHeader column={column} title="Amount" />
+                    <DataTableColumnHeader column={column} title="Amount Paid" />
                 )
             },
             cell: ({ row }) => {
@@ -682,6 +709,49 @@ const projectValues = projects?.map((item) => ({
     ],
     [projectValues, projectPayments]
 );
+
+const AddScreenShot = async () => {
+  try {
+
+      const fileArgs = {
+        doctype: "Project Payments",
+        docname: currentPayment,
+        fieldname: "payment_attachment",
+        isPrivate: true,
+      };
+
+      const uploadedFile = await upload(paymentScreenshot, fileArgs);
+
+      await call({
+        doctype: "Project Payments",
+        name: currentPayment,
+        fieldname: "payment_attachment",
+        value: uploadedFile.file_url,
+      });
+
+      await projectPaymentsMutate()
+
+      toggleScreenShotDialog()
+
+      setPaymentScreenshot(null)
+
+      setCurrentPayment(null)
+
+      toast({
+        title: "Success!",
+        description: "Payment Screenshot added successfully!",
+        variant: "success",
+      });
+    
+  } catch (error) {
+    console.log("error", error)
+    toast({
+      title: "Failed!",
+      description: "Failed to add Screenshot!",
+      variant: "destructive",
+    });
+  }
+}
 
   if (
     error ||
@@ -992,6 +1062,58 @@ const projectValues = projects?.map((item) => ({
             project_values={projectValues}
           />
         ))}
+
+                          <AlertDialog open={screenShotDialog} onOpenChange={toggleScreenShotDialog}>
+                            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                <AlertDialogHeader className="text-start">
+                                <AlertDialogTitle className="text-center">
+                                  Attach Screenshot
+                                </AlertDialogTitle>
+                                <div className="flex flex-col gap-2">
+                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
+                                    onClick={() => document.getElementById("file-upload")?.click()}
+                                    >
+                                        <Paperclip size="15px" />
+                                        <span className="p-0 text-sm">Attach Screenshot</span>
+                                        <input
+                                            type="file"
+                                            id={`file-upload`}
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                            disabled={paymentScreenshot ? true : false}
+                                        />
+                                    </div>
+                                    {(paymentScreenshot) && (
+                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
+                                            <span className="text-sm">{paymentScreenshot?.name}</span>
+                                            <button
+                                                className="ml-1 text-red-500"
+                                                onClick={() => setPaymentScreenshot(null)}
+                                            >
+                                                ✖
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex gap-2 items-center pt-4 justify-center">
+                                    {(upload_loading || callLoading) ? <TailSpin color="red" width={40} height={40} /> : (
+                                        <>
+                                        <AlertDialogCancel className="flex-1" asChild>
+                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                        </AlertDialogCancel>
+                                        <Button
+                                            onClick={AddScreenShot}
+                                            disabled={!paymentScreenshot}
+                                            className="flex-1">Confirm
+                                        </Button>
+                                        </>
+                                    )}
+                                </div>
+                                
+                                </AlertDialogHeader>
+                            </AlertDialogContent>
+                        </AlertDialog>
 
       {/* Previous Orders Section  */}
 
