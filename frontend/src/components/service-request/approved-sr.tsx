@@ -134,6 +134,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 setGstEnabled(false)
             }
             setAdvance(parseFloat(service_request?.advance) || 0)
+            if (service_request?.project_gst) {
+                setSelectedGST((prev) => ({ ...prev, gst: service_request?.project_gst }));
+              }
         }
     }, [service_request])
 
