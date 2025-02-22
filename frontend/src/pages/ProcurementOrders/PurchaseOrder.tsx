@@ -1569,25 +1569,27 @@ export const PurchaseOrder = ({
                 !estimatesViewing &&
                 po?.status === "Dispatched" &&
                 !(poPayments?.length > 0) && (
-                  <button
+                  <Button
+                  variant="outline"
                     onClick={toggleRevertDialog}
-                    className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20"
+                    className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                   >
                     <Undo2 className="w-4 h-4" />
                     Revert
-                  </button>
+                  </Button>
                 )}
               {(po?.status !== "PO Approved" ||
                 summaryPage ||
                 accountsPage ||
                 estimatesViewing) && (
-                <button
+                <Button
+                  variant="outline"
                   onClick={togglePoPdfSheet}
-                  className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 hover:bg-red-500/20"
+                  className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                 >
                   <Eye className="w-4 h-4" />
                   Preview
-                </button>
+                </Button>
               )}
             </div>
             {!summaryPage &&
@@ -4046,15 +4048,16 @@ export const PurchaseOrder = ({
                           </div>
                         </div>
 
-                        <div className=" border-b-2 border-gray-600 pb-1 mb-1">
-                          <div className="flex justify-between">
-                            <div className="text-xs text-gray-600 font-normal">
-                              1st Floor, 234, 9th Main, 16th Cross, Sector 6,
-                              HSR Layout, Bengaluru - 560102, Karnataka
-                            </div>
-                            <div className="text-xs text-gray-600 font-normal">
-                              GST: 29ABFCS9095N1Z9
-                            </div>
+                        <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
+                          <div className="text-xs text-gray-600 font-normal">
+                            {po?.project_gst
+                              ? po?.project_gst === "29ABFCS9095N1Z9"
+                                ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
+                                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
+                              : "Please set company GST number in order to display the Address!"}
+                          </div>
+                          <div className="text-xs text-gray-600 font-normal">
+                            GST: {po?.project_gst || "N/A"}
                           </div>
                         </div>
                       </th>

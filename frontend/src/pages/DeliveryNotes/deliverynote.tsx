@@ -453,21 +453,18 @@
 // }
 
 
-import { useEffect, useState, useRef } from 'react';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck, Paperclip, MessageCircleMore } from "lucide-react";
 import { Badge } from '@/components/ui/badge';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { ArrowDown, ArrowUp, Check, CheckCheck, ListChecks, MessageCircleMore, Paperclip, Pencil, Printer, Undo2 } from "lucide-react";
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 // import { z } from "zod";
-import { useToast } from '@/components/ui/use-toast';
-import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
-import redlogo from "@/assets/red-logo.png"
-import logo from "@/assets/logo-svg.svg"
-import { useReactToPrint } from 'react-to-print'
+import logo from "@/assets/logo-svg.svg";
+import { AddressView } from '@/components/address-view';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -478,10 +475,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { useUserData } from '@/hooks/useUserData';
+} from "@/components/ui/alert-dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { AddressView } from '@/components/address-view'
+import { useToast } from '@/components/ui/use-toast';
+import { useUserData } from '@/hooks/useUserData';
+import { useReactToPrint } from 'react-to-print';
+import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 
 
 export default function DeliveryNote() {
@@ -949,17 +948,18 @@ export default function DeliveryNote() {
                         </div>
                       </div>
                     </div>
-                    <div className=" border-b-2 border-gray-600 pb-1 mb-1">
-                      <div className="flex justify-between">
-                        <div className="text-xs text-gray-500 font-normal">
-                          1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR
-                          Layout, Bengaluru - 560102, Karnataka
+                    <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
+                          <div className="text-xs text-gray-600 font-normal">
+                            {data?.project_gst
+                              ? data?.project_gst === "29ABFCS9095N1Z9"
+                                ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
+                                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
+                              : "Please set company GST number in order to display the Address!"}
+                          </div>
+                          <div className="text-xs text-gray-600 font-normal">
+                            GST: {data?.project_gst || "N/A"}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 font-normal">
-                          GST: 29ABFCS9095N1Z9
-                        </div>
-                      </div>
-                    </div>
                     <div className="flex justify-between">
                       <div>
                         <div className="text-gray-500 text-sm pb-2 text-left">

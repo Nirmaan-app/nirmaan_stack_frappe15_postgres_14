@@ -14,6 +14,7 @@
   "status",
   "notes",
   "gst",
+  "project_gst",
   "advance"
  ],
  "fields": [
@@ -69,11 +70,16 @@
    "fieldname": "advance",
    "fieldtype": "Data",
    "label": "Advance"
+  },
+  {
+   "fieldname": "project_gst",
+   "fieldtype": "Data",
+   "label": "Project GST"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:56:44.147663",
+ "modified": "2025-02-22 13:00:28.307780",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",
