@@ -288,7 +288,6 @@ export function NewSidebar() {
       ],
       limit: 10000,
     },
-
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
       : null
@@ -310,7 +309,6 @@ export function NewSidebar() {
       fields: ["status", "project", "vendor"],
       limit: 10000,
     },
-
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
       : null
@@ -332,7 +330,6 @@ export function NewSidebar() {
       fields: ["status", "project", "vendor", "name"],
       limit: 100000,
     },
-
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
       : null
