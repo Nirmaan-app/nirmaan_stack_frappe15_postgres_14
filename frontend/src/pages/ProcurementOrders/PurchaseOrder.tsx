@@ -3080,7 +3080,8 @@ export const PurchaseOrder = ({
               !accountsPage &&
               !estimatesViewing &&
               ["PO Approved"].includes(po?.status) &&
-              po?.merged !== "true" && (
+              po?.merged !== "true" && 
+              !(poPayments?.length > 0) && (
                 <Button
                   onClick={toggleAmendPOSheet}
                   variant={"outline"}
