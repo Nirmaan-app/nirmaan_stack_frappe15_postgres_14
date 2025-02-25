@@ -380,7 +380,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     <Badge>{service_request?.status}</Badge>
                 </div>
               <div className="flex items-center gap-2">
-                                {!summaryPage && !accountsPage && (
+                                {!summaryPage && !accountsPage && !(projectPayments?.length > 0) && (
                                     <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8">
                                         <PencilRuler className="w-4 h-4" />
                                         Amend
@@ -388,7 +388,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 )}
 
                                 <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
-                                    <SheetContent>
+                                    <SheetContent className="overflow-auto">
                                         <SheetHeader>
                                             <SheetTitle className="text-center mb-6">Amend SR!</SheetTitle>
                                         </SheetHeader>
