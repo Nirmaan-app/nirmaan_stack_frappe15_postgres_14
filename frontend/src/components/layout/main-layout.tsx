@@ -1,44 +1,28 @@
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { NavBar } from "../nav/nav-bar";
-import React, { useContext, useEffect, useState } from "react";
-import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "../ui/sidebar";
-import { NewSidebar } from "./NewSidebar";
-import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
+import svg from "@/assets/Vector.svg";
 import ScrollToTop from "@/hooks/ScrollToTop";
+import { useUserData } from "@/hooks/useUserData";
+import { UserContext } from "@/utils/auth/UserProvider";
+import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
+import { Dropdown, Menu } from "antd";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { ArrowLeft, CirclePlus } from "lucide-react";
+import { useContext, useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Separator } from "../ui/separator";
-import {
-  Breadcrumb,
-  BreadcrumbEllipsis,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "../ui/breadcrumb";
-import { UserNav } from "../nav/user-nav";
-import { Notifications } from "../nav/notifications";
+import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { Badge } from "../ui/badge";
-import nLogoBlack from "@/assets/icons.svg";
-import { ArrowLeft, CirclePlus } from "lucide-react";
-import { DownOutlined } from "@ant-design/icons";
-import { ConfigProvider, Dropdown, Menu, Space } from "antd";
-import svg from "@/assets/Vector.svg";
-import { Button } from "../ui/button";
-import { UserContext } from "@/utils/auth/UserProvider";
-import { useUserData } from "@/hooks/useUserData";
+import { Separator } from "../ui/separator";
+import {
+  SidebarTrigger,
+  useSidebar
+} from "../ui/sidebar";
+import { NewSidebar } from "./NewSidebar";
 
 export const MainLayout = () => {
   const {
@@ -265,7 +249,7 @@ export const MainLayout = () => {
 
   return (
     <>
-      <div className="flex w-full h-screen relative">
+      <div className="flex w-full h-dvh relative">
         {isMobile && (
           <div className="absolute top-[10px] -left-2 shadow-2xl">
             <SidebarTrigger />

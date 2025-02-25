@@ -2350,7 +2350,7 @@ export const PurchaseOrder = ({
                 <div className="flex items-center gap-1">
                   Payment Terms
                   {!po?.project_gst && (
-                    <TriangleAlert className="text-primary" />
+                    <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
                   )}
                 </div>
                 {!summaryPage &&
