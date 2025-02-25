@@ -1,22 +1,22 @@
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { useNavigate, useParams } from "react-router-dom";
-import { NewPRSkeleton } from "../ui/skeleton";
+import imageUrl from "@/assets/user-icon.jpeg";
 import { useUserData } from "@/hooks/useUserData";
-import { useToast } from "../ui/use-toast";
-import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCheck, CirclePlus, ListChecks, MessageCircleMore, Pencil, Replace, Trash2, Undo } from "lucide-react";
-import { Card, CardHeader, CardTitle } from "../ui/card";
-import imageUrl from "@/assets/user-icon.jpeg"
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
-import { Dialog, DialogContent, DialogTrigger, DialogDescription, DialogFooter, DialogHeader, DialogClose, DialogTitle } from "../ui/dialog";
-import { Button } from "../ui/button";
-import { Label } from "../ui/label";
-import { Textarea } from "../ui/textarea";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { ArrowLeft, CheckCheck, CirclePlus, ListChecks, MessageCircleMore, Pencil, Trash2, Undo } from "lucide-react";
+import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
+import { Button } from "../ui/button";
+import { Card, CardHeader, CardTitle } from "../ui/card";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { NewPRSkeleton } from "../ui/skeleton";
+import { Textarea } from "../ui/textarea";
+import { useToast } from "../ui/use-toast";
 
 const NewSR = () => {
 
@@ -175,8 +175,6 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
             setStack([...stack]);
         }
     };
-
-    console.log("order", orderList)
 
     return (
         <>
