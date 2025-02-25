@@ -661,15 +661,17 @@ export function NewSidebar() {
                     ? adminAmendedSRCount
                     : amendedSRCount,
               },
-              {
-                key: "/approve-payments",
-                label: "Approve Payments",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminPaymentsCount.requested
-                    : paymentsCount.requested,
-              },
+              ...(role !== "Nirmaan Project Lead Profile" ? [
+                {
+                  key: "/approve-payments",
+                  label: "Approve Payments",
+                  count:
+                    role === "Nirmaan Admin Profile" ||
+                    user_id === "Administrator"
+                      ? adminPaymentsCount.requested
+                      : paymentsCount.requested,
+                },
+              ] : []),
             ],
           },
         ]

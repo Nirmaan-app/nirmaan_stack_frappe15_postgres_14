@@ -2,7 +2,6 @@ import { useUserData } from "@/hooks/useUserData";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -19,10 +18,9 @@ import {
   ArrowLeft,
   CheckCheck,
   CirclePlus,
-  PencilRuler,
   Settings2,
   Trash2,
-  Undo2,
+  Undo2
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -63,7 +61,6 @@ import { toast } from "../ui/use-toast";
 
 const SelectServiceVendor = () => {
   const { srId: id }: any = useParams();
-  const [project, setProject] = useState<string>();
 
   const navigate = useNavigate()
 
@@ -73,18 +70,6 @@ const SelectServiceVendor = () => {
     error: sr_data_error,
     mutate: sr_data_mutate
   } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id);
-
-  useEffect(() => {
-    if (sr_data) {
-      setProject(sr_data?.project);
-    }
-  }, [sr_data]);
-
-  const {
-    data: project_data,
-    isLoading: project_loading,
-    error: project_error,
-  } = useFrappeGetDoc<ProjectsType>("Projects", project);
 
   const {
     data: usersList,
@@ -115,7 +100,6 @@ const SelectServiceVendor = () => {
   // console.log("universalComments", universalComments)
 
   if(sr_data_loading ||
-    project_loading ||
     userLoading ||
     universalCommentsLoading) {
       return (
@@ -126,13 +110,12 @@ const SelectServiceVendor = () => {
     }
   
   if(sr_data_error ||
-    project_error ||
     userError ||
     universalCommentsError) {
       return <h1>Error</h1>
     }
 
-    if ( !["Created", "Rejected", "Edit"].includes(sr_data?.status)) return (
+    if ( !["Created", "Rejected"].includes(sr_data?.status)) return (
       <div className="flex items-center justify-center h-[90vh]">
           <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
               <h2 className="text-2xl font-semibold text-gray-800">
@@ -165,7 +148,6 @@ const SelectServiceVendor = () => {
         <SelectServiceVendorPage
           sr_data={sr_data}
           sr_data_mutate={sr_data_mutate}
-          project_data={project_data}
           universalComments={universalComments}
           usersList={usersList}
         />
@@ -175,12 +157,12 @@ const SelectServiceVendor = () => {
 interface SelectServiceVendorPageProps {
   sr_data: ServiceRequestsType | undefined
   usersList?: NirmaanUsersType[] | undefined
-  universalComments: NirmaanCommentsType[] | undefined
+  universalComments?: NirmaanCommentsType[] | undefined
   sr_data_mutate?: any
-  project_data?: any
+  amend?: boolean
 }
 
-export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments, sr_data_mutate }: SelectServiceVendorPageProps) => {
+export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments, sr_data_mutate, amend = false }: SelectServiceVendorPageProps) => {
   const navigate = useNavigate();
   const userData = useUserData();
 
@@ -197,13 +179,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
   const [isNextEnabled, setIsNextEnabled] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
   const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
-
-
-  const [cancelAmendDialog, setCancelAmendDialog] = useState(false);
-
-  const toggleCancelAmendDialog = () => {
-    setCancelAmendDialog((prevState) => !prevState);
-  };
 
   // console.log("sr_data", JSON.parse(sr_data?.service_order_list))
 
@@ -461,7 +436,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
   // console.log("selecedVendor", selectedVendor)
 
   useEffect(() => {
-    if (["Rejected", "Edit"].includes(sr_data?.status) && vendor_list) {
+    if ((["Rejected"].includes(sr_data?.status) || amend) && vendor_list) {
       const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor);
       const selectedVendor = {
         value: vendor?.name,
@@ -472,7 +447,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       };
       setSelectedvendor(selectedVendor);
     }
-    if (["Rejected", "Edit"].includes(sr_data?.status)) {
+    if (["Rejected"].includes(sr_data?.status) || amend) {
       let amounts = {};
       JSON.parse(sr_data?.service_order_list)?.list?.forEach((item) => {
         amounts = { ...amounts, [item.id]: item?.rate };
@@ -480,11 +455,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       setAmounts(amounts);
     }
   }, [sr_data, vendor_list]);
-
-  // console.log("amounts", amounts)
-  // console.log("sr_data", sr_data)
-
-  // console.log("selected vendor", selectedVendor)
 
   const handleSubmit = async () => {
     try {
@@ -564,70 +534,44 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     }
   };
 
-  const handleAmendSR = async () => {
-    try {
-      await updateDoc("Service Requests", sr_data?.name, {
-        vendor: selectedVendor?.value,
-        service_category_list: categories,
-        service_order_list: { list: order },
-        status: "Amendment"
-      });
-
-      if (comment) {
-        await createDoc("Nirmaan Comments", {
-          comment_type: "Comment",
-          reference_doctype: "Service Requests",
-          reference_name: sr_data?.name,
-          comment_by: userData?.user_id,
-          content: comment,
-          subject: "sr amendment",
-        });
+    const handleAmendSR = async () => {
+        try {
+          await updateDoc("Service Requests", sr_data?.name, {
+            vendor: selectedVendor?.value,
+            service_category_list: categories,
+            service_order_list: { list: order },
+            status: "Amendment"
+          });
+    
+          if (comment) {
+            await createDoc("Nirmaan Comments", {
+              comment_type: "Comment",
+              reference_doctype: "Service Requests",
+              reference_name: sr_data?.name,
+              comment_by: userData?.user_id,
+              content: comment,
+              subject: "sr amendment",
+            });
+          }
+    
+          await sr_data_mutate();
+    
+          toast({
+            title: "Success!",
+            description: `${sr_data?.name} amended and sent to Project Lead!`,
+            variant: "success",
+          });
+    
+          navigate("/approved-sr");
+        } catch (error) {
+          toast({
+            title: "Failed!",
+            description: `Unable to amend SR: ${sr_data?.name}`,
+            variant: "destructive",
+          });
+          console.log("error while amending SR", error);
+        }
       }
-
-      await sr_data_mutate();
-
-      toast({
-        title: "Success!",
-        description: `${sr_data?.name} amended and sent to Project Lead!`,
-        variant: "success",
-      });
-
-      navigate("/approved-sr");
-    } catch (error) {
-      toast({
-        title: "Failed!",
-        description: `Unable to amend SR: ${sr_data?.name}`,
-        variant: "destructive",
-      });
-      console.log("error while amending SR", error);
-    }
-  }
-
-  const handleCancelAmendment = async () => {
-    try {
-      await updateDoc("Service Requests", sr_data?.name, {
-        status: "Approved"
-      })
-
-      await sr_data_mutate()
-
-      toast({
-        title: "Success!",
-        description: `SR: ${sr_data?.name} Amendment has been cancelled.`,
-        variant: "success",
-      });
-
-      navigate(`/approved-sr/${sr_data?.name}`);
-      
-    } catch (error) {
-      console.log("error while cancelling amendment", error);
-      toast({
-        title: "Failed!",
-        description: `Unable to cancel amendment`,
-        variant: "destructive",
-      });
-    }
-  }
 
   const handleInputChange = (id: string, field: string, value: string) => {
     if (field) {
@@ -641,31 +585,35 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
   // console.log("orderData", order)
 
   return (
-    <>
+    <div className="flex-1 space-y-4">
+
+      {section === "summary" && (
+        <div className="flex items-center">
+        <ArrowLeft
+          className="cursor-pointer"
+          onClick={() => setSection("choose-vendor")}
+        />
+        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
+          Comparison
+        </h2>
+      </div>
+      )}
+
+    {!amend && (
+      <ProcurementHeaderCard orderData={sr_data} sr={true} />
+    )}
+
       {section === "choose-vendor" && (
         <>
-          <div className="flex-1 space-y-4">
-            <div className="flex items-center">
-              {/* {resolve && (
-                            <ArrowLeft className='cursor-pointer' onClick={() => setPage("Summary")} />
-                        )} */}
-              {/* {sr_data?.status === "Rejected" ? (
-                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Resolve</h2>
-                        ) : (
-                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Service Vendor </h2>
-                        )} */}
-            </div>
-            <ProcurementHeaderCard orderData={sr_data} sr={true} />
-
             <div className="flex justify-between items-center">
               <div className="text-lg text-gray-400">
-                Select vendor for this SR:
+                {amend ? "Change Vendor Here" : "Select vendor for this SR"}
               </div>
               <Sheet>
                 <SheetTrigger className="text-blue-500">
                   <div className="text-base text-blue-400 text-center">
                     <CirclePlus className="w-4 h-4 inline-block" />{" "}
-                    <span>Add New Vendor</span>
+                    <span>New Vendor</span>
                   </div>
                 </SheetTrigger>
                 <SheetContent className="overflow-auto">
@@ -704,21 +652,21 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-red-100">
-                      <TableHead className="w-[10%] text-red-700 font-extrabold">
+                      <TableHead className="text-red-700 font-extrabold">
                         Service
                       </TableHead>
-                      <TableHead className="w-[50%]">Description</TableHead>
-                      <TableHead className="w-[10%]">Unit</TableHead>
-                      <TableHead className="w-[10%]">Quantity</TableHead>
-                      <TableHead className="w-[20%]">Rate</TableHead>
-                      <TableHead className="w-[10%]">Amount</TableHead>
-                      <TableHead className="w-[10%]">Delete</TableHead>
+                      <TableHead className="min-w-[200px] w-[40%]">Description</TableHead>
+                      <TableHead className="min-w-[100px]">Unit</TableHead>
+                      <TableHead className="min-w-[100px]">Quantity</TableHead>
+                      <TableHead className="min-w-[100px]">Rate</TableHead>
+                      <TableHead className="min-w-[100px]">Amount</TableHead>
+                      <TableHead className="">Delete</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {order?.map((item: any) => (
                       <TableRow key={item.id}>
-                        <TableCell className="w-[10%] font-semibold">
+                        <TableCell className="font-semibold">
                           {/* {item.category} */}
                           <Select
                             value={item.category}
@@ -730,13 +678,13 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                             <SelectContent>
                               {category_data
                                 ?.map((cat) => (
-                                  <SelectItem value={cat?.name}>{cat?.name}</SelectItem>
+                                  <SelectItem key={cat?.name} value={cat?.name}>{cat?.name}</SelectItem>
                                 ))}
                             </SelectContent>
                           </Select>
                         </TableCell>
                         {/* Description Field */}
-                        <TableCell className="w-[50%] whitespace-pre-wrap">
+                        <TableCell className="whitespace-pre-wrap">
                           <Textarea
                             value={item?.description || ""}
                             onChange={(e) =>
@@ -750,7 +698,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                         </TableCell>
 
                         {/* UOM Field */}
-                        <TableCell className="w-[10%]">
+                        <TableCell>
                           <Input
                             type="text"
                             value={item?.uom || ""}
@@ -761,7 +709,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                         </TableCell>
 
                         {/* Quantity Field */}
-                        <TableCell className="w-[10%]">
+                        <TableCell>
                           <Input
                             type="number"
                             value={item?.quantity || ""}
@@ -774,7 +722,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                             }
                           />
                         </TableCell>
-                        <TableCell className="w-[20%]">
+                        <TableCell>
                           <Input
                             type="text"
                             value={
@@ -786,12 +734,12 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                             disabled={!selectedVendor}
                           />
                         </TableCell>
-                        <TableCell className="w-[10%] text-primary">
+                        <TableCell className="text-primary">
                           {formatToIndianRupee(
                             item?.quantity * (amounts[item.id] || 0)
                           )}
                         </TableCell>
-                        <TableCell className="w-[10%]">
+                        <TableCell>
                           <Trash2 className="text-red-500 cursor-pointer" onClick={() => {
                             setOrder(prev => prev.filter(i => i.id !== item.id))
                             const updatedAmounts = { ...amounts }
@@ -809,41 +757,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
               <Button onClick={() => setOrder(prev => [...prev, { id: uuidv4(), category: "", description: "", quantity: "", uom: "", rate: "" }])}>New Service</Button>
               <div className="flex items-center gap-2">
 
-                    {sr_data?.status === "Edit" && (
-                    <Button
-                    onClick={toggleCancelAmendDialog}
-                    >
-                      Cancel Amendment
-                    </Button>
-                    )}
-                            <Dialog open={cancelAmendDialog} onOpenChange={toggleCancelAmendDialog}>
-                                  <DialogContent>
-                                      <DialogHeader>
-                                        <DialogTitle>
-                                          Are you sure?
-                                        </DialogTitle>
-                                      </DialogHeader>
-
-                                      <DialogDescription>
-                                        Clicking on Confirm will cancel the amendment!
-                                      </DialogDescription>
-
-                                      <div className="flex items-center justify-end gap-2">
-                                      {update_loading ? <TailSpin color="red" height={40} width={40} /> : (
-                                        <>
-                                        <DialogClose asChild>
-                                          <Button variant={"outline"}>Cancel</Button>
-                                        </DialogClose>
-                                        <Button onClick={handleCancelAmendment}>
-                                          Confirm
-                                        </Button>
-                                        </>
-                                        )}
-                                      </div>
-                                  
-                                  </DialogContent>
-                                </Dialog>
-
               <Button
                 disabled={
                   !isNextEnabled ||
@@ -859,11 +772,11 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
 
               </div>
             </div>
-            <div className="flex items-center space-y-2">
+            {!amend && (
+              <>
               <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">
-                SR Comments
-              </h2>
-            </div>
+              SR Comments
+            </h2>
             <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2">
               {universalComments?.length ? (
                 universalComments?.map((comment) => (
@@ -899,40 +812,12 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                 <span className="text-xs font-semibold">No Comments Found</span>
               )}
             </div>
-          </div>
+              </>
+            )}
         </>
       )}
       {section == "summary" && (
         <>
-          <div className="flex-1 space-y-4">
-            <div className="flex items-center">
-              <ArrowLeft
-                className="cursor-pointer"
-                onClick={() => setSection("choose-vendor")}
-              />
-              <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
-                Comparison
-              </h2>
-            </div>
-            <ProcurementHeaderCard orderData={sr_data} sr={true} />
-          </div>
-          {/* <div className='pt-6 overflow-x-auto'>
-                        <ConfigProvider
-                            // theme={{
-                            //     token: {
-                            //         colorPrimary: '#FF2828',
-                            //         borderRadius: 4,
-                            //         colorBgContainer: '#FFFFFF',
-                            //     },
-                            // }}
-                        >
-                            <AntTable
-                                dataSource={order}
-                                columns={columns}
-                            />
-                        </ConfigProvider>
-                    </div> */}
-
           <div className="mt-6 overflow-x-auto">
             <ConfigProvider>
               <AntTable
@@ -966,15 +851,11 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                 <Button className="flex items-center gap-1">
                   {sr_data?.status === "Rejected" ? (
                     <Settings2 className="h-4 w-4" />
-                  ) : sr_data?.status === "Edit" ? (
-                    <PencilRuler className="w-4 h-4" />
                   ) : (
                     <ArrowBigUpDash />
                   )}
                   {sr_data?.status === "Rejected"
                     ? "Resolve"
-                    : sr_data?.status === "Edit"
-                    ? "Amend"
                     : "Send for Approval"}
                 </Button>
               </DialogTrigger>
@@ -985,8 +866,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                     Click on Confirm to{" "}
                     {sr_data?.status === "Rejected"
                       ? "resolve and send for approval"
-                      : sr_data?.status === "Edit"
-                     ? "Send for Amendment Approval"
+                      : amend ? "Amend and send for approval!"
                       : "Submit"}
                     !
                     <Textarea
@@ -1002,8 +882,9 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                   </DialogDescription>
                 </DialogHeader>
                 <DialogDescription className="flex items-center justify-center gap-2">
-                  <DialogClose>
+                  <DialogClose asChild>
                     <Button
+                      disabled={create_loading || update_loading}
                       variant="secondary"
                       className="flex items-center gap-1"
                     >
@@ -1027,14 +908,15 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                         </>
                       )}
                     </Button>
-                  ) :  sr_data?.status === "Edit" ? (
+                  ) : 
+                  amend ? (
                     <Button
                       variant="default"
                       className="flex items-center gap-1"
                       onClick={handleAmendSR}
-                      disabled={update_loading}
+                      disabled={create_loading || update_loading}
                     >
-                      {update_loading ? (
+                      {create_loading || update_loading ? (
                         <TailSpin width={20} height={20} color="white" />
                       ) : (
                         <>
@@ -1044,7 +926,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                       )}
                     </Button>
                   ) :
-                  
                   (
                     <Button
                       variant="default"
@@ -1068,7 +949,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
           </div>
         </>
       )}
-    </>
+    </div>
   );
 };
 

@@ -1,28 +1,26 @@
-import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
-import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
-import { useNavigate, useParams } from "react-router-dom"
-import { NewPRSkeleton } from "../ui/skeleton";
-import { useEffect, useRef, useState } from "react";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
+import logo from "@/assets/logo-svg.svg";
 import { useUserData } from "@/hooks/useUserData";
-import { ArrowLeft, ListChecks, Printer, Settings2, Trash2, Undo2, UserSearch } from "lucide-react";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
-import { Button } from "../ui/button";
-import { toast } from "../ui/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Label } from "../ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
-import { Timeline } from "antd";
-import { Badge } from "../ui/badge";
-import { SelectServiceVendorPage } from "./select-service-vendor";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { Timeline } from "antd";
+import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { ListChecks, Printer, Settings2, Trash2, Undo2, UserSearch } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
-import redlogo from "@/assets/red-logo.png"
-import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
-import logo from "@/assets/logo-svg.svg"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Label } from "../ui/label";
+import { NewPRSkeleton } from "../ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { toast } from "../ui/use-toast";
 
 const SrSummary = () => {
 
@@ -624,9 +622,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                     </>
                 )
             }
-            {/* {page === "Resolve" && (
-                <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
-            )} */}
         </div >
     )
 }
