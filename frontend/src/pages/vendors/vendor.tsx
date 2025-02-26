@@ -291,7 +291,8 @@ const projectValues = projects?.map((item) => ({
     {
       fields: ["*"],
       filters: [["vendor", "=", vendorId], ["status", "=", "Paid"]],
-      limit: 100000
+      limit: 100000,
+      orderBy: {field: "payment_date", order: "asc"}
     }
   );
 
@@ -1161,10 +1162,6 @@ const AddScreenShot = async () => {
             project_values={projectValues}
           />
         ))}
-
-      {current === "vendorPayments"  && (
-        <div>hello payments</div>
-      )}
     </div>
   );
 };

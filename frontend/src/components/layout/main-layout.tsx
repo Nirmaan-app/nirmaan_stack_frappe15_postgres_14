@@ -1,64 +1,32 @@
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { NavBar } from "../nav/nav-bar";
-import React, { useContext, useEffect, useState } from "react";
-import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "../ui/sidebar";
-import { NewSidebar } from "./NewSidebar";
-import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
+import svg from "@/assets/Vector.svg";
 import ScrollToTop from "@/hooks/ScrollToTop";
+import { Dropdown, Menu } from "antd";
+import { useFrappeGetDoc } from "frappe-react-sdk";
+import { ArrowLeft } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
+import { RenderRightActionButton } from "../helpers/renderRightActionButton";
 import { Separator } from "../ui/separator";
 import {
-  Breadcrumb,
-  BreadcrumbEllipsis,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "../ui/breadcrumb";
-import { UserNav } from "../nav/user-nav";
-import { Notifications } from "../nav/notifications";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
-import { Badge } from "../ui/badge";
-import nLogoBlack from "@/assets/icons.svg";
-import { ArrowLeft, CirclePlus } from "lucide-react";
-import { DownOutlined } from "@ant-design/icons";
-import { ConfigProvider, Dropdown, Menu, Space } from "antd";
-import svg from "@/assets/Vector.svg";
-import { Button } from "../ui/button";
-import { UserContext } from "@/utils/auth/UserProvider";
-import { useUserData } from "@/hooks/useUserData";
+  SidebarTrigger,
+  useSidebar
+} from "../ui/sidebar";
+import { NewSidebar } from "./NewSidebar";
 
 export const MainLayout = () => {
-  const {
-    setProcurementRequestError,
-    setProcurementRequestList,
-    setProcurementRequestLoading,
-    setProjects,
-    setProjectsError,
-    setProjectsLoading,
-  } = useFrappeDataStore();
+  // const {
+  //   setProcurementRequestError,
+  //   setProcurementRequestList,
+  //   setProcurementRequestLoading,
+  //   setProjects,
+  //   setProjectsError,
+  //   setProjectsLoading,
+  // } = useFrappeDataStore();
 
   const [project, setProject] = useState(null);
 
   const navigate = useNavigate();
-
-  const { selectedProject, toggleNewItemDialog } = useContext(UserContext);
-
-  const {role} = useUserData()
-
-  // console.log("selectedProject", selectedProject)
 
   const [prId, setPrId] = useState(null);
   const [poId, setPoId] = useState(null);
@@ -101,26 +69,6 @@ export const MainLayout = () => {
   const [locationsPaths, setLocationsPaths] = useState([]);
   const [currentRoute, setCurrentRoute] = useState(null);
 
-  // console.log('selectedProject', selectedProject)
-
-  const newButtonRoutes = {
-    "/projects": {
-      label: "New Project",
-      route: "projects/new-project",
-    },
-    "/users": {
-      label: "New User",
-      route: "users/new-user",
-    },
-    "/vendors": {
-      label: "New Vendor",
-      route: "vendors/new-vendor",
-    },
-    "/customers": {
-      label: "New Customer",
-      route: "customers/new-customer",
-    },
-  };
 
   useEffect(() => {
     const locationsArray = location.pathname?.slice(1)?.split("/") || [];
@@ -212,50 +160,50 @@ export const MainLayout = () => {
     setSrId(srId);
   }, [location]);
 
-  const {
-    data: procurement_request_list,
-    isLoading: procurement_request_list_loading,
-    error: procurement_request_list_error,
-  } = useFrappeGetDocList(
-    "Procurement Requests",
-    {
-      fields: ["*"],
-      limit: 10000,
-    },
-    "All Procurement Requests"
-  );
-  const {
-    data: projects,
-    isLoading: projects_loading,
-    error: projects_error,
-  } = useFrappeGetDocList(
-    "Projects",
-    {
-      fields: ["*"],
-      limit: 10000,
-    },
-    "All Projects"
-  );
+  // const {
+  //   data: procurement_request_list,
+  //   isLoading: procurement_request_list_loading,
+  //   error: procurement_request_list_error,
+  // } = useFrappeGetDocList(
+  //   "Procurement Requests",
+  //   {
+  //     fields: ["*"],
+  //     limit: 10000,
+  //   },
+  //   "All Procurement Requests"
+  // );
+  // const {
+  //   data: projects,
+  //   isLoading: projects_loading,
+  //   error: projects_error,
+  // } = useFrappeGetDocList(
+  //   "Projects",
+  //   {
+  //     fields: ["*"],
+  //     limit: 10000,
+  //   },
+  //   "All Projects"
+  // );
 
-  useEffect(() => {
-    if (procurement_request_list) {
-      setProcurementRequestList(procurement_request_list);
-    }
-    setProcurementRequestError(procurement_request_list_error);
-    setProcurementRequestLoading(procurement_request_list_loading);
-  }, [
-    procurement_request_list,
-    procurement_request_list_loading,
-    procurement_request_list_error,
-  ]);
+  // useEffect(() => {
+  //   if (procurement_request_list) {
+  //     setProcurementRequestList(procurement_request_list);
+  //   }
+  //   setProcurementRequestError(procurement_request_list_error);
+  //   setProcurementRequestLoading(procurement_request_list_loading);
+  // }, [
+  //   procurement_request_list,
+  //   procurement_request_list_loading,
+  //   procurement_request_list_error,
+  // ]);
 
-  useEffect(() => {
-    if (projects) {
-      setProjects(projects);
-    }
-    setProjectsError(projects_error);
-    setProjectsLoading(projects_loading);
-  }, [projects, projects_loading, projects_error]);
+  // useEffect(() => {
+  //   if (projects) {
+  //     setProjects(projects);
+  //   }
+  //   setProjectsError(projects_error);
+  //   setProjectsLoading(projects_loading);
+  // }, [projects, projects_loading, projects_error]);
 
   const { isMobile } = useSidebar();
 
@@ -265,7 +213,7 @@ export const MainLayout = () => {
 
   return (
     <>
-      <div className="flex w-full h-screen relative">
+      <div className="flex w-full h-dvh relative">
         {isMobile && (
           <div className="absolute top-[10px] -left-2 shadow-2xl">
             <SidebarTrigger />
@@ -297,71 +245,10 @@ export const MainLayout = () => {
                 </div>
               </Dropdown>
             </div>
-            {Object.keys(newButtonRoutes)?.includes(location.pathname) ? (
-              <Button
-                className="sm:mr-4 mr-2"
-                onClick={() =>
-                  navigate(newButtonRoutes[location.pathname]?.route)
-                }
-              >
-                <CirclePlus className="w-5 h-5 pr-1 " />
-                Add{" "}
-                <span className="hidden md:flex pl-1">
-                  {newButtonRoutes[location.pathname]?.label}
-                </span>
-              </Button>
-            ) : location.pathname === "/prs&milestones/procurement-requests" ? (
-              selectedProject && (
-                <Button
-                  className="sm:mr-4 mr-2"
-                  onClick={() =>
-                    navigate(
-                      `/prs&milestones/procurement-requests/${selectedProject}/new-pr`
-                    )
-                  }
-                >
-                  <CirclePlus className="w-5 h-5 pr-1 " />
-                  Add <span className="hidden md:flex pl-1">New PR</span>
-                </Button>
-              )
-            ) : location.pathname === "/service-requests" ? (
-              selectedProject && (
-                <Button
-                  className="sm:mr-4 mr-2"
-                  onClick={() =>
-                    navigate(`/service-requests/${selectedProject}/new-sr`)
-                  }
-                >
-                  <CirclePlus className="w-5 h-5 pr-1 " />
-                  Add <span className="hidden md:flex pl-1">New SR</span>
-                </Button>
-              )
-            ) : location.pathname === "/items" ? (
-              <Button onClick={toggleNewItemDialog} className="sm:mr-4 mr-2">
-                <CirclePlus className="w-5 h-5 pr-1" />
-                Add <span className="hidden md:flex pl-1">New Item</span>
-              </Button>
-            ) : location.pathname === "/" && ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button className="sm:mr-4 mr-2">
-                    <CirclePlus className="w-5 h-5 pr-1" />
-                    Add
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>Urgent PR</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate("/service-requests")}>Service Request</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )
-            : (
-              projectData && (
-                <Badge className={`sm:mr-4 mr-2 ${projectData?.project_name?.length > 24 ? "max-sm:text-[9px]" : "max-sm:text-[11px]"}`}>
-                  {projectData?.project_name}
-                </Badge>
-              )
-            )}
+            {RenderRightActionButton({
+                locationPath: location.pathname,
+                projectData,
+              })}
           </header>
           <main
             className={`flex-1 pb-4 pt-2 px-2 overflow-auto`}

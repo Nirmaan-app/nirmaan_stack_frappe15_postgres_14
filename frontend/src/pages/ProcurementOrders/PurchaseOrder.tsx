@@ -2350,7 +2350,7 @@ export const PurchaseOrder = ({
                 <div className="flex items-center gap-1">
                   Payment Terms
                   {!po?.project_gst && (
-                    <TriangleAlert className="text-primary" />
+                    <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
                   )}
                 </div>
                 {!summaryPage &&
@@ -3080,7 +3080,8 @@ export const PurchaseOrder = ({
               !accountsPage &&
               !estimatesViewing &&
               ["PO Approved"].includes(po?.status) &&
-              po?.merged !== "true" && (
+              po?.merged !== "true" && 
+              !(poPayments?.length > 0) && (
                 <Button
                   onClick={toggleAmendPOSheet}
                   variant={"outline"}

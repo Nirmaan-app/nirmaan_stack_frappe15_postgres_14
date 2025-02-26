@@ -1,9 +1,9 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CheckIcon, CirclePlus, Edit, Eye, Paperclip, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2 } from "lucide-react";
+import { CheckIcon, CirclePlus, Edit, Eye, Paperclip, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 // import { Button } from "../ui/button";
 import { Pencil2Icon } from "@radix-ui/react-icons";
@@ -28,15 +28,16 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Separator } from "../ui/separator";
-import { Sheet, SheetContent } from "../ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
 import { Switch } from "../ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { toast } from "../ui/use-toast";
 import { VendorHoverCard } from "../ui/vendor-hover-card";
+import { SelectServiceVendorPage } from "./select-service-vendor";
 
 // const { Sider, Content } = Layout;
 
@@ -51,11 +52,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
   
     const id = accountsPage ? params.id : params.srId;
 
-    const [isRedirecting, setIsRedirecting] = useState(false)
-
     const {toggleRequestPaymentDialog} = useDialogStore()
-
-    const navigate = useNavigate()
 
     const [selectedGST, setSelectedGST] = useState(null);
 
@@ -249,37 +246,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         }
     }
 
-
-    const handleAmendSR = async () => {
-        try {
-            await updateDoc("Service Requests", id, {
-                status : "Edit"
-            })
-
-            toggleAmendDialog()
-
-            setIsRedirecting(true);
-
-            toast({
-                title: "Success!",
-                description: `Now, you can start Amending the Service Request!`,
-                variant: "success"
-            })
-
-            await service_request_mutate()
-
-            navigate(`/choose-service-vendor/${id}`)
-
-        } catch (error) {
-            console.log("error while amending service request", error)
-            toast({
-                title: "Failed!",
-                description: `Amending Service Request Failed!`,
-                variant: "destructive"
-            })
-        }
-    }
-
     const AddPayment = async () => {
         try {
 
@@ -391,16 +357,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
-    if(isRedirecting) {
-        return (
-          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-            <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-              <p className="text-lg font-semibold">Redirecting... Please wait</p>
-            </div>
-          </div>
-        )
-      } 
-
 
     if (
         service_request_loading ||
@@ -424,40 +380,21 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     <Badge>{service_request?.status}</Badge>
                 </div>
               <div className="flex items-center gap-2">
-                                {!summaryPage && !accountsPage && (
+                                {!summaryPage && !accountsPage && !(projectPayments?.length > 0) && (
                                     <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8">
                                         <PencilRuler className="w-4 h-4" />
                                         Amend
                                     </Button>
                                 )}
 
-                                <Dialog open={amendDialog} onOpenChange={toggleAmendDialog}>
-                                  <DialogContent>
-                                      <DialogHeader>
-                                        <DialogTitle>
-                                          Are you sure?
-                                        </DialogTitle>
-                                      </DialogHeader>
-
-                                      <DialogDescription>
-                                        Clicking on Confirm will navigate you to the amendment page.
-                                      </DialogDescription>
-
-                                      <div className="flex items-center justify-end gap-2">
-                                      {update_loading ? <TailSpin color="red" height={40} width={40} /> : (
-                                        <>
-                                        <DialogClose asChild>
-                                          <Button variant={"outline"}>Cancel</Button>
-                                        </DialogClose>
-                                        <Button onClick={handleAmendSR}>
-                                          Confirm
-                                        </Button>
-                                        </>
-                                        )}
-                                      </div>
-                                  
-                                  </DialogContent>
-                                </Dialog>
+                                <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
+                                    <SheetContent className="overflow-auto">
+                                        <SheetHeader>
+                                            <SheetTitle className="text-center mb-6">Amend SR!</SheetTitle>
+                                        </SheetHeader>
+                                        <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
+                                    </SheetContent>
+                                </Sheet>
                               <Button variant={"outline"} disabled={!service_request?.project_gst}  onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md h-8 p-1">
                                 <Eye className="w-4 h-4" />
                                 Preview
@@ -741,7 +678,12 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                            SR Options
+                            <div className="flex items-center gap-1">
+                                SR Options
+                                {!service_request?.project_gst && (
+                                    <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
+                                )}
+                            </div>
                             {!summaryPage && !accountsPage && (
                             <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
                                 <DialogTrigger>

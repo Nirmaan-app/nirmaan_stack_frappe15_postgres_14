@@ -8,8 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -22,6 +24,10 @@ import { ProjectPaymentsList } from "./project-payments-list";
 export const ProjectPaymentsPaymentWise = () => {
 
     const [searchParams] = useSearchParams();
+
+    const {role, user_id} = useUserData();
+
+    const {paymentsCount, adminPaymentsCount} = useDocCountStore()
 
     const navigate = useNavigate()
 
@@ -78,7 +84,30 @@ export const ProjectPaymentsPaymentWise = () => {
         setFulFillPaymentDialog((prevState) => !prevState);
     };
 
-    const items = ["New Payments", "Fulfilled Payments"];
+    const items = [
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>New Payments</span>
+                    <span className="ml-2 text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPaymentsCount?.approved : paymentsCount?.approved}
+                    </span>
+                </div>
+            ),
+            value: "New Payments",
+        },
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Fulfilled Payments</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPaymentsCount?.paid : paymentsCount?.paid}
+                    </span>
+                </div>
+            ),
+            value: "Fulfilled Payments",
+        },
+    ];
 
     const updateURL = (key, value) => {
         const url = new URL(window.location);

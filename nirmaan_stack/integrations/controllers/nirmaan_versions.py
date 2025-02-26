@@ -103,7 +103,7 @@ def generate_sr_amend_version(doc, method):
 
     # Check if the status changed from "PO Approved" to "PO Amendment"
     status_change = next((change for change in data['changed'] if change[0] == 'status'), None)
-    if status_change and status_change[1] == "Edit" and status_change[2] == "Amendment":
+    if status_change and status_change[1] == "Approved" and status_change[2] == "Amendment":
         # Create a new Nirmaan Versions document
         nv = frappe.new_doc("Nirmaan Versions")
         nv.ref_doctype = doc.ref_doctype
