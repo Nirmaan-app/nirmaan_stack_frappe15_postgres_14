@@ -97,5 +97,14 @@
   "name": "Draft",
   "style": "",
   "workflow_state_name": "Draft"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2025-02-27 13:39:48.201322",
+  "name": "In Progress",
+  "style": "",
+  "workflow_state_name": "In Progress"
  }
 ]
