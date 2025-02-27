@@ -158,28 +158,32 @@ export const ProcurementRequests = () => {
             ),
             value: "New PR Request",
         },
+        // {
+        //     label: (
+        //         <div className="flex items-center">
+        //             <span>Update Quote</span>
+        //             <span className="ml-2 rounded text-xs font-bold">
+        //                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminUpdateQuotePRCount : updateQuotePRCount}
+        //             </span>
+        //         </div>
+        //     ),
+        //     value: "Update Quote",
+        // },
+        // {
+        //     label: (
+        //         <div className="flex items-center">
+        //             <span>Choose Vendor</span>
+        //             <span className="ml-2 rounded text-xs font-bold">
+        //                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminChooseVendorPRCount : chooseVendorPRCount}
+        //             </span>
+        //         </div>
+        //     ),
+        //     value: "Choose Vendor",
+        // },
         {
-            label: (
-                <div className="flex items-center">
-                    <span>Update Quote</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminUpdateQuotePRCount : updateQuotePRCount}
-                    </span>
-                </div>
-            ),
-            value: "Update Quote",
-        },
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Choose Vendor</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminChooseVendorPRCount : chooseVendorPRCount}
-                    </span>
-                </div>
-            ),
-            value: "Choose Vendor",
-        },
+            label : "In Progress",
+            value : "In Progress"
+        }
     ];
 
     const columns: ColumnDef<PRTable>[] = useMemo(

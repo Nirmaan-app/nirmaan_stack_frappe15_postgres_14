@@ -1,34 +1,33 @@
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from "@/components/ui/sheet"
-import { ArrowBigRightDash, ArrowLeft, CirclePlus, ListChecks, MessageCircleMore } from 'lucide-react';
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { useParams } from "react-router-dom";
-import { useState, useEffect, useMemo } from "react"
-import { useNavigate } from "react-router-dom";
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NewVendor } from '@/pages/vendors/new-vendor';
-import { ButtonLoading } from '../ui/button-loading';
-import { DataTable } from '../data-table/data-table';
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { ColumnDef } from "@tanstack/react-table";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatDate } from '@/utils/FormatDate';
-import Select from 'react-select'
-import { AddVendorCategories } from "../forms/addvendorcategories";
-import { Badge } from "../ui/badge";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
-import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { ColumnDef } from "@tanstack/react-table";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { ArrowBigRightDash, ArrowLeft, CirclePlus, ListChecks, MessageCircleMore } from 'lucide-react';
+import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
+import { useNavigate, useParams } from "react-router-dom";
+import Select from 'react-select';
+import { DataTable } from '../data-table/data-table';
+import { AddVendorCategories } from "../forms/addvendorcategories";
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { Badge } from "../ui/badge";
+import { ButtonLoading } from '../ui/button-loading';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 
 export const ProcurementOrder = () => {
 
@@ -354,8 +353,6 @@ export const ProcurementOrder = () => {
     }
   };
 
-  // console.log("orderdata", orderData)
-
   if (vendor_category_list_loading || vendor_list_loading || procurement_request_list_loading || category_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   if (orderData?.workflow_state !== "Approved") {
@@ -394,7 +391,6 @@ export const ProcurementOrder = () => {
       {page == 'approve' &&
         <div className="flex-1 space-y-4">
           <div className="flex items-center">
-            {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate(-1)} /> */}
             <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
           </div>
           <ProcurementHeaderCard orderData={orderData} />
@@ -402,7 +398,6 @@ export const ProcurementOrder = () => {
             <div className="min-w-full inline-block align-middle">
               {orderData?.category_list.list.map((cat: any) => {
                 return <div className="p-5">
-                  {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-red-100">
@@ -460,38 +455,6 @@ export const ProcurementOrder = () => {
                 </div>
               })}
             </div>
-            {/* <table className="min-w-full divide-gray-200">
-                              <thead className="border-b-2 border-black">
-                                  <tr>
-                                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UOM</th>
-                                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
-                                  </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-gray-200">
-                                  {orderData?.procurement_list?.list.map(item => {
-                                      const quotesForItem = quote_data
-                                          ?.filter(value => value.item_id === item.name && value.quote != null)
-                                          ?.map(value => value.quote);
-                                      let minQuote;
-                                      if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-
-                                      return <tr key={item.item}>
-                                          <td className="px-6 py-4">{item.item}</td>
-                                          <td className="px-6 py-4 whitespace-nowrap">
-                                              {item.category}
-                                          </td>
-                                          <td className="px-6 py-4 whitespace-nowrap">{item.unit}</td>
-                                          <td className="px-6 py-4 whitespace-nowrap">{item.quantity}</td>
-                                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                              {minQuote ? minQuote * item.quantity : "N/A"}
-                                          </td>
-                                      </tr>
-                                  })}
-                              </tbody>
-                          </table> */}
           </div>
 
           <div className="flex items-center space-y-2">
@@ -559,7 +522,6 @@ export const ProcurementOrder = () => {
                       </ul>
                     </HoverCardContent>
                   </HoverCard>
-                  {/* <div className="text-sm text-gray-400">Select vendors for <span className="text-red-700 italic">{cat.name}</span> category</div> */}
                   <strong className="text-sm">Approved Makes:</strong>
                   <div className="text-xs font-bold text-gray-500 inline ml-2">
                     {cat?.makes?.length > 0 ? (
@@ -585,10 +547,7 @@ export const ProcurementOrder = () => {
 
                         </div>
                       </SheetTitle>
-                      {/* <SheetDescription> */}
-                      {/* <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} /> */}
                       <NewVendor dynamicCategories={category_list || []} renderCategorySelection={true} navigation={false} />
-                      {/* </SheetDescription> */}
                     </SheetHeader>
                   </SheetContent>
                 </Sheet>
@@ -605,9 +564,6 @@ export const ProcurementOrder = () => {
             </div>
           })}
           <div className="flex flex-col justify-end items-end max-md:py-6 pb-10">
-            {/* {block ? <div>loading...</div> : <Button onClick={() => { handleSubmit(); setBlock(true) }}>
-                              Send RFQ
-                          </Button>} */}
             {(loading || update_loading) ? <ButtonLoading /> : (
               <Button disabled={selectedCategories === null || (selectedCategories && Object.values(selectedCategories).some((arr) => !arr.length)) || (selectedCategories && Object.keys(selectedCategories)?.length !== orderData?.category_list?.list?.length)} onClick={handleSubmit} className="flex items-center gap-1">
                 <ListChecks className="h-4 w-4" />
@@ -635,18 +591,6 @@ export const ProcurementOrder = () => {
               </AccordionContent>
             </AccordionItem>
           </Accordion>
-          {/* <Button onClick={() => setShow(!show)}>Recently Added Vendors</Button>
-                      {show && (
-                          <div className='px-20'>
-                          <Card className=''>
-                              <CardHeader>
-                                  <CardContent>
-                                      <DataTable columns={columns} data={vendor_list || []}/>
-                                  </CardContent>
-                              </CardHeader>
-                          </Card>
-                      </div>
-                      )} */}
         </div>}
     </>
   )
@@ -666,84 +610,3 @@ const CustomOption = (props) => {
     </div>
   );
 };
-
-
-// const CustomSelect = ({ options, defaultValue, onChange }) => {
-//     const [selectedOptions, setSelectedOptions] = useState(defaultValue || []);
-//     const [filteredOptions, setFilteredOptions] = useState([]);
-//     const [searchTerm, setSearchTerm] = useState("");
-
-//     console.log("default", defaultValue)
-//     console.log("selectedOptions", selectedOptions) 
-//     console.log("options", options)
-
-//     // Update selected options when defaultValue changes
-//     useEffect(() => {
-//         setSelectedOptions(defaultValue || []);
-//     }, [defaultValue]);
-
-//     // Filter options based on the selected ones
-//     useEffect(() => {
-//         if (options) {
-//             const availableOptions = options.filter(
-//                 (option) => !selectedOptions.some((selected) => selected.value === option.value)
-//             );
-//             setFilteredOptions(availableOptions);
-//         }
-//     }, [selectedOptions, options]);
-
-//     const handleSelect = (option) => {
-//         const newSelectedOptions = [...selectedOptions, option];
-//         setSelectedOptions(newSelectedOptions);
-//         onChange(newSelectedOptions);
-//     };
-
-//     const handleDeselect = (option) => {
-//         const newSelectedOptions = selectedOptions.filter((item) => item.value !== option.value);
-//         setSelectedOptions(newSelectedOptions);
-//         onChange(newSelectedOptions);
-//     };
-
-//     const handleSearch = (e) => {
-//         setSearchTerm(e.target.value);
-//     };
-
-//     const filteredResults = filteredOptions.filter(option =>
-//         option.label.toLowerCase().includes(searchTerm.toLowerCase())
-//     );
-
-//     return (
-//         <div className="custom-select h-[500px] overflow-auto">
-//             <div className="selected-options">
-//                 {selectedOptions.map(option => (
-//                     <span key={option.value} className="option-tag">
-//                         {option.label}
-//                         <button className="remove-btn" onClick={() => handleDeselect(option)}>
-//                             x
-//                         </button>
-//                     </span>
-//                 ))}
-//             </div>
-
-//             <input 
-//                 type="text" 
-//                 className="search-bar" 
-//                 value={searchTerm} 
-//                 onChange={handleSearch} 
-//                 placeholder="Search categories..."
-//             />
-
-//             <ul className="options-list">
-//                 {filteredResults.map(option => (
-//                     <li 
-//                         key={option.value} 
-//                         className="option-item"
-//                         onClick={() => handleSelect(option)}
-//                     >
-//                         {option.label}
-//                     </li>
-//                 ))}
-//             </ul>
-//         </div>
-//     );
-// };

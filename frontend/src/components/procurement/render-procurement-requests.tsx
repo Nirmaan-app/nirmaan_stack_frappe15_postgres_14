@@ -1,7 +1,6 @@
-import { useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom";
 import { ProcurementOrder } from "./procurement-vendor";
-import { UpdateQuote } from "./update-quote";
-import { SelectVendors } from "./select-vendors";
+import { ProcurementProgress } from "./ProcurementProgress";
 
 export const RenderProcurementRequest = () => {
 
@@ -11,9 +10,13 @@ export const RenderProcurementRequest = () => {
 
     if(tab === "New PR Request") {
         return <ProcurementOrder />
-    } else if(tab === "Update Quote") {
-        return <UpdateQuote />
-    } else if(tab === "Choose Vendor") {
-        return <SelectVendors />
+    } 
+    // else if(tab === "Update Quote") {
+    //     return <UpdateQuote />
+    // } else if(tab === "Choose Vendor") {
+    //     return <SelectVendors />
+    // }
+    else if(tab === "In Progress") {
+        return <ProcurementProgress />
     }
 }
