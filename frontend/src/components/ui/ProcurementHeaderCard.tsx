@@ -1,10 +1,8 @@
 import { formatDate } from "@/utils/FormatDate"
+import { useFrappeGetDoc } from "frappe-react-sdk"
+import { useEffect, useState } from "react"
 import { Card } from "./card"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
-import { useEffect, useState } from "react"
-import { useFrappeGetDoc } from "frappe-react-sdk"
-import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests"
-import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests"
 
 interface ProcurementHeaderCardProps {
   orderData?: any
@@ -31,14 +29,14 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
   }, [orderData])
 
   return (
-    <Card className="flex flex-wrap md:grid md:grid-cols-4 justify-around border border-gray-100 rounded-lg p-4">
-      <div className="border-0 flex flex-col justify-center max-sm:hidden">
+    <Card className="flex flex-wrap md:grid md:grid-cols-4 justify-around border border-gray-100 rounded-lg p-4 max-sm:justify-start max-sm:gap-4">
+      <div className="border-0 flex flex-col max-sm:hidden">
         <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
         <p className="text-left font-bold py-1 text-base text-black">
           {formatDate(orderData?.creation?.split(" ")[0])}
         </p>
       </div>
-      <div className="border-0 flex flex-col justify-center">
+      <div className="border-0 flex flex-col">
         <p className="text-left py-1 font-light text-sm text-red-700">Project</p>
         <HoverCard>
           <HoverCardTrigger>
@@ -97,18 +95,18 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
         </HoverCard>
       </div>
       {!sentBack && (
-        <div className="border-0 flex flex-col justify-center">
+        <div className="border-0 flex flex-col">
           <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
           <p className="text-left font-bold py-1 text-base text-black">{sr ? "Services" : orderData?.work_package}</p>
         </div>
       )}
       {sentBack && (
-        <div className="border-0 flex flex-col justify-center">
+        <div className="border-0 flex flex-col">
           <p className="text-left py-1 font-light text-sm text-red-700">PR ID:</p>
           <p className="text-left font-bold py-1 text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
         </div>
       )}
-      <div className="border-0 flex flex-col justify-center max-sm:hidden">
+      <div className="border-0 flex flex-col max-sm:hidden">
         <p className="text-left py-1 font-light text-sm text-red-700">{sentBack ? `${orderData?.type} By` : "Project Lead"}</p>
         {/* <p className="text-left font-bold py-1 text-base text-black underline">{orderData?.owner}</p> */}
         <HoverCard>

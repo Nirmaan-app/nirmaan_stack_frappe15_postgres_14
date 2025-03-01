@@ -47,7 +47,7 @@ export const ApprovePayments = () => {
         fields: ["*"],
         filters: [["status", "=", "Requested"]],
         limit: 100000,
-        orderBy: { field: "payment_date", order: "desc" }
+        orderBy: { field: "creation", order: "desc" }
     })
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList("Procurement Orders", {
@@ -149,7 +149,7 @@ export const ApprovePayments = () => {
             }
         },
             {
-                accessorKey: "payment_date",
+                accessorKey: "creation",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Date" />
@@ -157,7 +157,7 @@ export const ApprovePayments = () => {
                 },
                 cell: ({ row }) => {
                     const data = row.original
-                    return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
+                    return <div className="font-medium">{formatDate(data?.creation || data?.payment_date)}</div>;
                 },
             },
             {

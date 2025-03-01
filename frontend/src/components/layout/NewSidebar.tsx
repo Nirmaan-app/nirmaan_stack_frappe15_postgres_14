@@ -96,10 +96,6 @@ export function NewSidebar() {
   }, [data]);
 
   const {
-    pendingPRCount,
-    approvePRCount,
-    adminApprovePRCount,
-    adminPendingPRCount,
     updatePRCounts,
     updateSBCounts,
     newSBApproveCount,
@@ -107,8 +103,6 @@ export function NewSidebar() {
     amendPOCount,
     adminAmendPOCount,
     updatePOCounts,
-    adminApprovedPRCount,
-    approvedPRCount,
     newPOCount,
     adminNewPOCount,
     adminNewSBCounts,
@@ -123,6 +117,8 @@ export function NewSidebar() {
     updatePaymentsCount,
     paymentsCount,
     adminPaymentsCount,
+    prCounts,
+    adminPrCounts
   } = useDocCountStore();
 
   const { add_new_notification, delete_notification, clear_notifications, add_all_notific_directly } =
@@ -223,6 +219,7 @@ export function NewSidebar() {
             "Approved",
             "RFQ Generated",
             "Quote Updated",
+            "In Progress",
           ],
         ],
         ["project", "in", permissionsList || []],
@@ -247,6 +244,7 @@ export function NewSidebar() {
             "Approved",
             "RFQ Generated",
             "Quote Updated",
+            "In Progress",
           ],
         ],
       ],
@@ -613,8 +611,8 @@ export function NewSidebar() {
                 count:
                   role === "Nirmaan Admin Profile" ||
                   user_id === "Administrator"
-                    ? adminPendingPRCount
-                    : pendingPRCount,
+                    ? adminPrCounts.pending
+                    : prCounts.pending,
               },
               {
                 key: "/approve-po",
@@ -622,8 +620,8 @@ export function NewSidebar() {
                 count:
                   role === "Nirmaan Admin Profile" ||
                   user_id === "Administrator"
-                    ? adminApprovePRCount
-                    : approvePRCount,
+                    ? adminPrCounts.approve
+                    : prCounts.approve,
               },
               {
                 key: "/approve-amended-po",
@@ -687,8 +685,8 @@ export function NewSidebar() {
             label: "Procurement Requests",
             count: role === "Nirmaan Admin Profile" ||
                     user_id === "Administrator"
-                    ? adminApprovedPRCount
-                    : approvedPRCount,
+                    ? adminPrCounts.approved
+                    : prCounts.approved,
             // children: [
             //   {
             //     key: "/new-procure-request",

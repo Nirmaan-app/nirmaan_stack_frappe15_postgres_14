@@ -396,8 +396,8 @@ export const ProjectPaymentsList = () => {
                 },
             },
             {
-                id: "Add_Payment",
-                header: "Add Payment",
+                id: "Record_Payment",
+                header: "Record Payment",
                 cell: ({ row }) => {
                     const data = row.original
                     const { project, vendor, vendor_id, project_id } = getDataAttributes(data)
