@@ -64,7 +64,6 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   OverviewSkeleton2,
-  Skeleton,
   TableSkeleton
 } from "@/components/ui/skeleton";
 import StatusBar from "@/components/ui/status-bar";
@@ -160,12 +159,12 @@ const Project = () => {
     { project_id: projectId }
   );
 
+  if(isLoading || projectCustomerLoading || po_item_loading) {
+    return 
+  }
+
   return (
-    <div>
-      {(isLoading || projectCustomerLoading || po_item_loading) && (
-        <Skeleton className="w-[30%] h-10" />
-      )}
-      {data && (
+        data && (
         <ProjectView
           projectId={projectId}
           data={data}
@@ -173,8 +172,7 @@ const Project = () => {
           projectCustomer={projectCustomer}
           po_item_data={po_item_data?.message?.po_items}
         />
-      )}
-    </div>
+      )
   );
 };
 
@@ -2013,7 +2011,7 @@ const ProjectView = ({
                     <CardDescription className="space-y-2 lg:w-[50%]">
                       <span>Project GST(s)</span>
                       <ul className="list-disc list-inside space-y-1">
-                        {JSON.parse(data?.project_gst_number)?.list?.map((item) => (
+                        {JSON.parse(data?.project_gst_number || "{}")?.list?.map((item) => (
                           <li key={item?.location}>
                             <span className="font-bold">{item?.location}</span>
                           </li>
