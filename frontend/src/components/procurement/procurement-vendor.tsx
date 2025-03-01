@@ -1,33 +1,26 @@
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
+  SheetTrigger
 } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { NewVendor } from '@/pages/vendors/new-vendor';
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatDate } from '@/utils/FormatDate';
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { ArrowBigRightDash, ArrowLeft, CirclePlus, ListChecks, MessageCircleMore } from 'lucide-react';
+import { ArrowBigRightDash, CirclePlus, MessageCircleMore } from 'lucide-react';
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import Select from 'react-select';
-import { DataTable } from '../data-table/data-table';
 import { AddVendorCategories } from "../forms/addvendorcategories";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Badge } from "../ui/badge";
-import { ButtonLoading } from '../ui/button-loading';
+import { Button } from "../ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { toast } from "../ui/use-toast";
 
 export const ProcurementOrder = () => {
 
@@ -37,7 +30,7 @@ export const ProcurementOrder = () => {
 
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
 
-  const [page, setPage] = useState<string>('approve')
+  // const [page, setPage] = useState<string>('approve')
 
   const [orderData, setOrderData] = useState({
     project: '',
@@ -60,7 +53,7 @@ export const ProcurementOrder = () => {
     limit: 10000
   })
 
-  const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
+  const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: prMutate } = useFrappeGetDocList("Procurement Requests",
     {
       fields: ["*"],
       filters: [["name", "=", orderId]],
@@ -76,6 +69,8 @@ export const ProcurementOrder = () => {
     },
     orderData?.project ? "Vendor Category" : null
   );
+
+  console.log("procurement_request_list", procurement_request_list)
 
   const {
     data: vendor_list,
@@ -121,6 +116,13 @@ export const ProcurementOrder = () => {
   const { createDoc: createDoc, loading: loading, error: submit_error } = useFrappeCreateDoc()
   const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
+
+  useEffect(() => {
+    if (procurement_request_list) {
+      setOrderData(procurement_request_list[0])
+    }
+  }, [procurement_request_list])
+
   useEffect(() => {
     if (universalComments) {
       const comments = universalComments?.filter((cmt) => ["approving pr", "creating pr"].includes(cmt.subject))
@@ -136,15 +138,6 @@ export const ProcurementOrder = () => {
       limit: 100,
       filters: [['work_package', '=', orderData.work_package]]
     });
-
-
-  if (!orderData.project) {
-    procurement_request_list?.map(item => {
-      if (item.name === orderId) {
-        setOrderData(item)
-      }
-    })
-  }
 
   // Extract unique categories from the data dynamically
   useEffect(() => {
@@ -353,6 +346,27 @@ export const ProcurementOrder = () => {
     }
   };
 
+  const handleStartProcuring = async () => {
+    try {
+
+      await updateDoc("Procurement Requests", orderId, {
+        workflow_state: "In Progress"
+      })
+
+      await prMutate()
+
+      navigate(`/procurement-requests/${orderId}?tab=In Progress`);
+      
+    } catch (error) {
+      console.error("Error while updating the status of PR:", error);
+      toast({
+        title: "Failed!",
+        description: "Failed to update the status of the Procurement Request.",
+        variant: "destructive"
+      });
+    }
+  }
+
   if (vendor_category_list_loading || vendor_list_loading || procurement_request_list_loading || category_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   if (orderData?.workflow_state !== "Approved") {
@@ -388,21 +402,19 @@ export const ProcurementOrder = () => {
 
   return (
     <>
-      {page == 'approve' &&
         <div className="flex-1 space-y-4">
           <div className="flex items-center">
             <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
           </div>
           <ProcurementHeaderCard orderData={orderData} />
-          <div className="overflow-x-auto">
-            <div className="min-w-full inline-block align-middle">
+          <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
               {orderData?.category_list.list.map((cat: any) => {
-                return <div className="p-5">
+                return <div className="min-w-[400px]">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-red-100">
                         <TableHead className="w-[50%]">
-                          <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                          <span className="font-extrabold text-red-700">{cat.name}</span>
                           <div className="text-xs font-bold text-gray-500">
                             {cat?.makes?.length > 0 ? (
                               cat?.makes?.map((i, index, arr) => (
@@ -411,9 +423,9 @@ export const ProcurementOrder = () => {
                             ) : "--"}
                           </div>
                         </TableHead>
-                        <TableHead className="w-[20%]">UOM</TableHead>
-                        <TableHead className="w-[10%]">Qty</TableHead>
-                        <TableHead className="w-[10%]">Est. Amt</TableHead>
+                        <TableHead className="w-[20%] text-red-700">UOM</TableHead>
+                        <TableHead className="w-[10%] text-red-700">Qty</TableHead>
+                        <TableHead className="w-[10%] text-red-700">Est. Amt</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -454,7 +466,6 @@ export const ProcurementOrder = () => {
                   </Table>
                 </div>
               })}
-            </div>
           </div>
 
           <div className="flex items-center space-y-2">
@@ -486,14 +497,16 @@ export const ProcurementOrder = () => {
             )
             }
           </div>
-          <div className="flex flex-col justify-end items-end max-md:mt-4">
-            <Button onClick={() => setPage('vendors')} className="flex items-center gap-1">
-              Select Vendors
-              <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
-            </Button>
+          <div className="flex flex-col justify-end items-end">
+            {update_loading ? <TailSpin color="red" height={30} width={30} /> : (
+              <Button onClick={handleStartProcuring} className="flex items-center gap-1">
+                Start Procuring
+                <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
+              </Button>
+            )}
           </div>
-        </div>}
-      {page == 'vendors' &&
+        </div>
+      {/* {page == 'vendors' &&
         <div className="flex-1 space-y-4">
           <div className="flex items-center">
             <ArrowLeft onClick={() => setPage("approve")} className="cursor-pointer" />
@@ -516,7 +529,6 @@ export const ProcurementOrder = () => {
                           .map((item) => (
                             <li key={item.name} className="p-1 ml-6">
                               <span className="text-gray-800">{item.item}<span className="text-red-600 ml-2">({item.quantity} {item.unit})</span></span>
-                              {/* </span> */}
                             </li>
                           ))}
                       </ul>
@@ -591,7 +603,7 @@ export const ProcurementOrder = () => {
               </AccordionContent>
             </AccordionItem>
           </Accordion>
-        </div>}
+        </div>} */}
     </>
   )
 }

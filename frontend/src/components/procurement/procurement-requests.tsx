@@ -39,7 +39,7 @@ export const ProcurementRequests = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation', 'modified'],
-            filters: [["workflow_state", "=", tab === "New PR Request" ? "Approved" : tab === "Update Quote" ? "RFQ Generated" : "Quote Updated"]],
+            filters: [["workflow_state", "=", tab === "New PR Request" ? "Approved" : "In Progress"]],
             limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         },
@@ -144,7 +144,7 @@ export const ProcurementRequests = () => {
 
     // type MenuItem = Required<MenuProps>["items"][number];
 
-    const { approvedPRCount, adminApprovedPRCount, updateQuotePRCount, adminUpdateQuotePRCount, chooseVendorPRCount, adminChooseVendorPRCount } = useDocCountStore()
+    const { prCounts, adminPrCounts } = useDocCountStore()
 
     const items = [
         {
@@ -152,7 +152,7 @@ export const ProcurementRequests = () => {
                 <div className="flex items-center">
                     <span>New PR Request</span>
                     <span className="ml-2 text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminApprovedPRCount : approvedPRCount}
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.approved : prCounts.approved}
                     </span>
                 </div>
             ),
@@ -181,9 +181,16 @@ export const ProcurementRequests = () => {
         //     value: "Choose Vendor",
         // },
         {
-            label : "In Progress",
-            value : "In Progress"
-        }
+            label: (
+                <div className="flex items-center">
+                    <span>In Progress</span>
+                    <span className="ml-2 text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.inProgress : prCounts.inProgress}
+                    </span>
+                </div>
+            ),
+            value: "In Progress",
+        },
     ];
 
     const columns: ColumnDef<PRTable>[] = useMemo(
