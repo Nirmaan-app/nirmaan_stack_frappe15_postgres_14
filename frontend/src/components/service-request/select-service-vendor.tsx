@@ -25,8 +25,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import ReactSelect from "react-select";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
+import { VendorsReactSelect } from "../helpers/VendorsReactSelect";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Button } from "../ui/button";
 import {
@@ -162,21 +162,28 @@ interface SelectServiceVendorPageProps {
   amend?: boolean
 }
 
+export interface Vendor {
+  value: string
+  label: string
+  vendor_name?: string
+  vendor_type?: string
+  name?: string
+  city: string
+  state: string
+}
+
 export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments, sr_data_mutate, amend = false }: SelectServiceVendorPageProps) => {
   const navigate = useNavigate();
   const userData = useUserData();
 
   const [comment, setComment] = useState<any>(null);
   const [section, setSection] = useState("choose-vendor");
-  const [vendorOptions, setVendorOptions] = useState<
-    { vendor_name: string; value: string, city: string, state : string }[]
-  >([]);
-  const [selectedVendor, setSelectedvendor] = useState();
+  const [vendorOptions, setVendorOptions] = useState<Vendor[] | undefined>([]);
+  const [selectedVendor, setSelectedvendor] = useState<Vendor | null>(null);
   const [amounts, setAmounts] = useState<{ [key: string]: string }>({}); // New state for amounts
   const [order, setOrder] = useState(
     sr_data && JSON.parse(sr_data?.service_order_list)?.list
   );
-  const [isNextEnabled, setIsNextEnabled] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
   const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
 
@@ -224,7 +231,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       width: "45%",
       render: () => (
         <span className="font-semibold text-primary">
-          {selectedVendor?.vendor_name}
+          {selectedVendor?.label}
         </span>
       ),
     },
@@ -309,7 +316,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       const currOptions = vendor_list?.map((item) => ({
         value: item.name,
         label: item.vendor_name,
-        vendor_name: item.vendor_name,
         city: item?.vendor_city,
         state: item?.vendor_state,
       }));
@@ -395,11 +401,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     return usersList?.find((user) => user?.name == id)?.full_name;
   };
 
-  const handleChange = () => (vendor: any) => {
-    // console.log("vendor", vendor)
-    setSelectedvendor(vendor);
-  };
-
   const handleAmountChange = (id: string, value: string) => {
     const numericValue = value.replace(/₹\s*/, "");
     setAmounts((prev) => ({ ...prev, [id]: numericValue }));
@@ -425,15 +426,18 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     setSection("summary");
   };
 
-  useEffect(() => {
+  const checkNextButtonStatus = useMemo(() => {
     const allAmountsFilled = Object.values(amounts).every(
       (amount) => amount && parseFloat(amount) > 0
     );
     const allAmountsCount = Object.keys(amounts)?.length === order?.length;
-    setIsNextEnabled(allAmountsFilled && allAmountsCount);
-  }, [amounts]);
+    const allFieldsFilled = order?.some(
+      (i) =>
+        !parseFloat(i?.quantity) || !i?.uom || !i?.description || !i?.category
+    )
+    return allAmountsFilled && allAmountsCount && !allFieldsFilled && order.length !== 0 && selectedVendor?.value;
 
-  // console.log("selecedVendor", selectedVendor)
+  }, [amounts, order, selectedVendor]);
 
   useEffect(() => {
     if ((["Rejected"].includes(sr_data?.status) || amend) && vendor_list) {
@@ -441,7 +445,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       const selectedVendor = {
         value: vendor?.name,
         label: vendor?.vendor_name,
-        vendor_name: vendor?.vendor_name,
         city: vendor?.vendor_city,
         state: vendor?.vendor_state,
       };
@@ -635,18 +638,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                 </SheetContent>
               </Sheet>
             </div>
-            <ReactSelect
-              className="w-full"
-              value={selectedVendor}
-              options={vendorOptions}
-              onChange={handleChange()}
-              components={{
-                SingleValue: CustomSingleValue,
-                Option: CustomOption,
-              }}
-              isClearable
-              onMenuOpen={() => setSelectedvendor(null)}
-            />
+            <VendorsReactSelect selectedVendor={selectedVendor} vendorOptions={vendorOptions} setSelectedvendor={setSelectedvendor} />
             <div className="overflow-x-auto">
               <div className="min-w-full inline-block align-middle">
                 <Table>
@@ -731,7 +723,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                             onChange={(e) =>
                               handleAmountChange(item.id, e.target.value)
                             }
-                            disabled={!selectedVendor}
+                            disabled={!selectedVendor?.value}
                           />
                         </TableCell>
                         <TableCell className="text-primary">
@@ -758,13 +750,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
               <div className="flex items-center gap-2">
 
               <Button
-                disabled={
-                  !isNextEnabled ||
-                  order?.some(
-                    (i) =>
-                      !parseFloat(i?.quantity) || !i?.uom || !i?.description || !i?.category
-                  ) || order.length === 0
-                }
+                disabled={!checkNextButtonStatus}
                 onClick={handleSaveAmounts}
               >
                 Next
@@ -954,28 +940,3 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
 };
 
 export const Component = SelectServiceVendor;
-
-const CustomSingleValue = ({ data }) => (
-  <div>
-    <strong>{data.vendor_name}</strong>{" "}
-    <i>
-      ({data.city}, {data.state})
-    </i>
-  </div>
-);
-
-const CustomOption = (props) => {
-  const { data, innerRef, innerProps } = props;
-  return (
-    <div
-      ref={innerRef}
-      {...innerProps}
-      style={{ padding: "5px", cursor: "pointer" }}
-    >
-      <strong className="text-primary">{data.vendor_name}</strong>{" "}
-      <i>
-        ({data.city}, {data.state})
-      </i>
-    </div>
-  );
-};

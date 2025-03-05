@@ -1,7 +1,7 @@
 import { useSearchParams } from "react-router-dom";
 import { ProcurementOrder } from "./procurement-vendor";
 import { ProcurementProgress } from "./ProcurementProgress";
-import { SelectVendors } from "./select-vendors";
+import { VendorsSelectionSummary } from "./VendorsSelectionSummary";
 
 export const RenderProcurementRequest = () => {
 
@@ -20,7 +20,7 @@ export const RenderProcurementRequest = () => {
     //     return <SelectVendors />
     // }
     else if(tab === "In Progress"  && mode === "review") {
-        return <SelectVendors />
+        return <VendorsSelectionSummary />
     } else {
         return <ProcurementProgress />
     }

@@ -1,27 +1,22 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import formatToIndianRupee from "@/utils/FormatPrice"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { CircleMinus, CirclePlus, ListChecks } from "lucide-react"
+import _ from "lodash"
+import { CheckCheck, CircleMinus, CirclePlus, FolderPlus, ListChecks } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import ReactSelect, { components } from "react-select"
+import { VendorsReactMultiSelect } from "../helpers/VendorsReactSelect"
+import { Vendor } from "../service-request/select-service-vendor"
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard"
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog"
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog"
 import { Badge } from "../ui/badge"
 import { Button } from "../ui/button"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog"
 import { Input } from "../ui/input"
 import { Label } from "../ui/label"
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 import { toast } from "../ui/use-toast"
-
-interface Vendor {
-  label: string;
-  value: string;
-  name: string;
-  vendor_name: string;
-  vendor_type: string;
-}
+import { VendorHoverCard } from "../ui/vendor-hover-card"
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -86,7 +81,7 @@ export const ProcurementProgress = () => {
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
   const [orderData, setOrderData] = useState({})
   const [addVendorsDialog, setAddVendorsDialog] = useState(false)
-  const [selectedVendors, setSelectedVendors] = useState([])
+  const [selectedVendors, setSelectedVendors] = useState<Vendor[]>([])
 
   const [selectedVendorQuotes, setSelectedVendorQuotes] = useState(new Map())
   const [isRedirecting, setIsRedirecting] = useState("")
@@ -102,7 +97,7 @@ export const ProcurementProgress = () => {
   }, `Procurement Requests ${prId}`)
 
   const {data: vendors, isLoading: vendors_loading, error: vendors_error} = useFrappeGetDocList("Vendors", {
-    fields: ["vendor_name", "vendor_type", "name"],
+    fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
     orderBy: { field: "vendor_name", order: "asc" },
@@ -119,7 +114,7 @@ export const ProcurementProgress = () => {
           itemToVendorMap.set(item?.name, item?.vendor)
         }
       })
-      if(!Object.keys(formData.details).length && request.rfq_data) {
+      if(!Object.keys(formData.details || {}).length && request.rfq_data && Object.keys(request.rfq_data).length) {
           setFormData(request.rfq_data)
       }
       setOrderData(procurement_request[0])
@@ -148,12 +143,14 @@ export const ProcurementProgress = () => {
     }
   }, [orderData, formData.details]);
 
-  const useVendorOptions = (vendors: Vendor[], selectedVendors: Vendor[]) => 
+  const useVendorOptions = (vendors : any, selectedVendors: Vendor[]) => 
     useMemo(() => vendors
       ?.filter(v => !selectedVendors.some(sv => sv.name === v.name))
       .map(v => ({
         label: v.vendor_name,
         value: v.name,
+        city: v.vendor_city,
+        state: v.vendor_state,
         ...v
       })),
     [vendors, selectedVendors]
@@ -161,36 +158,11 @@ export const ProcurementProgress = () => {
 
 const vendorOptions = useVendorOptions(vendors, formData.selectedVendors);
 
-const updateURL = (key, value) => {
+const updateURL = (key : string, value : string) => {
     const url = new URL(window.location);
     url.searchParams.set(key, value);
     window.history.pushState({}, "", url);
 };
-
-// const handleUpdateRfqFeild = async (value) => {
-//   try {
-//     setIsRedirecting(value)
-
-//     if(value === "view" && JSON.stringify(formData) === JSON.stringify(orderData?.rfq_data || {})) {
-//       return
-//     }
-
-//     await updateDoc("Procurement Requests", prId, {
-//       rfq_data: formData,
-//       procurement_list: {list : orderData?.procurement_list?.list}
-//     })
-    
-//     await procurement_request_mutate()
-
-    
-    
-//   } catch (error) {
-//     console.log("error", error)
-//   } finally {
-//     setIsRedirecting("")
-//   }
-// }
-
 
 
 const onClick = async (value) => {
@@ -202,10 +174,6 @@ const onClick = async (value) => {
     setMode(value);
     updateURL("mode", value);
 };
-
-const handleSelectVendors = (vendors) => {
-    setSelectedVendors(vendors)
-}
 
 const removeVendor = useCallback((vendorId: string) => {
     setFormData((prev) => {
@@ -234,6 +202,24 @@ const removeVendor = useCallback((vendorId: string) => {
         details: updatedDetails,
       };
     });
+
+    setSelectedVendorQuotes(prev => {
+      const updatedQuotes = new Map(prev)
+
+      for(const [itemId, vendor] of updatedQuotes) {
+        if (vendor === vendorId) updatedQuotes.delete(itemId)
+      }
+      return updatedQuotes
+    })
+
+    setOrderData((prev) => ({
+      ...prev,
+      procurement_list: {
+        list: prev.procurement_list.list.map((item) => 
+        item?.vendor === vendorId ? _.omit(item, ["vendor", "quote", "make"]) : item
+        )
+      }
+    }))
   }, []);
 
   const handleVendorSelection = () => {
@@ -316,7 +302,10 @@ const handleReviewChanges = async () => {
         </Button>
         )}
 
-        <Button variant={"outline"} className="text-primary border-primary">Generate RFQ</Button>
+        <Button variant={"outline"} className="text-primary border-primary flex gap-1">
+          <FolderPlus className="w-4 h-4" />
+          Generate RFQ
+          </Button>
       </div>
 
       </div>
@@ -337,23 +326,33 @@ const handleReviewChanges = async () => {
                           <p className="border text-center border-gray-400 rounded-md py-1 font-medium">No Vendors Selected</p>
                         </TableHead>
                         ) : (
-                          formData?.selectedVendors?.map((v, _, arr) => <TableHead key={v?.name} className={`text-center w-[15%] text-red-700 text-xs font-medium`}>
-                            <p className="min-w-[150px] max-w-[150px] border border-gray-400 rounded-md py-1 ">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="truncate">
-                                  {v?.vendor_name}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="max-w-[300px] break-words">
-                                  {v?.vendor_name}
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                            {/* {v?.vendor_name} */}
+                          formData?.selectedVendors?.map((v, _) => <TableHead key={v?.name} className={`text-center w-[15%] text-red-700 text-xs font-medium`}>
+                            <p className="min-w-[150px] max-w-[150px] border border-gray-400 rounded-md py-1 flex gap-1 items-center justify-center">
+                                <div className="truncate text-left">
+                                  <VendorHoverCard vendor_id={v?.name} />
+                                </div>
                             {mode === "edit" &&  (
-                              <CircleMinus className="w-4 h-4 cursor-pointer inline ml-1" onClick={() => removeVendor(v?.name)} />
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <CircleMinus className="w-4 h-4 cursor-pointer" />
+                                </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                  <AlertDialogDescription>Click on confirm to remove this vendor?</AlertDialogDescription>
+                                  <div className="flex items-end justify-end gap-2">
+                                    <AlertDialogCancel asChild>
+                                      <Button variant="outline" className="border-primary text-primary">Cancel</Button>
+                                    </AlertDialogCancel>
+                                    <Button onClick={() => removeVendor(v?.name || "")} className="flex items-center gap-1">
+                                      <CheckCheck className="h-4 w-4" />
+                                      Confirm
+                                    </Button>
+                                  </div>
+                                </AlertDialogHeader>
+
+                              </AlertDialogContent>
+                            </AlertDialog>
                             )}
                             </p>
                             </TableHead>)
@@ -447,7 +446,7 @@ const handleReviewChanges = async () => {
             <AlertDialogTitle className="text-center">Add Vendors</AlertDialogTitle>
           </AlertDialogHeader>
           <AlertDialogDescription>
-            <ReactSelect options={vendorOptions || []} isMulti onChange={handleSelectVendors} />
+            <VendorsReactMultiSelect vendorOptions={vendorOptions || []} setSelectedVendors={setSelectedVendors} />
           </AlertDialogDescription>
           <div className="flex items-end gap-4">
             <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
