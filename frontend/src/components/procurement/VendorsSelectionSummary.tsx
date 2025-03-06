@@ -8,88 +8,60 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog";
 import { useUserData } from '@/hooks/useUserData';
+import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { ConfigProvider, Table } from "antd";
+import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, SendToBack, Undo2 } from "lucide-react";
+import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { Vendor } from "../service-request/select-service-vendor";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 import { toast } from "../ui/use-toast";
 
-interface Category {
-  name: string;
-  makes: string[];
+export interface DataItem extends ProcurementItem {
+  amount: number;
+  vendor_name?: string;
+  lowestQuotedAmount: number;
+  threeMonthsLowestAmount: number;
 }
 
-interface ProcurementItem {
-  name: string;
-  item: string;
-  unit: string;
-  quantity: number;
-  category: string;
-  vendor?: string;
-  quote?: number;
-  make?: string;
-  status: string;
-  tax? : number;
-  comment?: string;
+export interface CategoryData {
+  items: DataItem[];
+  totalAmount?: number | string;
+  key: string;
 }
 
-interface OrderData {
-  project: string;
-  work_package: string;
-  workflow_state: string;
-  owner: string;
-  name: string;
-  modified: string;
-  modified_by: string;
-  creation: string;
-  category_list: {
-    list: Category[];
-  };
-  procurement_list: {
-    list: ProcurementItem[];
-  };
-  rfq_data: {
-    selectedVendors: Vendor[];
-    details : {
-      [itemId: string]: {
-        vendorQuotes : {
-          [vendorId: string]: {
-            quote?: number;
-            make?: string;
-          };
-        };
-        makes: string[];
-      };
-    },
-  };
+export interface CategoryWithChildren {
+  [category: string]: CategoryData;
 }
 
-const columns = [
+export const columns : TableColumnsType<CategoryWithChildren> = [
   {
     title: "Category",
     dataIndex: "category",
     key: "category",
-    className: "w-[60vw]",
-    render: (text) => <strong className="text-primary">{text}</strong>,
+    className: "w-[70vw]",
+    render: (text) => {
+      return (
+        <strong className="text-primary">{text}</strong>
+      )
+    },
   },
   {
     title: "Total Amount",
     dataIndex: "totalAmount",
     key: "amount",
-    render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
+    className: "",
+    render: (text) => <Badge>{text ? formatToIndianRupee(text) : "Delayed"}</Badge>,
   },
 ];
 
-const innerColumns = [
+export const innerColumns : TableColumnsType<DataItem> = [
   {
     title: "Item Name",
     dataIndex: "item",
@@ -100,7 +72,7 @@ const innerColumns = [
     title: "Unit",
     dataIndex: "unit",
     key: "unit",
-    className: "min-w-[5vw]",
+    className: "min-w-[10vw]",
   },
   {
     title: "Quantity",
@@ -115,7 +87,7 @@ const innerColumns = [
     className: "min-w-[10vw]",
     render: (text) => (
       <span className="italic">
-        {text ? formatToIndianRupee(text) : "--"}
+        {text ? formatToIndianRupee(text) : "Delayed"}
       </span>
     ),
   },
@@ -124,17 +96,54 @@ const innerColumns = [
     dataIndex: "vendor_name",
     key: "vendor",
     className: "min-w-[20vw]",
+    render: (text) => (
+      <span className="italic">
+        {text || "Delayed"}
+      </span>
+    ),
   },
   {
     title: "Amount",
     dataIndex: "amount",
     key: "amount",
-    className: "min-w-[10vw]",
-    render: (text) => (
-      <span className="italic">
-        {text ? formatToIndianRupee(text) : "--"}
-      </span>
-    ),
+    className: "min-w-[15vw]",
+    render: (text, record) => {
+      const amount = text;
+      const lowest3 = record?.threeMonthsLowestAmount
+    
+      if (!lowest3 || !amount) {
+        return (
+          <i>
+            {amount || "Delayed"}
+          </i>
+        );
+      }
+
+       const percentageDifference = (
+        (Math.abs(amount - lowest3) / lowest3) * 100
+      ).toFixed(0);
+    
+      const isLessThan = amount < lowest3;
+      const isEqual = amount === lowest3;
+      const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
+      const Icon = isLessThan ? MoveDown : MoveUp;
+    
+      return (
+        <div
+          className="flex items-center gap-1"
+        >
+          <i>{formatToIndianRupee(amount)}</i>
+          {!isEqual && (
+              <div className={`${colorClass} flex items-center`}>
+                <span className="text-sm">
+                  ({`${percentageDifference}%`})
+                </span>
+                <Icon className="w-4 h-4" />
+              </div>
+            )}
+        </div>
+      );
+    },
   },
   {
     title: "Lowest Quoted Amount",
@@ -152,34 +161,37 @@ const innerColumns = [
     dataIndex: "threeMonthsLowestAmount",
     key: "threeMonthsLowestAmount",
     className: "min-w-[10vw]",
-    render: (text) => (
-      <span className="italic">
-        {text ? formatToIndianRupee(text) : "--"}
-      </span>
-    ),
+    render: (text, record) => {
+
+      const amount = record.amount;
+      const lowest3 = text;
+
+      if (!amount || !lowest3) {
+          return <i>--</i>;
+      }
+      const isLessThan = amount < lowest3;
+      const isEqual = amount === lowest3;
+      const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
+
+      return <i className={`${!isEqual && colorClass}`}>{formatToIndianRupee(lowest3)}</i>;
   },
+},
 ];
 
 export const VendorsSelectionSummary = () => {
 
   const { prId } = useParams<{ prId: string }>();
   const navigate = useNavigate();
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
   const [comment, setComment] = useState<{approving: string, delaying: string}>({ approving: "", delaying: "" })
   const userData = useUserData()
 
   const { createDoc: createDoc, loading: create_loading, error: submit_error } = useFrappeCreateDoc()
   const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
-  const [orderData, setOrderData] = useState<OrderData>({
+  const [orderData, setOrderData] = useState<ProcurementRequest>({
     project: "",
-    work_package: "",
     workflow_state: "",
-    owner: "",
     name: "",
-    modified: "",
-    modified_by: "",
-    creation: "",
     category_list: {
       list: []
     },
@@ -245,8 +257,8 @@ export const VendorsSelectionSummary = () => {
   }
 
   const getLowest = (itemId: string) => {
-    const filtered : number[] = []
-    Object.values(orderData?.rfq_data?.details?.[itemId]?.vendorQuotes || {})?.map(i => {
+      const filtered : number[] = []
+      Object.values(orderData?.rfq_data?.details?.[itemId]?.vendorQuotes || {})?.map(i => {
       if(i?.quote) {
         filtered.push(i?.quote)
       }
@@ -255,23 +267,24 @@ export const VendorsSelectionSummary = () => {
     let minQuote;
     if (filtered.length > 0) minQuote = Math.min(...filtered);
     return minQuote || 0;
+
   }
 
   const getThreeMonthsLowest = (itemId : string) => {
-    const quotesForItem = quote_data
+        const quotesForItem = quote_data
         ?.filter(value => value?.item_id === itemId && ![null, "0", 0, undefined].includes(value?.quote))
         ?.map(value => parseFloat(value?.quote));
-    let minQuote;
-    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-    return minQuote || 0;
+      let minQuote;
+      if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+      return minQuote || 0;
   }
 
   const getFinalVendorQuotesData = useMemo(() => {
-    const data = []
+    const data : CategoryWithChildren[] = []
     if(orderData?.procurement_list.list?.length) {
       const procurementList = orderData.procurement_list.list
       procurementList.forEach(item => {
-        const category = item.category
+        const category : string = item.category
         const existingCategory = data?.find(entry => entry[category])
         if(existingCategory) {
           existingCategory[category]?.items.push({
@@ -286,7 +299,6 @@ export const VendorsSelectionSummary = () => {
             [category]: {
               totalAmount: getCategoryTotals[category],
               key: uuidv4(),
-              category,
               items: [{
                 ...item,
                 vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
@@ -300,17 +312,9 @@ export const VendorsSelectionSummary = () => {
       })
     }
     return data
-  }, [orderData, vendor_list, quote_data])
+  }, [orderData, vendor_list])
 
-  useEffect(() => {
-    if(getFinalVendorQuotesData?.length) {
-      const keys = []
-      getFinalVendorQuotesData?.map(item => {
-        keys.push(Object.values(item)[0]?.key)
-      })
-      setExpandedRowKeys(keys)
-    }
-  }, [getFinalVendorQuotesData])
+  
 
   const handleSubmit = async () => {
     try {
@@ -426,10 +430,17 @@ export const VendorsSelectionSummary = () => {
     }
 };
 
+interface VendorWiseApprovalItems {
+  [vendor : string] : {
+    items : ProcurementItem[];
+    total : number;
+  }
+}
+
   const generateActionSummary = () => {
-    let allDelayedItems = [];
-    let vendorWiseApprovalItems = {};
-    let approvalOverallTotal = 0;
+    let allDelayedItems : ProcurementItem[] = [];
+    let vendorWiseApprovalItems : VendorWiseApprovalItems  = {};
+    let approvalOverallTotal : number = 0;
 
     orderData.procurement_list?.list.forEach((item) => {
         const vendor = item?.vendor;
@@ -534,7 +545,9 @@ const {
               <div className='mt-6 overflow-x-auto'>
               {getFinalVendorQuotesData?.length > 0 ? (
         <div className="overflow-x-auto">
-          <ConfigProvider>
+          <ConfigProvider
+          
+          >
             <Table
               dataSource={getFinalVendorQuotesData
                 ?.sort((a, b) =>
@@ -546,13 +559,14 @@ const {
                   category: Object.keys(key)[0],
                   items: Object.values(key)[0]?.items,
                 }))}
+              rowClassName={(record) => !record?.totalAmount ? "bg-red-100" : ""}
               columns={columns}
               pagination={false}
               expandable={{
-                expandedRowKeys,
-                onExpandedRowsChange: setExpandedRowKeys,
+                defaultExpandAllRows : true,
                 expandedRowRender: (record) => (
                   <Table
+                    rowClassName={(record) => !record?.amount ? "bg-red-50" : ""}
                     dataSource={record.items}
                     columns={innerColumns}
                     pagination={false}

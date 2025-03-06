@@ -1,4 +1,5 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import formatToIndianRupee from "@/utils/FormatPrice"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import _ from "lodash"
@@ -36,22 +37,12 @@ function usePersistentState<T>(key: string, defaultValue: T) {
   return [state, setState] as [T, typeof setState];
 }
 
-interface ProcurementDraft {
-  selectedVendors: Vendor[];
-  details: {
-    [itemId: string]: {
-      vendorQuotes: { [vendorId: string]: { quote?: number; make?: string } };
-      makes: string[];
-    };
-  };
-}
-
 const useProcurementUpdates = (prId: string, mutate : any) => {
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
 
   const navigate = useNavigate()
 
-  const updateProcurementData = async (formData: ProcurementDraft, updatedData,  value : string) => {
+  const updateProcurementData = async (formData: RFQData, updatedData : ProcurementItem[],  value : string) => {
     await updateDoc("Procurement Requests", prId, {
       rfq_data: formData,
       procurement_list: { list: updatedData }
@@ -84,9 +75,9 @@ export const ProcurementProgress = () => {
   const [selectedVendors, setSelectedVendors] = useState<Vendor[]>([])
 
   const [selectedVendorQuotes, setSelectedVendorQuotes] = useState(new Map())
-  const [isRedirecting, setIsRedirecting] = useState("")
+  const [isRedirecting, setIsRedirecting] = useState<string>("")
 
-  const [formData, setFormData] = usePersistentState<ProcurementDraft>(`procurementDraft_${prId}`, {
+  const [formData, setFormData] = usePersistentState<RFQData>(`procurementDraft_${prId}`, {
     selectedVendors: [],
     details: {},
   });
@@ -127,7 +118,7 @@ export const ProcurementProgress = () => {
       orderData?.procurement_list?.list?.length > 0 &&
       Object.keys(formData.details).length === 0
     ) {
-      const newDetails: ProcurementDraft['details'] = {};
+      const newDetails: RFQData['details'] = {};
       
       orderData.procurement_list.list.forEach((item) => {
         const matchingCategory = orderData.category_list.list.find(
