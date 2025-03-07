@@ -16,8 +16,8 @@ import { Trash2 } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useSearchParams } from "react-router-dom";
-import { TableSkeleton } from "../ui/skeleton";
-import { EstimatedPriceHoverCard } from "./EstimatedPriceHoverCard";
+import { EstimatedPriceHoverCard } from "../../../components/procurement/EstimatedPriceHoverCard";
+import { TableSkeleton } from "../../../components/ui/skeleton";
 
 type PRTable = {
     name: string

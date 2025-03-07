@@ -1,8 +1,5 @@
-import { ArrowBigUpDash, ArrowLeft, BookOpenText, CheckCheck, Info, ListChecks, MessageCircleMore, Pencil, SendToBack, Undo2 } from 'lucide-react';
+import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
-import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react"
 import {
     Dialog,
     DialogClose,
@@ -11,18 +8,20 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Table, ConfigProvider } from 'antd';
-import type { TableColumnsType, TableProps } from 'antd';
-import { useToast } from '../ui/use-toast';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
-import formatToIndianRupee from '@/utils/FormatPrice';
-import TextArea from 'antd/es/input/TextArea';
+} from "@/components/ui/dialog";
 import { useUserData } from '@/hooks/useUserData';
-import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
+import formatToIndianRupee from '@/utils/FormatPrice';
+import type { TableColumnsType } from 'antd';
+import { ConfigProvider, Table } from 'antd';
+import TextArea from 'antd/es/input/TextArea';
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { ArrowBigUpDash, ArrowLeft, BookOpenText, CheckCheck, Info, ListChecks, MessageCircleMore, Pencil, SendToBack, Undo2 } from 'lucide-react';
+import { useEffect, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
-import { QuestionMarkIcon } from '@radix-ui/react-icons';
+import { useNavigate, useParams } from "react-router-dom";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
+import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
+import { useToast } from '../ui/use-toast';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -32,7 +31,7 @@ interface DataType {
     item: string;
     unit: string;
     quantity: number;
-    rate: number;
+    rate: number | string;
     selectedVendor: string;
     amount: number;
     lowest2: string;
@@ -175,7 +174,7 @@ export const SelectVendors = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
+            fields: ["*"],
             filters: [['name', '=', orderId]],
             limit: 1000
         });
@@ -207,7 +206,6 @@ export const SelectVendors = () => {
             }
         })
     }
-
 
     const delayedItemsCheck = () => {
         let delayedItems = {};

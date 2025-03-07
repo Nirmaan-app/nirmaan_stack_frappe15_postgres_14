@@ -1,52 +1,56 @@
-import { Badge } from "../ui/badge"
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { Button } from "../ui/button";
-import { ArrowBigRightDash, MessageCircleMore } from "lucide-react";
+import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { formatDate } from "@/utils/FormatDate";
-import { useEffect, useState } from "react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { useNavigate, useParams } from "react-router-dom";
+import { ArrowBigRightDash, MessageCircleMore } from "lucide-react";
+import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { useNavigate, useParams } from "react-router-dom";
+import { Avatar, AvatarFallback, AvatarImage } from "../../components/ui/avatar";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../components/ui/hover-card";
+import { ProcurementHeaderCard } from "../../components/ui/ProcurementHeaderCard";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 
 export const SentBackSummary = () => {
 
     const { sbId : id } = useParams<{ sbId: string }>()
     const navigate = useNavigate();
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
             fields: ['*'],
-            limit: 10000
-        });
+            filters: [["name", "=", id]]
+        },
+        id ? undefined : null
+    );
 
-    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+    const { data: universalComments } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
         filters: [["reference_name", "=", id]],
         orderBy: { field: "creation", order: "desc" }
-    })
+    },
+    id ? undefined : null
+)
 
-    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
     })
 
-    const getFullName = (id) => {
+    const getFullName = (id : string) => {
         return usersList?.find((user) => user.name == id)?.full_name
     }
 
-    const [orderData, setOrderData] = useState({
-        project: ''
-    })
+    const [orderData, setOrderData] = useState<SentBackCategory | undefined>()
 
     useEffect(() => {
-        sent_back_list?.map(item => {
-            if (item.name === id) {
-                setOrderData(item)
-            }
-        })
+        if(sent_back_list) {
+            const item = sent_back_list?.[0]
+            setOrderData(item)
+        }
     }, [sent_back_list]);
 
     if (sent_back_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
@@ -67,7 +71,7 @@ export const SentBackSummary = () => {
                             {orderData?.workflow_state}
                         </span>{" "}
                         And the last modification was done by <span className="font-medium text-gray-900">
-                            {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getFullName(orderData?.modified_by)}
+                            {orderData?.modified_by === "Administrator" ? "Administrator" : getFullName(orderData?.modified_by || "")}
                         </span>
                         !
                     </p>
@@ -162,7 +166,7 @@ export const SentBackSummary = () => {
                     }
                 </div>
                 <div className="flex flex-col justify-end items-end">
-                    <Button onClick={() => navigate(`update-quote`)} className="flex items-center gap-1">
+                    <Button onClick={() => navigate(`/sent-back-requests/${id}?mode=edit`)} className="flex items-center gap-1">
                         Next
                         <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
                     </Button>

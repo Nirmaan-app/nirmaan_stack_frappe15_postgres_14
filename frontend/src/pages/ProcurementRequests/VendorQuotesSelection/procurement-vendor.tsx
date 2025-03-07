@@ -14,13 +14,13 @@ import { ArrowBigRightDash, CirclePlus, MessageCircleMore } from 'lucide-react';
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { AddVendorCategories } from "../forms/addvendorcategories";
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
-import { toast } from "../ui/use-toast";
+import { AddVendorCategories } from "../../../components/forms/addvendorcategories";
+import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
+import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
+import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
+import { toast } from "../../../components/ui/use-toast";
 
 export const ProcurementOrder = () => {
 
@@ -500,7 +500,7 @@ export const ProcurementOrder = () => {
           <div className="flex flex-col justify-end items-end">
             {update_loading ? <TailSpin color="red" height={30} width={30} /> : (
               <Button onClick={handleStartProcuring} className="flex items-center gap-1">
-                Start Procuring
+                Continue
                 <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
               </Button>
             )}
@@ -607,18 +607,3 @@ export const ProcurementOrder = () => {
     </>
   )
 }
-
-const CustomSingleValue = ({ data }) => (
-  <div>
-    <strong>{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
-  </div>
-);
-
-const CustomOption = (props) => {
-  const { data, innerRef, innerProps } = props;
-  return (
-    <div ref={innerRef} {...innerProps} style={{ padding: "5px", cursor: "pointer" }}>
-      <strong className="text-primary">{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
-    </div>
-  );
-};

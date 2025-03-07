@@ -1,3 +1,6 @@
+type VendorCategory = {
+	categories : string[]
+}
 
 export interface Vendors{
 	name: string
@@ -5,7 +8,7 @@ export interface Vendors{
 	modified: string
 	owner: string
 	modified_by: string
-	docstatus: 0 | 1 | 2
+	docstatus?: 0 | 1 | 2
 	parent?: string
 	parentfield?: string
 	parenttype?: string
@@ -13,9 +16,9 @@ export interface Vendors{
 	/**	Vendor Name : Data	*/
 	vendor_name: string
 	/**	Vendor Type : Select	*/
-	vendor_type?: "Material" | "Service"
+	vendor_type: "Material" | "Service" | "Material & Service"
 	/**	Vendor Category : JSON	*/
-	vendor_category?: any
+	vendor_category?: VendorCategory
 	/**	Vendor Address : Link - Address	*/
 	vendor_address?: string
 	/**	Vendor City : Data	*/
@@ -30,4 +33,9 @@ export interface Vendors{
 	vendor_email?: string
 	/**	Vendor GST : Data	*/
 	vendor_gst?: string
+	account_name? : string
+	account_number?: string | number
+	ifsc? : string
+	bank_name?: string
+	bank_branch?: string
 }

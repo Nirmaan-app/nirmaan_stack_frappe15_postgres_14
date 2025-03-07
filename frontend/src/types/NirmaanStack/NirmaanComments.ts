@@ -5,7 +5,7 @@ export interface NirmaanComments{
 	modified: string
 	owner: string
 	modified_by: string
-	docstatus: 0 | 1 | 2
+	docstatus?: 0 | 1 | 2
 	parent?: string
 	parentfield?: string
 	parenttype?: string
@@ -13,13 +13,13 @@ export interface NirmaanComments{
 	/**	Comment Type : Data	*/
 	comment_type?: string
 	/**	Content : Data	*/
-	content?: string
+	content: string
 	/**	Subject : Data	*/
 	subject?: string
 	/**	Reference Doctype : Link - DocType	*/
-	reference_doctype?: string
+	reference_doctype: string
 	/**	Reference Name : Dynamic Link	*/
 	reference_name?: string
 	/**	Comment By : Data	*/
-	comment_by?: string
+	comment_by: string
 }

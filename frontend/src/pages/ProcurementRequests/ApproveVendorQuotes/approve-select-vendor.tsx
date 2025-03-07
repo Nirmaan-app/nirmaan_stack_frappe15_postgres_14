@@ -1,28 +1,20 @@
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
-import { Projects } from "@/types/NirmaanStack/Projects";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
+import { Category, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
-
-
-type PRTable = {
-    name: string
-    project: string
-    creation: string
-    work_package: string
-    category_list: {}
-}
+import { ColumnDef } from "@tanstack/react-table";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useMemo } from "react";
+import { Link } from "react-router-dom";
 
 export const ApproveSelectVendor = () => {
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation', "modified"],
             filters: [
@@ -37,37 +29,20 @@ export const ApproveSelectVendor = () => {
         limit: 1000
     })
 
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
-        {
-            fields: ['item', 'quote', 'procurement_task', 'status', 'creation'],
-            limit: 100000,
-            filters: [["status", "=", "Selected"]],
-            orderBy: {field: "creation", order : "desc"}
-        });
-    
-    let filteredList;
-    if (procurement_request_list) {
-        filteredList = procurement_request_list.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending"))
-    }
 
     const getTotal = (order_id: string) => {
         let total: number = 0;
-        const allItems = filteredList?.find(item => item?.name === order_id)?.procurement_list;
-        const orderData = allItems?.list?.filter((item) => item.status === "Pending")
+        const allItems = procurement_request_list?.find(item => item?.name === order_id)?.procurement_list?.list;
+        const orderData = allItems?.filter((item) => item.status === "Pending")
         orderData?.map((item) => {
-            const quotesForItem = quote_data
-                ?.filter(value => value.item === item.name && value?.procurement_task === order_id && value.quote != null)
-                ?.map(value => value.quote);
-            let minQuote;
-            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-            total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+            total += (item.quote || 0) * item.quantity;
         })
         return total;
     }
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
-    useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
+    useFrappeDocTypeEventListener("Procurement Requests", async () => {
         await pr_list_mutate()
     })
 
@@ -80,7 +55,7 @@ export const ApproveSelectVendor = () => {
         }
     }
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<ProcurementRequest>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -90,7 +65,7 @@ export const ApproveSelectVendor = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const prId = row.getValue("name")
+                    const prId : string = row.getValue("name")
                     const isNew = notifications.find(
                         (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:vendorSelected"
                     )
@@ -117,9 +92,10 @@ export const ApproveSelectVendor = () => {
                     )
                 },
                 cell: ({ row }) => {
+                     const creation : string = row.getValue("creation")
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(creation.split(" ")[0])}
                         </div>
                     )
                 }
@@ -173,9 +149,10 @@ export const ApproveSelectVendor = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const categories : { list : Category[] } = row.getValue("category_list")
                     return (
                         <div className="flex flex-col gap-1 items-start justify-center">
-                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {categories.list.map((obj) => <Badge className="inline-block">{obj.name}</Badge>)}
                         </div>
                     )
                 }
@@ -188,7 +165,7 @@ export const ApproveSelectVendor = () => {
                     )
                 },
                 cell: ({row}) => {
-                    const id = row.getValue("name")
+                    const id : string = row.getValue("name")
                     return (
                         <div className="font-medium">
                             {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
@@ -214,40 +191,9 @@ export const ApproveSelectVendor = () => {
 
     return (
         <div className="flex-1 md:space-y-4">
-            {/* <div className="flex items-center justify-between space-y-2 pl-2">
-                <h2 className="text-lg font-bold tracking-tight">Approve PO</h2>
-            </div> */}
             {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-                <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
+                <DataTable columns={columns} data={procurement_request_list?.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending")) || []} project_values={project_values} />
             )}
-            {/* <div className="overflow-x-auto">
-                        <table className="min-w-full divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PR number</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Package</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {procurement_request_lists?.map(item => (
-                                    <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-po/${item.name}`}>{item.name.slice(-4)}</Link></td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {item.creation.split(" ")[0]}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.project}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.work_package}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            N/A
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div> */}
         </div>
     )
 }

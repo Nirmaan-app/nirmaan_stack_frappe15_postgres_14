@@ -594,8 +594,8 @@ const projectValues = projects?.map((item) => ({
           return (
             <div className="flex flex-col gap-2 text-[#11050599] min-w-[200px]">
               <Badge>PO Value (Excl. GST): {formatToIndianRupee(getTotal(row.getValue("order_list"), row.getValue('name'),).poAmountWithoutGST)}</Badge>
-              <Badge>PO Value (Incl. GST): {formatToIndianRupee(getTotal(row.getValue("order_list")).poAmountWithGST)}</Badge>
-              <Badge>Amount Paid: {formatToIndianRupee(getTotal(row.getValue("order_list")).totalAmountPaid)}</Badge>
+              <Badge>PO Value (Incl. GST): {formatToIndianRupee(getTotal(row.getValue("order_list"), row.getValue("name")).poAmountWithGST)}</Badge>
+              <Badge>Amount Paid: {formatToIndianRupee(getTotal(row.getValue("order_list"), row.getValue("name")).totalAmountPaid)}</Badge>
             </div>
           );
         },
