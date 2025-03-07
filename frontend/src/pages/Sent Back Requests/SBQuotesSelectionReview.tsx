@@ -1,3 +1,5 @@
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogClose,
@@ -7,21 +9,22 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
+import { ProcurementHeaderCard } from "@/components/ui/ProcurementHeaderCard";
+import { toast } from "@/components/ui/use-toast";
 import { useUserData } from '@/hooks/useUserData';
-import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MoveDown, MoveUp, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import { toast } from "../ui/use-toast";
 
 export interface DataItem extends ProcurementItem {
   amount: number;
@@ -32,7 +35,7 @@ export interface DataItem extends ProcurementItem {
 
 export interface CategoryData {
   items: DataItem[];
-  totalAmount?: number | string;
+  totalAmount: number;
   key: string;
 }
 
@@ -57,7 +60,7 @@ export const columns : TableColumnsType<CategoryWithChildren> = [
     dataIndex: "totalAmount",
     key: "amount",
     className: "",
-    render: (text) => <Badge>{text ? formatToIndianRupee(text) : "Delayed"}</Badge>,
+    render: (text) => <Badge>{formatToIndianRupee(text)}</Badge>,
   },
 ];
 
@@ -87,7 +90,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     className: "min-w-[10vw]",
     render: (text) => (
       <span className="italic">
-        {text ? formatToIndianRupee(text) : "Delayed"}
+        {formatToIndianRupee(text)}
       </span>
     ),
   },
@@ -98,7 +101,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     className: "min-w-[20vw]",
     render: (text) => (
       <span className="italic">
-        {text || "Delayed"}
+        {text}
       </span>
     ),
   },
@@ -114,7 +117,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
       if (!lowest3 || !amount) {
         return (
           <i>
-            {amount || "Delayed"}
+            {amount}
           </i>
         );
       }
@@ -152,7 +155,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     className: "min-w-[10vw]",
     render: (text) => (
       <span className="italic">
-        {text ? formatToIndianRupee(text) : "--"}
+        {formatToIndianRupee(text)}
       </span>
     ),
   },
@@ -166,7 +169,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
       const amount = record.amount;
       const lowest3 = text;
 
-      if (!amount || !lowest3) {
+      if (!lowest3) {
           return <i>--</i>;
       }
       const isLessThan = amount < lowest3;
@@ -178,64 +181,52 @@ export const innerColumns : TableColumnsType<DataItem> = [
 },
 ];
 
-export const VendorsSelectionSummary = () => {
+export const SBQuotesSelectionReview = () => {
 
-  const { prId } = useParams<{ prId: string }>();
+  const { sbId } = useParams<{ sbId: string }>();
   const navigate = useNavigate();
-  const [comment, setComment] = useState<{approving: string, delaying: string}>({ approving: "", delaying: "" })
+  const [comment, setComment] = useState<string>("")
   const userData = useUserData()
 
-  const { createDoc: createDoc, loading: create_loading, error: submit_error } = useFrappeCreateDoc()
-  const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
+  const { updateDoc: updateDoc, loading: update_loading, error: submit_error } = useFrappeUpdateDoc()
+  const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
 
-  const [orderData, setOrderData] = useState<ProcurementRequest>({
-    project: "",
-    workflow_state: "",
-    name: "",
-    category_list: {
-      list: []
-    },
-    procurement_list: {
-      list: []
-    },
-    rfq_data: {
-      selectedVendors: [],
-      details: {}
-    }
-  });
+  const {mutate} = useSWRConfig()
 
-  const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
-      {
-          fields: ["*"],
-          filters: [['name', '=', prId]]
-      }
+  const [orderData, setOrderData] = useState<SentBackCategory | undefined>();
+
+  const { data: sent_back_list, isLoading: sent_back_list_loading, mutate: sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category", {
+        fields: ["*"],
+        filters: [["name", "=", sbId]]
+      },
+      sbId ? `Sent Back Category ${sbId}` : null
   );
 
-  const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList("Vendors",
+  const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
     {
         fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type', 'vendor_state', 'vendor_city'],
         filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
         limit: 10000
   });
 
-  const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+  const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
     {
         fields: ["*"],
         limit: 100000
     });
 
   useEffect(() => {
-    if(!orderData?.project && procurement_request_list) {
-      const procurementRequest = procurement_request_list[0]
-      setOrderData(procurementRequest)
+    if(sent_back_list) {
+      const request = sent_back_list[0]
+      setOrderData(request)
     }
-  })
+  }, [sent_back_list])
 
   const getCategoryTotals = useMemo(() => {
     const totals : {[category: string]: number} = {}
 
-  if(!orderData?.procurement_list?.list?.length) return totals
-    orderData?.procurement_list?.list?.forEach(item => {
+  if(!orderData?.item_list?.list?.length) return totals
+    orderData?.item_list?.list?.forEach(item => {
       const category = item.category
       const quote = item.quote || 0
       const quantity = item.quantity
@@ -253,7 +244,7 @@ export const VendorsSelectionSummary = () => {
   //   , [vendorId, vendor_list])
 
   const getVendorName = (vendorId : string) : string => {
-    return vendor_list?.find(v => v?.name === vendorId)?.vendor_name
+    return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
   }
 
   const getLowest = (itemId: string) => {
@@ -281,8 +272,8 @@ export const VendorsSelectionSummary = () => {
 
   const getFinalVendorQuotesData = useMemo(() => {
     const data : CategoryWithChildren[] = []
-    if(orderData?.procurement_list.list?.length) {
-      const procurementList = orderData.procurement_list.list
+    if(orderData?.item_list.list?.length) {
+      const procurementList = orderData.item_list.list
       procurementList.forEach(item => {
         const category : string = item.category
         const existingCategory = data?.find(entry => entry[category])
@@ -314,121 +305,42 @@ export const VendorsSelectionSummary = () => {
     return data
   }, [orderData, vendor_list])
 
-  
 
-  const handleSubmit = async () => {
-    try {
-        const delayedItems: string[] = [];
-
-        const itemlist: any[] = [];
-        orderData.procurement_list?.list.map((value) => {
-            if (!value.vendor) {
-                itemlist.push({
-                    ...value,
-                    quote: 0,
+   const handleSubmit = async () => {
+      try {
+            await updateDoc('Sent Back Category', sbId, {
+                workflow_state: "Vendor Selected"
+            });
+    
+            if (comment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Sent Back Category",
+                    reference_name: sbId,
+                    comment_by: userData?.user_id,
+                    content: comment,
+                    subject: "sb vendors selected",
                 });
-                delayedItems.push(value.name);
             }
-        });
+    
+            toast({
+                title: "Success!",
+                description: `Sent Back: ${sbId} sent for Approval!`,
+                variant: "success",
+            });
 
-        // Update the procurement list to mark delayed items
-        const updatedProcurementList = orderData.procurement_list.list.map((item) => {
-            if (delayedItems.some((i) => i === item.name)) {
-                return { ...item, status: "Delayed" };
-            }
-            return item;
-        });
+            await mutate(`${orderData?.type} Sent Back Category`)
 
-        const newCategories: { name: string, makes: string[] }[] = [];
-        itemlist.forEach((item) => {
-            const isDuplicate = newCategories.some((category) => category.name === item.category);
-            if (!isDuplicate) {
-                const makes = orderData?.category_list?.list?.find((category) => category.name === item.category)?.makes;
-                newCategories.push({ name: item.category, makes: makes || [] });
-            }
-        });
-
-        const newSendBack = {
-            procurement_request: prId,
-            project: orderData.project,
-            category_list: {
-                list: newCategories,
-            },
-            item_list: {
-                list: itemlist,
-            },
-            type: "Delayed",
-        };
-
-        // Create new document if there are any items in the itemlist
-        if (itemlist.length > 0) {
-            try {
-                const res = await createDoc("Sent Back Category", newSendBack);
-                if (comment?.delaying) {
-                    await createDoc("Nirmaan Comments", {
-                        comment_type: "Comment",
-                        reference_doctype: "Sent Back Category",
-                        reference_name: res.name,
-                        comment_by: userData?.user_id,
-                        content: comment?.delaying,
-                        subject: "creating sent-back(delayed)"
-                    })
-                }
-            } catch (error) {
-                console.log("submit_error", error);
-            }
-        }
-
-        // Update Procurement Request based on item conditions
-        if (itemlist.length === orderData.procurement_list?.list.length) {
-            try {
-                await updateDoc("Procurement Requests", prId, {
-                    workflow_state: "Delayed",
-                    procurement_list: { list: updatedProcurementList },
-                });
-                toast({
-                    title: "Oops!",
-                    description: `You just delayed all the items, you can see them in Sent Back Requests delayed tab!`,
-                    variant: "default",
-                });
-                
-            } catch (error) {
-                console.log("update_submit_error", error);
-            }
-        } else {
-            try {
-                await updateDoc("Procurement Requests", prId, {
-                    workflow_state: "Vendor Selected",
-                    procurement_list: { list: updatedProcurementList },
-                });
-
-                if (comment?.approving) {
-                    await createDoc("Nirmaan Comments", {
-                        comment_type: "Comment",
-                        reference_doctype: "Procurement Requests",
-                        reference_name: prId,
-                        comment_by: userData?.user_id,
-                        content: comment?.approving,
-                        subject: "pr vendors selected"
-                    })
-                }
-
-                // console.log(orderId);
-                toast({
-                    title: "Success!",
-                    description: `Items Sent for Approval`,
-                    variant: "success",
-                });
-            } catch (error) {
-                console.log("update_submit_error", error);
-            }
-        }
-
-        navigate(`/procurement-requests?tab=New PR Request`);
-    } catch (error) {
-        console.log("handleSubmit error", error);
-    }
-};
+            navigate(`/sent-back-requests?type=${orderData?.type}`)
+      } catch (error) {
+              toast({
+                  title: "Failed!",
+                  description: `Failed to send Sent Back: ${sbId} for Approval.`,
+                  variant: "destructive",
+              });
+              console.log("submit_error", error);
+          }
+    };
 
 interface VendorWiseApprovalItems {
   [vendor : string] : {
@@ -437,17 +349,12 @@ interface VendorWiseApprovalItems {
   }
 }
 
-  const generateActionSummary = () => {
-    let allDelayedItems : ProcurementItem[] = [];
+const generateActionSummary = () => {
     let vendorWiseApprovalItems : VendorWiseApprovalItems  = {};
     let approvalOverallTotal : number = 0;
 
-    orderData.procurement_list?.list.forEach((item) => {
+    orderData?.item_list?.list.forEach((item) => {
         const vendor = item?.vendor;
-        if (!vendor) {
-            // Delayed items
-            allDelayedItems.push(item);
-        } else {
             // Approval items segregated by vendor
             const itemTotal = item.quantity * (item.quote || 0);
             if (!vendorWiseApprovalItems[vendor]) {
@@ -459,18 +366,15 @@ interface VendorWiseApprovalItems {
             vendorWiseApprovalItems[vendor].items.push(item);
             vendorWiseApprovalItems[vendor].total += itemTotal;
             approvalOverallTotal += itemTotal;
-        }
     });
 
     return {
-        allDelayedItems,
         vendorWiseApprovalItems,
         approvalOverallTotal,
     };
 };
 
 const {
-    allDelayedItems,
     vendorWiseApprovalItems,
     approvalOverallTotal,
 } = generateActionSummary();
@@ -480,33 +384,13 @@ const {
               <div className="flex items-center">
                   <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
               </div>
-              <ProcurementHeaderCard orderData={orderData} />
+              <ProcurementHeaderCard orderData={orderData} sentBack />
               <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200 mt-4">
                         <h2 className="text-lg font-bold mb-3 flex items-center">
                             <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
                             Actions Summary
                         </h2>
                         <div className="grid md:grid-cols-2 gap-4">
-                            {/* Delayed Items Summary */}
-                            {allDelayedItems.length > 0 && (
-                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                    <div className="flex items-center mb-2">
-                                        <SendToBack className="h-5 w-5 text-red-500 mr-2" />
-                                        <h3 className="font-medium text-gray-700">Delayed Items</h3>
-                                    </div>
-                                    <p className="text-sm text-gray-600">
-                                        These items are delayed and a <strong>new Delayed Sent Back</strong> will be created:
-                                    </p>
-                                    <ul className="mt-1 list-disc pl-5">
-                                        {allDelayedItems.map((item) => (
-                                            <li key={item.name}>
-                                                {item.item} - {item.quantity} {item.unit}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-
                             {/* Approval Items Summary */}
                             {Object.keys(vendorWiseApprovalItems).length > 0 && (
                                 <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
@@ -596,38 +480,23 @@ const {
                                 <DialogHeader>
                                     <DialogTitle>Have you cross-checked your selections?</DialogTitle>
                                     <DialogDescription>
-                                        {allDelayedItems.length !== 0 && (
-                                            <p>
-                                                Remainder: Items whose quotes are not selected will have a delayed status
-                                                attached to them. If confirmed, Delayed sent back request will be created for those Items.
-                                            </p>
-                                        )}
 
                                         {Object.keys(vendorWiseApprovalItems).length !== 0 && (
                                             <div className='flex flex-col gap-2 mt-2 text-start'>
                                                 <h4 className='font-bold'>Any remarks for the Project Lead?</h4>
-                                                <TextArea className='border-green-400 focus:border-green-800 bg-green-200' placeholder='type here...' value={comment?.approving} onChange={(e) => setComment({ ...comment, "approving": e.target.value })} />
+                                                <TextArea className='border-green-400 focus:border-green-800 bg-green-200' placeholder='type here...' value={comment} onChange={(e) => setComment(e.target.value)} />
                                             </div>
                                         )}
-
-                                        {allDelayedItems.length !== 0 ? (
-                                            <div className='flex flex-col gap-2 mt-2 text-start'>
-                                                <h4 className='font-bold'>some items are delayed, any reason?</h4>
-                                                <TextArea className='border-primary focus:border-red-800 bg-red-200' placeholder='type here...' value={comment?.delaying} onChange={(e) => setComment({ ...comment, "delaying": e.target.value })} />
-                                            </div>
-                                        ) : <></>}
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    {(update_loading || create_loading) ? <TailSpin width={60} color={"red"} /> : (
+                                    {(create_loading || update_loading) ? <TailSpin width={60} color={"red"} /> : (
                                         <>
                                             <DialogClose><Button variant="secondary" className="flex items-center gap-1">
                                                 <Undo2 className="h-4 w-4" />
                                                 Cancel</Button></DialogClose>
                                             <Button variant="default" 
-                                            onClick={() => {
-                                                handleSubmit()
-                                            }} 
+                                            onClick={handleSubmit} 
                                             className="flex items-center gap-1">
                                                 <CheckCheck className="h-4 w-4" />
                                                 Confirm</Button>

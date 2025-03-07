@@ -17,9 +17,13 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
             raise frappe.ValidationError(f"Procurement Request {pr_name} not found.")
 
         procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
+        rfq_data = frappe.parse_json(pr_doc.rfq_data) if pr_doc.rfq_data else {}
+        selected_vendors = rfq_data.get("selectedVendors", [])
+        rfq_details = rfq_data.get("details", {})
 
         itemlist = []
         new_categories = []
+        new_rfq_details = {}
 
         for item_name in selected_items:
             item = next((i for i in procurement_list if i["name"] == item_name), None)
@@ -28,18 +32,24 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                     "name": item["name"],
                     "item": item["item"],
                     "quantity": item["quantity"],
-                    "tax": item["tax"],
-                    "quote": item["quote"],
+                    "tax": item.get("tax"),
+                    "quote": item.get("quote"),
                     "unit": item["unit"],
                     "category": item["category"],
                     "status": "Pending",
-                    "comment": item.get("comment")
+                    "comment": item.get("comment"),
+                    "make": item.get("make"),
+                    "vendor": item.get("vendor"),
                 })
 
                 if not any(cat["name"] == item["category"] for cat in new_categories):
                     category_info = next((cat for cat in frappe.parse_json(pr_doc.category_list).get('list', []) if cat["name"] == item["category"]), None)
                     makes = category_info.get("makes", []) if category_info else []
                     new_categories.append({"name": item["category"], "makes": makes})
+
+                # Add item details to new_rfq_details
+                if item_name in rfq_details:
+                    new_rfq_details[item_name] = rfq_details[item_name]
 
         if itemlist:
             sent_back_doc = frappe.new_doc("Sent Back Category")
@@ -48,6 +58,7 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
             sent_back_doc.category_list = {"list": new_categories}
             sent_back_doc.item_list = {"list": itemlist}
             sent_back_doc.type = "Rejected"
+            sent_back_doc.rfq_data = {"selectedVendors": selected_vendors, "details": new_rfq_details}  # Add rfq_data
             sent_back_doc.insert()
 
             if comments:
@@ -57,6 +68,7 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                 comment_doc.reference_name = sent_back_doc.name
                 comment_doc.content = comments
                 comment_doc.subject = "creating sent-back"
+                comment_doc.comment_by = frappe.session.user
                 comment_doc.insert()
 
         updated_procurement_list = []
@@ -72,9 +84,9 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
         no_approved_items = all(item.get("status") != "Approved" for item in procurement_list)
         pending_items_count = sum(1 for item in procurement_list if item.get("status") == "Pending")
 
-        if pr_doc.workflow_state == "Vendor Selected" and all_items_sent_back:
+        if all_items_sent_back:
             pr_doc.workflow_state = "Sent Back"
-        elif no_approved_items and sent_back_items == pending_items_count:
+        elif no_approved_items and pending_items_count == 0:
             pr_doc.workflow_state = "Sent Back"
         else:
             pr_doc.workflow_state = "Partially Approved"

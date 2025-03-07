@@ -17,12 +17,7 @@ import { LivePRTrackingTable } from "./components/procurement-request/LivePRTrac
 import ListPR from "./components/procurement-request/list-pr";
 import { NewProcurementRequest } from "./components/procurement-request/new-new-pr";
 import { EstimatedPriceOverview } from "./components/procurement/EstimatedPriceOverview";
-import { ProcurementRequests } from "./components/procurement/procurement-requests";
-import { RenderProcurementRequest } from "./components/procurement/render-procurement-requests";
 import { SentBackRequest } from "./components/procurement/sent-back-request";
-import { SentBackSelectVendor } from "./components/procurement/sent-back-select-vendor";
-import { SentBackSummary } from "./components/procurement/sent-back-summary";
-import { SentBackUpdateQuote } from "./components/procurement/sent-back-update-quote";
 import { ApproveSelectAmendSR } from "./components/service-request/approve-amend-sr-list";
 import { ApproveServiceRequest } from "./components/service-request/approve-service-request";
 import { ApproveSelectSR } from "./components/service-request/approve-service-request-list";
@@ -41,9 +36,12 @@ import Items from "./pages/Items/items";
 import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
 import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
 import { ApproveSelectVendor } from "./pages/ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
+import { ProcurementRequests } from "./pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";
+import { RenderProcurementRequest } from "./pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
 import { ApprovePayments } from "./pages/ProjectPayments/approve-payments";
 import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
 import { ProjectPaymentsPaymentWise } from "./pages/ProjectPayments/project-payments-payment-wise";
+import { RenderSentBackComponent } from "./pages/Sent Back Requests/RenderSentBackComponent";
 import { ApprovePR } from "./pages/approve-pr";
 import { ApproveSelectAmendPO } from "./pages/approve-select-amend-po";
 import { ApproveSelectSentBack } from "./pages/approve-select-sent-back";
@@ -195,7 +193,7 @@ const router = createBrowserRouter(
             <Route index element={<ApproveSelectSentBack />} />
             <Route
               path=":sbId"
-              lazy={() => import("@/pages/approve-sent-back")}
+              lazy={() => import("@/pages/Sent Back Requests/ApproveVendorQuotes")}
             />
           </Route>
 
@@ -279,14 +277,14 @@ const router = createBrowserRouter(
           <Route path="sent-back-requests">
             <Route index element={<SentBackRequest />} />
             <Route path=":sbId">
-              <Route index element={<SentBackSummary />} />
-              <Route path="update-quote">
+              <Route index element={<RenderSentBackComponent />} />
+              {/* <Route path="update-quote">
                 <Route index element={<SentBackUpdateQuote />} />
                 <Route
                   path="choose-vendor"
                   element={<SentBackSelectVendor />}
                 />
-              </Route>
+              </Route> */}
             </Route>
           </Route>
 

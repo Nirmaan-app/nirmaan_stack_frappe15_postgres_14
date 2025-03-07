@@ -2,13 +2,12 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
-import { Table as ReactTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { CategoryData, CategoryWithChildren, columns, DataItem, innerColumns } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -20,10 +19,10 @@ import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 
-export const ApproveRejectVendorQuotes : React.FC = () => {
+export const ApproveSBVendorQuotes : React.FC = () => {
 
-    const { prId } = useParams<{ prId: string }>()
-    const { data: pr, isLoading: pr_loading, error: pr_error, mutate: pr_mutate } = useFrappeGetDoc("Procurement Requests", prId);
+    const { sbId } = useParams<{ sbId: string }>()
+    const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc("Sent Back Category", sbId);
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["name", "full_name"],
@@ -39,9 +38,9 @@ export const ApproveRejectVendorQuotes : React.FC = () => {
     
     const { data: universalComment, isLoading: universalCommentLoading, error: universalCommentError } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
-        filters: [["reference_name", "=", pr?.name], ["subject", "=", "pr vendors selected"]]
+        filters: [["reference_name", "=", sb?.name], ["subject", "=", "sb vendors selected"]]
     },
-    pr ? undefined : null
+    sb ? undefined : null
   )
 
   const { data: quotes_data, isLoading: quotesLoading, error: quotesError } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
@@ -59,31 +58,31 @@ export const ApproveRejectVendorQuotes : React.FC = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || usersListLoading || vendor_list_loading || universalCommentLoading || quotesLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-    if (pr_error || usersListError || universalCommentError || vendor_list_error || quotesError) return <h1>Error</h1>
+    if (sb_loading || usersListLoading || vendor_list_loading || universalCommentLoading || quotesLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (sb_error || usersListError || universalCommentError || vendor_list_error || quotesError) return <h1>Error</h1>
 
-    if (!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state || "") && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (
+    if (!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state || "") && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
         <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!
                 </h2>
                 <p className="text-gray-600 text-lg">
-                    Hey there, the PR:{" "}
-                    <span className="font-medium text-gray-900">{pr?.name}</span>{" "}
+                    Hey there, the SB:{" "}
+                    <span className="font-medium text-gray-900">{sb?.name}</span>{" "}
                     is no longer available for{" "}
                     <span className="italic">Reviewing</span>. The current state is{" "}
                     <span className="font-semibold text-blue-600">
-                        {pr?.workflow_state}
+                        {sb?.workflow_state}
                     </span>{" "}
                     And the last modification was done by <span className="font-medium text-gray-900">
-                        {pr?.modified_by === "Administrator" ? pr?.modified_by : getUserName(pr?.modified_by)}
+                        {sb?.modified_by === "Administrator" ? sb?.modified_by : getUserName(sb?.modified_by)}
                     </span>
                     !
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-po")}
+                    onClick={() => navigate("/approve-sent-back")}
                 >
                     Go Back
                 </button>
@@ -91,24 +90,24 @@ export const ApproveRejectVendorQuotes : React.FC = () => {
         </div>
     );
     return (
-      <ApproveRejectVendorQuotesPage vendor_list={vendor_list} pr_data={pr} pr_mutate = {pr_mutate} quotes_data={quotes_data} universalComment={universalComment} getUserName={getUserName} />
+      <ApproveSBVendorQuotesPage vendor_list={vendor_list} sb_data={sb} sb_mutate = {sb_mutate} quotes_data={quotes_data} universalComment={universalComment} getUserName={getUserName} />
     )
 }
 
 type ApproveRejectVendorQuotesPageProps = {
-  pr_data: any
-  pr_mutate?: any
+  sb_data: any
+  sb_mutate?: any
   vendor_list?: Vendors[]
   quotes_data?: ApprovedQuotations[]
   universalComment? :  NirmaanComments[]
   getUserName?: (id : string | undefined) => string | undefined
 }
 
-export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesPageProps> = ({pr_data, pr_mutate, vendor_list, quotes_data, universalComment, getUserName}) => {
+export const ApproveSBVendorQuotesPage : React.FC<ApproveRejectVendorQuotesPageProps> = ({sb_data, sb_mutate, vendor_list, quotes_data, universalComment, getUserName}) => {
 
-  const {call : approveItemsCall, loading : approveItemsCallLoading} = useFrappePostCall("nirmaan_stack.api.approve_vendor_quotes.generate_pos_from_selection")
+  const {call : approveItemsCall, loading : approveItemsCallLoading} = useFrappePostCall("nirmaan_stack.api.approve_reject_sb_vendor_quotes.new_handle_approve")
 
-  const {call : sendBackItemsCall, loading : sendBackItemsCallLoading} = useFrappePostCall("nirmaan_stack.api.reject_vendor_quotes.send_back_items")
+  const {call : sendBackItemsCall, loading : sendBackItemsCallLoading} = useFrappePostCall("nirmaan_stack.api.approve_reject_sb_vendor_quotes.new_handle_sent_back")
 
   const navigate = useNavigate()
 
@@ -116,7 +115,7 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [comment, setComment] = useState<string>("")
 
-  const [orderData, setOrderData] = useState<ProcurementRequest | undefined>()
+  const [orderData, setOrderData] = useState<SentBackCategory | undefined>()
 
   const [sentBackDialog, setSentBackDialog] = useState<boolean>(false)
 
@@ -128,10 +127,10 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
 
 
   useEffect(() => {
-     const newOrderData = pr_data;
+     const newOrderData = sb_data;
      const newCategories: { name: string, makes : string[] }[] = [];
-     const newList: ProcurementItem[] = [];
-     JSON.parse(newOrderData?.procurement_list)?.list?.forEach((item) => {
+     const newList: SentBackCategory[] = [];
+     JSON.parse(newOrderData?.item_list)?.list?.forEach((item) => {
          if (item.status === "Pending") newList.push(item);
          if (!newCategories.some(category => category.name === item.category)) {
              newCategories.push({ name: item.category, makes : [] });
@@ -143,7 +142,7 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
      // Update orderData with computed lists
      setOrderData(() => ({
          ...newOrderData,
-         procurement_list: {
+         item_list: {
              list: newList
          },
          category_list: {
@@ -151,7 +150,7 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
          },
          rfq_data: rfq_data
      }));
-  }, [pr_data])
+  }, [sb_data])
 
   const getVendorName = (vendorId: string) => {
       return vendor_list?.find(vendor => vendor.name === vendorId)?.vendor_name
@@ -182,8 +181,8 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
   const getCategoryTotals = useMemo(() => {
     const totals : {[category: string]: number} = {}
 
-  if(!orderData?.procurement_list?.list?.length) return totals
-    orderData?.procurement_list?.list?.forEach(item => {
+  if(!orderData?.item_list?.list?.length) return totals
+    orderData?.item_list?.list?.forEach(item => {
       const category = item.category
       const quote = item.quote || 0
       const quantity = item.quantity
@@ -198,8 +197,8 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
 
   const getFinalVendorQuotesData = useMemo(() => {
       const data : CategoryWithChildren[] = []
-      if(orderData?.procurement_list.list?.length) {
-        const procurementList = orderData.procurement_list.list
+      if(orderData?.item_list.list?.length) {
+        const procurementList = orderData.item_list.list
         procurementList.forEach(item => {
           const category : string = item.category
           const existingCategory = data?.find(entry => entry[category])
@@ -294,7 +293,6 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
     }),
 };
 
-
 const getChildRowSelection = (category: CategoryData): TableProps<DataItem>['rowSelection'] => ({
   selectedRowKeys: Array.from(selectionMap.get(category.key)?.items || new Set()),
   onChange: (selectedItemKeys) => {
@@ -345,7 +343,7 @@ const newHandleApprove = async () => {
 
       const response = await approveItemsCall({
           project_id: orderData?.project,
-          pr_name: orderData?.name,
+          sb_id: orderData?.name,
           selected_items: selectedItemNames,
           selected_vendors: vendorMap,
       });
@@ -358,9 +356,9 @@ const newHandleApprove = async () => {
           });
 
           setSelectionMap(new Map());
-          await pr_mutate();
-          if (orderData?.procurement_list.list.length === selectedItemNames.length) {
-              navigate('/approve-po');
+          await sb_mutate();
+          if (orderData?.item_list.list.length === selectedItemNames.length) {
+              navigate('/approve-sent-back');
           }
           toggleApproveDialog();
       } else if (response.message.status === 400) {
@@ -403,10 +401,9 @@ const newHandleSentBack = async () => {
       });
 
       const response = await sendBackItemsCall({
-          project_id: orderData?.project,
-          pr_name: orderData?.name,
+          sb_id: orderData?.name,
           selected_items: selectedItemNames,
-          comments: comment,
+          comment: comment,
       });
 
       if (response.message.status === 200) {
@@ -417,10 +414,10 @@ const newHandleSentBack = async () => {
           });
 
           setSelectionMap(new Map());
-          await pr_mutate();
+          await sb_mutate();
 
-          if (orderData?.procurement_list?.list?.length === selectedItemNames.length) {
-              navigate('/approve-po');
+          if (orderData?.item_list?.list?.length === selectedItemNames.length) {
+              navigate('/approve-sent-back');
           }
 
           toggleSentBackDialog();
@@ -569,7 +566,7 @@ const generateActionSummary = (actionType : string) => {
             <div className="flex items-center">
                 <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back</h2>
             </div>
-          <ProcurementActionsHeaderCard orderData={orderData} po={true} />
+          <ProcurementActionsHeaderCard orderData={orderData} sentBack />
 
                 {selectionMap.size > 0 && (
                           <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
@@ -696,8 +693,8 @@ const generateActionSummary = (actionType : string) => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
-        <div className="flex items-center space-y-2">
-                        <h2 className="text-base pl-2 font-bold tracking-tight">Procurement Comments</h2>
+            <div className="flex items-center space-y-2">
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Sent Back Comments</h2>
                     </div>
                     <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
                         {universalComment?.length !== 0 ? (
@@ -724,55 +721,8 @@ const generateActionSummary = (actionType : string) => {
                             <span className="text-xs font-semibold">No Comments Found</span>
                         )}
                     </div>
-                    <div className="flex items-center py-4">
-                        <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <div className="min-w-full inline-block align-middle">
-                            {/* Group items by category */}
-                            {(() => {
-                                const delayedItems = JSON.parse(pr_data?.procurement_list)?.list.filter((item : ProcurementItem) => item.status === "Delayed");
-                                const groupedByCategory = delayedItems.reduce((acc, item) => {
-                                    if (!acc[item.category]) {
-                                        acc[item.category] = [];
-                                    }
-                                    acc[item.category].push(item);
-                                    return acc;
-                                }, {});
-
-                                if(delayedItems?.length === 0) return <div
-                                className="flex items-center justify-center font-semibold text-gray-500 text-sm"
-                                >No Delayed Items</div>
-        
-                                return Object.keys(groupedByCategory).map(category => (
-                                    <div key={category} className="p-5">
-                                        <ReactTable>
-                                            <TableHeader>
-                                                <TableRow className="bg-red-100">
-                                                    <TableHead className="w-[60%]">
-                                                        <span className="text-red-700 pr-1 font-extrabold">{category}</span>
-                                                    </TableHead>
-                                                    <TableHead className="w-[25%]">UOM</TableHead>
-                                                    <TableHead className="w-[15%]">Qty</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {groupedByCategory[category].map(item => (
-                                                    <TableRow key={item.item}>
-                                                        <TableCell>{item.item}</TableCell>
-                                                        <TableCell>{item.unit}</TableCell>
-                                                        <TableCell>{item.quantity}</TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </ReactTable>
-                                    </div>
-                                ));
-                            })()}
-                        </div>
-                    </div>
   </div>
   )
 }
 
-export const Component = ApproveRejectVendorQuotes
+export const Component = ApproveSBVendorQuotes

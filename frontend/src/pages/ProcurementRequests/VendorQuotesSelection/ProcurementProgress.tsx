@@ -1,5 +1,7 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
+import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"
+import { Vendors } from "@/types/NirmaanStack/Vendors"
 import formatToIndianRupee from "@/utils/FormatPrice"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import _ from "lodash"
@@ -7,17 +9,17 @@ import { CheckCheck, CircleMinus, CirclePlus, FolderPlus, ListChecks } from "luc
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import ReactSelect, { components } from "react-select"
-import { VendorsReactMultiSelect } from "../helpers/VendorsReactSelect"
-import { Vendor } from "../service-request/select-service-vendor"
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard"
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog"
-import { Badge } from "../ui/badge"
-import { Button } from "../ui/button"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog"
-import { Input } from "../ui/input"
-import { Label } from "../ui/label"
-import { toast } from "../ui/use-toast"
-import { VendorHoverCard } from "../ui/vendor-hover-card"
+import { VendorsReactMultiSelect } from "../../../components/helpers/VendorsReactSelect"
+import { Vendor } from "../../../components/service-request/select-service-vendor"
+import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard"
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../../../components/ui/alert-dialog"
+import { Badge } from "../../../components/ui/badge"
+import { Button } from "../../../components/ui/button"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../../components/ui/dialog"
+import { Input } from "../../../components/ui/input"
+import { Label } from "../../../components/ui/label"
+import { toast } from "../../../components/ui/use-toast"
+import { VendorHoverCard } from "../../../components/ui/vendor-hover-card"
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -70,7 +72,7 @@ export const ProcurementProgress = () => {
 
   const {prId} = useParams<{ prId: string }>()
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
-  const [orderData, setOrderData] = useState({})
+  const [orderData, setOrderData] = useState<ProcurementRequest | undefined>()
   const [addVendorsDialog, setAddVendorsDialog] = useState(false)
   const [selectedVendors, setSelectedVendors] = useState<Vendor[]>([])
 
@@ -82,12 +84,12 @@ export const ProcurementProgress = () => {
     details: {},
   });
 
-  const { data: procurement_request, isLoading: procurement_request_loading, error: procurement_request_error, mutate: procurement_request_mutate } = useFrappeGetDocList("Procurement Requests", {
+  const { data: procurement_request, isLoading: procurement_request_loading, error: procurement_request_error, mutate: procurement_request_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests", {
     fields: ["*"],
     filters: [["name", "=", prId]]
-  }, `Procurement Requests ${prId}`)
+  }, prId ? `Procurement Requests ${prId}` : null)
 
-  const {data: vendors, isLoading: vendors_loading, error: vendors_error} = useFrappeGetDocList("Vendors", {
+  const {data: vendors, isLoading: vendors_loading, error: vendors_error} = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
@@ -115,7 +117,7 @@ export const ProcurementProgress = () => {
 
   useEffect(() => {
     if (
-      orderData?.procurement_list?.list?.length > 0 &&
+      orderData && orderData?.procurement_list?.list?.length > 0 &&
       Object.keys(formData.details).length === 0
     ) {
       const newDetails: RFQData['details'] = {};
@@ -156,11 +158,31 @@ const updateURL = (key : string, value : string) => {
 };
 
 
-const onClick = async (value) => {
+const onClick = async (value : string) => {
     if (mode === value) return;
     if(value === "view" && JSON.stringify(formData) !== JSON.stringify(orderData?.rfq_data || {})) {
-      setIsRedirecting("view")
-      await updateProcurementData(formData, orderData.procurement_list.list, value)
+        setIsRedirecting("view")
+        const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
+          if (selectedVendorQuotes.has(item.name)) {
+            const vendorId : string = selectedVendorQuotes.get(item.name);
+            const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
+            if (vendorData) {
+              return {
+                ...item,
+                vendor: vendorId,
+                quote: vendorData.quote,
+                make: vendorData.make,
+              };
+            }
+            return { ...item };
+          } else {
+            const { vendor, quote, make, ...rest } = item;
+            return rest;
+          }
+        });
+      
+        setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
+        await updateProcurementData(formData, updatedOrderList, value)
     }
     setMode(value);
     updateURL("mode", value);
@@ -238,18 +260,23 @@ const removeVendor = useCallback((vendorId: string) => {
     },
   }))
 
-  if (!quote && selectedVendorQuotes?.get(itemId) === vendorId) {
-    const updatedVendorQuotes = new Map(selectedVendorQuotes);
-    updatedVendorQuotes.delete(itemId);
-    setSelectedVendorQuotes(updatedVendorQuotes);
+  const isValidQuote = quote && quote > 0;
+  if (!isValidQuote) {
+    setSelectedVendorQuotes(prev => {
+      const updated = new Map(prev);
+      if (updated.get(itemId) === vendorId) {
+        updated.delete(itemId);
+      }
+      return updated;
+    });
   }
 }, []);
 
 
 const handleReviewChanges = async () => {
-  const updatedOrderList = orderData.procurement_list.list.map((item) => {
+  const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
     if (selectedVendorQuotes.has(item.name)) {
-      const vendorId = selectedVendorQuotes.get(item.name);
+      const vendorId : string = selectedVendorQuotes.get(item.name);
       const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
       if (vendorData) {
         return {
@@ -399,7 +426,7 @@ const handleReviewChanges = async () => {
                                         {mode === "edit" ? (
                                           <Input className="h-8" type="number" value={quote || ""} onChange={(e) => {
                                             const value = e.target.value === "" ? 0 : parseInt(e.target.value)
-                                            handleQuoteChange(item.name, v?.name, value)
+                                            handleQuoteChange(item.name, v?.name || "", value)
                                           }} />
                                         ) : (
                                           <p>{quote ?  formatToIndianRupee(quote) : "--"}</p>
@@ -450,7 +477,16 @@ const handleReviewChanges = async () => {
 }
 
 
-const MakesSelection = ({ vendor, item, formData, orderData, setFormData }) => {
+interface MakesSelectionProps {
+  vendor: Vendor
+  item: ProcurementItem
+  formData: RFQData
+  orderData: ProcurementRequest | SentBackCategory
+  setFormData: any
+}
+
+
+export const MakesSelection = ({ vendor, item, formData, orderData, setFormData } : MakesSelectionProps) => {
 
   const [showAlert, setShowAlert] = useState(false);
   const toggleShowAlert = () => {

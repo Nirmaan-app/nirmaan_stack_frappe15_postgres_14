@@ -22,18 +22,32 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
         # Access procurement_list as a dictionary and get the list
         procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
 
-        print("procurement_list", procurement_list)
-        for item in procurement_list:
-          print("Item Dictionary:", item)  # Inspect the item dictionary
+        # Parse rfq_data
+        rfq_data = frappe.parse_json(pr_doc.rfq_data) if pr_doc.rfq_data else {}
+        rfq_details = rfq_data.get("details", {})
 
         for item_name in selected_items:
             vendor_id = selected_vendors.get(item_name)
             if vendor_id:
                 item = next((i for i in procurement_list if i["name"] == item_name), None)
                 if item:
+                    # Construct the "makes" field
+                    item_details = rfq_details.get(item_name, {})
+                    makes_list = item_details.get("makes", [])
+                    item_make = item.get("make", None)  # Get the original item's make, if any
+
+                    makes_formatted = {"list": []}
+                    for make in makes_list:
+                        enabled = "true" if item_make == make else "false"
+                        makes_formatted["list"].append({"make": make, "enabled": enabled})
+
+                    # Create a copy of the item and add the "makes" field
+                    item_with_makes = item.copy()
+                    item_with_makes["makes"] = makes_formatted
+
                     if vendor_id not in vendor_items:
                         vendor_items[vendor_id] = []
-                    vendor_items[vendor_id].append(item)
+                    vendor_items[vendor_id].append(item_with_makes)
 
         # Create Procurement Orders
         for vendor_id, items in vendor_items.items():
@@ -59,13 +73,13 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
 
         total_items = len(procurement_list)
         approved_items = sum(1 for item in procurement_list if item.get('status') == "Approved")
-        pending_items_count = sum(1 for item in procurement_list if item.get('status') == "Pending")
-        only_pending_or_approved = all(item.get('status') in ["Pending", "Approved"] for item in procurement_list)
+        # pending_items_count = sum(1 for item in updated_procurement_list if item.get('status') == "Pending")
+        # only_pending_or_approved = all(item.get('status') in ["Pending", "Approved"] for item in updated_procurement_list)
 
-        if pr_doc.workflow_state == "Vendor Selected" and approved_items == total_items:
+        if approved_items == total_items:
             pr_doc.workflow_state = "Vendor Approved"
-        elif pr_doc.workflow_state == "Partially Approved" and only_pending_or_approved and approved_items == pending_items_count:
-            pr_doc.workflow_state = "Vendor Approved"
+        # elif pr_doc.workflow_state == "Partially Approved" and only_pending_or_approved and approved_items == pending_items_count:
+        #     pr_doc.workflow_state = "Vendor Approved"
         else:
             pr_doc.workflow_state = "Partially Approved"
 

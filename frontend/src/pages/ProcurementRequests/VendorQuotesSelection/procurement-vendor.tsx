@@ -14,13 +14,13 @@ import { ArrowBigRightDash, CirclePlus, MessageCircleMore } from 'lucide-react';
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { AddVendorCategories } from "../forms/addvendorcategories";
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
-import { toast } from "../ui/use-toast";
+import { AddVendorCategories } from "../../../components/forms/addvendorcategories";
+import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
+import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
+import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
+import { toast } from "../../../components/ui/use-toast";
 
 export const ProcurementOrder = () => {
 
