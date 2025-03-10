@@ -94,7 +94,7 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
         pr_doc.procurement_list = {"list": updated_procurement_list}
         pr_doc.save()
 
-        return {"message": "Sent Back created and Procurement Request updated successfully.", "status": 200}
+        return {"message": f"New Rejected Type Sent Back {sent_back_doc.name} created successfully.", "status": 200}
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "send_back_items")

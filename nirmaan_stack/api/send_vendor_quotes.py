@@ -89,7 +89,10 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
             pr_doc.workflow_state = "Vendor Selected"
             pr_doc.procurement_list = {"list": updated_procurement_list}
             pr_doc.save()
-            message = "Items Sent for Approval"
+            if itemlist:
+                message = f"New Delayed Type Sent Back: {sent_back_doc.name} created successfully and selected Item-Vendor quotes sent for approval!"
+            else:
+                message = "Item-Vendor Quotes Sent for Approval"
 
             if comments and comments.get("approving"):
                 comment_doc = frappe.new_doc("Nirmaan Comments")

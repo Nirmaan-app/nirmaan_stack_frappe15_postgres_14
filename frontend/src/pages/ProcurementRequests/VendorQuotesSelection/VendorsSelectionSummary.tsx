@@ -1,13 +1,12 @@
 import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
 } from "@/components/ui/dialog";
-import { useUserData } from '@/hooks/useUserData';
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
@@ -183,7 +182,6 @@ export const VendorsSelectionSummary = () => {
   const { prId } = useParams<{ prId: string }>();
   const navigate = useNavigate();
   const [comment, setComment] = useState<{approving: string, delaying: string}>({ approving: "", delaying: "" })
-  const userData = useUserData()
 
   const {call : sendForApprCall, loading : sendForApprCallLoading} = useFrappePostCall("nirmaan_stack.api.send_vendor_quotes.handle_delayed_items")
 
@@ -302,7 +300,6 @@ export const VendorsSelectionSummary = () => {
 
   const handleSubmit = async () => {
     try {
-  
         const response = await sendForApprCall({
             pr_id: orderData?.name,
             comments: comment
@@ -322,7 +319,7 @@ export const VendorsSelectionSummary = () => {
         } else if (response.message.status === 400) {
             toast({
                 title: "Failed!",
-                description: "Error while Sending vendor quotes for approval",
+                description: response.message.error,
                 variant: "destructive",
             });
         }
@@ -335,121 +332,6 @@ export const VendorsSelectionSummary = () => {
         });
     }
   };
-  
-
-//   const handleSubmit = async () => {
-//     try {
-//         const delayedItems: string[] = [];
-
-//         const itemlist: any[] = [];
-//         orderData?.procurement_list?.list.map((value) => {
-//             if (!value.vendor) {
-//                 itemlist.push({
-//                     ...value,
-//                     quote: 0,
-//                 });
-//                 delayedItems.push(value.name);
-//             }
-//         });
-
-//         // Update the procurement list to mark delayed items
-//         const updatedProcurementList = orderData?.procurement_list.list.map((item) => {
-//             if (delayedItems.some((i) => i === item.name)) {
-//                 return { ...item, status: "Delayed" };
-//             }
-//             return item;
-//         });
-
-//         const newCategories: { name: string, makes: string[] }[] = [];
-//         itemlist.forEach((item) => {
-//             const isDuplicate = newCategories.some((category) => category.name === item.category);
-//             if (!isDuplicate) {
-//                 const makes = orderData?.category_list?.list?.find((category) => category.name === item.category)?.makes;
-//                 newCategories.push({ name: item.category, makes: makes || [] });
-//             }
-//         });
-
-//         const newSendBack = {
-//             procurement_request: prId,
-//             project: orderData?.project,
-//             category_list: {
-//                 list: newCategories,
-//             },
-//             item_list: {
-//                 list: itemlist,
-//             },
-//             type: "Delayed",
-//         };
-
-//         // Create new document if there are any items in the itemlist
-//         if (itemlist.length > 0) {
-//             try {
-//                 const res = await createDoc("Sent Back Category", newSendBack);
-//                 if (comment?.delaying) {
-//                     await createDoc("Nirmaan Comments", {
-//                         comment_type: "Comment",
-//                         reference_doctype: "Sent Back Category",
-//                         reference_name: res.name,
-//                         comment_by: userData?.user_id,
-//                         content: comment?.delaying,
-//                         subject: "creating sent-back(delayed)"
-//                     })
-//                 }
-//             } catch (error) {
-//                 console.log("submit_error", error);
-//             }
-//         }
-
-//         // Update Procurement Request based on item conditions
-//         if (itemlist.length === orderData?.procurement_list?.list.length) {
-//             try {
-//                 await updateDoc("Procurement Requests", prId, {
-//                     workflow_state: "Delayed",
-//                     procurement_list: { list: updatedProcurementList },
-//                 });
-//                 toast({
-//                     title: "Oops!",
-//                     description: `You just delayed all the items, you can see them in Sent Back Requests delayed tab!`,
-//                     variant: "default",
-//                 });
-                
-//             } catch (error) {
-//                 console.log("update_submit_error", error);
-//             }
-//         } else {
-//             try {
-//                 await updateDoc("Procurement Requests", prId, {
-//                     workflow_state: "Vendor Selected",
-//                     procurement_list: { list: updatedProcurementList },
-//                 });
-
-//                 if (comment?.approving) {
-//                     await createDoc("Nirmaan Comments", {
-//                         comment_type: "Comment",
-//                         reference_doctype: "Procurement Requests",
-//                         reference_name: prId,
-//                         comment_by: userData?.user_id,
-//                         content: comment?.approving,
-//                         subject: "pr vendors selected"
-//                     })
-//                 }
-
-//                 // console.log(orderId);
-//                 toast({
-//                     title: "Success!",
-//                     description: `Items Sent for Approval`,
-//                     variant: "success",
-//                 });
-//             } catch (error) {
-//                 console.log("update_submit_error", error);
-//             }
-//         }
-
-//         navigate(`/procurement-requests?tab=New PR Request`);
-//     } catch (error) {
-//         console.log("handleSubmit error", error);
-//     }
-// };
 
 interface VendorWiseApprovalItems {
   [vendor : string] : {

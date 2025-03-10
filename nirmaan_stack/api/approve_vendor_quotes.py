@@ -86,7 +86,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
         pr_doc.procurement_list = {'list': updated_procurement_list}
         pr_doc.save()
 
-        return {"message": "Procurement Orders created and Procurement Request updated successfully.", "status" : 200}
+        return {"message": "Procurement Orders created successfully.", "status" : 200}
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "generate_pos_from_selection")

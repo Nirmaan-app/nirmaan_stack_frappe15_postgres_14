@@ -82,7 +82,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
         sb_doc.item_list = {'list': updated_item_list}
         sb_doc.save()
 
-        return {"message": "Procurement Orders created and Sent Back Category updated successfully.", "status": 200}
+        return {"message": "Procurement Order(s) created successfully.", "status": 200}
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "new_handle_approve")
@@ -185,7 +185,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         sb_doc.item_list = {"list": updated_item_list}
         sb_doc.save()
 
-        return {"message": "Sent Back created and Sent Back Category updated successfully.", "status": 200}
+        return {"message": f"New Rejected Type Sent Back: {new_sent_back_doc.name} created successfully.", "status": 200}
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "new_handle_sent_back")
