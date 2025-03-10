@@ -8,9 +8,10 @@ interface ProcurementHeaderCardProps {
   orderData?: any
   sentBack?: boolean
   sr?: boolean
+  customPr? : boolean
 }
 
-export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false, sr = false }: ProcurementHeaderCardProps) => {
+export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false, sr = false, customPr = false }: ProcurementHeaderCardProps) => {
   const [projectName, setProjectName] = useState<string | undefined>("")
   const [userName, setUserName] = useState<string | undefined>("")
 
@@ -33,7 +34,7 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
       <div className="border-0 flex flex-col max-sm:hidden">
         <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
         <p className="text-left font-bold py-1 text-base text-black">
-          {formatDate(orderData?.creation?.split(" ")[0])}
+          {customPr ? formatDate(new Date()) : formatDate(orderData?.creation?.split(" ")[0])}
         </p>
       </div>
       <div className="border-0 flex flex-col">
@@ -97,7 +98,7 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
       {!sentBack && (
         <div className="border-0 flex flex-col">
           <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
-          <p className="text-left font-bold py-1 text-base text-black">{sr ? "Services" : orderData?.work_package}</p>
+          <p className="text-left font-bold py-1 text-base text-black">{sr ? "Services" : customPr ? "Custom" : orderData?.work_package}</p>
         </div>
       )}
       {sentBack && (
@@ -107,7 +108,7 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
         </div>
       )}
       <div className="border-0 flex flex-col max-sm:hidden">
-        <p className="text-left py-1 font-light text-sm text-red-700">{sentBack ? `${orderData?.type} By` : "Project Lead"}</p>
+        <p className="text-left py-1 font-light text-sm text-red-700">{sentBack ? `${orderData?.type} By` : customPr ? "Custom PR By" : "Project Lead"}</p>
         {/* <p className="text-left font-bold py-1 text-base text-black underline">{orderData?.owner}</p> */}
         <HoverCard>
           <HoverCardTrigger>

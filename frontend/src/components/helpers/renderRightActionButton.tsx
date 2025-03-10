@@ -60,15 +60,31 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      <Button
-        className="sm:mr-4 mr-2"
-        onClick={() =>
-          navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)
-        }
-      >
-        <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">New PR</span>
-      </Button>
+      // <Button
+      //   className="sm:mr-4 mr-2"
+      //   onClick={() =>
+      //     navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)
+      //   }
+      // >
+      //   <CirclePlus className="w-5 h-5 pr-1" />
+      //   Add <span className="hidden md:flex pl-1">New PR</span>
+      // </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button className="sm:mr-4 mr-2">
+            <CirclePlus className="w-5 h-5 pr-1" />
+            Add New PR
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="mr-16">
+          <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
+            Normal
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-custom-pr`)}>
+            Custom
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   } else if (locationPath === "/service-requests" && selectedProject) {
     return (
@@ -117,6 +133,9 @@ export const RenderRightActionButton = ({
           )}
           <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
             {role === "Nirmaan Admin Profile" ? "New PR" : "Urgent PR"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
+            New Custom PR
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => navigate("/service-requests")}>
             Service Request

@@ -1,26 +1,24 @@
-import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, FileSliders, ListChecks, MessageCircleMore, MessageCircleWarning, Settings2, Trash2, Undo2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { useUserData } from "@/hooks/useUserData";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { Label } from "./ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
-import { PRSummarySkeleton } from "./ui/skeleton";
-import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
-import { useEffect, useState } from "react";
-import { NewPRPage } from "./procurement-request/new-pr";
-import { Timeline } from "antd";
 import { formatDate } from "@/utils/FormatDate";
-import { toast } from "./ui/use-toast";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { useUserData } from "@/hooks/useUserData";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Timeline } from "antd";
+import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
+import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
+import { Label } from "./ui/label";
+import { PRSummarySkeleton } from "./ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { toast } from "./ui/use-toast";
 
 const PRSummary = () => {
 
@@ -232,7 +230,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             <div className="flex items-center justify-between">
                 <h2 className="text-xl max-md:text-lg font-bold tracking-tight ml-2">Summary</h2>
                 <div className="flex gap-4 items-center">
-                    {pr_data?.workflow_state === "Pending" && (
+                    {pr_data?.workflow_state === "Pending" && pr_data?.work_package && (
                         <HoverCard>
                             <HoverCardTrigger>
                                 <Button disabled={updateLoading} onClick={handleMarkDraftPR} className="items-center gap-2 flex" variant="secondary">{updateLoading ? <TailSpin width={20} height={16} color="white" /> : <><FileSliders className="w-4 h-4" /><span>Edit</span></>}</Button>

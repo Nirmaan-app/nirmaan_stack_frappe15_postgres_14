@@ -25,23 +25,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-
-export interface DataItem extends ProcurementItem {
-  amount: number;
-  vendor_name?: string;
-  lowestQuotedAmount: number;
-  threeMonthsLowestAmount: number;
-}
-
-export interface CategoryData {
-  items: DataItem[];
-  totalAmount: number;
-  key: string;
-}
-
-export interface CategoryWithChildren {
-  [category: string]: CategoryData;
-}
+import { CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 
 export const columns : TableColumnsType<CategoryWithChildren> = [
   {

@@ -36,6 +36,7 @@ import Items from "./pages/Items/items";
 import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
 import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
 import { ApproveSelectVendor } from "./pages/ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
+import { NewCustomPR } from "./pages/ProcurementRequests/NewPR/NewCustomPR";
 import { ProcurementRequests } from "./pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";
 import { RenderProcurementRequest } from "./pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
 import { ApprovePayments } from "./pages/ProjectPayments/approve-payments";
@@ -90,9 +91,10 @@ const router = createBrowserRouter(
             <Route path="procurement-requests">
               <Route index element={<ListPR />} />
               {/* <Route path=":id/new" lazy={() => import('@/components/procurement-request/new-pr')} /> */}
-              <Route path=":projectId/new-pr">
+              <Route path=":projectId">
                 {/* <Route index element={<WPSelection />} /> */}
-                <Route index element={<NewProcurementRequest />} />
+                <Route path="new-pr" element={<NewProcurementRequest />} />
+                <Route path="new-custom-pr" element={<NewCustomPR />} />
               </Route>
               <Route path=":prId">
                 <Route
@@ -193,7 +195,7 @@ const router = createBrowserRouter(
             <Route index element={<ApproveSelectSentBack />} />
             <Route
               path=":sbId"
-              lazy={() => import("@/pages/Sent Back Requests/ApproveVendorQuotes")}
+              lazy={() => import("@/pages/Sent Back Requests/ApproveSBVendorQuotes")}
             />
           </Route>
 
