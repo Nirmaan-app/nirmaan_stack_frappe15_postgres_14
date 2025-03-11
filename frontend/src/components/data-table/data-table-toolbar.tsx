@@ -1,11 +1,8 @@
-import { Cross2Icon } from "@radix-ui/react-icons";
 import { Table } from "@tanstack/react-table";
 
-import { Button } from "@/components/ui/button";
 
+import { useEffect, useState } from "react";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
-import { DataTableViewOptions } from "./data-table-view-options";
-import { useState, useEffect } from "react";
 
 type ProjectOptions = {
     label: string,
@@ -16,6 +13,10 @@ interface DataTableToolbarProps<TData> {
     table: Table<TData>;
     project_values?: ProjectOptions[];
     category_options?: ProjectOptions[];
+    vendorOptions?: ProjectOptions[];
+    projectTypeOptions?: ProjectOptions[];
+    roleTypeOptions?: ProjectOptions[];
+    statusOptions?: ProjectOptions[];
 }
 
 export function DataTableToolbar<TData>({ table, project_values, category_options, vendorOptions=undefined, projectTypeOptions=undefined, roleTypeOptions=undefined, statusOptions=undefined }: DataTableToolbarProps<TData>) {
@@ -28,8 +29,6 @@ export function DataTableToolbar<TData>({ table, project_values, category_option
         if (category_options) setCategoryValues(true)
 
     }, [project_values, category_options])
-
-    const isFiltered = table.getState().columnFilters.length > 0;
 
     //console.log("columns", table.getAllColumns().map(item => item.id).find(id => id === "category") === undefined)
 

@@ -2,15 +2,6 @@
  {
   "docstatus": 0,
   "doctype": "Workflow State",
-  "icon": "",
-  "modified": "2024-05-17 19:24:42.421426",
-  "name": "Vendor Approved",
-  "style": "",
-  "workflow_state_name": "Vendor Approved"
- },
- {
-  "docstatus": 0,
-  "doctype": "Workflow State",
   "icon": "remove",
   "modified": "2024-05-10 00:50:34.964159",
   "name": "Rejected",
@@ -20,56 +11,11 @@
  {
   "docstatus": 0,
   "doctype": "Workflow State",
-  "icon": "question-sign",
-  "modified": "2024-05-10 00:50:34.960720",
-  "name": "Pending",
-  "style": "",
-  "workflow_state_name": "Pending"
- },
- {
-  "docstatus": 0,
-  "doctype": "Workflow State",
-  "icon": "",
-  "modified": "2024-09-19 17:02:16.004936",
-  "name": "Sent Back",
-  "style": "",
-  "workflow_state_name": "Sent Back"
- },
- {
-  "docstatus": 0,
-  "doctype": "Workflow State",
-  "icon": "",
-  "modified": "2024-05-17 19:24:30.798890",
-  "name": "Vendor Selected",
-  "style": "",
-  "workflow_state_name": "Vendor Selected"
- },
- {
-  "docstatus": 0,
-  "doctype": "Workflow State",
-  "icon": "",
-  "modified": "2024-05-23 13:54:42.653072",
-  "name": "Partially Approved",
-  "style": "",
-  "workflow_state_name": "Partially Approved"
- },
- {
-  "docstatus": 0,
-  "doctype": "Workflow State",
   "icon": "",
   "modified": "2024-09-19 17:02:07.723412",
   "name": "Delayed",
   "style": "",
   "workflow_state_name": "Delayed"
- },
- {
-  "docstatus": 0,
-  "doctype": "Workflow State",
-  "icon": "ok-sign",
-  "modified": "2024-05-10 00:50:34.962557",
-  "name": "Approved",
-  "style": "Success",
-  "workflow_state_name": "Approved"
  },
  {
   "docstatus": 0,
@@ -93,6 +39,15 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
+  "modified": "2024-05-17 19:24:42.421426",
+  "name": "Vendor Approved",
+  "style": "",
+  "workflow_state_name": "Vendor Approved"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
   "modified": "2024-11-12 20:34:47.169078",
   "name": "Draft",
   "style": "",
@@ -102,9 +57,54 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
+  "modified": "2024-09-19 17:02:16.004936",
+  "name": "Sent Back",
+  "style": "",
+  "workflow_state_name": "Sent Back"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "ok-sign",
+  "modified": "2024-05-10 00:50:34.962557",
+  "name": "Approved",
+  "style": "Success",
+  "workflow_state_name": "Approved"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2024-05-17 19:24:30.798890",
+  "name": "Vendor Selected",
+  "style": "",
+  "workflow_state_name": "Vendor Selected"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
   "modified": "2025-02-27 13:39:48.201322",
   "name": "In Progress",
   "style": "",
   "workflow_state_name": "In Progress"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2024-05-23 13:54:42.653072",
+  "name": "Partially Approved",
+  "style": "",
+  "workflow_state_name": "Partially Approved"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "question-sign",
+  "modified": "2024-05-10 00:50:34.960720",
+  "name": "Pending",
+  "style": "",
+  "workflow_state_name": "Pending"
  }
 ]

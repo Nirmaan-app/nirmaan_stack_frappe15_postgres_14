@@ -1,3 +1,15 @@
+interface ServiceCategoryType {
+	name: string
+}
+
+interface ServiceItemType {
+	id: string
+	category: string
+	description: string
+	uom: string
+	quantity: number
+	rate?: number
+}
 
 export interface ServiceRequests{
 	name: string
@@ -5,21 +17,25 @@ export interface ServiceRequests{
 	modified: string
 	owner: string
 	modified_by: string
-	docstatus: 0 | 1 | 2
+	docstatus?: 0 | 1 | 2
 	parent?: string
 	parentfield?: string
 	parenttype?: string
 	idx?: number
 	/**	Project : Link - Projects	*/
-	project?: string
+	project: string
 	/**	Vendor : Link - Vendors	*/
-	vendor?: string
+	vendor: string
 	/**	Service Order List : JSON	*/
-	service_order_list?: any
+	service_order_list: {
+		list : ServiceItemType[]
+	}
 	/**	Service Category List : JSON	*/
-	service_category_list?: any
+	service_category_list: {
+		list : ServiceCategoryType[]
+	}
 	/**	Status : Data	*/
-	status?: string
+	status: string
 	/**	Notes : JSON	*/
 	notes?: any
 	/**	GST : Data	*/

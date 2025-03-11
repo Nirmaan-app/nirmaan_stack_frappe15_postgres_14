@@ -79,38 +79,22 @@ def on_update(doc, method):
 
     if(doc.status=="PO Approved"):
         try:
-            existing_aq_docs = frappe.get_all(
-                "Approved Quotations",
-                filters={"procurement_order": doc.name},
-                fields=["name"]
-            )
-            if existing_aq_docs:
-                for aq_doc in existing_aq_docs:
-                    frappe.delete_doc("Approved Quotations", aq_doc["name"])
-
+            delete_existing_aq_docs(doc)
         except frappe.DoesNotExistError:
-            print("VENDOR NOT AVAILABLE IN DB")
+            print("PO NOT AVAILABLE IN DB")
 
     if(doc.status=="Dispatched"):
         try:
             vendor = frappe.get_doc("Vendors", doc.vendor)
             orders = doc.order_list
 
-            # Check and delete existing approved quotations for this procurement order
-            existing_aq_docs = frappe.get_all(
-                "Approved Quotations",
-                filters={"procurement_order": doc.name},
-                fields=["name"]
-            )
-            if existing_aq_docs:
-                for aq_doc in existing_aq_docs:
-                    frappe.delete_doc("Approved Quotations", aq_doc["name"])
-                    
+            delete_existing_aq_docs(doc)
+
             for order in orders['list']:
                 aq = frappe.new_doc('Approved Quotations')
                 try:
-                    item = frappe.get_doc("Items", order['name'])
-                    aq.item_id=order['name']
+                    if not doc.custom:
+                        aq.item_id=order['name']
                     aq.vendor=doc.vendor
                     aq.procurement_order=doc.name
                     aq.item_name=order['item']
@@ -197,6 +181,7 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {
         "reference_name" : ("=", doc.name)
     })
+    delete_existing_aq_docs(doc)
     print(f"flagged for delete po document: {doc} {doc.modified_by} {doc.owner}")
     notifications = frappe.db.get_all("Nirmaan Notifications", 
                                       filters={"docname": doc.name},
@@ -220,4 +205,11 @@ def on_trash(doc, method):
             )
     frappe.db.delete("Nirmaan Notifications", {
         "docname": ("=", doc.name)
+    })
+
+
+def delete_existing_aq_docs(doc):
+    # Check and delete existing approved quotations for this procurement order
+    frappe.db.delete("Approved Quotations", {
+        "procurement_order" : ("=", doc.name)
     })

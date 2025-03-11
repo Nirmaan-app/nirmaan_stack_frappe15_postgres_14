@@ -25,25 +25,9 @@ import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
+import { CategoryData, CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 
-export interface DataItem extends ProcurementItem {
-  amount: number;
-  vendor_name?: string;
-  lowestQuotedAmount: number;
-  threeMonthsLowestAmount: number;
-}
-
-export interface CategoryData {
-  items: DataItem[];
-  totalAmount: number;
-  key: string;
-}
-
-export interface CategoryWithChildren {
-  [category: string]: CategoryData;
-}
-
-export const columns : TableColumnsType<CategoryWithChildren> = [
+export const columns : TableColumnsType<CategoryData> = [
   {
     title: "Category",
     dataIndex: "category",
@@ -117,7 +101,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
       if (!lowest3 || !amount) {
         return (
           <i>
-            {amount}
+            {formatToIndianRupee(amount)}
           </i>
         );
       }
@@ -155,7 +139,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     className: "min-w-[10vw]",
     render: (text) => (
       <span className="italic">
-        {formatToIndianRupee(text)}
+        {text ? formatToIndianRupee(text) : "--"}
       </span>
     ),
   },

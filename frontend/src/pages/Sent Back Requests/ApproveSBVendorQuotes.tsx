@@ -1,23 +1,23 @@
+import { ActionSummary } from '@/components/ui/ActionSummary';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/ui/ApproveVendorQuotesPRorSBAntDTable';
 import { Button } from "@/components/ui/button";
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
 import { useToast } from "@/components/ui/use-toast";
-import { CategoryData, CategoryWithChildren, columns, DataItem, innerColumns } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
+import { CategoryWithChildren, DataItem } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { ConfigProvider, Table, TableProps } from "antd";
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import { BookOpenText, CheckCheck, ListChecks, SendToBack, Undo2 } from "lucide-react";
+import { CheckCheck, ListChecks, SendToBack, Undo2 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
+import { RenderPRorSBComments } from '../../components/ui/RenderPRorSBComments';
 
 export const ApproveSBVendorQuotes : React.FC = () => {
 
@@ -53,8 +53,9 @@ export const ApproveSBVendorQuotes : React.FC = () => {
 
     const getUserName = (id : string | undefined) => {
         if (usersList) {
-            return usersList.find((user) => user?.name === id)?.full_name
+            return usersList.find((user) => user?.name === id)?.full_name || ""
         }
+        return ""
     }
 
     // console.log("within 1st component", owner_data)
@@ -94,16 +95,16 @@ export const ApproveSBVendorQuotes : React.FC = () => {
     )
 }
 
-type ApproveRejectVendorQuotesPageProps = {
+type ApproveSBVendorQuotesPageProps = {
   sb_data: any
   sb_mutate?: any
   vendor_list?: Vendors[]
   quotes_data?: ApprovedQuotations[]
-  universalComment? :  NirmaanComments[]
-  getUserName?: (id : string | undefined) => string | undefined
+  universalComment :  NirmaanComments[]
+  getUserName: (id : string | undefined) => string
 }
 
-export const ApproveSBVendorQuotesPage : React.FC<ApproveRejectVendorQuotesPageProps> = ({sb_data, sb_mutate, vendor_list, quotes_data, universalComment, getUserName}) => {
+export const ApproveSBVendorQuotesPage : React.FC<ApproveSBVendorQuotesPageProps> = ({sb_data, sb_mutate, vendor_list, quotes_data, universalComment, getUserName}) => {
 
   const {call : approveItemsCall, loading : approveItemsCallLoading} = useFrappePostCall("nirmaan_stack.api.approve_reject_sb_vendor_quotes.new_handle_approve")
 
@@ -244,80 +245,6 @@ export const ApproveSBVendorQuotesPage : React.FC<ApproveRejectVendorQuotesPageP
 
   const [selectionMap, setSelectionMap] = useState(new Map());
 
-  const parentRowSelection: TableProps<any>['rowSelection'] = {
-    selectedRowKeys: Array.from(selectionMap.keys()).filter(key => selectionMap.get(key)?.all),
-    onChange: (selectedCategoryKeys) => {
-        setSelectionMap(prevMap => {
-            const newMap = new Map(prevMap);
-            const selectedKeysSet = new Set(selectedCategoryKeys);
-
-            dataSource.forEach(category => {
-                const categoryKey = category.key;
-                const categoryItems = new Set(category.items.map(item => item.name));
-
-                if (selectedKeysSet.has(categoryKey)) {
-                    // Category selected
-                    newMap.set(categoryKey, { all: true, items: categoryItems });
-                } else {
-                    // Category deselected
-                    if (newMap.has(categoryKey) && newMap.get(categoryKey).all) {
-                        // If it was all selected, remove it completely
-                        newMap.delete(categoryKey);
-                    }
-                    // If some items were selected, it should stay.
-                }
-            });
-
-            return newMap;
-        });
-    },
-    onSelectAll: (selected) => {
-      setSelectionMap(prevMap => {
-          const newMap = new Map(prevMap);
-
-          if (selected) {
-              dataSource.forEach(category => {
-                  const categoryKey = category.key;
-                  const categoryItems = new Set(category.items.map(item => item.name));
-                  newMap.set(categoryKey, { all: true, items: categoryItems });
-              });
-          } else {
-              newMap.clear();
-          }
-
-          return newMap;
-      });
-  },
-    getCheckboxProps: (record) => ({
-        indeterminate: selectionMap.has(record.key) && !selectionMap.get(record.key)?.all,
-    }),
-};
-
-const getChildRowSelection = (category: CategoryData): TableProps<DataItem>['rowSelection'] => ({
-  selectedRowKeys: Array.from(selectionMap.get(category.key)?.items || new Set()),
-  onChange: (selectedItemKeys) => {
-      setSelectionMap(prevMap => {
-          const newMap = new Map(prevMap);
-          const categoryItems = new Set(category.items.map(item => item.name));
-          const selectedItems = new Set(selectedItemKeys);
-
-          const allSelected = selectedItems.size === categoryItems.size;
-          const noneSelected = selectedItems.size === 0;
-
-          if (allSelected) {
-              newMap.set(category.key, { all: true, items: categoryItems });
-          } else if (noneSelected) {
-              newMap.delete(category.key);
-          } else {
-              newMap.set(category.key, { all: false, items: selectedItems });
-          }
-
-          return newMap;
-      });
-  },
-  hideSelectAll: true,
-});
-
 const newHandleApprove = async () => {
   try {
       setIsLoading("newHandleApprove");
@@ -351,7 +278,7 @@ const newHandleApprove = async () => {
       if (response.message.status === 200) {
           toast({
               title: "Success!",
-              description: "Successfully approved selected items",
+              description: response.message.message,
               variant: "success",
           });
 
@@ -364,7 +291,7 @@ const newHandleApprove = async () => {
       } else if (response.message.status === 400) {
           toast({
               title: "Failed!",
-              description: "Error while approving vendor quotes",
+              description: response.message.error,
               variant: "destructive",
           });
       }
@@ -409,7 +336,7 @@ const newHandleSentBack = async () => {
       if (response.message.status === 200) {
           toast({
               title: "Success!",
-              description: "Successfully Rejected selected items",
+              description: response.message.message,
               variant: "success",
           });
 
@@ -424,7 +351,7 @@ const newHandleSentBack = async () => {
       } else if (response.message.status === 400) {
           toast({
               title: "Failed!",
-              description: "Error while sending back items",
+              description: response.message.error,
               variant: "destructive",
           });
       }
@@ -566,70 +493,20 @@ const generateActionSummary = (actionType : string) => {
             <div className="flex items-center">
                 <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back</h2>
             </div>
-          <ProcurementActionsHeaderCard orderData={orderData} sentBack />
+                <ProcurementActionsHeaderCard orderData={orderData} sentBack />
 
                 {selectionMap.size > 0 && (
-                          <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
-                              <h2 className="text-lg font-bold mb-3 flex items-center">
-                                  <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
-                                  Actions Summary
-                              </h2>
-                              <div className="grid md:grid-cols-2 gap-4">
-                                  {/* Send Back Action Summary */}
-                                  <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                      <div className="flex items-center mb-2">
-                                          <SendToBack className="h-5 w-5 text-red-500 mr-2" />
-                                          <h3 className="font-medium text-gray-700">Send Back</h3>
-                                      </div>
-                                      <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
-                                  </div>
-          
-                                  {/* Approve Action Summary */}
-                                  <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                      <div className="flex items-center mb-2">
-                                          <ListChecks className="h-5 w-5 text-green-500 mr-2" />
-                                          <h3 className="font-medium text-gray-700">Approve</h3>
-                                      </div>
-                                      <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
-                                  </div>
-                              </div>
-                          </div>
+                           <ActionSummary generateActionSummary={generateActionSummary} />
                       )}
-    <div className='mt-6 overflow-x-auto'>
-              {getFinalVendorQuotesData?.length > 0 ? (
-        <div className="overflow-x-auto">
-          <ConfigProvider
-          
-          >
-            <Table
-              dataSource={dataSource}
-              rowClassName={(record) => !record?.totalAmount ? "bg-red-100" : ""}
-              columns={columns}
-              rowSelection={parentRowSelection}
-              pagination={false}
-              expandable={{
-                defaultExpandAllRows : true,
-                expandedRowRender: (record) => (
-                  <Table
-                    rowSelection={getChildRowSelection(record)}
-                    rowClassName={(record) => !record?.amount ? "bg-red-50" : ""}
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.name || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
+            <div className='mt-6 overflow-x-auto'>
+                {getFinalVendorQuotesData?.length > 0 ? (
+                    <ApproveVendorQuotesPRorSBAntDTable dataSource={dataSource} selectionMap={selectionMap} setSelectionMap={setSelectionMap} />
+              ) : (
+                <div className="h-[10vh] flex items-center justify-center">
+                  No Results.
+                </div>
+              )}
+            </div>
 
         {selectionMap.size > 0 && <div className="flex justify-end gap-2 mr-2 mt-4">
                         <Button onClick={toggleSentBackDialog} variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
@@ -693,34 +570,8 @@ const generateActionSummary = (actionType : string) => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
-            <div className="flex items-center space-y-2">
-                        <h2 className="text-base pl-2 font-bold tracking-tight">Sent Back Comments</h2>
-                    </div>
-                    <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
-                        {universalComment?.length !== 0 ? (
-                            universalComment?.map((comment) => (
-                                <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                    <Avatar>
-                                        <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
-                                        <AvatarFallback>{comment?.comment_by?.[0]}</AvatarFallback>
-                                    </Avatar>
-                                    <div className="flex-1">
-                                        <p className="font-medium text-sm text-gray-900">{comment?.content}</p>
-                                        <div className="flex justify-between items-center mt-2">
-                                            <p className="text-sm text-gray-500">
-                                                {comment?.comment_by === "Administrator" ? "Administrator" : getUserName(comment?.comment_by)}
-                                            </p>
-                                            <p className="text-xs text-gray-400">
-                                                {formatDate(comment?.creation?.split(" ")[0])} {comment?.creation?.split(" ")[1].substring(0, 5)}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <span className="text-xs font-semibold">No Comments Found</span>
-                        )}
-                    </div>
+        <h2 className="text-base pl-2 font-bold tracking-tight">Sent Back Comments</h2>
+        <RenderPRorSBComments universalComment={universalComment} getUserName={getUserName} />
   </div>
   )
 }
