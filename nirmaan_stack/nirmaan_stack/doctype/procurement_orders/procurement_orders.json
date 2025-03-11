@@ -11,6 +11,7 @@
   "procurement_request",
   "category",
   "merged",
+  "custom",
   "procurement_order_details_section",
   "attachment",
   "project_name",
@@ -159,11 +160,16 @@
    "fieldname": "project_gst",
    "fieldtype": "Data",
    "label": "Project GST"
+  },
+  {
+   "fieldname": "custom",
+   "fieldtype": "Data",
+   "label": "Custom"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-02-07 18:39:21.530464",
+ "modified": "2025-03-11 13:45:16.640964",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
