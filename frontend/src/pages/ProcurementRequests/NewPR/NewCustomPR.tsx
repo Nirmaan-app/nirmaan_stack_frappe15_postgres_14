@@ -58,10 +58,31 @@ interface CustomPRItem extends ProcurementItem {
   procurement_package: string;
 }
 
-export const NewCustomPR : React.FC = () => {
+
+interface NewCustomPRProps {
+  resolve?: boolean;
+}
+
+export const NewCustomPR : React.FC<NewCustomPRProps> = ({resolve = false}) => {
 
   const navigate = useNavigate();
   const userData = useUserData();
+
+  const {prId} = useParams<{ prId: string }>();
+
+  const {data : prList, isLoading: prListLoading} = useFrappeGetDocList("Procurement Requests", {
+    fields: ["*"],
+    filters: [["name", "=", prId]]
+  },
+  prId ? `Procurement Requests ${prId}` : null
+)
+const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList("Vendors",
+  {
+    fields: ["*"],
+    limit: 10000,
+  },
+  "Vendors"
+);
 
   const {projectId} = useParams<{ projectId: string }>();
 
@@ -75,7 +96,7 @@ export const NewCustomPR : React.FC = () => {
   const [categories, setCategories] = useState<{ list: { name: string, makes : string[] }[] }>({ list: [] });
 
   const groupedData : {[key: string]: CustomPRItem[]} = useMemo(() => {
-    return order?.reduce((acc, item) => {
+    return order?.reduce((acc :{[key: string]: CustomPRItem[]}, item) => {
       acc[item.category] = acc[item.category] || [];
       acc[item.category].push(item);
       return acc;
@@ -91,15 +112,27 @@ export const NewCustomPR : React.FC = () => {
   }, [groupedData]);
 
   useEffect(() => {
-    const newCategories: { name: string, makes : string[] }[] = [];
-    order.forEach((item) => {
-        const isDuplicate = newCategories.some(category => category.name === item.category);
-        if (!isDuplicate) {
-            newCategories.push({ name: item.category, makes: [] });
-        }
-    });
-    setCategories({ list: newCategories });
-}, [order]);
+    if(resolve && prList?.length > 0) {
+      const request = prList[0];
+      setOrder(request?.procurement_list?.list as typeof order)
+      setCategories(request?.category_list)
+      const amounts : { [key: string]: number } = {};
+      request?.procurement_list?.list?.forEach(item => {
+        amounts[item.name] = item.quote;
+      })
+      setAmounts(amounts);
+      const vendorId = request?.procurement_list?.list?.[0]?.vendor;
+      const vendor = vendor_list?.find(v => v.name === vendorId);
+
+      setSelectedvendor({
+        value: vendor.name,
+        label: vendor.vendor_name,
+        city: vendor?.vendor_city,
+        state: vendor?.vendor_state,
+      })
+
+    }
+  }, [resolve, prId, prList])
 
   // Main table columns
   const columns = [
@@ -197,13 +230,6 @@ export const NewCustomPR : React.FC = () => {
     limit: 10000
   })
 
-  const { data: vendor_list } = useFrappeGetDocList("Vendors",
-    {
-      fields: ["*"],
-      limit: 10000,
-    },
-    "Vendors"
-  );
 
   useEffect(() => {
     if (vendor_list) {
@@ -232,10 +258,18 @@ export const NewCustomPR : React.FC = () => {
   const handleSaveAmounts = () => {
     let newOrderData = [];
     for (let item of order) {
-      newOrderData.push({...item, quote : amounts[item.name]});
+      newOrderData.push({...item, quote : amounts[item.name], vendor: selectedVendor?.value});
     }
     setOrder(newOrderData);
     setSection("summary");
+    const newCategories: { name: string, makes : string[] }[] = [];
+    order.forEach((item) => {
+        const isDuplicate = newCategories.some(category => category.name === item.category);
+        if (!isDuplicate) {
+            newCategories.push({ name: item.category, makes: [] });
+        }
+    });
+    setCategories({ list: newCategories });
   };
 
   const checkNextButtonStatus = useMemo(() => {
@@ -271,6 +305,10 @@ export const NewCustomPR : React.FC = () => {
         });
       }
 
+      await updateDoc("Procurement Requests", res.name, {
+        workflow_state : "Vendor Selected"
+      })
+
       toast({
         title: "Success!",
         description: `Custom PR: ${res.name} Sent for Approval`,
@@ -285,6 +323,43 @@ export const NewCustomPR : React.FC = () => {
         variant: "destructive",
       });
       console.log("error while sending SR for approval", error);
+    }
+  };
+
+  const handleResolvePR = async () => {
+    try {
+      await updateDoc("Procurement Requests", prId, {
+        procurement_list: {
+          list : order
+        },
+        category_list: categories,
+        workflow_state : "Vendor Selected"
+      })
+      if (comment) {
+        await createDoc("Nirmaan Comments", {
+          comment_type: "Comment",
+          reference_doctype: "Procurement Requests",
+          reference_name: prId,
+          comment_by: userData?.user_id,
+          content: comment,
+          subject: "resolve custom pr",
+        });
+      }
+
+      toast({
+        title: "Success!",
+        description: `Custom PR: ${prId} resolved and Sent for Approval!`,
+        variant: "success",
+      });
+
+      navigate(-1);
+    } catch (error) {
+      toast({
+        title: "Failed!",
+        description: `Unable to resolve Custom PR!`,
+        variant: "destructive",
+      });
+      console.log("Unable to resolve Custom PR!", error);
     }
   };
 
@@ -541,7 +616,7 @@ export const NewCustomPR : React.FC = () => {
                       dataSource={record.items}
                       columns={innerColumns}
                       pagination={false}
-                      rowKey={(item) => item.id}
+                      rowKey={(item) => item.name}
                     />
                   ),
                 }}
@@ -553,7 +628,7 @@ export const NewCustomPR : React.FC = () => {
               <DialogTrigger asChild>
                 <Button className="flex items-center gap-1">
                     <Settings2 className="h-4 w-4" />
-                    Send for Approval
+                    {resolve ? "Resolve" : "Send for Approval"}
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-[425px]">
@@ -587,7 +662,7 @@ export const NewCustomPR : React.FC = () => {
                     <Button
                       variant="default"
                       className="flex items-center gap-1"
-                      onClick={handleSubmit}
+                      onClick={resolve ? handleResolvePR : handleSubmit}
                       disabled={create_loading || update_loading}
                     >
                       {create_loading || update_loading ? (

@@ -25,9 +25,9 @@ import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
+import { CategoryData, CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 
-export const columns : TableColumnsType<CategoryWithChildren> = [
+export const columns : TableColumnsType<CategoryData> = [
   {
     title: "Category",
     dataIndex: "category",
@@ -101,7 +101,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
       if (!lowest3 || !amount) {
         return (
           <i>
-            {amount}
+            {formatToIndianRupee(amount)}
           </i>
         );
       }
@@ -139,7 +139,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     className: "min-w-[10vw]",
     render: (text) => (
       <span className="italic">
-        {formatToIndianRupee(text)}
+        {text ? formatToIndianRupee(text) : "--"}
       </span>
     ),
   },

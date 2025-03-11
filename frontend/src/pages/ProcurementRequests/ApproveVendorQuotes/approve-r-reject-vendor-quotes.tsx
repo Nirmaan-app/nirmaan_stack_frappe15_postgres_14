@@ -1,9 +1,12 @@
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/ui/ApproveVendorQuotesPRorSBAntDTable';
 import { Button } from "@/components/ui/button";
+import { Label } from '@/components/ui/label';
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
 import { Table as ReactTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/components/ui/use-toast";
+import { useUserData } from '@/hooks/useUserData';
 import { CategoryWithChildren, DataItem } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
@@ -11,9 +14,9 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckCheck, ListChecks, SendToBack, Undo2 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
@@ -39,7 +42,7 @@ export const ApproveRejectVendorQuotes : React.FC = () => {
     
     const { data: universalComment, isLoading: universalCommentLoading, error: universalCommentError } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
-        filters: [["reference_name", "=", pr?.name], ["subject", "=", "pr vendors selected"]]
+        filters: [["reference_name", "=", pr?.name], ["subject", "in", pr?.work_package ? ["pr vendors selected"] : ["new custom pr", "resolve custom pr"]]]
     },
     pr ? undefined : null
   )
@@ -63,7 +66,7 @@ export const ApproveRejectVendorQuotes : React.FC = () => {
     if (pr_loading || usersListLoading || vendor_list_loading || universalCommentLoading || quotesLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (pr_error || usersListError || universalCommentError || vendor_list_error || quotesError) return <h1>Error</h1>
 
-    if (!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state || "") && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (
+    if (!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state || "") || !JSON.parse(pr?.procurement_list || "{}")?.list?.some((i) => i?.status === "Pending")) return (
         <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
@@ -111,7 +114,11 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
 
   const {call : sendBackItemsCall, loading : sendBackItemsCallLoading} = useFrappePostCall("nirmaan_stack.api.reject_vendor_quotes.send_back_items")
 
+  const {updateDoc, loading: updateDoc_loading} = useFrappeUpdateDoc()
+  const { createDoc, loading : create_loading } = useFrappeCreateDoc()
+
   const navigate = useNavigate()
+  const userData = useUserData()
 
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState<string | null>(null);
@@ -139,7 +146,7 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
          }
      });
 
-     const rfq_data = JSON.parse(newOrderData?.rfq_data);
+     const rfq_data = JSON.parse(newOrderData?.rfq_data || "{}");
 
      // Update orderData with computed lists
      setOrderData(() => ({
@@ -250,7 +257,7 @@ const newHandleApprove = async () => {
   try {
       setIsLoading("newHandleApprove");
 
-      const selectedItemNames : string[] = [];
+      let selectedItemNames : string[] = [];
       const vendorMap : {[itemName: string]: string} = {};
 
       selectionMap.forEach((categorySelection, categoryKey) => {
@@ -274,6 +281,7 @@ const newHandleApprove = async () => {
           pr_name: orderData?.name,
           selected_items: selectedItemNames,
           selected_vendors: vendorMap,
+          custom : !orderData?.work_package ? true : false
       });
 
       if (response.message.status === 200) {
@@ -285,7 +293,7 @@ const newHandleApprove = async () => {
 
           setSelectionMap(new Map());
           await pr_mutate();
-          if (orderData?.procurement_list.list.length === selectedItemNames.length) {
+          if (!orderData?.work_package || orderData?.procurement_list.list.length === selectedItemNames.length) {
               navigate('/approve-po');
           }
           toggleApproveDialog();
@@ -312,7 +320,33 @@ const newHandleSentBack = async () => {
   try {
       setIsLoading("newHandleSentBack");
 
-      const selectedItemNames : string[] = [];
+      if(!orderData?.work_package) {
+        await updateDoc("Procurement Requests", orderData?.name, {
+            workflow_state : "Rejected"
+        })
+
+        if (comment) {
+            await createDoc("Nirmaan Comments", {
+              comment_type: "Comment",
+              reference_doctype: "Procurement Requests",
+              reference_name: orderData?.name,
+              comment_by: userData?.user_id,
+              content: comment,
+              subject: "rejecting custom pr",
+            });
+          }
+
+        await pr_mutate();
+        navigate('/approve-po');
+        toast({
+            title: "Success!",
+            description: "Successfully Rejected the custom PR!",
+            variant: "success",
+        });
+
+        toggleSentBackDialog();
+      } else{
+        const selectedItemNames : string[] = [];
 
       selectionMap.forEach((categorySelection, categoryKey) => {
           if (categorySelection.all) {
@@ -357,11 +391,12 @@ const newHandleSentBack = async () => {
               variant: "destructive",
           });
       }
+      }
   } catch (error) {
       console.error("Error sending back items:", error);
       toast({
           title: "Failed!",
-          description: "Sending Back Items Failed!",
+          description: `${orderData?.work_package ? "Sending Back Items Failed!" : "Rejecting the Custom PR Failed!"}` ,
           variant: "destructive",
       });
   } finally {
@@ -370,7 +405,7 @@ const newHandleSentBack = async () => {
   }
 };
 
-const generateActionSummary = (actionType : string) => {
+const generateActionSummary = useCallback((actionType : string) => {
   if (actionType === "approve") {
       const selectedItems : DataItem[] = [];
       const selectedVendors : {[itemName: string]: string} = {};
@@ -488,54 +523,56 @@ const generateActionSummary = (actionType : string) => {
   }
 
   return "No valid action details available.";
-};
+}, [selectionMap]);
 
   return (
         <div className="flex-1 space-y-4">
-            <div className="flex items-center">
-                <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back</h2>
+            <div className='space-y-2'>
+                <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/{!orderData?.work_package ? "Reject" : "Send-Back"}</h2>
+                <ProcurementActionsHeaderCard orderData={orderData} po={true} />
             </div>
-          <ProcurementActionsHeaderCard orderData={orderData} po={true} />
 
-                {selectionMap.size > 0 && (
-                          <ActionSummary generateActionSummary={generateActionSummary} />
-                      )}
-    <div className='mt-6 overflow-x-auto'>
-              {getFinalVendorQuotesData?.length > 0 ? (
-        <ApproveVendorQuotesPRorSBAntDTable dataSource={dataSource} selectionMap={selectionMap} setSelectionMap={setSelectionMap} />
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
+            {selectionMap.size > 0 && (
+                <ActionSummary generateActionSummary={generateActionSummary} />
+            )}
 
-            {selectionMap.size > 0 && <div className="flex justify-end gap-2 mr-2 mt-4">
+            <div className='overflow-x-auto'>
+                      {getFinalVendorQuotesData?.length > 0 ? (
+                <ApproveVendorQuotesPRorSBAntDTable disableRowSelection={!orderData?.work_package} dataSource={dataSource} selectionMap={selectionMap} setSelectionMap={setSelectionMap} />
+              ) : (
+                <div className="h-[10vh] flex items-center justify-center">
+                  No Results.
+                </div>
+              )}
+            </div>
+
+                    {(selectionMap.size > 0 || !orderData?.work_package) && <div className="flex justify-end gap-2 mr-2 mt-4">
                         <Button onClick={toggleSentBackDialog} variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
                             <SendToBack className='w-4 h-4' />
-                            Send Back
+                            {!orderData?.work_package ? "Reject" : "Send Back"}
                         </Button>
                         <Button onClick={toggleApproveDialog} variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
                             <ListChecks className="h-4 w-4" />
                             Approve
                         </Button>
-                <AlertDialog open={sentBackDialog} onOpenChange={toggleSentBackDialog}>
-                    <AlertDialogContent className="sm:max-w-[425px]">
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                        <AlertDialog open={sentBackDialog} onOpenChange={toggleSentBackDialog}>
+                            <AlertDialogContent className="sm:max-w-[425px]">
+                             <AlertDialogHeader className='text-left'>
+                            <AlertDialogTitle className='text-center'>Are you Sure?</AlertDialogTitle>
                             <AlertDialogDescription>
-                                Add Comments and Send Back the Selected Items.
-                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
-                                <textarea
-                                    id="textarea"
-                                    className="w-full border rounded-lg p-2"
-                                    value={comment}
-                                    placeholder="type here..."
-                                    onChange={(e) => setComment(e.target.value)}
-                                />
+                                Add Comments and {!orderData?.work_package ? "Reject" : "Send Back the Selected Items"}.
+                                <div className='py-2 space-y-2'>
+                                    <Label htmlFor="textarea">Comment:</Label>
+                                    <Textarea
+                                        id="textarea"
+                                        value={comment}
+                                        placeholder="type here..."
+                                        onChange={(e) => setComment(e.target.value)}
+                                    />
+                                </div>
                             </AlertDialogDescription>
                         </AlertDialogHeader>
-                        {isLoading === "newHandleSentBack" || sendBackItemsCallLoading  ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                        {isLoading === "newHandleSentBack" || sendBackItemsCallLoading || updateDoc_loading || create_loading ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                             <AlertDialogFooter>
                                 <AlertDialogCancel onClick={toggleSentBackDialog} className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
@@ -551,8 +588,8 @@ const generateActionSummary = (actionType : string) => {
                 </AlertDialog>
                 <AlertDialog open={approveDialog} onOpenChange={toggleApproveDialog}>
                     <AlertDialogContent className="sm:max-w-[425px]">
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                        <AlertDialogHeader className='text-left'>
+                            <AlertDialogTitle className='text-center'>Are you Sure?</AlertDialogTitle>
                             <AlertDialogDescription>
                                 Click on Confirm to Approve the Selected Items.
                             </AlertDialogDescription>
@@ -572,11 +609,14 @@ const generateActionSummary = (actionType : string) => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
-                    <h2 className="text-base pl-2 font-bold tracking-tight">Procurement Comments</h2>
-                    <RenderPRorSBComments universalComment={universalComment} getUserName={getUserName} />
-                    <div className="flex items-center py-4">
-                        <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
-                    </div>
+
+            <div className='space-y-2'>
+                <h2 className="text-base pl-2 font-bold tracking-tight">Procurement Comments</h2>
+                <RenderPRorSBComments universalComment={universalComment} getUserName={getUserName} />
+            </div>
+                {orderData?.work_package && (
+                            <>
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Delayed Items</h2>
                     <div className="overflow-x-auto">
                         <div className="min-w-full inline-block align-middle">
                             {/* Group items by category */}
@@ -621,7 +661,9 @@ const generateActionSummary = (actionType : string) => {
                             })()}
                         </div>
                     </div>
-  </div>
+                </>
+             )}
+        </div>
   )
 }
 

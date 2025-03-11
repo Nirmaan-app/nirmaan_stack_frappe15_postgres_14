@@ -102,6 +102,10 @@ const router = createBrowserRouter(
                   element={<NewProcurementRequest resolve={true} />}
                 />
                 <Route
+                  path="resolve-custom-pr"
+                  element={<NewCustomPR resolve={true} />}
+                />
+                <Route
                   path="edit-pr"
                   element={<NewProcurementRequest edit={true} />}
                 />

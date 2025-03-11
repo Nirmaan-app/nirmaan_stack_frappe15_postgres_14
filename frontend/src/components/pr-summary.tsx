@@ -1,13 +1,13 @@
 import { useUserData } from "@/hooks/useUserData";
+import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { Category } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
 import { Timeline } from "antd";
 import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
@@ -24,66 +24,52 @@ const PRSummary = () => {
 
     const { prId: id } = useParams<{ prId: string }>();
 
-    const [project, setProject] = useState()
-    // const [projectAddress, setProjectAddress] = useState()
-
-    const { data: pr_data, error: pr_error, isLoading: prLoading, mutate: pr_data_mutate } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id, `Procurement Requests ${id}`);
+    const { data: pr_data, error: pr_error, isLoading: prLoading, mutate: pr_data_mutate } = useFrappeGetDoc("Procurement Requests", id, `Procurement Requests ${id}`);
 
     const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
     })
 
-    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+    const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
         limit: 1000,
         filters: [["reference_name", "=", id]],
         orderBy: { field: "creation", order: "desc" }
-    }, `Nirmaan Comments ${id}`)
+    }, id ? `Nirmaan Comments ${id}` : null)
 
-    const { data: project_data, error: project_data_error, isLoading: project_data_loading } = useFrappeGetDoc<ProjectsType>("Projects", project);
-
-    // const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
-        filters: [['procurement_request', '=', id]],
+        filters: [['procurement_request', '=', id], ["status", "not in", ["Merged"]]],
         limit: 1000
-    })
-
-
-    useEffect(() => {
-        if (pr_data) {
-            setProject(pr_data?.project)
-        }
-    }, [pr_data])
+    },
+    id ? undefined : null
+    )
 
     return (
         <>
             {pr_error && <h1>{pr_error.message}</h1>}
-            {project_data_error && <h1>{project_data_error.message}</h1>}
-            {/* {address_error && <h1>{address_error.message}</h1>} */}
             {procurementOrdersError && <h1>{procurementOrdersError.message}</h1>}
             {userError && <h1>{userError.message}</h1>}
-            {(prLoading || project_data_loading || procurementOrdersLoading || userLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project_data} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} pr_data_mutate={pr_data_mutate} />}
+            {(prLoading || procurementOrdersLoading || userLoading || universalCommentsLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} pr_data_mutate={pr_data_mutate} />}
         </>
     )
 };
 
 interface PRSummaryPageProps {
-    pr_data: ProcurementRequestsType | undefined
-    project: ProjectsType | undefined
+    pr_data?: any
     address?: any
-    po_data: ProcurementOrdersType[] | undefined
-    universalComments: any
-    usersList: NirmaanUsersType[] | undefined
+    po_data?: ProcurementOrdersType[]
+    universalComments?: NirmaanComments[]
+    usersList?: NirmaanUsersType[]
     pr_data_mutate?: any
 }
 
-const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList, pr_data_mutate }: PRSummaryPageProps) => {
+const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data_mutate }: PRSummaryPageProps) => {
     const navigate = useNavigate();
     const userData = useUserData()
     const { deleteDoc } = useFrappeDeleteDoc()
-
+    const [poItemList, setPoItemList] = useState<Set<string>>(new Set())
 
     const getFullName = (id: string) => {
         return usersList?.find((user) => user.name === id)?.full_name
@@ -91,32 +77,33 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
 
     const { role } = useUserData()
 
-    // const checkPoToPr = (prId: string) => {
-    //     return po_data?.some((po) => po.procurement_request === prId)
-    // }
+    useEffect(() => {
+        if(po_data) {
+            const newSet = new Set<string>()
+            po_data.forEach(po => {
+                po.order_list.list.forEach(item => {
+                    newSet.add(item.name)
+                })
+            })
+            setPoItemList(newSet)
+        }
 
-    const getPOItemStatus = (item: any, filteredPOs: any[]) => {
-        return filteredPOs.some(po =>
-            po.order_list?.list.some(poItem => poItem.name === item.name)
-        );
-    };
+    }, [po_data])
 
-    const statusRender = (status: string) => {
+    const statusRender = useCallback((status: string) => {
 
-        const itemList = pr_data?.procurement_list?.list || [];
-
-        if (["Approved", "RFQ Generated", "Quote Updated", "Vendor Selected"].includes(status)) {
+        if (["Approved", "In Progress", "Vendor Selected"].includes(status)) {
             return "Open PR";
         }
+        const itemList = pr_data?.procurement_list?.list || [];
 
         if (itemList?.some((i) => i?.status === "Deleted")) {
             return "Open PR"
         }
-
-        const allItemsApproved = itemList.every(item => { return getPOItemStatus(item, po_data); });
+        const allItemsApproved = itemList.every(item => { return poItemList.has(item?.name) });
 
         return allItemsApproved ? "Approved PO" : "Open PR";
-    };
+    }, [poItemList, pr_data]);
 
     const itemsTimelineList = universalComments?.map((cmt: any) => ({
         label: (
@@ -163,26 +150,12 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
         }
     }
 
-    // console.log("itemsTimeLineList", itemsTimelineList)
-
-    // console.log("universalComments", universalComments)
-
-    const getItemStatus = (itemJson: any) => {
-        // console.log(po_data)
-        for (let i = 0; i < po_data?.length; i++) {
-            // console.log(i, ":", po_data[i])
-            for (let j = 0; j < po_data[i].order_list.list.length; j++) {
-                // console.log(j, ": ", po_data[i].order_list.list[j])
-                if (po_data[i].order_list.list[j].name === itemJson.name) {
-                    // if (po_data[i].status === "PO Approved") {
-                    //     return "PO WIP"
-                    // } else return "Ordered"
-                    return "Ordered"
-                }
-            }
+    const getItemStatus = useCallback((itemJson: any) => {
+        if(poItemList.has(itemJson.name)) {
+            return "Ordered"
         }
         return "In Progress"
-    }
+    } , [poItemList])
 
     const handleMarkDraftPR = async () => {
         try {
@@ -280,20 +253,18 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                     }
                     {pr_data?.workflow_state === "Rejected" && (
 
-                        <Button className="flex items-center gap-1" onClick={() => navigate("resolve-pr")}>
+                        <Button className="flex items-center gap-1" onClick={() => {
+                            if(pr_data?.work_package) {
+                                navigate("resolve-pr")
+                            } else {
+                                navigate("resolve-custom-pr")
+                            }
+                        }}>
                             <Settings2 className="h-4 w-4" />
                             Resolve</Button>
                     )}
                 </div>
             </div>
-            {/* {pr_data?.workflow_state === "Pending" && (
-                            <div>
-                                <Alert variant="warning" className="">
-                                    <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
-                                    <AlertDescription>This PR can be edited by marking the same as draft by clicking on the "Mark as Draft" button which will show the edit button!</AlertDescription>
-                                </Alert>
-                            </div>
-                        )} */}
             <div className="flex max-lg:flex-col gap-4">
                 <div className="flex flex-col gap-4 flex-1">
                     <Card className="w-full">
@@ -400,11 +371,13 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                         <CardHeader>
                             <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
                                 {(() => {
-                                    const categories = [];
+                                    const categories : Category[] = [];
+                                    const uniqueCategoryNames = new Set<string>(); 
                                     try {
                                         const categoryList = JSON.parse(pr_data?.category_list || "[]")?.list || [];
-                                        categoryList.forEach((i) => {
-                                            if (categories.every((j) => j?.name !== i?.name)) {
+                                        categoryList.forEach((i : Category) => {
+                                            if (!uniqueCategoryNames.has(i?.name)) {
+                                                uniqueCategoryNames.add(i?.name);
                                                 categories.push(i);
                                             }
                                         });

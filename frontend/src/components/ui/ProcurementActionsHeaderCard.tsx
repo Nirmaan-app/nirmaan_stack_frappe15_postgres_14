@@ -104,7 +104,7 @@ export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend
       {(pr || po) && (
         <div className="border-0 flex flex-col justify-center">
           <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
-          <p className="text-left font-bold py-1 text-base text-black">{orderData?.work_package}</p>
+          <p className="text-left font-bold py-1 text-base text-black">{orderData?.work_package || "Custom Package"}</p>
         </div>
       )}
       {sentBack && (

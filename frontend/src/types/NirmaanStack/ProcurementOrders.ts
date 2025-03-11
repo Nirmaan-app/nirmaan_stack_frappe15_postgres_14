@@ -2,13 +2,13 @@ export interface PurchaseOrderItem {
   name: string;
   item: string;
   unit: string;
-  quantity: string;
-	received?: string;
+  quantity: number;
+	received?: number;
   category: string;
-  quote: string;
+  quote: number;
   make?: string;
   status: string;
-  tax: string;
+  tax: number;
   comment?: string;
 	po?: string;
 	makes: {
@@ -73,4 +73,5 @@ export interface ProcurementOrder {
 	status: string
 	/**	Delivery Contact : Data	*/
 	delivery_contact?: string
+	custom? : string
 }

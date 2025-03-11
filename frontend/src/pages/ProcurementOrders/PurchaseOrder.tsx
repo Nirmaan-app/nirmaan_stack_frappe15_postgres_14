@@ -62,6 +62,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
@@ -160,7 +161,7 @@ export const PurchaseOrder = ({
   const [mergedItems, setMergedItems] = useState<ProcurementOrder[]>([]);
   const [prevMergedPOs, setPrevMergedPos] = useState<ProcurementOrder[]>([]);
 
-  const [loadingFuncName, setLoadingFuncName] = useState("");
+  const [loadingFuncName, setLoadingFuncName] = useState<string>("");
 
   const [orderData, setOrderData] = useState<{ list : PurchaseOrderItem[]}>({
     list: []
@@ -187,7 +188,7 @@ export const PurchaseOrder = ({
 
   const [selectedMake, setSelectedMake] = useState<{label : string, value : string} | null>(null);
 
-  const [amendEditItem, setAmendEditItem] = useState("");
+  const [amendEditItem, setAmendEditItem] = useState<PurchaseOrderItem | null>(null);
 
   const [poPdfSheet, setPoPdfSheet] = useState(false);
 
@@ -268,7 +269,7 @@ export const PurchaseOrder = ({
     }
   };
 
-  const { updateDoc } = useFrappeUpdateDoc();
+  const { updateDoc, loading : updateLoading } = useFrappeUpdateDoc();
 
   const { createDoc } = useFrappeCreateDoc();
 
@@ -305,7 +306,6 @@ export const PurchaseOrder = ({
     data: associated_po_list,
     error: associated_po_list_error,
     isLoading: associated_po_list_loading,
-    mutate: associated_po_list_mutate,
   } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
     fields: ["*"],
     limit: 100000,
@@ -321,7 +321,7 @@ export const PurchaseOrder = ({
     data: pr,
     isLoading: prLoading,
     error: prError,
-  } = useFrappeGetDoc("Procurement Requests", PO?.procurement_request, PO ? undefined : null);
+  } = useFrappeGetDoc<ProcurementRequest>("Procurement Requests", PO?.procurement_request, PO ? undefined : null);
 
   const {
     data: usersList,
@@ -393,15 +393,15 @@ export const PurchaseOrder = ({
     try {
       setLoadingFuncName("onSubmit");
       const updateData = {
-        advance: `${data.advance !== "" ? parseInt(data.advance) : 0}, ${
-          data.materialReadiness !== "" ? parseInt(data.materialReadiness) : 0
-        }, ${data.afterDelivery !== "" ? parseInt(data.afterDelivery) : 0}, ${
-          data.xDaysAfterDelivery !== "" ? parseInt(data.xDaysAfterDelivery) : 0
-        }, ${data.xDays !== "" ? parseInt(data.xDays) : 0}`,
+        advance: `${data.advance !== "" ? parseFloat(data.advance) : 0}, ${
+          data.materialReadiness !== "" ? parseFloat(data.materialReadiness) : 0
+        }, ${data.afterDelivery !== "" ? parseFloat(data.afterDelivery) : 0}, ${
+          data.xDaysAfterDelivery !== "" ? parseFloat(data.xDaysAfterDelivery) : 0
+        }, ${data.xDays !== "" ? parseFloat(data.xDays) : 0}`,
         loading_charges:
-          data.loadingCharges !== "" ? parseInt(data.loadingCharges) : 0,
+          data.loadingCharges !== "" ? parseFloat(data.loadingCharges) : 0,
         freight_charges:
-          data.freightCharges !== "" ? parseInt(data.freightCharges) : 0,
+          data.freightCharges !== "" ? parseFloat(data.freightCharges) : 0,
         notes: data.notes || "",
         project_gst: selectedGST?.gst,
       };
@@ -446,28 +446,27 @@ export const PurchaseOrder = ({
     }
   }, [mergeSheet]);
 
-
   const resetForm = useCallback((poData: typeof PO) => {
     if (!poData) return;
     
-    const chargesArray = poData.advance?.split(', ') || ['0', '0', '0', '0', '0'];
+    const chargesArray = poData.advance?.split(', ');
     const parsedCharges = chargesArray.map(charge => parseFloat(charge));
     
-    setAdvance(parsedCharges[0]);
-    setMaterialReadiness(parsedCharges[1]);
-    setAfterDelivery(parsedCharges[2]);
-    setXDaysAfterDelivery(parsedCharges[3]);
-    setXDays(parsedCharges[4]);
+    setAdvance(parsedCharges[0] || 0);
+    setMaterialReadiness(parsedCharges[1] || 0);
+    setAfterDelivery(parsedCharges[2] || 0);
+    setXDaysAfterDelivery(parsedCharges[3] || 0);
+    setXDays(parsedCharges[4] || 0);
     setLoadingCharges(parseFloat(poData.loading_charges || "0"));
     setFreightCharges(parseFloat(poData.freight_charges || "0"));
     setNotes(poData.notes || '');
 
     reset({
-      advance: parsedCharges[0],
-      materialReadiness: parsedCharges[1],
-      afterDelivery: parsedCharges[2],
-      xDaysAfterDelivery: parsedCharges[3],
-      xDays: parsedCharges[4],
+      advance: parsedCharges[0] || 0,
+      materialReadiness: parsedCharges[1] || 0,
+      afterDelivery: parsedCharges[2] || 0,
+      xDaysAfterDelivery: parsedCharges[3] || 0,
+      xDays: parsedCharges[4] || 0,
       loadingCharges: parseFloat(poData.loading_charges || "0"),
       freightCharges: parseFloat(poData.freight_charges || "0"),
       notes: poData.notes || '',
@@ -486,9 +485,7 @@ export const PurchaseOrder = ({
   }, [PO, editPOTermsDialog, resetForm]);
 
   const getTotal = useMemo(() => {
-    if (PO) {
-      return getPOTotal(PO, freightCharges, loadingCharges);
-    }
+    return getPOTotal(PO, freightCharges, loadingCharges);
   }, [PO, freightCharges, loadingCharges]);
 
   const handleMerge = (po : ProcurementOrder) => {
@@ -715,7 +712,7 @@ const handleUnmergePOs = async () => {
 
   const handleSave = useCallback((
     itemName: string,
-    newQuantity: string,
+    newQuantity: number,
     selectedMake: {label : string, value : string}
   ) => {
     let curRequest = orderData?.list;
@@ -725,13 +722,13 @@ const handleUnmergePOs = async () => {
       (curValue) => curValue.item === itemName
     );
 
-    if (previousItem && parseFloat(newQuantity) !== parseFloat(previousItem?.quantity)) {
+    if (previousItem && newQuantity !== previousItem?.quantity) {
       setStack((prevStack) => [
         ...prevStack,
         {
           operation: "quantity_change",
           item: previousItem.item,
-          previousQuantity: parseFloat(previousItem.quantity),
+          previousQuantity: previousItem.quantity,
         },
       ]);
     }
@@ -760,7 +757,7 @@ const handleUnmergePOs = async () => {
       if (curValue.item === itemName) {
         return {
           ...curValue,
-          quantity: parseInt(newQuantity),
+          quantity: newQuantity,
           makes: { list: makes },
         };
       }
@@ -915,7 +912,6 @@ const handleUnmergePOs = async () => {
     }
   };
 
-
   const handleDeletePayment = async () => {
     try {
 
@@ -946,12 +942,12 @@ const handleUnmergePOs = async () => {
 
   const amountPaid = getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid"));
 
-  const validateAmount = debounce((amount : string | number) => {
+  const validateAmount = debounce((amount : number) => {
     const { totalAmt } = getTotal;
 
     const compareAmount = totalAmt - amountPaid;
 
-    if (parseFloat(amount) > compareAmount) {
+    if (amount > compareAmount) {
       setWarning(
         `Entered amount exceeds the total ${
           amountPaid ? "remaining" : ""
@@ -1047,10 +1043,13 @@ const handleUnmergePOs = async () => {
       </div>
     );
 
+    console.log("quantity", quantity)
+
   return (
     <div className="flex-1 space-y-4">
       {!summaryPage &&
         !accountsPage &&
+        !PO?.custom &&
         !estimatesViewing &&
         PO?.status === "PO Approved" &&
         PO?.merged !== "true" &&
@@ -1359,7 +1358,7 @@ const handleUnmergePOs = async () => {
                   Request Payment
                 </Button>
                 <RequestPaymentDialog totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
-                  po={po} paymentsMutate={poPaymentsMutate}
+                  po={PO} paymentsMutate={poPaymentsMutate}
                   />
                 </>
                 )}
@@ -1710,7 +1709,7 @@ const handleUnmergePOs = async () => {
                                             const value = e.target.value;
                                             field.onChange(e);
                                             setAfterDelivery(
-                                              value !== "" ? parseInt(value) : 0
+                                              value !== "" ? parseFloat(value) : 0
                                             );
                                           }}
                                         />
@@ -1730,7 +1729,7 @@ const handleUnmergePOs = async () => {
                                             const value = e.target.value;
                                             field.onChange(e);
                                             setAdvance(
-                                              value !== "" ? parseInt(value) : 0
+                                              value !== "" ? parseFloat(value) : 0
                                             );
                                           }}
                                         />
@@ -1750,7 +1749,7 @@ const handleUnmergePOs = async () => {
                                             const value = e.target.value;
                                             field.onChange(e);
                                             setMaterialReadiness(
-                                              value !== "" ? parseInt(value) : 0
+                                              value !== "" ? parseFloat(value) : 0
                                             );
                                           }}
                                         />
@@ -1772,7 +1771,7 @@ const handleUnmergePOs = async () => {
                                               field.onChange(e);
                                               setXDays(
                                                 value !== ""
-                                                  ? parseInt(value)
+                                                  ? parseFloat(value)
                                                   : 0
                                               );
                                             }}
@@ -1792,7 +1791,7 @@ const handleUnmergePOs = async () => {
                                             const value = e.target.value;
                                             field.onChange(e);
                                             setXDaysAfterDelivery(
-                                              value !== "" ? parseInt(value) : 0
+                                              value !== "" ? parseFloat(value) : 0
                                             );
                                           }}
                                         />
@@ -1849,7 +1848,7 @@ const handleUnmergePOs = async () => {
                                           const value = e.target.value;
                                           field.onChange(e);
                                           setLoadingCharges(
-                                            value !== "" ? parseInt(value) : 0
+                                            value !== "" ? parseFloat(value) : 0
                                           );
                                         }}
                                       />
@@ -1869,7 +1868,7 @@ const handleUnmergePOs = async () => {
                                           const value = e.target.value;
                                           field.onChange(e);
                                           setFreightCharges(
-                                            value !== "" ? parseInt(value) : 0
+                                            value !== "" ? parseFloat(value) : 0
                                           );
                                         }}
                                       />
@@ -1900,7 +1899,7 @@ const handleUnmergePOs = async () => {
                             </form>
 
                             <div className="flex gap-2 items-center justify-end">
-                              {loadingFuncName === "OnSubmit" ? (
+                              {loadingFuncName === "onSubmit" || updateLoading ? (
                                 <TailSpin color="red" height={40} width={40} />
                               ) : (
                                 <>
@@ -2136,6 +2135,7 @@ const handleUnmergePOs = async () => {
       <div className="flex items-center justify-between">
         {!summaryPage &&
         !accountsPage &&
+        !PO?.custom &&
         !estimatesViewing &&
         PO?.merged === "true" ? (
           PO?.status === "PO Approved" &&
@@ -2353,12 +2353,12 @@ const handleUnmergePOs = async () => {
                                       (i) => i?.enabled === "true"
                                     );
 
-                                    setQuantity(parseFloat(item.quantity));
+                                    setQuantity(item.quantity);
                                     setAmendEditItem(item);
                                     setEditMakeOptions(options);
                                     setSelectedMake({
-                                      label: selected?.make,
-                                      value: selected?.make,
+                                      label: selected?.make || "",
+                                      value: selected?.make || "",
                                     });
                                     toggleAmendEditItemDialog();
                                   }}
@@ -2547,7 +2547,7 @@ const handleUnmergePOs = async () => {
                           disabled={!quantity}
                           onClick={() =>
                             handleSave(
-                              amendEditItem.item,
+                              amendEditItem?.item,
                               quantity,
                               selectedMake
                             )
@@ -2570,6 +2570,7 @@ const handleUnmergePOs = async () => {
           {
             !summaryPage &&
               !accountsPage &&
+              !PO?.custom &&
               !estimatesViewing &&
               ["PO Approved"].includes(PO?.status) &&
               !((poPayments || []).length > 0) &&

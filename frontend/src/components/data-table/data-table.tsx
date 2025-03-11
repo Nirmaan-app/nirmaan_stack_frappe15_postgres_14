@@ -531,7 +531,7 @@ export function DataTable<TData, TValue>({
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}
-                      data-label={cell.column.columnDef.header}
+                      data-label={String(cell.column.columnDef.header || "")}
                       className="py-6 px-4"
                     >
                       {flexRender(

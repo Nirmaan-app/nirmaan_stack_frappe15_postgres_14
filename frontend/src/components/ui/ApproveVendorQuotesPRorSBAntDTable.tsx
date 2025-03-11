@@ -13,9 +13,10 @@ interface ApproveVendorQuotesPRorSBAntDTableProps {
 }[]
 selectionMap: Map<any, any>
 setSelectionMap: React.Dispatch<React.SetStateAction<Map<any, any>>>
+disableRowSelection?: boolean
 }
 
-export const ApproveVendorQuotesPRorSBAntDTable : React.FC<ApproveVendorQuotesPRorSBAntDTableProps> = ({dataSource, selectionMap, setSelectionMap}) => {
+export const ApproveVendorQuotesPRorSBAntDTable : React.FC<ApproveVendorQuotesPRorSBAntDTableProps> = ({dataSource, selectionMap, setSelectionMap, disableRowSelection = false}) => {
 
   const parentRowSelection: TableProps<any>['rowSelection'] = {
     selectedRowKeys: Array.from(selectionMap.keys()).filter(key => selectionMap.get(key)?.all),
@@ -99,13 +100,13 @@ const getChildRowSelection = (category: CategoryData): TableProps<DataItem>['row
                   dataSource={dataSource}
                   rowClassName={(record) => !record?.totalAmount ? "bg-red-100" : ""}
                   columns={columns}
-                  rowSelection={parentRowSelection}
+                  rowSelection={disableRowSelection ? undefined : parentRowSelection}
                   pagination={false}
                   expandable={{
                     defaultExpandAllRows : true,
                     expandedRowRender: (record) => (
                       <Table
-                        rowSelection={getChildRowSelection(record)}
+                        rowSelection={disableRowSelection ? undefined : getChildRowSelection(record)}
                         rowClassName={(record) => !record?.amount ? "bg-red-50" : ""}
                         dataSource={record.items}
                         columns={innerColumns}

@@ -2,6 +2,7 @@ import { PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 
 export const getPOTotal = (order : any, loadingCharges = 0, freightCharges = 0) => {
+  if(!order) return {total : 0, totalGst: 0, totalAmt: 0};
   let total: number = 0;
   let totalGst = 0;
   let orderData;
@@ -11,11 +12,11 @@ export const getPOTotal = (order : any, loadingCharges = 0, freightCharges = 0) 
     orderData = order?.order_list?.list;
   }
   orderData?.map((item : PurchaseOrderItem) => {
-    const price = parseFloat(item.quote);
-    const gst = price * parseFloat(item.quantity) * (parseFloat(item.tax) / 100);
+    const price = item.quote;
+    const gst = price * item.quantity * (item.tax / 100);
 
     totalGst += (gst || 0);
-    total += (price || 0) * parseFloat(item.quantity || "1");
+    total += (price || 0) * (item.quantity || 1);
   });
 
   total += loadingCharges + freightCharges;

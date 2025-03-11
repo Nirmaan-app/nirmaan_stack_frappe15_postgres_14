@@ -1,9 +1,10 @@
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useFrappeUpdateDoc } from "frappe-react-sdk";
-import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Undo2 } from "lucide-react";
+import { useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, Undo2 } from "lucide-react";
 import React, { useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
@@ -40,7 +41,7 @@ import { toast } from "./use-toast";
 import { VendorHoverCard } from "./vendor-hover-card";
 
 interface PODetailsProps {
-  po: ProcurementOrder
+  po: ProcurementOrder | null
   summaryPage: boolean
   accountsPage: boolean
   estimatesViewing: boolean
@@ -51,7 +52,7 @@ interface PODetailsProps {
     totalAmt: number
   }
   amountPaid: number
-  pr: any
+  pr: ProcurementRequest
   poMutate: any
 }
 
@@ -60,9 +61,8 @@ export const PODetails : React.FC<PODetailsProps> = (
     getTotal, amountPaid, poMutate, pr
   }) => {
 
-    console.log("getTotal", getTotal)
-
     const { updateDoc, loading : update_loading } = useFrappeUpdateDoc();
+    const {call : deleteCustomPOCall, loading : deleteCustomPOCallLoading} = useFrappePostCall("nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po");
     const navigate = useNavigate();
 
     const [contactPerson, setContactPerson] = useState({
@@ -78,24 +78,28 @@ export const PODetails : React.FC<PODetailsProps> = (
     const [emailError, setEmailError] = useState("");
 
     const [revertDialog, setRevertDialog] = useState(false);
+    const toggleRevertDialog = () => {
+      setRevertDialog((prevState) => !prevState);
+    };
 
-     const handlePhoneChange = (e: any) => {
-        const value = e.target.value.replace(/\D/g, "").slice(0, 10);
-        setPhoneNumber(value);
-        if (value.length === 10) {
-          setPhoneError("");
-        }
-      };
+    const [deleteDialog, setDeleteDialog] = useState(false);
+    const toggleDeleteDialog = () => {
+      setDeleteDialog((prevState) => !prevState);
+    };
+
+    const handlePhoneChange = (e: any) => {
+       const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+       setPhoneNumber(value);
+       if (value.length === 10) {
+         setPhoneError("");
+       }
+    };
     
     const handleEmailChange = (e: any) => {
       setEmail(e.target.value);
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value)) {
         setEmailError("");
       }
-    };
-    
-    const toggleRevertDialog = () => {
-      setRevertDialog((prevState) => !prevState);
     };
 
     const handleDispatchPO = async () => {
@@ -158,12 +162,46 @@ export const PODetails : React.FC<PODetailsProps> = (
           }
         };
 
+    const handleDeleteCustomPO = async () => {
+        try {
+
+          const response = await deleteCustomPOCall({
+            po_id : po.name
+          })
+
+          if (response.message.status === 200) {
+               // ✅ Step 4: Success message & UI updates (Batch State Updates)
+               toast({
+                   title: "Delete Successful!",
+                   description: response.message.message,
+                   variant: "success",
+               });
+
+               navigate(`/purchase-orders`);
+          } else if (response.message.status === 400) {
+               toast({
+                   title: "Error!",
+                   description: response.message.error,
+                   variant: "destructive",
+               });
+          }
+        } catch (error) {
+            console.error("Error while deleting customo PO:", error);
+            toast({
+                title: "Error!",
+                description: "Failed to delete custom PO. Please try again.",
+                variant: "destructive",
+            });
+        }
+    };
+          
+
   return (
     <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
             <CardHeader>
               <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                 <div>
-                  <h2>PO Details</h2>
+                  <h2>{po?.custom === "true" && "Custom"} PO Details</h2>
                   <Badge
                     variant={
                       po?.status === "PO Approved"
@@ -206,14 +244,58 @@ export const PODetails : React.FC<PODetailsProps> = (
                       Preview
                     </Button>
                   )}
-                </div>
+                {po?.custom === "true" &&
+                  !summaryPage &&
+                    !accountsPage &&
+                    !estimatesViewing &&
+                    po?.status === "PO Approved" &&
+                    !((poPayments || [])?.length > 0) && (
+                      <Button
+                        onClick={toggleDeleteDialog}
+                        className="text-xs flex items-center gap-1 rounded-md p-1 px-2 h-8"
+                      >
+                        <Trash2Icon className="w-4 h-4" />
+                        Delete
+                      </Button>
+                    )}
+
+                <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Are you sure?</DialogTitle>
+                    </DialogHeader>
+                    <DialogDescription>
+                      Clicking on Confirm will delete this <span className="text-primary">Custom PO and associated Custom PR</span> permanently!
+                    </DialogDescription>
+                    <div className="flex items-center justify-end gap-2">
+                      {deleteCustomPOCallLoading ? (
+                        <TailSpin color="red" height={40} width={40} />
+                      ) : (
+                        <>
+                          <DialogClose asChild>
+                            <Button variant={"outline"}>
+                              <CircleX className="h-4 w-4 mr-1" />
+                              Cancel
+                            </Button>
+                          </DialogClose>
+                          <Button onClick={handleDeleteCustomPO}>
+                            <CheckCheck className="h-4 w-4 mr-1" />
+                            Confirm
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+
                 {!summaryPage &&
                   !accountsPage &&
                   !estimatesViewing &&
                   po?.status === "PO Approved" && (
                     <Sheet>
                       <SheetTrigger asChild>
-                        <Button className="flex items-center gap-1">
+                        <Button className="flex items-center gap-1 text-xs p-1 h-8 px-2">
                           <Send className="h-4 w-4" />
                           Dispatch PO
                         </Button>
@@ -613,6 +695,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                       </SheetContent>
                     </Sheet>
                   )}
+                </div>
                 <Dialog open={revertDialog} onOpenChange={toggleRevertDialog}>
                   <DialogContent>
                     <DialogHeader>
@@ -655,11 +738,11 @@ export const PODetails : React.FC<PODetailsProps> = (
                 </div>
                 <div className="flex flex-col gap-2 sm:items-center max-sm:text-end">
                   <Label className=" text-red-700">Package</Label>
-                  <span>{pr?.work_package}</span>
+                  <span>{pr?.work_package || "Custom"}</span>
                 </div>
                 <div className="flex flex-col gap-2 sm:items-end">
                   <Label className=" text-red-700">Date Created</Label>
-                  <span>{formatDate(po?.creation)}</span>
+                  <span>{formatDate(po?.creation || "")}</span>
                 </div>
                 <div className="flex flex-col gap-2 max-sm:items-end">
                   <Label className=" text-red-700">Total (Excl. GST)</Label>

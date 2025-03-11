@@ -7,7 +7,10 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
@@ -31,6 +34,7 @@ export interface DataItem extends ProcurementItem {
 
 export interface CategoryData {
   items: DataItem[];
+  category?: string;
   totalAmount?: number | string;
   key: string;
 }
@@ -39,7 +43,7 @@ export interface CategoryWithChildren {
   [category: string]: CategoryData;
 }
 
-export const columns : TableColumnsType<CategoryWithChildren> = [
+export const columns : TableColumnsType<CategoryData> = [
   {
     title: "Category",
     dataIndex: "category",
@@ -187,25 +191,35 @@ export const VendorsSelectionSummary = () => {
 
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>();
 
-  const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: pr_mutate } = useFrappeGetDocList("Procurement Requests",
+  const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: pr_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
       {
           fields: ["*"],
           filters: [['name', '=', prId]]
-      }
+      },
+      prId ? undefined : null
   );
 
-  const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList("Vendors",
+  const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
     {
         fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type', 'vendor_state', 'vendor_city'],
         filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
         limit: 10000
   });
 
-  const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+  const { data: quote_data, isLoading : quote_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
     {
         fields: ["*"],
         limit: 100000
     });
+  
+  const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+      })
+      
+  const getFullName = (id : string | undefined) => {
+    return usersList?.find((user) => user?.name == id)?.full_name || ""
+  }
 
   useEffect(() => {
     if(!orderData?.project && procurement_request_list) {
@@ -230,10 +244,6 @@ export const VendorsSelectionSummary = () => {
 
     return totals
   }, [orderData])
-
-  // const getVendorName = (vendorId : string) => 
-  //   useMemo(() => (vendor_list || [])?.find(v => v?.name === vendorId)?.vendor_name
-  //   , [vendorId, vendor_list])
 
   const getVendorName = (vendorId : string) : string => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name
@@ -377,13 +387,46 @@ const {
     vendorWiseApprovalItems,
     approvalOverallTotal,
 } = generateActionSummary();
+
+if (procurement_request_list_loading || quote_data_loading || vendor_list_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+
+  if (orderData?.workflow_state !== "In Progress") {
+    return (
+      <div className="flex items-center justify-center h-[90vh]">
+        <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+          <h2 className="text-2xl font-semibold text-gray-800">
+            Heads Up!
+          </h2>
+          <p className="text-gray-600 text-lg">
+            Hey there, the PR:{" "}
+            <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+            is no longer available in the{" "}
+            <span className="italic">In Progress</span> state. The current state is{" "}
+            <span className="font-semibold text-blue-600">
+              {orderData?.workflow_state}
+            </span>{" "}
+            And the last modification was done by <span className="font-medium text-gray-900">
+              {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getFullName(orderData?.modified_by)}
+            </span>
+            !
+          </p>
+          <button
+            className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+            onClick={() => navigate("/procurement-requests")}
+          >
+            Go Back to PR List
+          </button>
+        </div>
+      </div>
+    );
+  }
     
   return (
           <div className="flex-1 space-y-4">
-              <div className="flex items-center">
+              <div className="space-y-2">
                   <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
+                  <ProcurementHeaderCard orderData={orderData} />
               </div>
-              <ProcurementHeaderCard orderData={orderData} />
               <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200 mt-4">
                         <h2 className="text-lg font-bold mb-3 flex items-center">
                             <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
@@ -444,8 +487,7 @@ const {
                                 </div>
                             )}
                         </div>
-                    </div>
-              <div className='mt-6 overflow-x-auto'>
+              </div>
               {getFinalVendorQuotesData?.length > 0 ? (
         <div className="overflow-x-auto">
           <ConfigProvider
@@ -486,7 +528,6 @@ const {
           No Results.
         </div>
       )}
-              </div>
               <div className="flex flex-col justify-end items-end mr-2 my-4">
                         <Dialog>
                             <DialogTrigger asChild>
@@ -537,7 +578,7 @@ const {
                                 </DialogDescription>
                             </DialogContent>
                         </Dialog>
-                    </div>
+              </div>
           </div>
   )
 }

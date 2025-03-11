@@ -1,4 +1,5 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
@@ -7,6 +8,7 @@ import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import _ from "lodash"
 import { CheckCheck, CircleMinus, CirclePlus, FolderPlus, ListChecks } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import ReactSelect, { components } from "react-select"
 import { VendorsReactMultiSelect } from "../../../components/helpers/VendorsReactSelect"
@@ -66,9 +68,10 @@ const useProcurementUpdates = (prId: string, mutate : any) => {
   return { updateProcurementData, update_loading };
 };
 
-export const ProcurementProgress = () => {
+export const ProcurementProgress : React.FC = () => {
 
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate()
 
   const {prId} = useParams<{ prId: string }>()
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
@@ -84,17 +87,26 @@ export const ProcurementProgress = () => {
     details: {},
   });
 
-  const { data: procurement_request, isLoading: procurement_request_loading, error: procurement_request_error, mutate: procurement_request_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests", {
+  const { data: procurement_request, isLoading: procurement_request_loading, mutate: procurement_request_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests", {
     fields: ["*"],
     filters: [["name", "=", prId]]
   }, prId ? `Procurement Requests ${prId}` : null)
 
-  const {data: vendors, isLoading: vendors_loading, error: vendors_error} = useFrappeGetDocList<Vendors>("Vendors", {
+  const {data: vendors, isLoading: vendors_loading} = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
     orderBy: { field: "vendor_name", order: "asc" },
   })
+
+  const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+      fields: ["*"],
+      limit: 1000,
+    })
+  
+  const getFullName = (id : string | undefined) => {
+    return usersList?.find((user) => user?.name == id)?.full_name || ""
+  }
 
   const { updateProcurementData, update_loading } = useProcurementUpdates(prId, procurement_request_mutate)
 
@@ -300,7 +312,41 @@ const handleReviewChanges = async () => {
   await updateProcurementData(formData, updatedOrderList, "review");
 };
 
+if (procurement_request_loading || vendors_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+
+  if (orderData?.workflow_state !== "In Progress") {
+    return (
+      <div className="flex items-center justify-center h-[90vh]">
+        <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+          <h2 className="text-2xl font-semibold text-gray-800">
+            Heads Up!
+          </h2>
+          <p className="text-gray-600 text-lg">
+            Hey there, the PR:{" "}
+            <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+            is no longer available in the{" "}
+            <span className="italic">In Progress</span> state. The current state is{" "}
+            <span className="font-semibold text-blue-600">
+              {orderData?.workflow_state}
+            </span>{" "}
+            And the last modification was done by <span className="font-medium text-gray-900">
+              {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getFullName(orderData?.modified_by)}
+            </span>
+            !
+          </p>
+          <button
+            className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+            onClick={() => navigate("/procurement-requests")}
+          >
+            Go Back to PR List
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
+    <>
     <div className="flex-1 space-y-4">
       <ProcurementHeaderCard orderData={orderData} />
       <div className="flex items-center max-sm:items-end justify-between">
@@ -445,14 +491,6 @@ const handleReviewChanges = async () => {
                 </div>
               })}
       </div>  
-    
-    {update_loading && (
-      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-      <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-        <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : "Redirecting... Please wait"}</p>
-      </div>
-    </div>
-    )}
       
       <div className="flex justify-end">
         <Button disabled={mode === "edit" || !selectedVendorQuotes?.size} onClick={handleReviewChanges}>Continue</Button>
@@ -473,6 +511,14 @@ const handleReviewChanges = async () => {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    {update_loading && (
+      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className="bg-white p-6 rounded-lg shadow-lg text-center">
+          <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : "Redirecting... Please wait"}</p>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -486,7 +532,7 @@ interface MakesSelectionProps {
 }
 
 
-export const MakesSelection = ({ vendor, item, formData, orderData, setFormData } : MakesSelectionProps) => {
+export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, formData, orderData, setFormData }) => {
 
   const [showAlert, setShowAlert] = useState(false);
   const toggleShowAlert = () => {

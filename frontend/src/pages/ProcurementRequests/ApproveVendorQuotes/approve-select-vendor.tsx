@@ -7,13 +7,13 @@ import { Category, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRe
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
-export const ApproveSelectVendor = () => {
+export const ApproveSelectVendor : React.FC = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation', "modified"],
@@ -49,7 +49,7 @@ export const ApproveSelectVendor = () => {
     const {notifications, mark_seen_notification} = useNotificationStore()
 
     const {db} = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType) => {
         if(notification) {
             mark_seen_notification(db, notification)
         }
@@ -65,21 +65,25 @@ export const ApproveSelectVendor = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const prId : string = row.getValue("name")
+                    const data = row.original
+                    const prId : string = data.name
                     const isNew = notifications.find(
                         (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:vendorSelected"
                     )
                     return (
-                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                        <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
                             {isNew && (
-                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                                <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`/approve-po/${prId}`}
-                            >
-                                {prId?.slice(-4)}
-                            </Link>
+                            <div className="flex items-center gap-2">
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`/approve-po/${prId}`}
+                                >
+                                    {prId?.slice(-4)}
+                                </Link>
+                                 {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+                            </div>
                         </div>
                     )
                 }
@@ -94,9 +98,9 @@ export const ApproveSelectVendor = () => {
                 cell: ({ row }) => {
                      const creation : string = row.getValue("creation")
                     return (
-                        <div className="font-medium">
+                        <p className="font-medium">
                             {formatDate(creation.split(" ")[0])}
-                        </div>
+                        </p>
                     )
                 }
             },
@@ -116,10 +120,10 @@ export const ApproveSelectVendor = () => {
                     }
 
                     return (
-                        <div className="font-medium">
+                        <p className="font-medium">
                             {project.label}
                             {/* {row.getValue("project")} */}
-                        </div>
+                        </p>
                     )
                 },
                 filterFn: (row, id, value) => {
@@ -135,9 +139,9 @@ export const ApproveSelectVendor = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="font-medium">
+                        <p className="font-medium">
                             {row.getValue("work_package")}
-                        </div>
+                        </p>
                     )
                 }
             },
@@ -151,9 +155,9 @@ export const ApproveSelectVendor = () => {
                 cell: ({ row }) => {
                     const categories : { list : Category[] } = row.getValue("category_list")
                     return (
-                        <div className="flex flex-col gap-1 items-start justify-center">
-                            {categories.list.map((obj) => <Badge className="inline-block">{obj.name}</Badge>)}
-                        </div>
+                        <p className="flex flex-col gap-1 items-start justify-center">
+                            {categories.list.map((obj) => <Badge key={obj.name} className="inline-block">{obj.name}</Badge>)}
+                        </p>
                     )
                 }
             },
@@ -167,9 +171,9 @@ export const ApproveSelectVendor = () => {
                 cell: ({row}) => {
                     const id : string = row.getValue("name")
                     return (
-                        <div className="font-medium">
+                        <p className="font-medium">
                             {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
-                        </div>
+                        </p>
                     )
                 }
             }
