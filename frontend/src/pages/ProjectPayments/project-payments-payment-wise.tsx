@@ -67,13 +67,6 @@ export const ProjectPaymentsPaymentWise = () => {
         orderBy: { field: "payment_date", order: "desc" }
     })
 
-    const { data: serviceOrders, isLoading: srLoading } = useFrappeGetDocList("Service Requests", {
-        fields: ["*"],
-        filters: [["status", "=", "Approved"]],
-        limit: 10000,
-        orderBy: { field: "modified", order: "desc" },
-    });
-
     useFrappeDocTypeEventListener("Project Payments", async () => {
         await projectPaymentsMutate();
     });
@@ -453,7 +446,7 @@ export const ProjectPaymentsPaymentWise = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            <div className="flex items-center max-sm:items-start gap-6 max-sm:flex-col">
+            <div className="flex items-center max-sm:items-start gap-4 max-sm:flex-col">
                 {items && (
                     <Radio.Group
                         block
@@ -475,7 +468,7 @@ export const ProjectPaymentsPaymentWise = () => {
                 />
             </div>
             {["New Payments", "Fulfilled Payments"].includes(tab) ? (
-                projectsLoading || vendorsLoading || projectPaymentsLoading || srLoading ? (
+                projectsLoading || vendorsLoading || projectPaymentsLoading ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable columns={columns} data={projectPayments?.filter(p => p?.status === (tab === "New Payments" ? "Approved" : "Paid")) || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} isExport={tab === "New Payments"} />

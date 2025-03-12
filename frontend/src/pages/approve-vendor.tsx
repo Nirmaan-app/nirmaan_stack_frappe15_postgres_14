@@ -193,7 +193,7 @@ const columns: TableColumnsType<DataType> = [
 
 const ApproveVendor = () => {
 
-    const { prId: orderId } = useParams<{ prId: string }>()
+    const { id: orderId } = useParams<{ id: string }>()
     const { data: pr, isLoading: pr_loading, error: pr_error, mutate: pr_mutate } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", orderId);
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", pr?.project, pr?.project ? undefined : null);
 
@@ -1066,5 +1066,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, procurement_list_muta
         </div>
     )
 }
+
+export default ApproveVendor;
 
 export const Component = ApproveVendor;

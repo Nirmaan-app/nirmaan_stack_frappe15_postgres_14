@@ -1,10 +1,16 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import logo from "@/assets/logo-svg.svg";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { NewPRSkeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Timeline } from "antd";
@@ -13,20 +19,12 @@ import { ListChecks, Printer, Settings2, Trash2, Undo2, UserSearch } from "lucid
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Label } from "../ui/label";
-import { NewPRSkeleton } from "../ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { toast } from "../ui/use-toast";
 
-const SrSummary = () => {
+const SrSummary : React.FC = () => {
 
     const { srId: id } = useParams<{ srId: any }>();
 
-    const { data: sr_data, isLoading: sr_loading, error: sr_error } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id, id ? `Service Requests ${id}` : null);
+    const { data: sr_data, isLoading: sr_loading, error: sr_error } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null);
 
     const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
         fields: ["*"],
@@ -40,9 +38,9 @@ const SrSummary = () => {
         orderBy: { field: "creation", order: "desc" }
     })
 
-    const { data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate } = useFrappeGetDoc("Vendors", sr_data?.vendor, sr_data?.vendor ? `Vendors ${sr_data?.vendor}` : null)
+    const { data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error } = useFrappeGetDoc("Vendors", sr_data?.vendor, sr_data?.vendor ? `Vendors ${sr_data?.vendor}` : null)
 
-    const { data: projectData, isLoading: project_loading, error: project_error, mutate: project_mutate } = useFrappeGetDoc("Projects", sr_data?.project, sr_data?.project ? `Projects ${sr_data?.project}` : null)
+    const { data: projectData, isLoading: project_loading, error: project_error } = useFrappeGetDoc("Projects", sr_data?.project, sr_data?.project ? `Projects ${sr_data?.project}` : null)
 
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
@@ -61,10 +59,10 @@ const SrSummary = () => {
 };
 
 interface SrSummaryPageProps {
-    sr_data: ServiceRequestsType | undefined
-    project_data: ProjectsType | undefined
-    usersList: NirmaanUsersType[] | undefined
-    universalComments: NirmaanCommentsType[] | undefined
+    sr_data: any
+    project_data: any
+    usersList?: NirmaanUsersType[]
+    universalComments?: NirmaanCommentsType[]
     service_vendor?: any
     address_list?: any
 }
@@ -72,7 +70,6 @@ interface SrSummaryPageProps {
 export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComments, service_vendor, address_list }: SrSummaryPageProps) => {
     const navigate = useNavigate();
     const userData = useUserData()
-    const [page, setPage] = useState("Summary")
     const [vendorAddress, setVendorAddress] = useState()
     const [projectAddress, setProjectAddress] = useState()
 
@@ -92,8 +89,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
             const doc2 = address_list?.find(item => item.name == service_vendor?.vendor_address);
             const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
             setVendorAddress(address2)
-            // setPhoneNumber(doc2?.phone || "")
-            // setEmail(doc2?.email_id || "")
         }
         if (sr_data) {
             if (sr_data?.gst === "true") {
@@ -102,12 +97,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 setGstEnabled(false)
             }
         }
-        // if (orderData?.vendor) {
-        //     setVendor(orderData?.vendor)
-        // }
-        // if (vendor_data) {
-        //     setVendorGST(vendor_data?.vendor_gst)
-        // }
 
     }, [sr_data, address_list, project_data, service_vendor]);
 
@@ -142,7 +131,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 description: `SR: ${sr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            navigate("/service-requests")
+            navigate("/service-requests-list")
         } catch (error) {
             console.log("error while deleting SR", error)
             toast({
@@ -154,11 +143,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
     }
 
     const componentRef = useRef<HTMLDivElement>(null);
-
-    // const handlePDFPrint = (enable) => {
-    //     setGstEnabled(enable)
-    //     setTimeout(() => handlePrint(), 1000)
-    // }
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
@@ -183,15 +167,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
     return (
         <div className="flex-1 space-y-4">
-            {
-                page === "Summary" && (
-                    <>
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 flex-wrap">
-                                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                                <h2 className="text-xl max-md:text-lg font-bold tracking-tight text-pageheader">Summary</h2>
-                                {/* <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span> */}
-                            </div>
+                            <h2 className="text-xl max-md:text-lg pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
                             <div className="flex gap-4 items-center">
                                 {sr_data?.status === "Approved" &&
                                     <div>
@@ -200,16 +177,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             Print
                                         </Button>
                                     </div>
-                                    // <div className="flex max-sm:flex-col gap-2 items-center">
-                                    //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
-                                    //         <Printer className='h-4 w-4' />
-                                    //         Print inc. Tax
-                                    //     </Button>
-                                    //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(false)}>
-                                    //         <Printer className='h-4 w-4' />
-                                    //         Print exc. Tax
-                                    //     </Button>
-                                    // </div>
                                 }
                                 {
                                     sr_data?.status === "Rejected" && (
@@ -256,9 +223,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 <CardHeader>
                                     <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                                         SR Details
-                                        {/* <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
-                                            {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
-                                        </Badge> */}
                                         <Badge>{sr_data?.status}</Badge>
                                     </CardTitle>
                                 </CardHeader>
@@ -355,39 +319,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     </div>
                                 </div>
                             </Card>
-                            {/* {userData.role !== "Nirmaan Project Manager Profile" && <Card className="w-full">
-                                <CardHeader>
-                                    <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
-                                    <div className="overflow-x-auto">
-                                        <div className="min-w-full inline-block align-middle">
-                                        </div>
-                                        {po_data?.length === 0 ? <p>No POs generated as of now</p>
-                                            :
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[40%]">PO Number</TableHead>
-                                                        <TableHead className="w-[30%]">Date Created</TableHead>
-                                                        <TableHead className="w-[30%]">Status</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {po_data?.map((po) => {
-                                                        return (
-                                                            <TableRow key={po.name}>
-                                                                <TableCell>
-                                                                    <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link>
-                                                                </TableCell>
-                                                                <TableCell>{formatDate(po.creation)}</TableCell>
-                                                                <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
-                                                            </TableRow>
-                                                        )
-                                                    })}
-                                                </TableBody>
-                                            </Table>}
-                                    </div>
-                                </CardHeader>
-                            </Card>} */}
 
                             <div className={`w-full border rounded-lg h-screen overflow-y-scroll hidden`}>
                                 <div ref={componentRef} className="w-full p-4">
@@ -507,11 +438,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                             </div>
                                                         )}
 
-                                                        {/* <div className="text-gray-400 text-sm py-2">Payment Terms</div>
-                                                        <div className="text-sm text-gray-900">
-                                                            {parseFloat(sr_data?.advance || 0)}% advance {parseFloat(sr_data?.advance || 0) === 100 ? "" : `and remaining ${100 - parseFloat(sr_data?.advance || 0)}% on material readiness before delivery of material to site`}
-                                                        </div> */}
-
                                                         <img src={Seal} className="w-24 h-24" />
                                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
                                                     </td>
@@ -616,13 +542,10 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                         {
                             sr_data?.status === "Created" &&
                             <div className="text-right">
-                                <Button onClick={() => navigate(`/choose-service-vendor/${sr_data?.name}`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
+                                <Button onClick={() => navigate(`/service-requests/${sr_data?.name}?tab=choose-vendor`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
                             </div>
                         }
-                    </>
-                )
-            }
-        </div >
+        </div>
     )
 }
 

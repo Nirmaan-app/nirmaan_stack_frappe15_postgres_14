@@ -1,5 +1,5 @@
+import { Vendor } from '@/pages/ServiceRequests/service-request/select-service-vendor';
 import ReactSelect from 'react-select';
-import { Vendor } from '../service-request/select-service-vendor';
 
 interface VendorsReactSelectProps {
   selectedVendor: Vendor | null

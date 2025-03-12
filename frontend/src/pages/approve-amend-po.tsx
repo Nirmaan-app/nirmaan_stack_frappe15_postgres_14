@@ -1,3 +1,5 @@
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
     Dialog,
@@ -5,28 +7,26 @@ import {
     DialogDescription,
     DialogHeader,
     DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
-import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react"
-import { ArrowLeft, CheckCheck, Undo2, X } from 'lucide-react';
-import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
+} from "@/components/ui/dialog";
+import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
-import { formatDate } from "@/utils/FormatDate";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { useUserData } from "@/hooks/useUserData";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { formatDate } from "@/utils/FormatDate";
 import TextArea from "antd/es/input/TextArea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useUserData } from "@/hooks/useUserData";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { CheckCheck, Undo2, X } from 'lucide-react';
+import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import { useNavigate, useParams } from "react-router-dom";
 
 const ApproveAmendPO = () => {
 
-    const { poId: po } = useParams<{ poId: string }>()
+    const { id: po } = useParams<{ id: string }>()
     const orderId = po?.replaceAll("&=", "/")
 
     const [project, setProject] = useState<String | undefined>()
@@ -384,5 +384,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, u
     );
 };
 
+export default ApproveAmendPO;
 
 export const Component = ApproveAmendPO;

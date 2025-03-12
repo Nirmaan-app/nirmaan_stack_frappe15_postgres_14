@@ -1,4 +1,3 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -9,14 +8,14 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { formatDate } from "@/utils/FormatDate";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import TextArea from "antd/es/input/TextArea";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckCheck, Undo2, X } from 'lucide-react';
@@ -26,44 +25,32 @@ import { useNavigate, useParams } from "react-router-dom";
 
 const ApproveAmendSO = () => {
 
-    const { soId } = useParams<{ soId: string }>()
+    const { srId } = useParams<{ srId: string }>()
+    const { data: so_data, isLoading: so_data_loading, error: so_data_error } = useFrappeGetDoc("Service Requests", srId, `Service Requests ${srId}`);
 
-    const [project, setProject] = useState<String | undefined>()
-    const [owner, setOwner] = useState<String | undefined>()
-    const { data: so_data, isLoading: so_data_loading, error: so_data_error } = useFrappeGetDoc<ProcurementOrdersType>("Service Requests", soId, `Service Requests ${soId}`);
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
-
-    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
 
-    const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList("Nirmaan Versions", {
+    const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList<NirmaanVersionsType>("Nirmaan Versions", {
         fields: ["*"],
-        filters: [["ref_doctype", "=", "Service Requests"], ["docname", "=", soId]],
+        filters: [["ref_doctype", "=", "Service Requests"], ["docname", "=", srId]],
         limit: 1000,
         orderBy: { field: "creation", order: "desc" }
-    })
-
-    useEffect(() => {
-        if (so_data) {
-            setProject(so_data?.project)
-            setOwner(so_data?.owner)
-        }
-    }, [so_data])
+    },
+    srId  ? undefined : null
+)
 
     const navigate = useNavigate()
 
-    const getUserName = (id) => {
-        if (usersList) {
-            return usersList.find((user) => user?.name === id)?.full_name
-        }
+    const getUserName = (id : string | undefined) => {
+        return usersList?.find((user) => user?.name === id)?.full_name || ""
     }
 
     // console.log("within 1st component", owner_data)
-    if (so_data_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-    if (so_data_error || project_error || owner_error || versionsError) return <h1>Error</h1>
+    if (so_data_loading || versionsLoading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (so_data_error || versionsError || usersListError) return <h1>Error</h1>
     if (so_data?.status !== "Amendment") return (
         <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -85,7 +72,7 @@ const ApproveAmendSO = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-amended-so")}
+                    onClick={() => navigate("/service-requests?tab=approve-amended-so")}
                 >
                     Go Back
                 </button>
@@ -93,42 +80,36 @@ const ApproveAmendSO = () => {
         </div>
     );
     return (
-        <ApproveAmendSOPage so_data={so_data} project_data={project_data} versionsData={versions} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} usersList={usersList} />
+        <ApproveAmendSOPage so_data={so_data} versionsData={versions} usersList={usersList} />
     )
 }
 
 interface ApproveAmendPOPageProps {
-    so_data: ProcurementOrdersType | undefined
-    project_data: ProjectsType | undefined
-    owner_data: NirmaanUsersType | undefined | { full_name: String }
-    versionsData: NirmaanVersionsType | undefined
-    usersList: any
+    so_data: any
+    versionsData?: NirmaanVersionsType[]
+    usersList?: NirmaanUsersType[]
 }
 
 
-const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, usersList }: ApproveAmendPOPageProps) => {
+const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPOPageProps) => {
 
     const navigate = useNavigate()
     const userData = useUserData()
 
-    const getUserName = (name) => {
-        if (usersList) {
-            return usersList?.find((user) => user?.name === name)?.full_name
-        }
+    const getUserName = (name : string | undefined) => {
+        return usersList?.find((user) => user?.name === name)?.full_name || ""
     }
 
-    const { data: amendmentComment } = useFrappeGetDocList("Nirmaan Comments", {
+    const { data: amendmentComment } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
         filters: [["reference_name", "=", so_data?.name], ["subject", "=", "sr amendment"]]
     })
 
-    const {data : vendorsList} = useFrappeGetDocList("Vendors", {
+    const {data : vendorsList} = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["*"],
         filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
         limit: 10000
     })
-
-    // console.log("amendmentComment", amendmentComment)
 
     const [previousVendor, setPreviousVendor] = useState("")
     const [amendedVendor, setAmendedVendor] = useState("")
@@ -235,7 +216,7 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
                 variant: "success"
             });
             setIsDialogOpen(false);
-            navigate("/approve-amended-so")
+            navigate("/service-requests?tab=approve-amended-so")
         } catch (error) {
             console.log("error in ApproveAmmendedSOPage", error)
             toast({
@@ -252,36 +233,17 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
         </div>
     )
 
-    const getVendorName = (vendorId) => {
-        return vendorsList?.find(ven => ven.name === vendorId)?.vendor_name;
+    const getVendorName = (vendorId : string | undefined) => {
+        return vendorsList?.find(ven => ven.name === vendorId)?.vendor_name || ""
     }
 
     return (
         <div className="flex-1 space-y-4">
             {/* PO Details Card */}
-            <div className="flex items-center">
-                {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} /> */}
+            <div className="space-y-2">
                 <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Revert Amendments</h2>
+                <ProcurementActionsHeaderCard orderData={so_data} sr={true} />
             </div>
-            {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(po_data?.modified)}</p>
-                </div>
-                <div className="border-0 flex flex-col justify-center">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
-                </div>
-                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Vendor</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{po_data?.vendor_name}</p>
-                </div>
-                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Amended By</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{po_data?.modified_by === "Administrator" ? "Administrator" : getUserName(po_data?.modified_by)}</p>
-                </div>
-            </Card> */}
-            <ProcurementActionsHeaderCard orderData={so_data} sr={true} />
 
             {/* Item Comparison Table */}
             <Card className="mt-4 p-4 shadow-lg overflow-hidden">
@@ -369,36 +331,6 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
 
             </Card>
 
-            <div className="py-4">
-                <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Amendment Comments</h2>
-                </div>
-
-                {amendmentComment && amendmentComment?.length !== 0 ? (
-                    amendmentComment.map((cmt) => (
-                        <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg mb-2">
-                            <Avatar>
-                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
-                                <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1">
-                                <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
-                                <div className="flex justify-between items-center mt-2">
-                                    <p className="text-sm text-gray-500">
-                                        {cmt.comment_by === "Administrator" ? "Administrator" : getUserName(cmt.comment_by)}
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                        {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    ))
-                ) : (
-                    <span className="text-xs font-semibold flex items-center justify-center">No Comments Found.</span>
-                )}
-            </div>
-
             {/* Action Buttons */}
             <div className="flex justify-end space-x-4 my-4">
                 <Button
@@ -420,6 +352,11 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
                 >
                     <CheckCheck className="mr-2" /> Approve Amendments
                 </Button>
+            </div>
+
+            <div className='space-y-2'>
+                <h2 className="text-base pl-2 font-bold tracking-tight">Amendment Comments</h2>
+                <RenderPRorSBComments universalComment={amendmentComment} getUserName={getUserName} />
             </div>
 
             {/* Comment Dialog */}
@@ -453,5 +390,6 @@ const ApproveAmendSOPage = ({ so_data, project_data, owner_data, versionsData, u
     );
 };
 
+export default ApproveAmendSO;
 
 export const Component = ApproveAmendSO;

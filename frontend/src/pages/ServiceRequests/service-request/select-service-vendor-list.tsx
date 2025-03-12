@@ -1,17 +1,17 @@
-import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useMemo } from "react";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { Badge } from "../ui/badge";
-import { useToast } from "../ui/use-toast";
-import { TableSkeleton } from "../ui/skeleton";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
+import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
 
-
-export const SelectServiceVendorList = () => {
-    const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList("Service Requests",
+export const SelectServiceVendorList : React.FC = () => {
+    const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests",
         {
             fields: ["*"],
             filters: [["status", "in", ["Created", "Rejected", "Edit"]]],
@@ -25,26 +25,11 @@ export const SelectServiceVendorList = () => {
     })
 
 
-    useFrappeDocTypeEventListener("Service Requests", async (event) => {
+    useFrappeDocTypeEventListener("Service Requests", async () => {
         await serviceListMutate()
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
-
-    // const getTotal = (order_id: string) => {
-    //     let total: number = 0;
-    //     const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-    //     console.log("orderData", orderData)
-    //     orderData?.list.map((item) => {
-    //         const quotesForItem = quote_data
-    //             ?.filter(value => value.item_id === item.name && value.quote != null)
-    //             ?.map(value => value.quote);
-    //         let minQuote;
-    //         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-    //         total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-    //     })
-    //     return total;
-    // }
 
     const columns = useMemo(
         () => [
@@ -58,7 +43,7 @@ export const SelectServiceVendorList = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name")}`}>
+                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name")}?tab=choose-vendor`}>
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
                         </div>
@@ -165,9 +150,6 @@ export const SelectServiceVendorList = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            {/* <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Choose Vendor PR</h2>
-            </div> */}
             {(projects_loading || service_list_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={service_list || []} project_values={project_values} />
             )}

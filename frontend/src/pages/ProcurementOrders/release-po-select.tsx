@@ -1,7 +1,7 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useUserData } from "@/hooks/useUserData";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -16,6 +16,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
 import { useToast } from "../../components/ui/use-toast";
+import { ApproveSelectVendor } from "../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
+import { ApproveSelectAmendPO } from "../approve-select-amend-po";
+import { ApproveSelectSentBack } from "../approve-select-sent-back";
 
 
 // interface ReleasePOSelectProps {
@@ -27,9 +30,9 @@ export const ReleasePOSelect = () => {
 
     const [searchParams] = useSearchParams();
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || "Approved PO");
-
     const { role, user_id } = useUserData()
+
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || ((["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator") ? "Approve PO" : "Approved PO"));
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
@@ -71,7 +74,7 @@ export const ReleasePOSelect = () => {
         return getTotalAmountPaid(payments);
     }
 
-    const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount, adminDispatchedPOCount, dispatchedPOCount } = useDocCountStore()
+    const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount } = useDocCountStore()
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
@@ -111,6 +114,49 @@ export const ReleasePOSelect = () => {
     };
 
     // type MenuItem = Required<MenuProps>["items"][number];
+
+    const adminTabs = [
+        ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
+            role
+          ) || user_id == "Administrator" ? [
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Approve PO</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.approve
+                                : prCounts.approve}
+                        </span>
+                    </div>
+                ),
+                value: "Approve PO",
+            },
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Approve Amended PO</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminAmendPOCount
+                                : amendPOCount}
+                        </span>
+                    </div>
+                ),
+                value: "Approve Amended PO",
+            },
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Approve Sent Back PO</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewApproveSBCount
+                    : newSBApproveCount}
+                        </span>
+                    </div>
+                ),
+                value: "Approve Sent Back PO",
+            },
+          ] : []),
+    ]
 
     const items = [
         {
@@ -331,48 +377,50 @@ export const ReleasePOSelect = () => {
     return (
         <>
             <div className="flex-1 space-y-4">
-                {/* <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
-                </div> */}
-                {/* <div className="flex items-center gap-4">
-                    <Button variant={`${tab === "Approved" ? "default" : "outline"}`} onClick={() => setPOTab("Approved")}>Approved PO</Button>
-                    <Button variant={`${tab === "Released" ? "default" : "outline"}`} onClick={() => setPOTab("Released")}>Released PO</Button>
-                </div> */}
+                {role !== "Nirmaan Estimates Executive Profile" && (
+                    <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
+                        {
+                            adminTabs && (
+                                <Radio.Group
+                                    block
+                                    options={adminTabs}
+                                    optionType="button"
+                                    buttonStyle="solid"
+                                    value={tab}
+                                    onChange={(e) => onClick(e.target.value)}
+                                />
+                            )
+                        }
+                        {
+                            items && (
+                                <Radio.Group
+                                    block
+                                    options={items}
+                                    defaultValue="Approved PO"
+                                    optionType="button"
+                                    buttonStyle="solid"
+                                    value={tab}
+                                    onChange={(e) => onClick(e.target.value)}
+                                />
+                            )
+                        }
 
-                {/* <div className="w-full">
-                  <ConfigProvider
-                    theme={{
-                      components: {
-                        Menu: {
-                          horizontalItemSelectedColor: "#D03B45",
-                          itemSelectedBg: "#FFD3CC",
-                          itemSelectedColor: "#D03B45",
-                        },
-                      },
-                    }}
-                  >
-                    <Menu
-                      selectedKeys={[tab]}
-                      onClick={onClick}
-                      mode="horizontal"
-                      items={items}
-                    />
-                  </ConfigProvider>
-                </div> */}
-                {role !== "Nirmaan Estimates Executive Profile" && items && (
-                    <Radio.Group
-                        block
-                        options={items}
-                        defaultValue="Approved PO"
-                        optionType="button"
-                        buttonStyle="solid"
-                        value={tab}
-                        onChange={(e) => onClick(e.target.value)}
-                    />
+                    </div>
                 )}
-                {(procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
+                {["Approve PO", "Approve Amended PO", "Approve Sent Back PO"].includes(tab) ? (
+                    tab === "Approve PO" ? (
+                        <ApproveSelectVendor />
+                    ) : tab === "Approve Amended PO" ? (
+                        <ApproveSelectAmendPO />
+                    ) : (
+                        <ApproveSelectSentBack />
+                    )
+                ) : (
+                    (procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
+                        <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
+                    )
                 )}
+
             </div>
 
         </>

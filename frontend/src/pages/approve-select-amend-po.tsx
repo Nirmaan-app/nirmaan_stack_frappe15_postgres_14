@@ -1,16 +1,16 @@
+import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { useToast } from "@/components/ui/use-toast";
-import { DataTable } from "@/components/data-table/data-table";
-import { TableSkeleton } from "@/components/ui/skeleton";
-import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 export const ApproveSelectAmendPO = () => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
@@ -83,7 +83,7 @@ export const ApproveSelectAmendPO = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`${poId?.replaceAll("/", "&=")}`}
+                                to={`${poId?.replaceAll("/", "&=")}?tab=Approve Amended PO`}
                             >
                                 {poId?.toUpperCase()}
                             </Link>

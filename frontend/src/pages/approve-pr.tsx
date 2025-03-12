@@ -1,16 +1,18 @@
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { EstimatedPriceHoverCard } from "@/components/procurement/EstimatedPriceHoverCard";
 import { Badge } from "@/components/ui/badge";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { EstimatedPriceHoverCard } from "@/components/procurement/EstimatedPriceHoverCard";
+import { ColumnDef } from "@tanstack/react-table";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import React, { useContext, useMemo } from "react";
+import { Link } from "react-router-dom";
 
 type PRTable = {
     name: string
@@ -20,9 +22,9 @@ type PRTable = {
     category_list: {}
 }
 
-export const ApprovePR = () => {
+export const ApprovePR : React.FC = () => {
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
         {
             fields: ["*"],
             filters: [["workflow_state", "=", "Pending"]],
@@ -35,7 +37,7 @@ export const ApprovePR = () => {
             fields: ["name", "project_name"],
             limit: 1000
         })
-    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+    const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
         {
             fields: ["*"],
             limit: 100000
@@ -102,7 +104,7 @@ export const ApprovePR = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`/approve-new-pr/${prId}`}
+                                to={`/procurement-requests/${prId}?tab=New PR Request`}
                             >
                                 {prId?.slice(-4)}
                             </Link>
@@ -225,46 +227,9 @@ export const ApprovePR = () => {
     }
     return (
         <div className="flex-1 md:space-y-4">
-            {/* <div className="flex items-center justify-between space-y-2 pl-2">
-                <h2 className="text-lg font-bold tracking-tight">Approve New PR</h2>
-            </div> */}
-            {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-
             {projects_loading || procurement_request_list_loading ? (<TableSkeleton />)
                 :
                 (<DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />)}
-
-
-
-
-            {/* <div className="overflow-x-auto">
-                        <table className="min-w-full divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PR number</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Package</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {procurement_request_lists?.map(item => (
-                                    <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-order/${item.name}`}>{item.name.slice(-4)}</Link></td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {item.creation.split(" ")[0]}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.project}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.work_package}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            N/A
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div> */}
         </div>
     )
 }

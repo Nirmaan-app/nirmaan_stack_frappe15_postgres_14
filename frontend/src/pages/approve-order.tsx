@@ -44,9 +44,9 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import TextArea from "antd/es/input/TextArea";
 import {
@@ -82,65 +82,31 @@ import ReactSelect from "react-select";
 
 const ApprovePRList = () => {
   const { prId: id } = useParams<{ prId: string }>();
-  const [project, setProject] = useState();
-  const [owner, setOwner] = useState(null);
-  const {
-    data: pr,
-    isLoading: pr_loading,
-    error: pr_error,
-    mutate: prMutate,
-  } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id);
-  const {
-    data: project_data,
-    isLoading: project_loading,
-    error: project_error,
-  } = useFrappeGetDoc<ProjectsType>(
+  const { data: pr, isLoading: pr_loading, error: pr_error, mutate: prMutate } = useFrappeGetDoc("Procurement Requests", id);
+  const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc(
     "Projects",
-    project,
-    project ? undefined : null
-  );
-  const {
-    data: owner_data,
-    isLoading: owner_loading,
-    error: owner_error,
-  } = useFrappeGetDoc<NirmaanUsersType>(
-    "Nirmaan Users",
-    owner,
-    owner ? (owner === "Administrator" ? null : undefined) : null
+    pr?.project,
+    pr ? undefined : null
   );
 
-  const {
-    data: usersList,
-    isLoading: usersListLoading,
-    error: usersListError,
-  } = useFrappeGetDocList("Nirmaan Users", {
+  const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
     fields: ["name", "full_name"],
     limit: 1000,
   });
 
-  useEffect(() => {
-    if (pr) {
-      setProject(pr?.project);
-      setOwner(pr?.owner);
-    }
-  }, [pr]);
-
   const navigate = useNavigate();
 
-  const getUserName = (id) => {
-    if (usersList) {
-      return usersList.find((user) => user?.name === id)?.full_name;
-    }
+  const getUserName = (id : string | undefined) => {
+    return usersList?.find((user) => user?.name === id)?.full_name || ""
   };
 
-  // console.log("within 1st component", owner_data)
-  if (pr_loading || project_loading || owner_loading || usersListLoading)
+  if (pr_loading || project_loading || usersListLoading)
     return (
       <div className="flex items-center h-[90vh] w-full justify-center">
         <TailSpin color={"red"} />{" "}
       </div>
     );
-  if (pr_error || project_error || owner_error || usersListError)
+  if (pr_error || project_error || usersListError)
     return <h1>Error</h1>;
   if (pr?.workflow_state !== "Pending") {
     return (
@@ -165,7 +131,7 @@ const ApprovePRList = () => {
           </p>
           <button
             className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => navigate("/approve-new-pr")}
+            onClick={() => navigate("/procurement-requests?tab=Approve PR")}
           >
             Go Back to PR List
           </button>
@@ -184,49 +150,24 @@ const ApprovePRList = () => {
 };
 
 interface ApprovePRListPageProps {
-  pr_data: ProcurementRequestsType | undefined;
-  project_data: ProjectsType | undefined;
+  pr_data: any;
+  project_data?: any;
   prMutate?: any;
 }
 
-const ApprovePRListPage = ({
-  pr_data,
-  project_data,
-  prMutate,
-}: ApprovePRListPageProps) => {
+const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project_data, prMutate,}) => {
   const navigate = useNavigate();
   const userData = useUserData();
 
-  const {
-    data: category_list,
-    isLoading: category_list_loading,
-    error: category_list_error,
-  } = useFrappeGetDocList("Category", {
-    fields: [
-      "category_name",
-      "work_package",
-      "image_url",
-      "tax",
-      "new_items",
-      "name",
-    ],
+  const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category", {
+    fields: [ "category_name", "work_package", "image_url", "tax", "new_items", "name"],
     filters: [["work_package", "=", pr_data?.work_package]],
     orderBy: { field: "category_name", order: "asc" },
     limit: 10000,
   });
 
-  const {
-    data: item_list,
-    mutate: item_list_mutate,
-  } = useFrappeGetDocList("Items", {
-    fields: [
-      "name",
-      "item_name",
-      "make_name",
-      "unit_name",
-      "category",
-      "creation",
-    ],
+  const { data: item_list, mutate: item_list_mutate } = useFrappeGetDocList("Items", {
+    fields: ["name", "item_name", "make_name", "unit_name", "category", "creation"],
     filters: [["category", "in", category_list?.map((i) => i?.name)]],
     orderBy: { field: "creation", order: "desc" },
     limit: 100000,
@@ -234,18 +175,18 @@ const ApprovePRListPage = ({
   category_list?.length ? undefined : null
   );
 
-  const { data: quote_data } = useFrappeGetDocList("Approved Quotations", {
+  const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations", {
     fields: ["item_id", "quote"],
     limit: 100000,
   });
 
-  const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+  const { data: universalComments } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
     fields: ["*"],
     filters: [["reference_name", "=", pr_data.name]],
     orderBy: { field: "creation", order: "desc" },
   });
 
-  const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+  const { data: usersList } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
     filters: [
@@ -261,11 +202,7 @@ const ApprovePRListPage = ({
     ],
   });
 
-  const {
-    createDoc: createDoc,
-    error: update_error,
-    loading: createLoading,
-  } = useFrappeCreateDoc();
+  const { createDoc: createDoc, error: update_error, loading: createLoading } = useFrappeCreateDoc();
 
   const [showNewItemsCard, setShowNewItemsCard] = useState(false)
 
@@ -575,7 +512,6 @@ const ApprovePRListPage = ({
   const {
     updateDoc: updateDoc,
     loading: updateLoading,
-    isCompleted: submit_complete,
     error: submit_error,
   } = useFrappeUpdateDoc();
   const { upload } = useFrappeFileUpload();
@@ -645,7 +581,7 @@ const ApprovePRListPage = ({
         variant: "success",
       });
 
-      navigate("/approve-new-pr");
+      navigate("/procurement-requests?tab=Approve PR");
     } catch (submit_error) {
       toast({
         title: "Failed!",
@@ -687,7 +623,7 @@ const ApprovePRListPage = ({
         description: `PR: ${res?.name} is successfully Rejected!`,
         variant: "success",
       });
-      navigate("/approve-new-pr");
+      navigate("/procurement-requests?tab=Approve PR");
     } catch (error) {
       toast({
         title: "Failed!",
@@ -767,7 +703,7 @@ const ApprovePRListPage = ({
         description: `PR: ${orderData.name} deleted successfully!`,
         variant: "success",
       });
-      navigate("/approve-new-pr");
+      navigate("/procurement-requests?tab=Approve PR");
     } catch (error) {
       console.log("error while deleting PR", error);
       toast({

@@ -1,4 +1,13 @@
 import imageUrl from "@/assets/user-icon.jpeg";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NewPRSkeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
@@ -8,15 +17,6 @@ import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
-import { Button } from "../ui/button";
-import { Card, CardHeader, CardTitle } from "../ui/card";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
-import { Input } from "../ui/input";
-import { Label } from "../ui/label";
-import { NewPRSkeleton } from "../ui/skeleton";
-import { Textarea } from "../ui/textarea";
-import { useToast } from "../ui/use-toast";
 
 const NewSR = () => {
 

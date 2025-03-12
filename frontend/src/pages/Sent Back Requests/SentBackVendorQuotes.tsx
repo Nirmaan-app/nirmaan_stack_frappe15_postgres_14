@@ -1,5 +1,4 @@
 import { VendorsReactMultiSelect } from "@/components/helpers/VendorsReactSelect";
-import { Vendor } from "@/components/service-request/select-service-vendor";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +15,10 @@ import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import _ from "lodash";
 import { CheckCheck, CircleMinus, CirclePlus, FolderPlus } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { MakesSelection } from "../ProcurementRequests/VendorQuotesSelection/ProcurementProgress";
+import { Vendor } from "../ServiceRequests/service-request/select-service-vendor";
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -137,13 +138,12 @@ export const SentBackVendorQuotes : React.FC = () => {
   
     const useVendorOptions = (vendors : any, selectedVendors: Vendor[]) => 
       useMemo(() => vendors
-        ?.filter(v => !selectedVendors.some(sv => sv.name === v.name))
+        ?.filter(v => !selectedVendors.some(sv => sv.value === v.name))
         .map(v => ({
           label: v.vendor_name,
           value: v.name,
           city: v.vendor_city,
           state: v.vendor_state,
-          ...v
         })),
       [vendors, selectedVendors]
     );
@@ -190,7 +190,7 @@ export const SentBackVendorQuotes : React.FC = () => {
   const removeVendor = useCallback((vendorId: string) => {
       setFormData((prev) => {
         const updatedSelectedVendors = prev.selectedVendors.filter(
-          (v) => v?.name !== vendorId
+          (v) => v?.value !== vendorId
         );
     
         const updatedDetails = Object.keys(prev.details).reduce(
@@ -298,11 +298,20 @@ export const SentBackVendorQuotes : React.FC = () => {
     await updateProcurementData(formData, updatedOrderList, "review");
   };
 
+  if (sent_back_list_loading || vendors_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   return (
+    <>
+    {update_loading && (
+    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+    <div className="bg-white p-6 rounded-lg shadow-lg text-center">
+      <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : "Redirecting... Please wait"}</p>
+    </div>
+  </div>
+  )}
     <div className="flex-1 space-y-4">
-    <ProcurementHeaderCard orderData={orderData} sentBack />
-    <div className="flex items-center max-sm:items-end justify-between">
+        <ProcurementHeaderCard orderData={orderData} sentBack />
+        <div className="flex items-center max-sm:items-end justify-between">
     <div className="flex gap-4 max-sm:flex-col">
       <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
       <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
@@ -325,8 +334,8 @@ export const SentBackVendorQuotes : React.FC = () => {
         </Button>
     </div>
 
-    </div>
-    <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
+        </div>
+        <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
             {orderData?.category_list?.list.map((cat: any, index) => {
               return <div key={cat.name} className="min-w-[400px]">
                 <Table>
@@ -343,10 +352,10 @@ export const SentBackVendorQuotes : React.FC = () => {
                         <p className="border text-center border-gray-400 rounded-md py-1 font-medium">No Vendors Selected</p>
                       </TableHead>
                       ) : (
-                        formData?.selectedVendors?.map((v, _) => <TableHead key={v?.name} className={`text-center w-[15%] text-red-700 text-xs font-medium`}>
+                        formData?.selectedVendors?.map((v, _) => <TableHead key={v?.value} className={`text-center w-[15%] text-red-700 text-xs font-medium`}>
                           <p className="min-w-[150px] max-w-[150px] border border-gray-400 rounded-md py-1 flex gap-1 items-center justify-center">
                               <div className="truncate text-left">
-                                <VendorHoverCard vendor_id={v?.name} />
+                                <VendorHoverCard vendor_id={v?.value} />
                               </div>
                           {mode === "edit" &&  (
                             <AlertDialog>
@@ -361,7 +370,7 @@ export const SentBackVendorQuotes : React.FC = () => {
                                   <AlertDialogCancel asChild>
                                     <Button variant="outline" className="border-primary text-primary">Cancel</Button>
                                   </AlertDialogCancel>
-                                  <Button onClick={() => removeVendor(v?.name || "")} className="flex items-center gap-1">
+                                  <Button onClick={() => removeVendor(v?.value || "")} className="flex items-center gap-1">
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                   </Button>
@@ -400,18 +409,18 @@ export const SentBackVendorQuotes : React.FC = () => {
                             <TableCell>{item.unit}</TableCell>
                             <TableCell>{item.quantity}</TableCell>
                             {formData?.selectedVendors?.map(v => {
-                              const data = formData?.details?.[item.name]?.vendorQuotes?.[v?.name]
+                              const data = formData?.details?.[item.name]?.vendorQuotes?.[v?.value]
                               const quote = data?.quote
                               const make = data?.make
                               return (
-                                <TableCell key={`${item.name}-${v?.name}`}>
-                                  <div aria-disabled={mode === "edit" || !quote} aria-checked={mode === "view" && (selectedVendorQuotes?.get(item?.name) === v?.name)} 
+                                <TableCell key={`${item.name}-${v?.value}`}>
+                                  <div aria-disabled={mode === "edit" || !quote} aria-checked={mode === "view" && (selectedVendorQuotes?.get(item?.name) === v?.value)} 
                                   onClick={() => {
                                     if(mode === "edit") {
                                       return
                                     }
-                                    setSelectedVendorQuotes(new Map(selectedVendorQuotes.set(item.name, v?.name)))
-                                  }} role="radio" tabIndex={0} className={`min-w-[150px] max-w-[150px] space-y-2 p-2 border border-gray-400 rounded-md ${mode === "view" && !quote ? "aria-disabled:pointer-events-none aria-disabled:opacity-50" : ""} ${mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.name ? "bg-red-100" : ""}`}>
+                                    setSelectedVendorQuotes(new Map(selectedVendorQuotes.set(item.name, v?.value)))
+                                  }} role="radio" tabIndex={0} className={`min-w-[150px] max-w-[150px] space-y-2 p-2 border border-gray-400 rounded-md ${mode === "view" && !quote ? "aria-disabled:pointer-events-none aria-disabled:opacity-50" : ""} ${mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.value ? "bg-red-100" : ""}`}>
                                     <div className="flex flex-col gap-1">
                                       <Label className="text-xs font-semibold text-primary">Make</Label>
                                       {mode === "edit" ? (
@@ -425,7 +434,7 @@ export const SentBackVendorQuotes : React.FC = () => {
                                       {mode === "edit" ? (
                                         <Input className="h-8" type="number" value={quote || ""} onChange={(e) => {
                                           const value = e.target.value === "" ? 0 : parseInt(e.target.value)
-                                          handleQuoteChange(item.name, v?.name, value)
+                                          handleQuoteChange(item.name, v?.value, value)
                                         }} />
                                       ) : (
                                         <p>{quote ?  formatToIndianRupee(quote) : "--"}</p>
@@ -443,15 +452,7 @@ export const SentBackVendorQuotes : React.FC = () => {
                 </Table>
               </div>
             })}
-    </div>  
-  
-  {update_loading && (
-    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-    <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-      <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : "Redirecting... Please wait"}</p>
-    </div>
-  </div>
-  )}
+        </div>  
     
     <div className="flex justify-end">
       <Button disabled={mode === "edit" || selectedVendorQuotes?.size !== orderData?.item_list?.list?.length} onClick={handleReviewChanges}>Continue</Button>
@@ -472,5 +473,6 @@ export const SentBackVendorQuotes : React.FC = () => {
       </AlertDialogContent>
     </AlertDialog>
   </div>
+  </>
   )
 }

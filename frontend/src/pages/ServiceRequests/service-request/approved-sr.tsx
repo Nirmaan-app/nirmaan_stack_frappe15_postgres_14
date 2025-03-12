@@ -6,9 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 // import { Button } from "../ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-import { Badge } from "../ui/badge";
-import { Input } from "../ui/input";
 // import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
@@ -19,6 +19,17 @@ import {
     AlertDialogHeader,
     AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { toast } from "@/components/ui/use-toast";
+import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
 import { formatDate } from "@/utils/FormatDate";
 import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
@@ -26,17 +37,6 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { debounce } from "lodash";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
-import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
-import { Label } from "../ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Separator } from "../ui/separator";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
-import { Switch } from "../ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { toast } from "../ui/use-toast";
-import { VendorHoverCard } from "../ui/vendor-hover-card";
 import { SelectServiceVendorPage } from "./select-service-vendor";
 
 // const { Sider, Content } = Layout;
@@ -1176,3 +1176,5 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         </div>
     );
 };
+
+export default ApprovedSR;

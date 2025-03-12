@@ -86,11 +86,11 @@ export const RenderRightActionButton = ({
         </DropdownMenuContent>
       </DropdownMenu>
     );
-  } else if (locationPath === "/service-requests" && selectedProject) {
+  } else if (locationPath === "/service-requests-list" && selectedProject) {
     return (
       <Button
         className="sm:mr-4 mr-2"
-        onClick={() => navigate(`/service-requests/${selectedProject}/new-sr`)}
+        onClick={() => navigate(`/service-requests-list/${selectedProject}/new-sr`)}
       >
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New SR</span>
@@ -137,7 +137,7 @@ export const RenderRightActionButton = ({
           <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
             New Custom PR
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => navigate("/service-requests")}>
+          <DropdownMenuItem onClick={() => navigate("/service-requests-list")}>
             Service Request
           </DropdownMenuItem>
         </DropdownMenuContent>

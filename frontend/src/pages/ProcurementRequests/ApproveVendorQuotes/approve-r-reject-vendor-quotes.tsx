@@ -42,7 +42,7 @@ export const ApproveRejectVendorQuotes : React.FC = () => {
     
     const { data: universalComment, isLoading: universalCommentLoading, error: universalCommentError } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
-        filters: [["reference_name", "=", pr?.name], ["subject", "in", pr?.work_package ? ["pr vendors selected"] : ["new custom pr", "resolve custom pr"]]]
+        filters: [["reference_name", "=", pr?.name], ["subject", "in", pr?.work_package ? ["pr vendors selected"] : ["new custom pr", "resolved custom pr"]]]
     },
     pr ? undefined : null
   )
