@@ -77,7 +77,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { DownOutlined } from "@ant-design/icons";
@@ -159,7 +159,9 @@ const Project = () => {
   );
 
   if(isLoading || projectCustomerLoading || po_item_loading) {
-    return 
+    return <div className="flex items-center h-[90vh] w-full justify-center">
+            <TailSpin color={"red"} />{" "}
+          </div>
   }
 
   return (
@@ -364,7 +366,7 @@ const ProjectView = ({
     `User Permission, filters(for_value),=,${projectId}`
   );
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
     filters : [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 1000
@@ -1035,7 +1037,7 @@ const ProjectView = ({
           return (
             <Link
               className="text-blue-500 underline"
-              to={`/service-requests/${srId}`}
+              to={`/service-requests-list/${srId}`}
             >
               {srId?.slice(-5)}
             </Link>

@@ -1,23 +1,21 @@
-import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2, MoveDown, MoveUp } from 'lucide-react';
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button"
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { Table, ConfigProvider } from 'antd';
-import type { TableColumnsType, TableProps } from 'antd';
-import { useToast } from '@/components/ui/use-toast';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { formatDate } from '@/utils/FormatDate';
-import { SentBackCategory as SentBackCategoryType } from '@/types/NirmaanStack/SentBackCategory';
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import formatToIndianRupee from '@/utils/FormatPrice';
-import { useUserData } from '@/hooks/useUserData';
-import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { useToast } from '@/components/ui/use-toast';
+import { useUserData } from '@/hooks/useUserData';
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { SentBackCategory as SentBackCategoryType } from '@/types/NirmaanStack/SentBackCategory';
+import { formatDate } from '@/utils/FormatDate';
+import formatToIndianRupee from '@/utils/FormatPrice';
+import type { TableColumnsType, TableProps } from 'antd';
+import { ConfigProvider, Table } from 'antd';
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from 'lucide-react';
+import { useEffect, useState } from "react";
+import { TailSpin } from 'react-loader-spinner';
+import { useNavigate, useParams } from "react-router-dom";
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -183,7 +181,7 @@ const columns: TableColumnsType<DataType> = [
 
 const ApproveSentBack = () => {
 
-    const { sbId: id } = useParams<{ sbId: string }>()
+    const { id } = useParams<{ id: string }>()
     const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc<SentBackCategoryType>("Sent Back Category", id);
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", sb?.project, sb?.project ? undefined : null);
 
@@ -984,5 +982,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, sent_back_list_
         </div>
     )
 }
+
+
+export default ApproveSentBack;
 
 export const Component = ApproveSentBack;

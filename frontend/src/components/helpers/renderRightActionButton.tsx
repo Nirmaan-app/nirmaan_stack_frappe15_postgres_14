@@ -35,6 +35,14 @@ const newButtonRoutes: Record<string, { label: string; route: string }> = {
     label: "New Customer",
     route: "customers/new-customer",
   },
+  "/procurement-requests": {
+    label: "New PR",
+    route: "prs&milestones/procurement-requests",
+  },
+  "/service-requests": {
+    label: "New SR",
+    route: "service-requests-list",
+  },
 };
 
 export const RenderRightActionButton = ({
@@ -43,7 +51,7 @@ export const RenderRightActionButton = ({
 }: RenderActionButtonProps) => {
 
   const navigate = useNavigate();
-  const {role} = useUserData()
+  const {role, user_id} = useUserData()
   const { selectedProject, toggleNewItemDialog } = useContext(UserContext);
 
   if (newButtonRoutes[locationPath]) {
@@ -60,16 +68,8 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      // <Button
-      //   className="sm:mr-4 mr-2"
-      //   onClick={() =>
-      //     navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)
-      //   }
-      // >
-      //   <CirclePlus className="w-5 h-5 pr-1" />
-      //   Add <span className="hidden md:flex pl-1">New PR</span>
-      // </Button>
-      <DropdownMenu>
+      ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator" ? (
+        <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button className="sm:mr-4 mr-2">
             <CirclePlus className="w-5 h-5 pr-1" />
@@ -85,12 +85,22 @@ export const RenderRightActionButton = ({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      ) : (
+        <Button
+        className="sm:mr-4 mr-2"
+        onClick={() =>
+          navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)
+        }
+      >
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">New PR</span>
+      </Button>)
     );
-  } else if (locationPath === "/service-requests" && selectedProject) {
+  } else if (locationPath === "/service-requests-list" && selectedProject && role != "Nirmaan Project Manager Profile") {
     return (
       <Button
         className="sm:mr-4 mr-2"
-        onClick={() => navigate(`/service-requests/${selectedProject}/new-sr`)}
+        onClick={() => navigate(`/service-requests-list/${selectedProject}/new-sr`)}
       >
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New SR</span>
@@ -137,7 +147,7 @@ export const RenderRightActionButton = ({
           <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
             New Custom PR
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => navigate("/service-requests")}>
+          <DropdownMenuItem onClick={() => navigate("/service-requests-list")}>
             Service Request
           </DropdownMenuItem>
         </DropdownMenuContent>

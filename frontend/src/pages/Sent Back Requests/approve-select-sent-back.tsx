@@ -1,15 +1,15 @@
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { ColumnDef } from "@tanstack/react-table";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useMemo } from "react";
+import { Link } from "react-router-dom";
 
 
 type PRTable = {
@@ -83,7 +83,7 @@ export const ApproveSelectSentBack = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`/approve-sent-back/${sbId}`}
+                                to={`${sbId}?tab=Approve Sent Back PO`}
                             >
                                 {sbId?.slice(-5)}
                             </Link>

@@ -1,10 +1,14 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { SentBackRequest } from "@/components/procurement/sent-back-request";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { ApprovePR } from "@/pages/ProcurementRequests/ApproveNewPR/approve-pr";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
@@ -13,9 +17,9 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
+import React, { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { EstimatedPriceHoverCard } from "../../../components/procurement/EstimatedPriceHoverCard";
 import { TableSkeleton } from "../../../components/ui/skeleton";
 
@@ -26,17 +30,18 @@ type PRTable = {
     work_package: string
 }
 
-export const ProcurementRequests = () => {
+export const ProcurementRequests : React.FC = () => {
 
     const [searchParams] = useSearchParams();
 
     const { role, user_id } = useUserData()
+    const navigate = useNavigate()
 
     const {deleteDoc, loading: deleteLoading} = useFrappeDeleteDoc()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || "New PR Request");
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || ((["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator") ? "Approve PR" : "New PR Request"));
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation', 'modified'],
             filters: [["workflow_state", "=", tab === "New PR Request" ? "Approved" : "In Progress"]],
@@ -51,7 +56,7 @@ export const ProcurementRequests = () => {
         limit: 1000
     })
 
-    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+    const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
         {
             fields: ["*"],
             limit: 100000
@@ -101,20 +106,19 @@ export const ProcurementRequests = () => {
     //     updateURL("tab", currentTab);
     // }, []);
 
-    const updateURL = (key, value) => {
-        const url = new URL(window.location);
-        url.searchParams.set(key, value);
-        window.history.pushState({}, "", url);
-    };
+    // const updateURL = (key, value) => {
+    //     const url = new URL(window.location);
+    //     url.searchParams.set(key, value);
+    //     window.history.pushState({}, "", url);
+    // };
 
-    const onClick = (value) => {
+    const onClick = (value : string) => {
 
         if (tab === value) return; // Prevent redundant updates
 
-        const newTab = value;
-        setTab(newTab);
-        updateURL("tab", newTab);
-
+        setTab(value);
+        navigate(`/procurement-requests?tab=${value}`)
+        // updateURL("tab", newTab);
     };
 
     const [deleteDialog, setDeleteDialog] = useState(false);
@@ -142,11 +146,66 @@ export const ProcurementRequests = () => {
         }
     }
 
-    // type MenuItem = Required<MenuProps>["items"][number];
+    const { prCounts, adminPrCounts, newSBCounts, adminNewSBCounts } = useDocCountStore()
 
-    const { prCounts, adminPrCounts } = useDocCountStore()
+    const sentBackTabs = [
+        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role) ||
+            user_id == "Administrator" ? [
+                {
+                    label: (
+                        <div className="flex items-center">
+                            <span>Sent Back</span>
+                            <span className="ml-2 text-xs font-bold">
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.rejected : newSBCounts.rejected}
+                            </span>
+                        </div>
+                    ),
+                    value: "Rejected",
+                },
+                {
+                    label: (
+                        <div className="flex items-center">
+                            <span>Skipped PR</span>
+                            <span className="ml-2 rounded text-xs font-bold">
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.delayed : newSBCounts.delayed}
+                            </span>
+                        </div>
+                    ),
+                    value: "Delayed",
+                },
+                {
+                    label: (
+                        <div className="flex items-center">
+                            <span>Rejected PO</span>
+                            <span className="ml-2 rounded text-xs font-bold">
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}
+                            </span>
+                        </div>
+                    ),
+                    value: "Cancelled",
+                },
+            ] : [])
+    ]
+
+    const adminTabs = [
+        ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator" ? [
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Approve PR</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.pending : prCounts.pending}
+                        </span>
+                    </div>
+                ),
+                value: "Approve PR",
+            },
+        ] : []),
+    ]
 
     const items = [
+        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role) ||
+            user_id == "Administrator" ? [
         {
             label: (
                 <div className="flex items-center">
@@ -191,6 +250,7 @@ export const ProcurementRequests = () => {
             ),
             value: "In Progress",
         },
+    ] : []),
     ];
 
     const columns: ColumnDef<PRTable>[] = useMemo(
@@ -343,20 +403,41 @@ export const ProcurementRequests = () => {
 
     return (
         <>
-            <div className="flex-1 space-y-4">
-                
-
-                {items && (
+        <div className="flex-1 space-y-4">
+            <div className="flex items-center max-md:items-start gap-4 max-md:flex-col"> 
+            {adminTabs && (
                     <Radio.Group
                         block
-                        options={items}
-                        defaultValue="New PR Request"
+                        options={adminTabs}
                         optionType="button"
                         buttonStyle="solid"
                         value={tab}
                         onChange={(e) => onClick(e.target.value)}
                     />
                 )}
+
+                {items && (
+                    <Radio.Group
+                        block
+                        options={items}
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
+
+                {sentBackTabs && (
+                    <Radio.Group
+                        block
+                        options={sentBackTabs}
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
+            </div>
 
             <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
@@ -383,10 +464,18 @@ export const ProcurementRequests = () => {
                     </AlertDialogHeader>
                 </AlertDialogContent>
             </AlertDialog>
-
-                {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+                            
+            {tab === "Approve PR" ? (
+                <ApprovePR />
+            ) :
+            ["Rejected", "Delayed", "Cancelled"].includes(tab) ? (
+                <SentBackRequest />
+            ) :
+             (
+                (projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
-                )}
+                )
+            )}
             </div>
         </>
     )

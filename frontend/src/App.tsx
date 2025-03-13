@@ -17,14 +17,6 @@ import { LivePRTrackingTable } from "./components/procurement-request/LivePRTrac
 import ListPR from "./components/procurement-request/list-pr";
 import { NewProcurementRequest } from "./components/procurement-request/new-new-pr";
 import { EstimatedPriceOverview } from "./components/procurement/EstimatedPriceOverview";
-import { SentBackRequest } from "./components/procurement/sent-back-request";
-import { ApproveSelectAmendSR } from "./components/service-request/approve-amend-sr-list";
-import { ApproveServiceRequest } from "./components/service-request/approve-service-request";
-import { ApproveSelectSR } from "./components/service-request/approve-service-request-list";
-import { ApprovedSR } from "./components/service-request/approved-sr";
-import { ApprovedSRList } from "./components/service-request/approved-sr-list";
-import ListSR from "./components/service-request/list-sr";
-import { SelectServiceVendorList } from "./components/service-request/select-service-vendor-list";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { ThemeProvider } from "./components/ui/theme-provider";
 import NewMilestones from "./components/updates/NewMilestones";
@@ -33,27 +25,25 @@ import { ApprovedQuotationsTable } from "./pages/ApprovedQuotationsFlow/Approved
 import DeliveryNote from "./pages/DeliveryNotes/deliverynote";
 import DeliveryNotes from "./pages/DeliveryNotes/deliverynotes";
 import Items from "./pages/Items/items";
-import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
+import { RenderPurchaseOrdersTab } from "./pages/ProcurementOrders/RenderPurchaseOrdersTab";
 import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
-import { ApproveSelectVendor } from "./pages/ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
 import { NewCustomPR } from "./pages/ProcurementRequests/NewPR/NewCustomPR";
 import { ProcurementRequests } from "./pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";
 import { RenderProcurementRequest } from "./pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
-import { ApprovePayments } from "./pages/ProjectPayments/approve-payments";
 import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
 import { ProjectPaymentsPaymentWise } from "./pages/ProjectPayments/project-payments-payment-wise";
 import { RenderSentBackComponent } from "./pages/Sent Back Requests/RenderSentBackComponent";
-import { ApprovePR } from "./pages/approve-pr";
-import { ApproveSelectAmendPO } from "./pages/approve-select-amend-po";
-import { ApproveSelectSentBack } from "./pages/approve-select-sent-back";
+import { RenderSRComponent } from "./pages/ServiceRequests/RenderSRComponent";
+import { ServiceRequestsTabs } from "./pages/ServiceRequests/ServiceRequestsTabs";
+import ApprovedSR from "./pages/ServiceRequests/service-request/approved-sr";
+import ListSR from "./pages/ServiceRequests/service-request/list-sr";
+import SelectServiceVendor from "./pages/ServiceRequests/service-request/select-service-vendor";
 import ForgotPassword from "./pages/auth/forgot-password";
 import Login from "./pages/auth/old-login";
 import NewCustomer from "./pages/customers/add-new-customer";
 import Customers from "./pages/customers/customers";
 import EditCustomer from "./pages/customers/edit-customer";
 import Dashboard from "./pages/dashboard";
-import { DelayedPR } from "./pages/delayed-pr";
-import { DelayedPRSelect } from "./pages/delayed-pr-select";
 import { PDF } from "./pages/pdf";
 import { EditProjectForm } from "./pages/projects/edit-project-form";
 import { ProjectForm } from "./pages/projects/project-form";
@@ -138,29 +128,66 @@ const router = createBrowserRouter(
           </Route>
 
           {/* Service Requests Paths */}
-          <Route path="service-requests">
+          <Route path="service-requests-list">
             <Route index element={<ListSR />} />
             <Route
               path=":project/new-sr"
               lazy={() =>
-                import("@/components/service-request/new-service-request")
+                import("@/pages/ServiceRequests/service-request/new-service-request")
               }
             />
             <Route path=":srId">
               <Route
                 index
-                lazy={() => import("@/components/service-request/sr-summary")}
+                lazy={() => import("@/pages/ServiceRequests/service-request/sr-summary")}
               />
+
+              <Route
+                path="order-view"
+                element={<ApprovedSR summaryPage={true}  />}
+              />
+
               <Route
                 path="resolve-sr"
-                lazy={() =>
-                  import("@/components/service-request/select-service-vendor")
-                }
+                // lazy={() =>
+                //   import("@/pages/ServiceRequests/service-request/select-service-vendor")
+                // }
+                element={<SelectServiceVendor />}
               />
             </Route>
           </Route>
 
-          <Route path="choose-service-vendor">
+          <Route path="service-requests">
+              <Route index element={<ServiceRequestsTabs />} />
+              <Route path=":srId" element={<RenderSRComponent />} />
+          </Route>
+
+          <Route path="procurement-requests">
+            <Route index element={<ProcurementRequests />} />
+            <Route path=":prId" element={<RenderProcurementRequest />} />
+          </Route>
+
+          <Route path='purchase-orders'>
+            <Route index element={<ReleasePOSelect />} />
+            {/* <Route path=":poId" element={<PurchaseOrder />} /> */}
+            <Route path=":id" element={<RenderPurchaseOrdersTab />} />
+          </Route>
+
+          <Route path="sent-back-requests">
+            {/* <Route index element={<SentBackRequest />} /> */}
+            <Route path=":sbId">
+              <Route index element={<RenderSentBackComponent />} />
+              {/* <Route path="update-quote">
+                <Route index element={<SentBackUpdateQuote />} />
+                <Route
+                  path="choose-vendor"
+                  element={<SentBackSelectVendor />}
+                />
+              </Route> */}
+            </Route>
+          </Route>
+
+          {/* <Route path="choose-service-vendor">
             <Route index element={<SelectServiceVendorList />} />
             <Route
               path=":srId"
@@ -170,66 +197,61 @@ const router = createBrowserRouter(
             />
           </Route>
 
+          <Route path="approved-sr">
+            <Route index element={<ApprovedSRList />} />
+            <Route path=":srId" element={<ApprovedSR />} />
+          </Route> */}
+
           {/* Approve PR Paths  */}
-          <Route path="approve-new-pr">
+          {/* <Route path="approve-new-pr">
             <Route index element={<ApprovePR />} />
-            <Route path=":prId" lazy={() => import("@/pages/approve-order")} />
-          </Route>
+            <Route path=":prId" lazy={() => import("@/pages/ProcurementRequests/ApproveNewPR/approve-order")} />
+          </Route> */}
 
           {/* Approve PO Paths  */}
-          <Route path="approve-po">
+          {/* <Route path="approve-po">
             <Route index element={<ApproveSelectVendor />} />
-            {/* <Route path=":prId" lazy={() => import("@/pages/approve-vendor")} /> */}
+            <Route path=":prId" lazy={() => import("@/pages/approve-vendor")} />
             <Route path=":prId" 
               lazy={() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes")}
              />
-          </Route>
+          </Route> */}
 
           {/* Approve Amended PO Paths  */}
-          <Route path="approve-amended-po">
+          {/* <Route path="approve-amended-po">
             <Route index element={<ApproveSelectAmendPO />} />
             <Route
               path=":poId"
               lazy={() => import("@/pages/approve-amend-po")}
             />
-          </Route>
+          </Route> */}
 
           {/* Approve Sent Back Paths  */}
-          <Route path="approve-sent-back">
+          {/* <Route path="approve-sent-back">
             <Route index element={<ApproveSelectSentBack />} />
             <Route
               path=":sbId"
               lazy={() => import("@/pages/Sent Back Requests/ApproveSBVendorQuotes")}
             />
-          </Route>
+          </Route> */}
 
           {/* Approve Service Request Paths  */}
-          <Route path="approve-service-request">
+          {/* <Route path="approve-service-request">
             <Route index element={<ApproveSelectSR />} />
             <Route path=":srId" element={<ApproveServiceRequest />} />
-          </Route>
+          </Route> */}
 
           {/* Approve Amended Service Request Paths  */}
-          <Route path="approve-amended-so">
+          {/* <Route path="approve-amended-so">
             <Route index element={<ApproveSelectAmendSR />} />
             <Route path=":soId" 
-              lazy={() => import("@/components/service-request/approve-amended-sr")}
+              lazy={() => import("@/pages/ServiceRequests/service-request/approve-amended-sr")}
              />
           </Route>
 
           <Route path="approve-payments">
             <Route index element={<ApprovePayments />} />
-          </Route>
-
-          <Route path="approved-sr">
-            <Route index element={<ApprovedSRList />} />
-            <Route path=":srId" element={<ApprovedSR />} />
-          </Route>
-
-          <Route path="procurement-requests">
-            <Route index element={<ProcurementRequests />} />
-            <Route path=":prId" element={<RenderProcurementRequest />} />
-          </Route>
+          </Route> */}
 
           {/* New PR Request Paths  */}
           {/* <Route path="new-procure-request">
@@ -274,25 +296,6 @@ const router = createBrowserRouter(
             element={<PurchaseOrder not={true} />} 
             />
           </Route> */}
-
-          <Route path='purchase-orders'>
-            <Route index element={<ReleasePOSelect />} />
-            <Route path=":poId" element={<PurchaseOrder />} />
-          </Route>
-
-          <Route path="sent-back-requests">
-            <Route index element={<SentBackRequest />} />
-            <Route path=":sbId">
-              <Route index element={<RenderSentBackComponent />} />
-              {/* <Route path="update-quote">
-                <Route index element={<SentBackUpdateQuote />} />
-                <Route
-                  path="choose-vendor"
-                  element={<SentBackSelectVendor />}
-                />
-              </Route> */}
-            </Route>
-          </Route>
 
           {/* Sent Back Paths */}
           {/* <Route path="rejected-sb">
@@ -440,8 +443,8 @@ const router = createBrowserRouter(
           />
           <Route path="pdf" element={<PDF />} />
           <Route path="milestone-update" element={<NewMilestones />} />
-          <Route path="delayed-pr" element={<DelayedPRSelect />} />
-          <Route path="delayed-pr/:id" element={<DelayedPR />} />
+          {/* <Route path="delayed-pr" element={<DelayedPRSelect />} />
+          <Route path="delayed-pr/:id" element={<DelayedPR />} /> */}
         </Route>
       </Route>
     </>

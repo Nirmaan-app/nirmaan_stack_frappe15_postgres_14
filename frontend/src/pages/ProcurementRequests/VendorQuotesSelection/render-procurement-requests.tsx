@@ -1,3 +1,4 @@
+import { ApprovePRList } from "@/pages/ProcurementRequests/ApproveNewPR/approve-order";
 import { useSearchParams } from "react-router-dom";
 import { ProcurementOrder } from "./procurement-vendor";
 import { ProcurementProgress } from "./ProcurementProgress";
@@ -11,7 +12,9 @@ export const RenderProcurementRequest = () => {
 
    const mode = searchParams.get("mode") || "edit"
 
-    if(tab === "New PR Request") {
+   if(tab === "Approve PR") {
+        return <ApprovePRList />
+    } else if(tab === "New PR Request") {
         return <ProcurementOrder />
     } 
     // else if(tab === "Update Quote") {

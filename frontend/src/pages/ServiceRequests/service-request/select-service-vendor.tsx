@@ -1,8 +1,39 @@
+import { VendorsReactSelect } from "@/components/helpers/VendorsReactSelect";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ProcurementHeaderCard } from "@/components/ui/ProcurementHeaderCard";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Table as AntTable, ConfigProvider } from "antd";
@@ -26,78 +57,29 @@ import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
-import { VendorsReactSelect } from "../helpers/VendorsReactSelect";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "../ui/dialog";
-import { Input } from "../ui/input";
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "../ui/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
-import { Textarea } from "../ui/textarea";
-import { toast } from "../ui/use-toast";
 
-const SelectServiceVendor = () => {
+const SelectServiceVendor : React.FC = () => {
   const { srId: id }: any = useParams();
 
   const navigate = useNavigate()
 
-  const {
-    data: sr_data,
-    isLoading: sr_data_loading,
-    error: sr_data_error,
-    mutate: sr_data_mutate
-  } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id);
+  const { data: sr_data, isLoading: sr_data_loading, error: sr_data_error, mutate: sr_data_mutate } = useFrappeGetDoc("Service Requests", id);
 
-  const {
-    data: usersList,
-    isLoading: userLoading,
-    error: userError,
-  } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
+  const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
   });
 
-  const {
-    data: universalComments,
-    isLoading: universalCommentsLoading,
-    error: universalCommentsError,
-  } = useFrappeGetDocList<NirmaanCommentsType>("Nirmaan Comments", {
+  const { data: universalComments, isLoading: universalCommentsLoading, error: universalCommentsError } = useFrappeGetDocList<NirmaanCommentsType>("Nirmaan Comments", {
     fields: ["*"],
     limit: 1000,
     filters: [["reference_name", "=", id]],
     orderBy: { field: "creation", order: "desc" },
   });
 
-  const getUserName = (id) => {
-    if (usersList) {
-        return usersList.find((user) => user?.name === id)?.full_name
-    }
-}
-
-  // console.log("universalComments", universalComments)
+  const getUserName = (id : string | undefined) => {
+    return usersList?.find((user) => user?.name === id)?.full_name || ""
+  }
 
   if(sr_data_loading ||
     userLoading ||
@@ -136,7 +118,7 @@ const SelectServiceVendor = () => {
               </p>
               <button
                   className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                  onClick={() => navigate("/choose-service-vendor")}
+                  onClick={() => navigate("/service-requests?tab=choose-vendor")}
               >
                   Go Back
               </button>
@@ -155,9 +137,9 @@ const SelectServiceVendor = () => {
 };
 
 interface SelectServiceVendorPageProps {
-  sr_data: ServiceRequestsType | undefined
-  usersList?: NirmaanUsersType[] | undefined
-  universalComments?: NirmaanCommentsType[] | undefined
+  sr_data: any
+  usersList?: NirmaanUsersType[]
+  universalComments?: NirmaanCommentsType[]
   sr_data_mutate?: any
   amend?: boolean
 }
@@ -165,14 +147,12 @@ interface SelectServiceVendorPageProps {
 export interface Vendor {
   value: string
   label: string
-  vendor_name?: string
   vendor_type?: string
-  name?: string
   city: string
   state: string
 }
 
-export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments, sr_data_mutate, amend = false }: SelectServiceVendorPageProps) => {
+export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = ({ sr_data, usersList, universalComments, sr_data_mutate, amend = false }) => {
   const navigate = useNavigate();
   const userData = useUserData();
 
@@ -184,10 +164,8 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
   const [order, setOrder] = useState(
     sr_data && JSON.parse(sr_data?.service_order_list)?.list
   );
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+    const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
-
-  // console.log("sr_data", JSON.parse(sr_data?.service_order_list))
 
   const groupedData = useMemo(() => {
     return order?.reduce((acc, item) => {
@@ -334,69 +312,6 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     loading: update_loading,
   } = useFrappeUpdateDoc();
 
-  // const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
-  //     {
-  //         fields: ['category_name', 'work_package'],
-  //         orderBy: { field: 'category_name', order: 'asc' },
-  //         limit: 100,
-  //         filters: [['work_package', '=', 'Services']]
-  //     });
-
-  // useEffect(() => {
-  //     if (universalComments) {
-  //         const comment = universalComments?.find((cmt) => cmt.subject === "approving sr")
-  //         setComment(comment)
-  //     }
-  // }, [universalComments])
-
-  // const getTotal = (cat: string) => {
-  //     let total: number = 0;
-  //     order.map((item) => {
-  //         if (item.category === cat) {
-  //             const price = item.amount;
-  //             total += (price ? parseFloat(price) : 0) * 1.18;
-  //         }
-  //     })
-  //     return total
-  // }
-
-  // useEffect(() => {
-  //     if (sr_data?.project) {
-  //         const newData: DataType[] = [];
-  //         console.log(JSON.parse(sr_data.service_category_list).list)
-  //         JSON.parse(sr_data.service_category_list).list.map((cat: any) => {
-  //             const items: DataType[] = [];
-  //             console.log(order)
-  //             order.forEach((item: any) => {
-  //                 if (item.category === cat.name) {
-  //                     items.push({
-  //                         description: item.description,
-  //                         key: item.description,
-  //                         category: item.category,
-  //                         rate: item.amount,
-  //                         amount: item.amount * 1.18,
-  //                         selectedVendor: selectedVendor ? selectedVendor : "",
-  //                     });
-  //                 }
-  //             });
-
-  //             if (items.length) {
-  //                 const node: DataType = {
-  //                     description: cat.name,
-  //                     key: cat.name,
-  //                     category: null,
-  //                     rate: null,
-  //                     amount: getTotal(cat.name),
-  //                     selectedVendor: selectedVendor ? selectedVendor : "",
-  //                     children: items,
-  //                 };
-  //                 newData.push(node);
-  //             }
-  //         });
-  //         setData(newData)
-  //     }
-  // }, [order, selectedVendor]);
-
   const getFullName = (id: any) => {
     return usersList?.find((user) => user?.name == id)?.full_name;
   };
@@ -406,13 +321,10 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
     setAmounts((prev) => ({ ...prev, [id]: numericValue }));
   };
 
-  // console.log("amounts", amounts)
 
   const handleSaveAmounts = () => {
-    // console.log("Amounts to save:", amounts);
     let newOrderData = [];
     for (let item of order) {
-      // console.log("item", item)
       let entry: any = {};
       entry.id = item.id;
       entry.category = item.category;
@@ -484,7 +396,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
         variant: "success",
       });
 
-      navigate("/choose-service-vendor");
+      navigate("/service-requests?tab=choose-vendor");
     } catch (error) {
       toast({
         title: "Failed!",
@@ -523,9 +435,9 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
       });
 
       if (sr_data?.status === "Rejected") {
-        navigate(`/service-requests/${sr_data?.name}`);
+        navigate(`/service-requests-list/${sr_data?.name}`);
       } else {
-        navigate("/choose-service-vendor");
+        navigate("/service-requests?tab=choose-vendor");
       }
     } catch (error) {
       toast({
@@ -565,7 +477,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
             variant: "success",
           });
     
-          navigate("/approved-sr");
+          navigate("/service-requests?tab=approved-sr");
         } catch (error) {
           toast({
             title: "Failed!",
@@ -638,7 +550,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
                 </SheetContent>
               </Sheet>
             </div>
-            <VendorsReactSelect selectedVendor={selectedVendor} vendorOptions={vendorOptions} setSelectedvendor={setSelectedvendor} />
+            <VendorsReactSelect selectedVendor={selectedVendor} vendorOptions={vendorOptions || []} setSelectedvendor={setSelectedvendor} />
             <div className="overflow-x-auto">
               <div className="min-w-full inline-block align-middle">
                 <Table>
@@ -940,3 +852,5 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments,
 };
 
 export const Component = SelectServiceVendor;
+
+export default SelectServiceVendor;

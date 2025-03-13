@@ -16,7 +16,7 @@ def after_insert(doc, method):
                                          order_by='creation desc'
                                          )
     project_data = frappe.get_doc("Projects", doc.project)
-    if(len(last_prs)>1):
+    if len(last_prs)>1 and doc.work_package is not None:
         last_pr = last_prs[1]
         new_item_ids = [item['name'] for item in doc.procurement_list['list']]
         new_procurement_list = doc.procurement_list
@@ -63,18 +63,19 @@ def after_insert(doc, method):
                 })
 
         frappe.delete_doc("Procurement Requests", last_pr.name)
-    else: 
+    elif doc.work_package is not None:
         lead_admin_users = get_allowed_users(doc)
+        custom = True if doc.work_package is None else False
         if lead_admin_users:
             for user in lead_admin_users:
                 if user["push_notification"] == "true":
                     # Dynamically generate notification title/body for each lead
-                    notification_title = f"New PR Created for Project {doc.project}"
+                    notification_title = f"New {'Custom PR' if custom else 'PR'} Created for Project {doc.project}"
                     notification_body = (
-                        f"Hi {user['full_name']}, a new procurement request for the {doc.work_package} "
-                        f"work package has been submitted and is awaiting your review."
+                        f"Hi {user['full_name']}, a new {'custom procurement' if custom else 'procurement'} procurement request for the {doc.project if custom else doc.work_package}"
+                        f"{' project' if custom else ' work package'} has been submitted and is awaiting your review."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-new-pr"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/procurement-requests?tab=Approve%20PR"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -83,10 +84,10 @@ def after_insert(doc, method):
             print("No project leads or admins found with push notifications enabled.")
 
         message = {
-            "title": _("New PR Created"),
-            "description": _(f"A new PR: {doc.name} has been created."),
+            "title": _(f"New {'Custom PR' if custom else 'PR'} Created"),
+            "description": _(f"A new {'Custom PR' if custom else 'PR'}: {doc.name} has been created."),
             "project": doc.project,
-            "work_package": doc.work_package,
+            "work_package": doc.work_package if not custom else "Custom",
             "sender": doc.owner,
             "docname": doc.name
         }
@@ -102,11 +103,11 @@ def after_insert(doc, method):
             new_notification_doc.document = 'Procurement Requests'
             new_notification_doc.docname = doc.name
             new_notification_doc.project = doc.project
-            new_notification_doc.work_package = doc.work_package
+            new_notification_doc.work_package = doc.work_package if not custom else "Custom"
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "pr:new"
-            new_notification_doc.action_url = f"approve-new-pr/{doc.name}"
+            new_notification_doc.action_url = f"procurement-requests/{doc.name}?tab=Approve%20PR"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -125,28 +126,51 @@ def update_quantity(data, target_name, new_quantity):
             item['quantity'] += new_quantity
 
 def on_update(doc, method):
+    custom = True if doc.work_package is None else False
     if doc.workflow_state == "Vendor Selected":
         lead_admin_users = get_allowed_users(doc)
         if lead_admin_users:
             for user in lead_admin_users:
                 if user["push_notification"] == "true":
-                    notification_title = f"Vendors Selected for the PR: {doc.name}!"
-                    notification_body = (
-                            f"Hi {user['full_name']}, Vendors have been selected for the {doc.work_package} work package. "
-                            "Please review the selection and proceed with approval or rejection."
+                    notification_title = None
+                    if custom:
+                        notification_title = f"New Custom PR: {doc.name} created and Vendors Selected!"
+                    else:
+                        notification_title = f"Vendors Selected for the PR: {doc.name}!"
+                    notification_body = None
+                    if custom:
+                        notification_body = (
+                            f"Hi {user['full_name']}, A new Custom PR: {doc.name} created and Vendors have been selected. "
+                            "Please review it and proceed with approval or rejection."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-po"
+                    else:
+                        notification_body = (
+                                f"Hi {user['full_name']}, Vendors have been selected for the {doc.work_package} work package. "
+                                "Please review the selection and proceed with approval or rejection."
+                            )
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approve%20PO"
                     print(f"click_action_url: {click_action_url}")
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
                     print(f"push notifications were not enabled for user: {user['full_name']}")
 
                 # send in-app notification for all allowed users
+                title = None
+                if custom:
+                    title = f"New Custom PR created and Vendors Selected!"
+                else:
+                    title = f"PR Status Updated!"
+                
+                description = None
+                if custom:
+                    description = f"A new Custom PR: {doc.name} created and Vendors have been selected."
+                else:
+                    description = f"Vendors have been selected for the PR: {doc.name}!"
                 message = {
-                    "title": _("PR Status Updated"),
-                    "description": _(f"Vendors have been selected for the PR: {doc.name}!"),
+                    "title": _(title),
+                    "description": _(description),
                     "project": doc.project,
-                    "work_package": doc.work_package,
+                    "work_package": doc.work_package if not custom else "Custom",
                     "sender": frappe.session.user,
                     "docname": doc.name
                 }
@@ -160,11 +184,11 @@ def on_update(doc, method):
                 new_notification_doc.document = 'Procurement Requests'
                 new_notification_doc.docname = doc.name
                 new_notification_doc.project = doc.project
-                new_notification_doc.work_package = doc.work_package
+                new_notification_doc.work_package = doc.work_package if not custom else "Custom"
                 new_notification_doc.seen = "false"
                 new_notification_doc.type = "info"
                 new_notification_doc.event_id = "pr:vendorSelected"
-                new_notification_doc.action_url = f"approve-po/{doc.name}"
+                new_notification_doc.action_url = f"purchase-orders/{doc.name}?tab=Approve%20PO"
                 new_notification_doc.insert()
                 frappe.db.commit()
 
@@ -191,7 +215,7 @@ def on_update(doc, method):
                         f"Hi {user['full_name']}, a new procurement request for the {doc.work_package} "
                         f"work package has been approved by {get_user_name(frappe.session.user)}, click here to take action."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/procurement-requests"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/procurement-requests?tab=New%20PR%20Request"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -223,7 +247,7 @@ def on_update(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "pr:approved"
-            new_notification_doc.action_url = f"procurement-requests/{doc.name}?tab=New PR Request"
+            new_notification_doc.action_url = f"procurement-requests/{doc.name}?tab=New%20PR%20Request"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -243,11 +267,17 @@ def on_update(doc, method):
             for user in manager_admin_users:
                 if user["push_notification"] == "true":
                     # Dynamically generate notification title/body for each lead
-                    notification_title = f"PR: {doc.name} Rejected!"
-                    notification_body = (
-                        f"Hi {user['full_name']}, the procurement request: {doc.name} for the {doc.work_package} "
-                        f"work package has been rejected by {get_user_name(frappe.session.user)}, click here to resolve."
+                    notification_body = None
+                    if custom:
+                        notification_body = (
+                            f"Hi {user['full_name']}, the Custom PR: {doc.name} has been rejected by {get_user_name(frappe.session.user)}, click here to resolve."
                         )
+                    else:
+                        notification_body = (
+                            f"Hi {user['full_name']}, the procurement request: {doc.name} for the {doc.work_package} "
+                            f"work package has been rejected by {get_user_name(frappe.session.user)}, click here to resolve."
+                        )
+                    notification_title = f"{'Custom PR' if custom else 'PR'}: {doc.name} Rejected!"
                     click_action_url = f"{frappe.utils.get_url()}/frontend/prs&milestones/procurement-requests/{doc.name}"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
@@ -257,10 +287,10 @@ def on_update(doc, method):
             print("No Managers or admins found with push notifications enabled.")
 
         message = {
-            "title": _("PR Status Updated"),
-            "description": _(f"PR: {doc.name} has been rejected."),
+            "title": _(f"{'Custom PR' if custom else 'PR'} Status Updated"),
+            "description": _(f"{'Custom PR' if custom else 'PR'}: {doc.name} has been rejected."),
             "project": doc.project,
-            "work_package": doc.work_package,
+            "work_package": doc.work_package if not custom else "Custom",
             "sender": frappe.session.user,
             "docname": doc.name
         }
@@ -276,7 +306,7 @@ def on_update(doc, method):
             new_notification_doc.document = 'Procurement Requests'
             new_notification_doc.docname = doc.name
             new_notification_doc.project = doc.project
-            new_notification_doc.work_package = doc.work_package
+            new_notification_doc.work_package = doc.work_package if not custom else "Custom"
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "pr:rejected"

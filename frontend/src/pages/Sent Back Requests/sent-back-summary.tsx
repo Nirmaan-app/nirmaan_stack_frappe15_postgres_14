@@ -27,7 +27,7 @@ export const SentBackSummary = () => {
         id ? undefined : null
     );
 
-    const { data: universalComments } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
+    const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
         filters: [["reference_name", "=", id]],
         orderBy: { field: "creation", order: "desc" }
@@ -35,7 +35,7 @@ export const SentBackSummary = () => {
     id ? undefined : null
 )
 
-    const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
     })
@@ -53,7 +53,7 @@ export const SentBackSummary = () => {
         }
     }, [sent_back_list]);
 
-    if (sent_back_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (sent_back_list_loading || usersListLoading || universalCommentsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
     if (orderData?.workflow_state !== "Pending") {
         return (
@@ -109,7 +109,7 @@ export const SentBackSummary = () => {
                             </TableRow>
                         </TableHeader>
                         <TableBody className="bg-white divide-y divide-gray-200">
-                            {orderData.item_list?.list.map(item => (
+                            {orderData?.item_list?.list.map(item => (
                                 <TableRow key={item.name}>
                                     <TableCell>
                                             <div className="inline items-baseline">

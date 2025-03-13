@@ -1,15 +1,17 @@
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { ColumnDef } from "@tanstack/react-table";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useMemo } from "react";
+import { Link } from "react-router-dom";
 
 
 type PRTable = {
@@ -19,8 +21,8 @@ type PRTable = {
     category: string
 }
 
-export const ApproveSelectAmendSR = () => {
-    const { data: service_request_list, isLoading: service_request_list_loading, error: service_request_list_error, mutate: sr_list_mutate } = useFrappeGetDocList("Service Requests",
+export const ApproveSelectAmendSR : React.FC = () => {
+    const { data: service_request_list, isLoading: service_request_list_loading, error: service_request_list_error, mutate: sr_list_mutate } = useFrappeGetDocList<ServiceRequests>("Service Requests",
         {
             fields: ["*"],
             filters: [["status", "=", "Amendment"]],
@@ -42,7 +44,7 @@ export const ApproveSelectAmendSR = () => {
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
-    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    const { data: vendorsList, isLoading: vendorsListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["vendor_name", 'vendor_type', 'name'],
         filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
         limit: 1000
@@ -100,7 +102,7 @@ export const ApproveSelectAmendSR = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`${srId}`}
+                                to={`${srId}?tab=approve-amended-so`}
                             >
                                 {srId?.slice(-5)}
                             </Link>
@@ -223,10 +225,7 @@ export const ApproveSelectAmendSR = () => {
 
     return (
         <div className="flex-1 md:space-y-4">
-            {/* <div className="flex items-center justify-between space-y-2 pl-2">
-                    <h2 className="text-lg font-bold tracking-tight">Approve Service Request</h2>
-                </div> */}
-            {(service_request_list_loading || projects_loading) ? (<TableSkeleton />) : (
+            {(service_request_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={service_request_list || []} project_values={project_values} vendorOptions={vendorOptions} />
             )}
         </div>

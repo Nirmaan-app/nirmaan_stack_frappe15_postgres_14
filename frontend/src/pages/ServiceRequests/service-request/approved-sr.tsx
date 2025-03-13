@@ -6,9 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 // import { Button } from "../ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-import { Badge } from "../ui/badge";
-import { Input } from "../ui/input";
 // import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
@@ -19,6 +19,17 @@ import {
     AlertDialogHeader,
     AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { toast } from "@/components/ui/use-toast";
+import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
 import { formatDate } from "@/utils/FormatDate";
 import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
@@ -26,17 +37,6 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { debounce } from "lodash";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
-import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
-import { Label } from "../ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Separator } from "../ui/separator";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
-import { Switch } from "../ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { toast } from "../ui/use-toast";
-import { VendorHoverCard } from "../ui/vendor-hover-card";
 import { SelectServiceVendorPage } from "./select-service-vendor";
 
 // const { Sider, Content } = Layout;
@@ -380,7 +380,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     <Badge>{service_request?.status}</Badge>
                 </div>
               <div className="flex items-center gap-2">
-                                {!summaryPage && !accountsPage && !(projectPayments?.length > 0) && (
+                                {!summaryPage && !accountsPage && (
                                     <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8">
                                         <PencilRuler className="w-4 h-4" />
                                         Amend
@@ -434,14 +434,14 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                         </div>
             </CardContent>
                 </Card>
-            {!summaryPage && (
+
             <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                         <p>Transaction Details</p>
 
-                        {!accountsPage && (
+                        {!accountsPage && !summaryPage && (
                             <>
                             <Button
                           variant="outline"
@@ -607,7 +607,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {projectPayments?.length > 0 ? (
+                                {(projectPayments || []).length > 0 ? (
                                     projectPayments?.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
@@ -635,7 +635,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                  {payment?.status !== "Paid" && 
+                                                  {payment?.status !== "Paid" && !summaryPage && 
                                                   <Dialog>
                                                     <DialogTrigger>
                                                       <Trash2
@@ -851,7 +851,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     </CardContent>
                 </Card>
             </div>
-            )}
 
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
@@ -1176,3 +1175,5 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         </div>
     );
 };
+
+export default ApprovedSR;

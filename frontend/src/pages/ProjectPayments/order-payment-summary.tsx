@@ -1,27 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Printer, ArrowLeft, SquarePlus, HandCoins, BookCheck, Truck, CalendarDays, Paperclip, MessageCircleMore } from "lucide-react";
-import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
-import { useReactToPrint } from "react-to-print";
-import { Separator } from "@/components/ui/separator";
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger, AlertDialogCancel } from "@/components/ui/alert-dialog";
-import { toast } from "@/components/ui/use-toast";
-import { Input } from "@/components/ui/input";
-import { TailSpin } from "react-loader-spinner";
-import { debounce } from "lodash";
-import logo from "@/assets/logo-svg.svg"
-import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
-import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@/components/ui/sheet"; 
-import { AddressView } from "@/components/address-view";
+import { useParams } from "react-router-dom";
 import { PurchaseOrder } from "../ProcurementOrders/PurchaseOrder";
-import { ApprovedSR } from "@/components/service-request/approved-sr";
+import ApprovedSR from "../ServiceRequests/service-request/approved-sr";
 
 // const OrderPaymentSummary = () => {
 //     const { id } = useParams<{ id: string }>();

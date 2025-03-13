@@ -19,9 +19,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { RenderPRorSBComments } from '../../components/ui/RenderPRorSBComments';
 
-export const ApproveSBVendorQuotes : React.FC = () => {
+const ApproveSBVendorQuotes : React.FC = () => {
 
-    const { sbId } = useParams<{ sbId: string }>()
+    const { id : sbId } = useParams<{ id: string }>()
     const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc("Sent Back Category", sbId);
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
@@ -83,7 +83,7 @@ export const ApproveSBVendorQuotes : React.FC = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-sent-back")}
+                    onClick={() => navigate("/purchase-orders?tab=Approve Sent Back PO")}
                 >
                     Go Back
                 </button>
@@ -100,7 +100,7 @@ type ApproveSBVendorQuotesPageProps = {
   sb_mutate?: any
   vendor_list?: Vendors[]
   quotes_data?: ApprovedQuotations[]
-  universalComment :  NirmaanComments[]
+  universalComment? :  NirmaanComments[]
   getUserName: (id : string | undefined) => string
 }
 
@@ -285,7 +285,7 @@ const newHandleApprove = async () => {
           setSelectionMap(new Map());
           await sb_mutate();
           if (orderData?.item_list.list.length === selectedItemNames.length) {
-              navigate('/approve-sent-back');
+              navigate('/purchase-orders?tab=Approve Sent Back PO');
           }
           toggleApproveDialog();
       } else if (response.message.status === 400) {
@@ -344,7 +344,7 @@ const newHandleSentBack = async () => {
           await sb_mutate();
 
           if (orderData?.item_list?.list?.length === selectedItemNames.length) {
-              navigate('/approve-sent-back');
+              navigate('/purchase-orders?tab=Approve Sent Back PO');
           }
 
           toggleSentBackDialog();
@@ -576,4 +576,5 @@ const generateActionSummary = (actionType : string) => {
   )
 }
 
+export default ApproveSBVendorQuotes;
 export const Component = ApproveSBVendorQuotes

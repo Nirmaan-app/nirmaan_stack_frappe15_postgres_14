@@ -1,34 +1,42 @@
-import { ArrowLeft, CheckCheck, ListChecks, ListX, Undo2 } from "lucide-react"
-import { useNavigate, useParams } from "react-router-dom"
-import { Card } from "../ui/card"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { formatDate } from "@/utils/FormatDate"
-import { useEffect, useMemo, useState } from "react"
-import { ConfigProvider, Table, TableColumnsType } from "antd"
-import formatToIndianRupee from "@/utils/FormatPrice"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog"
-import { Button } from "../ui/button"
-import { toast } from "../ui/use-toast"
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard"
+import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments"
+import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
+import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
+import formatToIndianRupee from "@/utils/FormatPrice"
+import { ConfigProvider, Table } from "antd"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { CheckCheck, ListChecks, ListX, Undo2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
-import { ProcurementActionsHeaderCard } from "../ui/ProcurementActionsHeaderCard"
+import { useNavigate, useParams } from "react-router-dom"
 
-export const ApproveServiceRequest = () => {
+export const ApproveServiceRequest : React.FC = () => {
     const { srId: id } = useParams<{ srId: string }>()
     const navigate = useNavigate()
     const [serviceOrderData, setServiceOrderData] = useState(null)
     const [isLoading, setIsLoading] = useState<string | null>(null);
     const [comment, setComment] = useState('')
     const userData = useUserData()
-    const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+    const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
 
-    const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id)
+    const { data: service_request, isLoading: service_request_loading } = useFrappeGetDoc("Service Requests", id)
     const { data: serviceVendor, isLoading: serviceVendor_loading } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request ? service_request?.vendor : null)
 
-    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
+
+    const { data: universalComment, isLoading: universalCommentLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
+            fields: ["*"],
+            filters: [["reference_name", "=", id]]
+        },
+        id ? undefined : null
+      )
 
     const { createDoc: createDoc } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
@@ -150,7 +158,7 @@ export const ApproveServiceRequest = () => {
                 variant: "success",
             });
 
-            navigate("/approve-service-request");
+            navigate("/service-requests?tab=approve-service-order");
 
         } catch (error) {
             toast({
@@ -188,7 +196,7 @@ export const ApproveServiceRequest = () => {
                 variant: "success",
             });
 
-            navigate("/approve-service-request");
+            navigate("/service-requests?tab=approve-service-order");
 
         } catch (error) {
             toast({
@@ -203,13 +211,11 @@ export const ApproveServiceRequest = () => {
         }
     }
 
-    const getUserName = (id) => {
-        if (usersList) {
-            return usersList.find((user) => user?.name === id)?.full_name
-        }
+    const getUserName = (id : string | undefined) => {
+        return usersList?.find((user) => user?.name === id)?.full_name || ""
     }
 
-    if(serviceVendor_loading || service_request_loading || usersListLoading) {
+    if(serviceVendor_loading || service_request_loading || usersListLoading || universalCommentLoading) {
         return (
             <div className="flex items-center justify-center h-[90vh]">
                 <TailSpin color={"red"} />{" "}
@@ -239,7 +245,7 @@ export const ApproveServiceRequest = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-service-request")}
+                    onClick={() => navigate("/service-requests?tab=approve-service-order")}
                 >
                     Go Back
                 </button>
@@ -248,31 +254,11 @@ export const ApproveServiceRequest = () => {
     );
 
     return (
-        <>
             <div className="flex-1 space-y-4">
-                <div className="flex items-center">
-                    {/* <ArrowLeft onClick={() => { navigate('/approve-service-request') }} /> */}
+                <div className="space-y-2">
                     <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
+                    <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
                 </div>
-                {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                    <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                        <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(service_request?.creation?.split(" ")[0])}</p>
-                    </div>
-                    <div className="border-0 flex flex-col justify-center">
-                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                        <p className="text-left font-bold py-1 font-bold text-base text-black">{service_request?.project}</p>
-                    </div>
-                    <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Location</p>
-                        <p className="text-left font-bold py-1 font-bold text-base text-black">{`${project_data?.project_city}, ${project_data?.project_state}`}</p>
-                    </div>
-                    <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Created by</p>
-                        <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name || "Administrator"}</p>
-                    </div>
-                </Card> */}
-                <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
 
             <div className="overflow-x-auto">
                 <ConfigProvider
@@ -383,8 +369,14 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
+            <div className='space-y-2'>
+                <h2 className="text-base pl-2 font-bold tracking-tight">SR Comments</h2>
+                <RenderPRorSBComments universalComment={universalComment} getUserName={getUserName} />
             </div>
-        </>
+            </div>
 
     )
 }
+
+
+export default ApproveServiceRequest;

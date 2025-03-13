@@ -124,7 +124,7 @@ export const PurchaseOrder = ({
 }: PurchaseOrderProps) => {
   const params = useParams();
 
-  const id = accountsPage ? params.id : params.poId;
+  const id = summaryPage ? params.poId : params.id;
 
   const [isRedirecting, setIsRedirecting] = useState(false);
 
@@ -155,7 +155,7 @@ export const PurchaseOrder = ({
   const [freightCharges, setFreightCharges] = useState(0);
   const [includeComments, setIncludeComments] = useState(false);
   const [notes, setNotes] = useState("");
-  const [selectedGST, setSelectedGST] = useState<{gst : string | undefined, location : string | undefined} | null>(null);
+  const [selectedGST, setSelectedGST] = useState<{gst : string | undefined, location? : string | undefined} | null>(null);
 
   const [mergeablePOs, setMergeablePOs] = useState<ProcurementOrder[]>([]);
   const [mergedItems, setMergedItems] = useState<ProcurementOrder[]>([]);
@@ -1043,8 +1043,6 @@ const handleUnmergePOs = async () => {
       </div>
     );
 
-    console.log("quantity", quantity)
-
   return (
     <div className="flex-1 space-y-4">
       {!summaryPage &&
@@ -1339,7 +1337,6 @@ const handleUnmergePOs = async () => {
           </AccordionTrigger>
           )}
           <AccordionContent>
-        {!summaryPage && (
         <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
           <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
             <CardHeader>
@@ -1347,8 +1344,7 @@ const handleUnmergePOs = async () => {
                 <p className="text-xl max-sm:text-lg text-red-600">
                   Transaction Details
                 </p>
-
-                {!accountsPage && !estimatesViewing && (
+                {!accountsPage && !estimatesViewing && !summaryPage && (
                   <>
                   <Button
                   variant="outline"
@@ -1544,7 +1540,7 @@ const handleUnmergePOs = async () => {
                           </TableCell>
                           <TableCell>{payment?.status}</TableCell>
                           <TableCell className="text-red-500 text-end w-[5%]">
-                            {payment?.status !== "Paid" && !estimatesViewing && 
+                            {payment?.status !== "Paid" && !estimatesViewing && !summaryPage && 
                             <Dialog>
                               <DialogTrigger>
                                 <Trash2
@@ -2048,7 +2044,6 @@ const handleUnmergePOs = async () => {
             </CardContent>
           </Card>
         </div>
-      )}
       </AccordionContent>
 
         </AccordionItem>
@@ -2663,6 +2658,9 @@ const handleUnmergePOs = async () => {
     </div>
   );
 };
+
+
+export default PurchaseOrder;
 
 interface Make {
   label : string

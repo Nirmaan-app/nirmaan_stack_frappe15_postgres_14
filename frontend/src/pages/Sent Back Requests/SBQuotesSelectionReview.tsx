@@ -172,7 +172,7 @@ export const SBQuotesSelectionReview = () => {
   const [comment, setComment] = useState<string>("")
   const userData = useUserData()
 
-  const { updateDoc: updateDoc, loading: update_loading, error: submit_error } = useFrappeUpdateDoc()
+  const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
   const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
 
   const {mutate} = useSWRConfig()
@@ -193,7 +193,7 @@ export const SBQuotesSelectionReview = () => {
         limit: 10000
   });
 
-  const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
+  const { data: quote_data, isLoading : quote_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
     {
         fields: ["*"],
         limit: 100000
@@ -315,7 +315,7 @@ export const SBQuotesSelectionReview = () => {
 
             await mutate(`${orderData?.type} Sent Back Category`)
 
-            navigate(`/sent-back-requests?type=${orderData?.type}`)
+            navigate(`/procurement-requests?tab=${orderData?.type}`)
       } catch (error) {
               toast({
                   title: "Failed!",
@@ -362,6 +362,9 @@ const {
     vendorWiseApprovalItems,
     approvalOverallTotal,
 } = generateActionSummary();
+
+
+if (sent_back_list_loading || quote_data_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     
   return (
           <div className="flex-1 space-y-4">

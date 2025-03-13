@@ -280,7 +280,7 @@ const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data
                             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                 <div className="space-y-1">
                                     <Label className="text-slim text-red-300">Package:</Label>
-                                    <p className="font-semibold">{pr_data?.work_package}</p>
+                                    <p className="font-semibold">{pr_data?.work_package || "Custom"}</p>
                                 </div>
                                 <div className="space-y-1">
                                     <Label className="text-slim text-red-300">Date Created:</Label>

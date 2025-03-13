@@ -78,7 +78,7 @@ export const ApproveSelectVendor : React.FC = () => {
                             <div className="flex items-center gap-2">
                                 <Link
                                     className="underline hover:underline-offset-2"
-                                    to={`/approve-po/${prId}`}
+                                    to={`${prId}?tab=Approve PO`}
                                 >
                                     {prId?.slice(-4)}
                                 </Link>

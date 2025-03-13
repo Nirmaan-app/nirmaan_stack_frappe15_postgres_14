@@ -1,4 +1,6 @@
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor"
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"
@@ -6,13 +8,12 @@ import { Vendors } from "@/types/NirmaanStack/Vendors"
 import formatToIndianRupee from "@/utils/FormatPrice"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import _ from "lodash"
-import { CheckCheck, CircleMinus, CirclePlus, FolderPlus, ListChecks } from "lucide-react"
+import { CheckCheck, CircleMinus, CirclePlus, FolderPlus, Info, ListChecks, MessageCircleMore } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import ReactSelect, { components } from "react-select"
 import { VendorsReactMultiSelect } from "../../../components/helpers/VendorsReactSelect"
-import { Vendor } from "../../../components/service-request/select-service-vendor"
 import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard"
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../../../components/ui/alert-dialog"
 import { Badge } from "../../../components/ui/badge"
@@ -150,13 +151,12 @@ export const ProcurementProgress : React.FC = () => {
 
   const useVendorOptions = (vendors : any, selectedVendors: Vendor[]) => 
     useMemo(() => vendors
-      ?.filter(v => !selectedVendors.some(sv => sv.name === v.name))
+      ?.filter(v => !selectedVendors.some(sv => sv.value === v.name))
       .map(v => ({
         label: v.vendor_name,
         value: v.name,
         city: v.vendor_city,
         state: v.vendor_state,
-        ...v
       })),
     [vendors, selectedVendors]
   );
@@ -203,7 +203,7 @@ const onClick = async (value : string) => {
 const removeVendor = useCallback((vendorId: string) => {
     setFormData((prev) => {
       const updatedSelectedVendors = prev.selectedVendors.filter(
-        (v) => v?.name !== vendorId
+        (v) => v?.value !== vendorId
       );
   
       const updatedDetails = Object.keys(prev.details).reduce(
@@ -352,9 +352,37 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
       <div className="flex items-center max-sm:items-end justify-between">
       <div className="flex gap-4 max-sm:flex-col">
         <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
+        <div className="flex items-center gap-1">
         <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
           <span  role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
           <span role="radio" tabIndex={0} aria-checked={mode === "view"}  onClick={() => onClick("view")}  className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
+        </div>
+        <HoverCard>
+          <HoverCardTrigger>
+            <Info className="text-blue-500" />
+          </HoverCardTrigger>
+          <HoverCardContent>
+            {mode === "edit" ? (
+                <div>
+                    <p className="font-semibold mb-2 tracking-tight">Edit Mode Instructions:</p>
+                    <ul className="list-disc list-inside space-y-1 text-xs">
+                        <li>Select required vendors using the <b>Add More Vendors</b> button.</li>
+                        <li>Fill in the quotes for each relevant Item-Vendor combination.</li>
+                        <li>Select Makes (if applicable).</li>
+                        <li>Click <b>View</b> to review your item-vendor quote selections.</li>
+                    </ul>
+                </div>
+            ) : (
+                <div>
+                    <p className="font-semibold mb-2 tracking-tight">View Mode Instructions:</p>
+                    <ul className="list-disc list-inside space-y-1 text-xs">
+                        <li>To enable the <b>Continue</b> button below the items table, select at least one Item-Vendor quote.</li>
+                        <li>Click <b>Continue</b> to navigate to the review selections page.</li>
+                    </ul>
+                </div>
+          )}
+        </HoverCardContent>
+        </HoverCard>
         </div>
       </div>
 
@@ -366,10 +394,10 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
         </Button>
         )}
 
-        <Button variant={"outline"} className="text-primary border-primary flex gap-1">
+        <Button disabled variant={"outline"} className="text-primary border-primary flex gap-1">
           <FolderPlus className="w-4 h-4" />
           Generate RFQ
-          </Button>
+        </Button>
       </div>
 
       </div>
@@ -390,10 +418,10 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
                           <p className="border text-center border-gray-400 rounded-md py-1 font-medium">No Vendors Selected</p>
                         </TableHead>
                         ) : (
-                          formData?.selectedVendors?.map((v, _) => <TableHead key={v?.name} className={`text-center w-[15%] text-red-700 text-xs font-medium`}>
+                          formData?.selectedVendors?.map((v, _) => <TableHead key={v?.value} className={`text-center w-[15%] text-red-700 text-xs font-medium`}>
                             <p className="min-w-[150px] max-w-[150px] border border-gray-400 rounded-md py-1 flex gap-1 items-center justify-center">
                                 <div className="truncate text-left">
-                                  <VendorHoverCard vendor_id={v?.name} />
+                                  <VendorHoverCard vendor_id={v?.value} />
                                 </div>
                             {mode === "edit" &&  (
                               <AlertDialog>
@@ -408,7 +436,7 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
                                     <AlertDialogCancel asChild>
                                       <Button variant="outline" className="border-primary text-primary">Cancel</Button>
                                     </AlertDialogCancel>
-                                    <Button onClick={() => removeVendor(v?.name || "")} className="flex items-center gap-1">
+                                    <Button onClick={() => removeVendor(v?.value || "")} className="flex items-center gap-1">
                                       <CheckCheck className="h-4 w-4" />
                                       Confirm
                                     </Button>
@@ -442,29 +470,54 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
                           return (
                             <TableRow key={`${cat.name}-${item.name}`}>
                               <TableCell className="py-8">
-                              {item.item}
+                              <div className="inline items-baseline">
+                                  <span>{item.item}</span>
+                                  {item.comment && (
+                                    <HoverCard>
+                                      <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                      <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                        <div className="relative pb-4">
+                                          <span className="block">{item.comment}</span>
+                                          <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                        </div>
+
+                                      </HoverCardContent>
+                                    </HoverCard>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell>{item.unit}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
                               {formData?.selectedVendors?.map(v => {
-                                const data = formData?.details?.[item.name]?.vendorQuotes?.[v?.name]
+                                const data = formData?.details?.[item.name]?.vendorQuotes?.[v?.value]
                                 const quote = data?.quote
                                 const make = data?.make
+                                const isSelected = mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.value;
                                 return (
-                                  <TableCell key={`${item.name}-${v?.name}`}>
-                                    <div aria-disabled={mode === "edit" || !quote} aria-checked={mode === "view" && (selectedVendorQuotes?.get(item?.name) === v?.name)} 
+                                  <TableCell key={`${item.name}-${v?.value}`}>
+                                    <div aria-disabled={mode === "edit" || !quote} aria-checked={isSelected} 
                                     onClick={() => {
                                       if(mode === "edit") {
                                         return
                                       }
-                                      setSelectedVendorQuotes(new Map(selectedVendorQuotes.set(item.name, v?.name)))
-                                    }} role="radio" tabIndex={0} className={`min-w-[150px] max-w-[150px] space-y-2 p-2 border border-gray-400 rounded-md ${mode === "view" && !quote ? "aria-disabled:pointer-events-none aria-disabled:opacity-50" : ""} ${mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.name ? "bg-red-100" : ""}`}>
+                                      if(isSelected) {
+                                        const updatedQuotes = new Map(selectedVendorQuotes);
+                                        updatedQuotes.delete(item.name);
+                                        setSelectedVendorQuotes(updatedQuotes);
+                                      } else {
+                                        setSelectedVendorQuotes(new Map(selectedVendorQuotes.set(item.name, v?.value)));
+                                      }
+                                    }} 
+                                    role="radio" 
+                                    tabIndex={0} 
+                                    className={`min-w-[150px] max-w-[150px] space-y-3 p-3 border border-gray-300 rounded-md shadow-md transition-all 
+                                    ring-offset-2 ring-gray-300 focus:ring-2 focus:ring-primary hover:shadow-lg ${mode === "view" && !quote ? "pointer-events-none opacity-50" : ""} ${isSelected ? "bg-red-100 ring-2 ring-primary" : "bg-white"}`}>
                                       <div className="flex flex-col gap-1">
                                         <Label className="text-xs font-semibold text-primary">Make</Label>
                                         {mode === "edit" ? (
                                            <MakesSelection vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
                                         ) : (
-                                          <p>{make || "--"}</p>
+                                          <p className="text-sm font-medium text-gray-700">{make || "--"}</p>
                                         )}
                                       </div>
                                       <div className="flex flex-col gap-1">
@@ -472,7 +525,7 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
                                         {mode === "edit" ? (
                                           <Input className="h-8" type="number" value={quote || ""} onChange={(e) => {
                                             const value = e.target.value === "" ? 0 : parseInt(e.target.value)
-                                            handleQuoteChange(item.name, v?.name || "", value)
+                                            handleQuoteChange(item.name, v?.value || "", value)
                                           }} />
                                         ) : (
                                           <p>{quote ?  formatToIndianRupee(quote) : "--"}</p>
@@ -567,7 +620,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
   //   ?.find((j) => j?.qr_id === q?.name)
   //   ?.makes?.find((m) => m?.enabled === "true");
 
-  const selectedMakeName = formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.name]?.make
+  const selectedMakeName = formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make
 
 
   const selectedVendorMake = { value: selectedMakeName, label: selectedMakeName }
@@ -586,7 +639,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
           ...prev.details[item?.name],
           vendorQuotes: {
             ...prev.details[item?.name].vendorQuotes,
-            [vendor?.name]: { ...(prev.details[item?.name].vendorQuotes[vendor?.name] || {}), make: make.value },
+            [vendor?.value]: { ...(prev.details[item?.name].vendorQuotes[vendor?.value] || {}), make: make.value },
           },
         },
       },

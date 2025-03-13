@@ -2,8 +2,10 @@ import logo from "@/assets/logo-svg.svg";
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { MessageCircleMore, Printer } from "lucide-react";
-import { useRef } from "react";
+import * as pdfjsLib from 'pdfjs-dist';
+import { useEffect, useRef, useState } from "react";
 import { useReactToPrint } from "react-to-print";
 import { AddressView } from "../address-view";
 import { Button } from "./button";
@@ -35,18 +37,129 @@ interface POPdfProps {
   togglePoPdfSheet: () => void
 }
 
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
+
 export const POPdf : React.FC<POPdfProps> = ({
   po, orderData, loadingCharges, freightCharges, notes,
   includeComments, getTotal, advance, materialReadiness, afterDelivery, xDaysAfterDelivery, xDays,
   poPdfSheet, togglePoPdfSheet
 }) => {
 
-  const componentRef = useRef<HTMLDivElement>(null);
+      const componentRef = useRef<HTMLDivElement>(null);
 
-  const handlePrint = useReactToPrint({
-    content: () => componentRef.current || null,
-    documentTitle: `${po?.name}_${po?.vendor_name}`,
-  });
+      const {data : attachmentsData} = useFrappeGetDocList("Nirmaan Attachments", {
+          fields: ["*"],
+          filters: [["associated_doctype", "=", "Procurement Requests"], ["associated_docname", "=", po?.procurement_request], ["attachment_type", "=", "custom pr attachment"]]
+      },
+      po?.procurement_request ? undefined : null
+    )
+  
+      const [images, setImages] = useState([]);
+  
+      // const loadPdfAsImages = async (pdfData) => {
+      //   try {
+      
+      //     const response = await fetch(pdfData, {
+      //       method: 'GET',
+      //       headers: {
+      //         'Content-Type': 'application/pdf',
+      //       },
+      //     });
+      
+      //     if (!response.ok) {
+      //       throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+      //     }
+      
+      //     const pdfArrayBuffer = await response.arrayBuffer();
+      
+      //     const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
+      //     const pdf = await loadingTask.promise;
+      
+      //     const pages = [];
+  
+      //     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      //       const page = await pdf.getPage(pageNum);
+          
+      //       const viewport = page.getViewport({ scale: 1.5 });
+      //       const canvas = document.createElement('canvas');
+      //       const context = canvas.getContext('2d');
+      //       canvas.height = viewport.height;
+      //       canvas.width = viewport.width;
+          
+      //       await page.render({ canvasContext: context, viewport }).promise;
+      //       const imgData = canvas.toDataURL();
+      //       pages.push(imgData);
+      //     }
+      
+      //     setPdfImages(pages);
+      //   } catch (error) {
+      //     console.error('Failed to load PDF as images:', error);
+      //   }
+      // };
+
+      const loadFileAsImage = async (att) => {
+        try {
+            const baseURL = window.location.origin;
+            const fileUrl = `${baseURL}${att.attachment}`;
+            const fileType = att.attachment.split('.').pop().toLowerCase();
+
+            if (['pdf'].includes(fileType)) {
+                // Handle PDF files
+                const response = await fetch(fileUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/pdf',
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+                }
+
+                const pdfArrayBuffer = await response.arrayBuffer();
+
+                const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
+                const pdf = await loadingTask.promise;
+
+                const pages = [];
+
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+
+                    const viewport = page.getViewport({ scale: 1.5 });
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport }).promise;
+                    const imgData = canvas.toDataURL();
+                    pages.push(imgData);
+                }
+
+                setImages(prevImages => [...prevImages, ...pages]);
+            } else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType)) {
+                // Handle image files
+                setImages(prevImages => [...prevImages, fileUrl]);
+            } else {
+                console.warn(`Unsupported file type: ${fileType}`);
+            }
+        } catch (error) {
+            console.error('Failed to load file as image:', error);
+        }
+    };
+  
+      useEffect(() => {
+        if (attachmentsData) {
+            attachmentsData.forEach(loadFileAsImage);
+        }
+    }, [attachmentsData]);
+
+
+      const handlePrint = useReactToPrint({
+        content: () => componentRef.current || null,
+        documentTitle: `${po?.name}_${po?.vendor_name}`,
+      });
 
   return (
     <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
@@ -710,6 +823,13 @@ export const POPdf : React.FC<POPdfProps> = ({
                   </tbody>
                 </table>
               </div>
+              {po?.custom === "true" && images?.length > 0 && (
+                <div>
+                  {images?.map((imgSrc, index) => (
+                      <img key={index} src={imgSrc} alt={`Attachment ${index + 1}`} style={{ width: '100%', marginBottom: '20px', marginTop: "20px" }} />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </SheetContent>

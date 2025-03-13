@@ -7,6 +7,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
@@ -15,7 +16,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
+import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
@@ -70,6 +71,27 @@ export const innerColumns : TableColumnsType<DataItem> = [
     dataIndex: "item",
     key: "item",
     className: "min-w-[20vw]",
+    render: (text, record) => (
+      <div className="flex flex-col gap-1">
+        <div className="inline items-baseline">
+        <span>{text}</span>
+        {record?.comment && (
+          <HoverCard>
+            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+              <div className="relative pb-4">
+                <span className="block">{record.comment}</span>
+                <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+              </div>
+            </HoverCardContent>
+          </HoverCard>
+        )}
+        </div>
+        {record?.make && (
+          <span className="text-xs">Selected make : <b>{record.make}</b></span>
+        )}
+      </div>
+    )
   },
   {
     title: "Unit",

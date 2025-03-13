@@ -6,7 +6,6 @@
 
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { ApprovedSRList } from "@/components/service-request/approved-sr-list";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +41,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useParams } from "react-router-dom";
+import { ApprovedSRList } from "../ServiceRequests/service-request/approved-sr-list";
 import { EditVendor } from "./edit-vendor";
 
 // const Vendor = () => {

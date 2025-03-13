@@ -29,3 +29,5 @@ nirmaan_stack.patches.v2_0.project_gst_patch
 nirmaan_stack.patches.v2_1.project_payments_status
 nirmaan_stack.patches.v2_1.project_payments_amount
 nirmaan_stack.patches.v2_1.project_gst_patch_sr
+nirmaan_stack.patches.v2_2.rfq_data_field_fill
+nirmaan_stack.patches.v2_2.pr_status_update_patch

@@ -135,9 +135,11 @@ export const ApprovePayments = () => {
                         <HoverCardTrigger>
                             <Info onClick={() => {
                               if (data?.document_type === "Procurement Orders") {
-                                navigate(`/purchase-orders/${data?.document_name?.replaceAll("/", "&=")}`)
+                                const po = purchaseOrders?.find(i => i?.name === data?.document_name)
+                                const tab = po?.status === "PO Approved" ? "Approved PO" : po?.status === "Dispatched" ? "Dispatched PO" : "Delivered PO"
+                                navigate(`/purchase-orders/${data?.document_name?.replaceAll("/", "&=")}?tab=${tab}`)
                               } else {
-                                navigate(`/approved-sr/${data?.document_name}`)
+                                navigate(`/service-requests/${data?.document_name}?tab=approved-sr`)
                               }
                             }} className="w-4 h-4 text-blue-600 cursor-pointer" />
                         </HoverCardTrigger>

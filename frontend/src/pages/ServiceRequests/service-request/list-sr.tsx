@@ -1,4 +1,13 @@
 import ProjectSelect from "@/components/custom-select/project-select";
+import { ProcurementRequestsSkeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useUserData } from "@/hooks/useUserData";
 import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
 import { UserContext } from "@/utils/auth/UserProvider";
@@ -10,15 +19,6 @@ import {
 } from "frappe-react-sdk";
 import { useContext } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ProcurementRequestsSkeleton } from "../ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
 
 export default function ListSR() {
   const navigate = useNavigate();
