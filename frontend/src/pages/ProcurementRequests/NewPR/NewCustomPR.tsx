@@ -37,6 +37,7 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Table as AntTable, ConfigProvider } from "antd";
 import {
+  useFrappeFileUpload,
   useFrappeGetDocList,
   useFrappePostCall
 } from "frappe-react-sdk";
@@ -44,6 +45,7 @@ import {
   ArrowLeft,
   CheckCheck,
   CirclePlus,
+  Paperclip,
   Settings2,
   Trash2,
   Undo2
@@ -74,6 +76,7 @@ export const NewCustomPR : React.FC<NewCustomPRProps> = ({resolve = false}) => {
   },
   prId ? `Procurement Requests ${prId}` : null
 )
+
 const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList<Vendors>("Vendors",
   {
     fields: ["*"],
@@ -92,6 +95,7 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
   const [order, setOrder] = useState<CustomPRItem[]>([]);
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const [categories, setCategories] = useState<{ list: { name: string, makes : string[] }[] }>({ list: [] });
+  const [attachment, setAttachment] = useState<File | null>(null);
 
   const groupedData : {[key: string]: CustomPRItem[]} = useMemo(() => {
     return order?.reduce((acc :{[key: string]: CustomPRItem[]}, item) => {
@@ -110,7 +114,7 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
   }, [groupedData]);
 
   useEffect(() => {
-    if(resolve && prList &&  prList.length > 0) {
+    if(resolve && prList &&  prList.length > 0 && vendor_list && vendor_list.length > 0) {
       const request = prList[0];
       setOrder(request?.procurement_list?.list as typeof order)
       setCategories(request?.category_list)
@@ -130,7 +134,7 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
       })
 
     }
-  }, [resolve, prId, prList])
+  }, [resolve, prId, prList, vendor_list])
 
   // Main table columns
   const columns = [
@@ -243,6 +247,7 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
 
   const {call : newCustomPRCall, loading: newCustomPRLoading} = useFrappePostCall("nirmaan_stack.api.custom_pr_api.new_custom_pr");
   const {call : resolveCustomPRCall, loading : resolveCustomPRCallLoading} = useFrappePostCall("nirmaan_stack.api.custom_pr_api.resolve_custom_pr");
+  const {upload} = useFrappeFileUpload()
 
   const handleAmountChange = (id: string, value: string) => {
     const numericValue = parseFloat(value);
@@ -281,11 +286,25 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
 
   const handleSubmit = async () => {
     try {
+
+        let file_url = null;
+
+        if(attachment) {
+          const fileArgs = {
+            doctype : "Procurement Requests",
+            docname: "temp_doc",
+            fieldname: "attachment",
+            isPrivate: true,
+          }
+          const uploadedFile = await upload(attachment, fileArgs)
+          file_url = uploadedFile.file_url;
+        }
         const response = await newCustomPRCall({
             project_id: projectId,
             order: order,
             categories: categories.list,
-            comment: comment
+            comment: comment,
+            attachment: attachment ? {file_url: file_url} : null
         });
 
         if (response.message.status === 200) {
@@ -315,12 +334,26 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
 
 const handleResolvePR = async () => {
     try {
-      const response = await resolveCustomPRCall({
-        pr_id: prId,
-        order: order,
-        categories: categories.list,
-        comment: comment
-    });
+      let file_url = null;
+
+        if(attachment) {
+          const fileArgs = {
+            doctype : "Procurement Requests",
+            docname: "temp_doc",
+            fieldname: "attachment",
+            isPrivate: true,
+          }
+          const uploadedFile = await upload(attachment, fileArgs)
+          file_url = uploadedFile.file_url;
+        }
+          const response = await resolveCustomPRCall({
+            project_id: prList[0]?.project,
+            pr_id: prId,
+            order: order,
+            categories: categories.list,
+            comment: comment,
+            attachment: attachment ? {file_url: file_url} : null
+        });
 
         if (response.message.status === 200) {
             toast({
@@ -386,9 +419,9 @@ const handleResolvePR = async () => {
       {section === "choose-vendor" && (
         <>
             <div className="flex justify-between items-center">
-              <div className="text-lg text-gray-400">
+              <h2 className="text-lg text-gray-400">
                 Select vendor for this Custom PR
-              </div>
+              </h2>
               <Sheet>
                 <SheetTrigger className="text-blue-500">
                   <div className="text-base text-blue-400 text-center">
@@ -414,7 +447,12 @@ const handleResolvePR = async () => {
                 </SheetContent>
               </Sheet>
             </div>
-            <VendorsReactSelect selectedVendor={selectedVendor} vendorOptions={vendorOptions} setSelectedvendor={setSelectedvendor} />
+            <div className="flex gap-4 items-start">
+              <div className="w-2/3">
+                <VendorsReactSelect selectedVendor={selectedVendor} vendorOptions={vendorOptions} setSelectedvendor={setSelectedvendor} />
+              </div>
+               <FileUpload attachment={attachment} setAttachment={setAttachment} />
+            </div>
             <div className="overflow-x-auto">
               <div className="min-w-full inline-block align-middle">
                 <Table>
@@ -663,6 +701,64 @@ const handleResolvePR = async () => {
             </Dialog>
           </div>
         </>
+      )}
+    </div>
+  );
+};
+
+
+interface FileUploadProps {
+  attachment : File | null
+  setAttachment: React.Dispatch<React.SetStateAction<File | null>>
+}
+
+
+const FileUpload : React.FC<FileUploadProps> = ({ attachment, setAttachment }) => {
+
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
+    // if (!allowedTypes.includes(file.type)) {
+    //   alert("Invalid file type! Please upload a JPG, PNG, or PDF.");
+    //   return;
+    // }
+
+    // if (file.size > 5 * 1024 * 1024) {
+    //   alert("File size exceeds 5MB limit!");
+    //   return;
+    // }
+
+    setAttachment(file);
+  };
+
+  return (
+    <div className="flex flex-col gap-2 w-1/3">
+      <div
+        className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 ${
+          attachment ? "opacity-50 cursor-not-allowed" : "hover:bg-blue-100"
+        }`}
+        onClick={() => !attachment && document.getElementById("file-upload")?.click()}
+      >
+        <Paperclip size="15px" />
+        <span className="p-0 text-sm">Attach</span>
+        <input
+          type="file"
+          id="file-upload"
+          className="hidden"
+          onChange={handleFileChange}
+          disabled={!!attachment}
+        />
+      </div>
+
+      {attachment && (
+        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
+          <span className="text-sm">{attachment.name}</span>
+          <button className="ml-1 text-red-500" onClick={() => setAttachment(null)}>
+            ✖
+          </button>
+        </div>
       )}
     </div>
   );

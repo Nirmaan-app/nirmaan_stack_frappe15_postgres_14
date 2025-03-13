@@ -23,9 +23,9 @@ import { v4 as uuidv4 } from "uuid";
 import { ActionSummary } from '../../../components/ui/ActionSummary';
 import { RenderPRorSBComments } from '../../../components/ui/RenderPRorSBComments';
 
-export const ApproveRejectVendorQuotes : React.FC = () => {
+const ApproveRejectVendorQuotes : React.FC = () => {
 
-    const { prId } = useParams<{ prId: string }>()
+    const { id: prId } = useParams<{ id: string }>()
     const { data: pr, isLoading: pr_loading, error: pr_error, mutate: pr_mutate } = useFrappeGetDoc("Procurement Requests", prId);
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
@@ -87,7 +87,7 @@ export const ApproveRejectVendorQuotes : React.FC = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-po")}
+                    onClick={() => navigate("/purchase-orders?tab=Approve PO")}
                 >
                     Go Back
                 </button>
@@ -109,6 +109,30 @@ type ApproveRejectVendorQuotesPageProps = {
 }
 
 export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesPageProps> = ({pr_data, pr_mutate, vendor_list, quotes_data, universalComment, getUserName}) => {
+
+    const [attachment, setAttachment] = useState(null)
+
+    const {data : attachmentsData} = useFrappeGetDocList("Nirmaan Attachments", {
+          fields: ["*"],
+          filters: [["associated_doctype", "=", "Procurement Requests"], ["associated_docname", "=", pr_data?.name], ["attachment_type", "=", "custom pr attachment"]]
+      },
+    !pr_data?.work_package ? undefined : null
+    )   
+
+    const handleAttachmentClick = (attachmentUrl: string) => {
+        const siteUrl = `${window.location.protocol}//${window.location.host}`;
+        const fullAttachmentUrl = import.meta.env.MODE === "development"
+            ? `http://localhost:8000${attachmentUrl}`
+            : `${siteUrl}${attachmentUrl}`;
+    
+        window.open(fullAttachmentUrl, '_blank');
+    };
+
+    useEffect(() => {
+        if(attachmentsData && attachmentsData?.length > 0) {
+            setAttachment(attachmentsData[0])
+        }
+    }, [attachmentsData])
 
   const {call : approveItemsCall, loading : approveItemsCallLoading} = useFrappePostCall("nirmaan_stack.api.approve_vendor_quotes.generate_pos_from_selection")
 
@@ -292,10 +316,10 @@ const newHandleApprove = async () => {
           });
 
           setSelectionMap(new Map());
-          await pr_mutate();
           if (!orderData?.work_package || orderData?.procurement_list.list.length === selectedItemNames.length) {
-              navigate('/approve-po');
-          }
+            navigate('/purchase-orders?tab=Approve PO');
+        }
+          await pr_mutate();
           toggleApproveDialog();
       } else if (response.message.status === 400) {
           toast({
@@ -336,8 +360,9 @@ const newHandleSentBack = async () => {
             });
           }
 
+        navigate('/purchase-orders?tab=Approve PO');
+
         await pr_mutate();
-        navigate('/approve-po');
         toast({
             title: "Success!",
             description: "Successfully Rejected the custom PR!",
@@ -377,11 +402,10 @@ const newHandleSentBack = async () => {
           });
 
           setSelectionMap(new Map());
-          await pr_mutate();
-
           if (orderData?.procurement_list?.list?.length === selectedItemNames.length) {
-              navigate('/approve-po');
-          }
+            navigate('/purchase-orders?tab=Approve PO');
+            }
+          await pr_mutate();
 
           toggleSentBackDialog();
       } else if (response.message.status === 400) {
@@ -546,7 +570,24 @@ const generateActionSummary = useCallback((actionType : string) => {
               )}
             </div>
 
-                    {(selectionMap.size > 0 || !orderData?.work_package) && <div className="flex justify-end gap-2 mr-2 mt-4">
+            <div className='grid grid-cols-3 items-center mt-4'>
+            <div className="flex items-center gap-2 col-span-2  sm:items-center sm:justify-center">
+                <h3 className='max-sm:hidden font-semibold tracking-tight'>Attachment</h3>
+                {attachment && (
+                <div
+                    style={{
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        color: 'blue',
+                    }}
+                    onClick={() => handleAttachmentClick(attachment?.attachment)}
+                >
+                    {/* Display a generic attachment name or derive it from the URL */}
+                    {attachment?.attachment.split('/').pop()}
+                </div>
+                )}
+            </div>
+                {(selectionMap.size > 0 || !orderData?.work_package) && <div className="flex justify-end gap-2 mr-2">
                         <Button onClick={toggleSentBackDialog} variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
                             <SendToBack className='w-4 h-4' />
                             {!orderData?.work_package ? "Reject" : "Send Back"}
@@ -609,6 +650,8 @@ const generateActionSummary = useCallback((actionType : string) => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
+        
+            </div>
 
             <div className='space-y-2'>
                 <h2 className="text-base pl-2 font-bold tracking-tight">Procurement Comments</h2>
@@ -666,5 +709,7 @@ const generateActionSummary = useCallback((actionType : string) => {
         </div>
   )
 }
+
+export default ApproveRejectVendorQuotes;
 
 export const Component = ApproveRejectVendorQuotes

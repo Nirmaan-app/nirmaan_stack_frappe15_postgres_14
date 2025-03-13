@@ -124,7 +124,7 @@ export const PurchaseOrder = ({
 }: PurchaseOrderProps) => {
   const params = useParams();
 
-  const id = accountsPage ? params.id : params.id;
+  const id = summaryPage ? params.poId : params.id;
 
   const [isRedirecting, setIsRedirecting] = useState(false);
 
