@@ -1,4 +1,4 @@
-import { FileUser, HardHat, ShoppingCart, Truck } from "lucide-react";
+import { HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 
@@ -52,6 +52,12 @@ export const ProjectManager = () => {
             title="Generate Daily Manpower Report"
             icon={<HardHat className="h-8 w-8 text-white" />}
             onClick={() => navigate("/prs&milestones/man-power-report")}
+            className="bg-red-600"
+          />
+           <DashboardCard
+            title="Service Requests"
+            icon={<HandPlatter className="h-8 w-8 text-white" />}
+            onClick={() => navigate("/service-requests-list")}
             className="bg-red-600"
           />
         </div>

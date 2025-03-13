@@ -19,6 +19,7 @@ import { Info, Paperclip, Trash2 } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ApprovePayments } from "./approve-payments";
 import { ProjectPaymentsList } from "./project-payments-list";
 
 export const ProjectPaymentsPaymentWise = () => {
@@ -31,7 +32,7 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const navigate = useNavigate()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || "New Payments");
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") ? "Approve Payments" : "New Payments"));
 
     const [dialogType, setDialogType] = useState<"fulfill" | "delete">("fulfill");
 
@@ -76,6 +77,22 @@ export const ProjectPaymentsPaymentWise = () => {
     const toggleFulFillPaymentDialog = () => {
         setFulFillPaymentDialog((prevState) => !prevState);
     };
+
+    const adminTabs = [
+        ...(["Nirmaan Admin Profile"].includes(role) || user_id === "Administrator" ? [
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Approve Payments</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPaymentsCount?.requested : paymentsCount?.requested}
+                        </span>
+                    </div>
+                ),
+                value: "Approve Payments",
+            },
+        ] : [])
+    ]
 
     const items = [
         {
@@ -203,8 +220,6 @@ export const ProjectPaymentsPaymentWise = () => {
         label: item.vendor_name,
         value: item.name,
     })) || [];
-
-    const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
@@ -447,6 +462,16 @@ export const ProjectPaymentsPaymentWise = () => {
     return (
         <div className="flex-1 space-y-4">
             <div className="flex items-center max-sm:items-start gap-4 max-sm:flex-col">
+                {adminTabs && (
+                    <Radio.Group
+                        block
+                        options={adminTabs}
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
                 {items && (
                     <Radio.Group
                         block
@@ -467,7 +492,11 @@ export const ProjectPaymentsPaymentWise = () => {
                     onChange={(e) => onClick(e.target.value)}
                 />
             </div>
-            {["New Payments", "Fulfilled Payments"].includes(tab) ? (
+            {tab === "Approve Payments" ? (
+                <ApprovePayments />
+            ) :
+            
+            ["New Payments", "Fulfilled Payments"].includes(tab) ? (
                 projectsLoading || vendorsLoading || projectPaymentsLoading ? (
                     <TableSkeleton />
                 ) : (

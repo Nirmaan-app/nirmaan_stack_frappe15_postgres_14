@@ -6,13 +6,13 @@ export const RenderPurchaseOrdersTab : React.FC = () => {
 
   const [searchParams] = useSearchParams();
 
-  const tab = searchParams.get("tab") || "Approve PO"
+  const tab = searchParams.get("tab") || "Approved PO"
 
-  const ApprovePO = React.lazy(() => import("@/pages/approve-vendor"));
+  const ApprovePO = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes"));
 
   const ApproveAmendedPO = React.lazy(() => import("@/pages/approve-amend-po"));
 
-  const ApproveSentBackPO = React.lazy(() => import("@/pages/approve-sent-back"));
+  const ApproveSentBackPO = React.lazy(() => import("@/pages/Sent Back Requests/ApproveSBVendorQuotes"));
 
   const PurchaseOrder = React.lazy(() => import("@/pages/ProcurementOrders/PurchaseOrder"));
 

@@ -8,19 +8,27 @@ def after_insert(doc, method):
         accountant_users = get_allowed_accountants(doc)
         proc_admin_account_users = proc_admin_users + accountant_users
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
+        custom = doc.custom == "true"
         if proc_admin_account_users:
             for user in proc_admin_account_users:
                 if user["push_notification"] == "true":
                     # Dynamically generate notification title/body for each lead
-                    notification_title = f"New PO for Project {doc.project}"
-                    notification_body = (
-                        f"Hi {user['full_name']}, a new purchase order for the {pr.work_package} "
-                        f"work package has been approved and created by {get_user_name(frappe.session.user)}, click here to take action."
-                        )
-                    if user['role_profile'] != "Nirmaan Accountant Profile":
-                        click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders"
+                    notification_title = f"New {'Custom PO' if custom else 'PO'} for Project {doc.project_name}"
+                    notification_body = None
+                    if custom:
+                        notification_body = (
+                            f"Hi {user['full_name']}, a new Custom PO for the {doc.project_name} "
+                            f"project has been approved and created by {get_user_name(frappe.session.user)}, click here to take action."
+                            )
                     else:
-                        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments"
+                        notification_body = (
+                            f"Hi {user['full_name']}, a new purchase order for the {pr.work_package} "
+                            f"work package has been approved and created by {get_user_name(frappe.session.user)}, click here to take action."
+                            )
+                    if user['role_profile'] != "Nirmaan Accountant Profile":
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approved%20PO"
+                    else:
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=PO%20Wise"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -30,10 +38,10 @@ def after_insert(doc, method):
         
 
         message = {
-            "title": _("New Purchase Order"),
-            "description": _(f"New PO: {doc.name} has been approved and created."),
+            "title": _(f"New {'Custom Purchase' if custom else 'Purchase'} Order"),
+            "description": _(f"New {'Custom PO' if custom else 'PO'}: {doc.name} has been approved and created."),
             "project": doc.project,
-            "work_package": pr.work_package,
+            "work_package": pr.work_package if not custom else "Custom",
             "sender": frappe.session.user,
             "docname": doc.name
         }
@@ -49,15 +57,15 @@ def after_insert(doc, method):
             new_notification_doc.document = 'Procurement Orders'
             new_notification_doc.docname = doc.name
             new_notification_doc.project = doc.project
-            new_notification_doc.work_package = pr.work_package
+            new_notification_doc.work_package = pr.work_package if not custom else "Custom"
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "po:new"
             action_url = doc.name.replace("/", "&=")
             if user['role_profile'] != "Nirmaan Accountant Profile":
-                new_notification_doc.action_url = f"purchase-orders/{action_url}?tab=Approved PO"
+                new_notification_doc.action_url = f"purchase-orders/{action_url}?tab=Approved%20PO"
             else:
-                new_notification_doc.action_url = f"project-payments/{action_url}"
+                new_notification_doc.action_url = f"project-payments/{action_url}?tab=PO%20Wise"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -76,6 +84,7 @@ def on_update(doc, method):
     Manage Approved Quotations and Deletion of PO
     """
     doc = frappe.get_doc("Procurement Orders", doc.name)
+    custom = doc.custom == "true"
 
     if(doc.status=="PO Approved"):
         try:
@@ -128,10 +137,10 @@ def on_update(doc, method):
                     # Dynamically generate notification title/body for each lead
                     notification_title = f"PO: {doc.name} has been Amended"
                     notification_body = (
-                        f"Hi {user['full_name']}, PO: {doc.name} for the {doc.project} "
+                        f"Hi {user['full_name']}, {'Custom PO' if custom else 'PO'}: {doc.name} for the {doc.project} "
                         f"project has been amended by {get_user_name(frappe.session.user)} and is awaiting your review."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-amended-po"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approve%20Amended%20PO"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -140,10 +149,10 @@ def on_update(doc, method):
             print("No project leads or admins found with push notifications enabled.")
 
         message = {
-            "title": _("PO Status Updated!"),
-            "description": _(f"PO: {doc.name} has been amended!"),
+            "title": _(f"{'Custom PO' if custom else 'PO'} Status Updated!"),
+            "description": _(f" {'Custom PO' if custom else 'PO'}: {doc.name} has been amended!"),
             "project": doc.project,
-            "work_package": pr.work_package,
+            "work_package": pr.work_package if not custom else "Custom",
             "sender": frappe.session.user,
             "docname": doc.name
         }
@@ -159,12 +168,12 @@ def on_update(doc, method):
             new_notification_doc.document = 'Procurement Orders'
             new_notification_doc.docname = doc.name
             new_notification_doc.project = doc.project
-            new_notification_doc.work_package = pr.work_package
+            new_notification_doc.work_package = pr.work_package if not custom else "Custom"
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "po:amended"
             action_url = doc.name.replace("/", "&=")
-            new_notification_doc.action_url = f"approve-amended-po/{action_url}"
+            new_notification_doc.action_url = f"purchase-orders/{action_url}?tab=Approve%20Amended%20PO"
             new_notification_doc.insert()
             frappe.db.commit()
 

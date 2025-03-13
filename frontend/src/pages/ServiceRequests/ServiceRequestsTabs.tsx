@@ -49,7 +49,7 @@ export const ServiceRequestsTabs : React.FC = () => {
         {
           label: (
               <div className="flex items-center">
-                  <span>Choose Vendor</span>
+                  <span>In Progress SR</span>
                   <span className="ml-2 text-xs font-bold">
                       {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPendingSRCount : pendingSRCount}
                   </span>

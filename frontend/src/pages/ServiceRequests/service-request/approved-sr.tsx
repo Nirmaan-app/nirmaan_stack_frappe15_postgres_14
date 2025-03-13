@@ -380,7 +380,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     <Badge>{service_request?.status}</Badge>
                 </div>
               <div className="flex items-center gap-2">
-                                {!summaryPage && !accountsPage && !(projectPayments?.length > 0) && (
+                                {!summaryPage && !accountsPage && (
                                     <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8">
                                         <PencilRuler className="w-4 h-4" />
                                         Amend
@@ -434,14 +434,14 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                         </div>
             </CardContent>
                 </Card>
-            {!summaryPage && (
+
             <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                         <p>Transaction Details</p>
 
-                        {!accountsPage && (
+                        {!accountsPage && !summaryPage && (
                             <>
                             <Button
                           variant="outline"
@@ -607,7 +607,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {projectPayments?.length > 0 ? (
+                                {(projectPayments || []).length > 0 ? (
                                     projectPayments?.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
@@ -635,7 +635,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                  {payment?.status !== "Paid" && 
+                                                  {payment?.status !== "Paid" && !summaryPage && 
                                                   <Dialog>
                                                     <DialogTrigger>
                                                       <Trash2
@@ -851,7 +851,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     </CardContent>
                 </Card>
             </div>
-            )}
 
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">

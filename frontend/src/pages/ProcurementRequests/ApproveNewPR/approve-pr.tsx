@@ -104,7 +104,7 @@ export const ApprovePR : React.FC = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`/procurement-requests/${prId}?tab=New PR Request`}
+                                to={`/procurement-requests/${prId}?tab=Approve PR`}
                             >
                                 {prId?.slice(-4)}
                             </Link>

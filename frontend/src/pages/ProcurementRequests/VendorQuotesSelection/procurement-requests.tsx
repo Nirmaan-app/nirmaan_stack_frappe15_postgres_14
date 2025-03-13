@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { ApprovePR } from "@/pages/approve-pr";
+import { ApprovePR } from "@/pages/ProcurementRequests/ApproveNewPR/approve-pr";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -154,7 +154,7 @@ export const ProcurementRequests : React.FC = () => {
                 {
                     label: (
                         <div className="flex items-center">
-                            <span>Rejected</span>
+                            <span>Sent Back</span>
                             <span className="ml-2 text-xs font-bold">
                                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.rejected : newSBCounts.rejected}
                             </span>
@@ -165,7 +165,7 @@ export const ProcurementRequests : React.FC = () => {
                 {
                     label: (
                         <div className="flex items-center">
-                            <span>Delayed</span>
+                            <span>Skipped PR</span>
                             <span className="ml-2 rounded text-xs font-bold">
                                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.delayed : newSBCounts.delayed}
                             </span>
@@ -176,7 +176,7 @@ export const ProcurementRequests : React.FC = () => {
                 {
                     label: (
                         <div className="flex items-center">
-                            <span>Cancelled</span>
+                            <span>Rejected PO</span>
                             <span className="ml-2 rounded text-xs font-bold">
                                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}
                             </span>
@@ -204,6 +204,8 @@ export const ProcurementRequests : React.FC = () => {
     ]
 
     const items = [
+        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role) ||
+            user_id == "Administrator" ? [
         {
             label: (
                 <div className="flex items-center">
@@ -248,6 +250,7 @@ export const ProcurementRequests : React.FC = () => {
             ),
             value: "In Progress",
         },
+    ] : []),
     ];
 
     const columns: ColumnDef<PRTable>[] = useMemo(

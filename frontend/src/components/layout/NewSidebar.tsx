@@ -48,7 +48,6 @@ import {
 } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import {
-  Building2,
   LayoutGrid,
   List,
   Shapes,
@@ -97,25 +96,13 @@ export function NewSidebar() {
   const {
     updatePRCounts,
     updateSBCounts,
-    newSBApproveCount,
-    adminNewApproveSBCount,
-    amendPOCount,
-    adminAmendPOCount,
     updatePOCounts,
     newPOCount,
     adminNewPOCount,
-    adminNewSBCounts,
-    newSBCounts,
     updateSRCounts,
-    adminSelectedSRCount,
-    selectedSRCount,
     approvedSRCount,
     adminApprovedSRCount,
-    adminAmendedSRCount,
-    amendedSRCount,
     updatePaymentsCount,
-    paymentsCount,
-    adminPaymentsCount,
     prCounts,
     adminPrCounts,
     pendingSRCount, 
@@ -596,16 +583,16 @@ export function NewSidebar() {
             },
           ]
         : []),
-    ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
-      role
-    ) || user_id == "Administrator"
-      ? [
-          {
-            key: "pl-actions",
-            icon: Building2,
-            label: "Procurement Actions",
-            children: [
-              { key: "/prs&milestones", label: "PRs & Milestones" },
+    // ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
+    //   role
+    // ) || user_id == "Administrator"
+    //   ? [
+    //       {
+    //         key: "pl-actions",
+    //         icon: Building2,
+    //         label: "Procurement Actions",
+    //         children: [
+    //           { key: "/prs&milestones", label: "PRs & Milestones" },
               // {
               //   key: "/approve-new-pr",
               //   label: "Approve PR",
@@ -615,33 +602,33 @@ export function NewSidebar() {
               //       ? adminPrCounts.pending
               //       : prCounts.pending,
               // },
-              {
-                key: "/approve-po",
-                label: "Approve PO",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminPrCounts.approve
-                    : prCounts.approve,
-              },
-              {
-                key: "/approve-amended-po",
-                label: "Approve Amended PO",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminAmendPOCount
-                    : amendPOCount,
-              },
-              {
-                key: "/approve-sent-back",
-                label: "Approve Sent Back PO",
-                count:
-                  role === "Nirmaan Admin Profile" ||
-                  user_id === "Administrator"
-                    ? adminNewApproveSBCount
-                    : newSBApproveCount,
-              },
+              // {
+              //   key: "/approve-po",
+              //   label: "Approve PO",
+              //   count:
+              //     role === "Nirmaan Admin Profile" ||
+              //     user_id === "Administrator"
+              //       ? adminPrCounts.approve
+              //       : prCounts.approve,
+              // },
+              // {
+              //   key: "/approve-amended-po",
+              //   label: "Approve Amended PO",
+              //   count:
+              //     role === "Nirmaan Admin Profile" ||
+              //     user_id === "Administrator"
+              //       ? adminAmendPOCount
+              //       : amendPOCount,
+              // },
+              // {
+              //   key: "/approve-sent-back",
+              //   label: "Approve Sent Back PO",
+              //   count:
+              //     role === "Nirmaan Admin Profile" ||
+              //     user_id === "Administrator"
+              //       ? adminNewApproveSBCount
+              //       : newSBApproveCount,
+              // },
               // {
               //   key: "/approve-service-request",
               //   label: "Approve Service Order",
@@ -660,34 +647,35 @@ export function NewSidebar() {
               //       ? adminAmendedSRCount
               //       : amendedSRCount,
               // },
-              ...(role !== "Nirmaan Project Lead Profile" ? [
-                {
-                  key: "/approve-payments",
-                  label: "Approve Payments",
-                  count:
-                    role === "Nirmaan Admin Profile" ||
-                    user_id === "Administrator"
-                      ? adminPaymentsCount.requested
-                      : paymentsCount.requested,
-                },
-              ] : []),
-            ],
-          },
-        ]
-      : []),
+              // ...(role !== "Nirmaan Project Lead Profile" ? [
+              //   {
+              //     key: "/approve-payments",
+              //     label: "Approve Payments",
+              //     count:
+              //       role === "Nirmaan Admin Profile" ||
+              //       user_id === "Administrator"
+              //         ? adminPaymentsCount.requested
+              //         : paymentsCount.requested,
+              //   },
+              // ] : []),
+      //       ],
+      //     },
+      //   ]
+      // : []),
     ...([
       "Nirmaan Procurement Executive Profile",
       "Nirmaan Admin Profile",
+      "Nirmaan Project Lead Profile"
     ].includes(role) || user_id == "Administrator"
       ? [
           {
             key: "/procurement-requests",
             icon: List,
             label: "Procurement Requests",
-            count: role === "Nirmaan Admin Profile" ||
-                    user_id === "Administrator"
-                    ? adminPrCounts.approved
-                    : prCounts.approved,
+            // count: role === "Nirmaan Admin Profile" ||
+            //         user_id === "Administrator"
+            //         ? adminPrCounts.approved
+            //         : prCounts.approved,
           },
         ]
       : []),
@@ -701,20 +689,20 @@ export function NewSidebar() {
             key: "/service-requests",
             icon: SquareSquare,
             label: "Service Requests",
-            count: role === "Nirmaan Admin Profile" ||
-                    user_id === "Administrator"
-                    ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
-                    : (pendingSRCount || 0) + (approvedSRCount || 0),
+            // count: role === "Nirmaan Admin Profile" ||
+            //         user_id === "Administrator"
+            //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
+            //         : (pendingSRCount || 0) + (approvedSRCount || 0),
           },
           {
             key: "/purchase-orders",
             icon: ShoppingCart,
             label: "Purchase Orders",
-            count:
-                 role === "Nirmaan Admin Profile" ||
-                 user_id === "Administrator"
-                   ? adminNewPOCount
-                   : newPOCount,
+            // count:
+            //      role === "Nirmaan Admin Profile" ||
+            //      user_id === "Administrator"
+            //        ? adminNewPOCount
+            //        : newPOCount,
           },
         ]
       : []),
@@ -755,14 +743,15 @@ export function NewSidebar() {
     "approved-quotes",
     "prs&milestones",
     // "approve-new-pr",
-    "approve-po",
-    "approve-sent-back",
-    "approve-amended-po",
-    "approve-payments",
+    // "approve-po",
+    // "approve-sent-back",
+    // "approve-amended-po",
+    // "approve-payments",
     "procurement-requests",
     "purchase-orders",
-    // "sent-back-requests",
+    "sent-back-requests",
     "service-requests",
+    "service-requests-list",
     // "approve-service-request",
     // "approve-amended-so",
     // "choose-service-vendor",
@@ -778,12 +767,12 @@ export function NewSidebar() {
 
   const groupMappings = {
     "admin-actions": ["users", "items", "vendors", "customers", "procurement-packages", "approved-quotes"],
-    "pl-actions": [
-      "prs&milestones", "approve-po", "approve-sent-back",
-      "approve-amended-po", "approve-payments"
-    ],
-    "/procurement-requests": ["procurement-requests"],
-    "/service-requests": ["service-requests"],
+    // "pl-actions": [
+    //   "prs&milestones", "approve-po", "approve-sent-back",
+    //   "approve-amended-po", "approve-payments"
+    // ],
+    "/procurement-requests": ["procurement-requests", "prs&milestones", "sent-back-requests"],
+    "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
     // "/sent-back-requests": ["sent-back-requests"],
     "/project-payments": ["project-payments"],
@@ -812,7 +801,7 @@ export function NewSidebar() {
   };
 
   useEffect(() => {
-    if(["admin-actions", "pl-actions"].includes(openKey)) {
+    if(["admin-actions"].includes(openKey)) {
       setCollapsedKey(openKey)
     }
   }, [])

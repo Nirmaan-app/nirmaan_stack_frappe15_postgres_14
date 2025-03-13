@@ -3,7 +3,7 @@ import logo from "@/assets/logo-svg.svg";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { NewPRSkeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,7 +17,7 @@ import { Timeline } from "antd";
 import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 import { ListChecks, Printer, Settings2, Trash2, Undo2, UserSearch } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 
 const SrSummary : React.FC = () => {
@@ -170,7 +170,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                         <div className="flex items-center justify-between">
                             <h2 className="text-xl max-md:text-lg pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
                             <div className="flex gap-4 items-center">
-                                {sr_data?.status === "Approved" &&
+                                {sr_data?.status === "Approved" && userData.role !== "Nirmaan Project Manager Profile" &&
                                     <div>
                                         <Button className='flex items-center gap-2' onClick={handlePrint}>
                                             <Printer className='h-4 w-4' />
@@ -179,7 +179,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     </div>
                                 }
                                 {
-                                    sr_data?.status === "Rejected" && (
+                                    sr_data?.status === "Rejected" && userData.role !== "Nirmaan Project Manager Profile" && (
                                         <Button onClick={() => navigate("resolve-sr")} className="flex items-center gap-1">
                                             <Settings2 className="h-4 w-4" />
                                             Resolve</Button>
@@ -319,6 +319,18 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     </div>
                                 </div>
                             </Card>
+                            {sr_data?.status === "Approved" && (
+                            <Card className="w-full">
+                                <CardHeader>
+                                    <CardTitle className="text-xl text-red-600">Service Order View</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <CardDescription className="space-y-2 underline text-blue-500">
+                                        <Link to="order-view">{sr_data?.name}</Link>
+                                    </CardDescription>
+                                </CardContent>
+                            </Card>
+                            )}
 
                             <div className={`w-full border rounded-lg h-screen overflow-y-scroll hidden`}>
                                 <div ref={componentRef} className="w-full p-4">
@@ -540,7 +552,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                         </div>
 
                         {
-                            sr_data?.status === "Created" &&
+                            sr_data?.status === "Created" && userData.role !== "Nirmaan Project Manager Profile" &&
                             <div className="text-right">
                                 <Button onClick={() => navigate(`/service-requests/${sr_data?.name}?tab=choose-vendor`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
                             </div>

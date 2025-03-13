@@ -6,7 +6,7 @@ interface HoverCardProps extends React.ComponentPropsWithoutRef<typeof HoverCard
   delayDuration?: number;
 }
 
-const HoverCard : React.FC<HoverCardProps> = ({ delayDuration = 500, ...props }) => {
+const HoverCard : React.FC<HoverCardProps> = ({ delayDuration = 300, ...props }) => {
   const [isTouchDevice, setIsTouchDevice] = React.useState(false);
   const [open, setOpen] = React.useState(false);
 
@@ -61,7 +61,7 @@ interface HoverCardTriggerProps extends React.ComponentPropsWithoutRef<typeof Ho
 
 const HoverCardTrigger : React.FC<HoverCardTriggerProps> = ({
   children,
-  onLongPressDuration = 500,
+  onLongPressDuration = 400,
   setOpen,
   isTouchDevice,
   ...props

@@ -80,8 +80,9 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect from "react-select";
 
-const ApprovePRList = () => {
+export const ApprovePRList = () => {
   const { prId: id } = useParams<{ prId: string }>();
+  console.log("id", id)
   const { data: pr, isLoading: pr_loading, error: pr_error, mutate: prMutate } = useFrappeGetDoc("Procurement Requests", id);
   const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc(
     "Projects",

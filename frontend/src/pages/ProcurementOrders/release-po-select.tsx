@@ -16,9 +16,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
 import { useToast } from "../../components/ui/use-toast";
-import { ApproveSelectVendor } from "../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
 import { ApproveSelectAmendPO } from "../approve-select-amend-po";
-import { ApproveSelectSentBack } from "../approve-select-sent-back";
+import { ApproveSelectVendor } from "../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
+import { ApproveSelectSentBack } from "../Sent Back Requests/approve-select-sent-back";
 
 
 // interface ReleasePOSelectProps {
@@ -204,13 +204,14 @@ export const ReleasePOSelect = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const id = row.getValue("name")
+                    const data = row.original
+                    const id = data?.name
                     const poId = id?.replaceAll("/", "&=")
                     const isNew = notifications.find(
                         (item) => tab === "Approved PO" && item.docname === id && item.seen === "false" && item.event_id === "po:new"
                     )
                     return (
-                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative min-w-[150px] flex flex-col">
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
@@ -220,6 +221,9 @@ export const ReleasePOSelect = () => {
                             >
                                 {id?.toUpperCase()}
                             </Link>
+                            {data?.custom === "true" && (
+                                <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
+                            )}
                         </div>
                     )
                 }

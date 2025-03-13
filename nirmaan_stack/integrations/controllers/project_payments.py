@@ -18,7 +18,7 @@ def after_insert(doc, method):
                         f"PO has been requested by {get_user_name(frappe.session.user)}, click here to take action."
                         )
                     
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-payments"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=Approve%20Payments"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -49,7 +49,7 @@ def after_insert(doc, method):
             new_notification_doc.type = "info"
             eventID = "payment:new"
             new_notification_doc.event_id = eventID
-            new_notification_doc.action_url = f"approve-payments"
+            new_notification_doc.action_url = f"project-payments?tab=Approve%20Payments"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -70,12 +70,12 @@ def on_update(doc, method):
         if accountants:
             for user in accountants:
                 if user["push_notification"] == "true":
-                    notification_title = f"Payment Approved for Project {project.project_name}"
+                    notification_title = f"Payment Approved for Project {project.project_name}!"
                     notification_body = (
                             f"Hi {user['full_name']}, a new payment has been approved for the PO:{doc.document_name}. "
                             "Please review and fulfill the payment."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=New%20Payments"
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
                     print(f"push notifications were not enabled for user: {user['full_name']}")
@@ -100,7 +100,7 @@ def on_update(doc, method):
                 new_notification_doc.seen = "false"
                 new_notification_doc.type = "info"
                 new_notification_doc.event_id = "payment:approved"
-                new_notification_doc.action_url = f"project-payments"
+                new_notification_doc.action_url = f"project-payments?tab=New%20Payments"
                 new_notification_doc.insert()
                 frappe.db.commit()
 
