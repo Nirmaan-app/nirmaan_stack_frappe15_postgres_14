@@ -1,19 +1,26 @@
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { useState, useEffect, useRef } from "react"
-import { useReactToPrint } from 'react-to-print';
-import redlogo from "@/assets/red-logo.png"
+import redlogo from "@/assets/red-logo.png";
+import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
-import * as pdfjsLib from 'pdfjs-dist';
-import { Layout, Button } from "antd";
+import { Button, Layout } from "antd";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { CircleChevronDown, CircleChevronLeft, FolderUp, MessageCircleMore, Printer } from "lucide-react";
-import { Switch } from "../ui/switch";
+import * as pdfjsLib from 'pdfjs-dist';
+import { useEffect, useRef, useState } from "react";
+import { useReactToPrint } from 'react-to-print';
 import { Separator } from "../ui/separator";
+import { Switch } from "../ui/switch";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
 const {  Sider, Content } = Layout;
 
-export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
+interface PrintFRQProps {
+    pr_id : string
+    vendor_id: string
+    itemList : ProcurementItem[]
+}
+
+export const PrintRFQ : React.FC<PrintFRQProps> = ({ pr_id, vendor_id, itemList }) => {
 
     const {data : boqAttachments} = useFrappeGetDocList("Category BOQ Attachments", {
         fields: ["*"],

@@ -16,6 +16,13 @@ interface PODataType {
     status: string;
 }
 
+interface PRCounts {
+    pending: number | null;
+    approve: number | null;
+    approved: number | null;
+    inProgress: number | null;
+}
+
 interface NewSBCounts {
     rejected : number | null;
     delayed: number | null;
@@ -30,14 +37,8 @@ interface PaymentCountsInterface {
 }
 
 interface StoreState {
-    pendingPRCount: number | null;
-    approvePRCount: number | null;
-    adminPendingPRCount: number | null;
-    adminApprovePRCount: number | null;
-    adminApprovedPRCount: number | null;
-    approvedPRCount: number | null;
-    setPendingPRCount: (count: number) => void;
-    setApprovePRCount: (count: number) => void;
+    prCounts: PRCounts;
+    adminPrCounts: PRCounts;
     updatePRCounts: (prData: ProcurementData[], admin: boolean) => void;
     adminNewApproveSBCount: number | null;
     newSBApproveCount: number | null;
@@ -49,10 +50,6 @@ interface StoreState {
     adminNewPOCount: number | null;
     newSBCounts : NewSBCounts;
     adminNewSBCounts: NewSBCounts;
-    updateQuotePRCount: number | null;
-    adminUpdateQuotePRCount: number | null;
-    chooseVendorPRCount: number | null;
-    adminChooseVendorPRCount: number | null;
     dispatchedPOCount: number | null;
     adminDispatchedPOCount: number | null;
     otherPOCount: number | null;
@@ -76,63 +73,58 @@ interface StoreState {
 export const useDocCountStore = create<StoreState>()(
     persist(
         (set) => ({
-            amendedSRCount: null,
-            adminAmendedSRCount: null,
-            pendingPRCount: null,
-            approvePRCount: null,
-            adminPendingPRCount: null,
-            adminApprovePRCount: null,
-            adminApprovedPRCount: null,
-            approvedPRCount: null,
-            adminNewApproveSBCount: null,
-            newSBApproveCount: null,
-            amendPOCount: null,
-            adminAmendPOCount: null,
-            newPOCount: null,
-            updateQuotePRCount: null,
-            adminUpdateQuotePRCount: null,
-            chooseVendorPRCount: null,
-            adminChooseVendorPRCount: null,
-            adminNewPOCount: null,
-            otherPOCount: null,
-            adminOtherPOCount: null,
-            dispatchedPOCount: null,
-            adminDispatchedPOCount: null,
-            newSBCounts: { rejected: null, delayed: null, cancelled: null},
-            adminNewSBCounts: { rejected: null, delayed: null, cancelled: null},
-            setPendingPRCount: (count) => set({ pendingPRCount: count }),
-            setApprovePRCount: (count) => set({ approvePRCount: count }),
-            selectedSRCount: null,
-            adminSelectedSRCount: null,
-            approvedSRCount : null,
-            adminApprovedSRCount : null,
-            allSRCount: null,
-            adminAllSRCount: null,
-            pendingSRCount: null,
-            adminPendingSRCount: null,
-            paymentsCount: {requested: null, approved: null, rejected: null, paid: null},
-            adminPaymentsCount: {requested: null, approved: null, rejected: null, paid: null},
+            prCounts: {pending: 0, approve: 0, approved: 0, inProgress: 0},
+            adminPrCounts: {pending: 0, approve: 0, approved: 0, inProgress: 0},
+            amendedSRCount: 0,
+            adminAmendedSRCount: 0,
+            adminNewApproveSBCount: 0,
+            newSBApproveCount: 0,
+            amendPOCount: 0,
+            adminAmendPOCount: 0,
+            newPOCount: 0,
+            adminNewPOCount: 0,
+            otherPOCount: 0,
+            adminOtherPOCount: 0,
+            dispatchedPOCount: 0,
+            adminDispatchedPOCount: 0,
+            newSBCounts: { rejected: 0, delayed: 0, cancelled: 0},
+            adminNewSBCounts: { rejected: 0, delayed: 0, cancelled: 0},
+            selectedSRCount: 0,
+            adminSelectedSRCount: 0,
+            approvedSRCount : 0,
+            adminApprovedSRCount : 0,
+            allSRCount: 0,
+            adminAllSRCount: 0,
+            pendingSRCount: 0,
+            adminPendingSRCount: 0,
+            paymentsCount: {requested: 0, approved: 0, rejected: 0, paid: 0},
+            adminPaymentsCount: {requested: 0, approved: 0, rejected: 0, paid: 0},
             updatePRCounts: (prData, admin) => {
                 const pendingCount = prData.filter((pr) => pr.workflow_state === 'Pending').length;
                 const approveCount = prData.filter((pr) => ['Vendor Selected', 'Partially Approved'].includes(pr.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending")).length;
                 const approvedCount = prData.filter((pr) => pr.workflow_state === 'Approved')?.length
-                const updateQuotePRCount = prData.filter((pr) => pr.workflow_state === "RFQ Generated").length
-                const chooseVendorPRCount = prData.filter((pr) => pr.workflow_state === "Quote Updated").length
+                // const updateQuotePRCount = prData.filter((pr) => pr.workflow_state === "RFQ Generated").length
+                // const chooseVendorPRCount = prData.filter((pr) => pr.workflow_state === "Quote Updated").length
+                const inProgressPRCount = prData.filter((pr) => pr.workflow_state === "In Progress").length
                 if(admin) {
                     set({
-                        adminPendingPRCount: pendingCount,
-                        adminApprovePRCount: approveCount,
-                        adminApprovedPRCount: approvedCount,
-                        adminUpdateQuotePRCount: updateQuotePRCount,
-                        adminChooseVendorPRCount: chooseVendorPRCount
+                        adminPrCounts: {pending: pendingCount, approve: approveCount, approved: approvedCount, inProgress: inProgressPRCount},
+                        // adminPendingPRCount: pendingCount,
+                        // adminApprovePRCount: approveCount,
+                        // adminApprovedPRCount: approvedCount,
+                        // adminUpdateQuotePRCount: updateQuotePRCount,
+                        // adminChooseVendorPRCount: chooseVendorPRCount
+                        // adminInProgressPRCount: inProgressPRCount
                     });
                 } else {
                     set({
-                        pendingPRCount: pendingCount,
-                        approvePRCount: approveCount,
-                        approvedPRCount: approvedCount,
-                        updateQuotePRCount: updateQuotePRCount,
-                        chooseVendorPRCount: chooseVendorPRCount
+                        prCounts: {pending: pendingCount, approve: approveCount, approved: approvedCount, inProgress: inProgressPRCount},
+                        // pendingPRCount: pendingCount,
+                        // approvePRCount: approveCount,
+                        // approvedPRCount: approvedCount,
+                        // updateQuotePRCount: updateQuotePRCount,
+                        // chooseVendorPRCount: chooseVendorPRCount
+                        // inProgressPRCount: inProgressPRCount
                     });
                 }
             },

@@ -1,6 +1,3 @@
-import * as React from "react"
-import { Slot } from "@radix-ui/react-slot"
-import { VariantProps, cva } from "class-variance-authority"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -12,12 +9,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { ViewVerticalIcon } from "@radix-ui/react-icons"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
-import { Menu, PanelLeft, PanelRightClose, PanelRightOpen } from "lucide-react"
+import { Slot } from "@radix-ui/react-slot"
+import { VariantProps, cva } from "class-variance-authority"
+import clsx from "clsx"
+import { Menu } from "lucide-react"
+import * as React from "react"
 import { Link } from "react-router-dom"
-import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -540,6 +539,21 @@ const sidebarMenuButtonVariants = cva(
   }
 )
 
+const tooltipPathMap : {[key : string] : string} = {
+  "Dashboard": "",
+  "Project Payments": "project-payments",
+  "Purchase Orders": "purchase-orders",
+  "Procurement Requests": "procurement-requests",
+  // "Sent Back Requests": "sent-back-requests",
+  "Service Requests": "service-requests",
+  "Projects": "projects",
+};
+
+const getActiveClass = (selectedKeys : string, tooltipText : string) => 
+  selectedKeys === tooltipPathMap[tooltipText] 
+    ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" 
+    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
+
 const SidebarMenuButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentProps<"button"> & {
@@ -587,15 +601,6 @@ const SidebarMenuButton = React.forwardRef<
     }
 
     return (
-      // <Tooltip>
-      //   <TooltipTrigger asChild>{button}</TooltipTrigger>
-      //   <TooltipContent
-      //     side="right"
-      //     align="center"
-      //     hidden={state !== "collapsed" || isMobile}
-      //     {...tooltip}
-      //   />
-      // </Tooltip>
       <Tooltip>
     <TooltipTrigger asChild>{button}</TooltipTrigger>
     <TooltipContent
@@ -609,11 +614,10 @@ const SidebarMenuButton = React.forwardRef<
           {tooltip.map((subitem) => (
             <SidebarMenuItem className="relative" key={subitem.key}>
               <SidebarMenuButton
-                className={`${
-                  `/${selectedKeys}` === subitem.key
-                    ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
-                    : ""
-                } rounded-md w-54`}
+                className={clsx(
+                  `rounded-md w-54`,
+                  `/${selectedKeys}` === subitem.key && "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
+                )}
                 asChild
               >
                 <Link to={subitem.key}>
@@ -626,14 +630,7 @@ const SidebarMenuButton = React.forwardRef<
         </SidebarMenu>
       ) : (
         <p 
-        className={`${((!selectedKeys && tooltip?.children === "Dashboard") || 
-          (selectedKeys === "project-payments" && tooltip?.children === "Project Payments") || 
-          (selectedKeys === "purchase-orders" && tooltip?.children === "Purchase Orders") || 
-          (selectedKeys === "procurement-requests" && tooltip?.children === "Procurement Requests") || 
-          (selectedKeys === "sent-back-requests" && tooltip?.children === "Sent Back Requests") || 
-          (selectedKeys === "projects" && tooltip?.children === "Projects")) ? 
-          "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : 
-          "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to={`${tooltip?.children === "Dashboard" ? "/" : tooltip?.children === "Project Payments" ? "/project-payments" : tooltip?.children === "Purchase Orders" ? "/purchase-orders" : tooltip?.children === "Procurement Requests" ? "/procurement-requests" : tooltip?.children === "Sent Back Requests" ? "/sent-back-requests" : tooltip?.children === "Projects" ? "/projects" : ""}`}>{tooltip?.children}</Link></p>
+        className={`rounded-md px-2 py-1 ${getActiveClass(selectedKeys, tooltip?.children)}`}><Link to={tooltipPathMap[tooltip?.children] ? `/${tooltipPathMap[tooltip?.children]}` : ""}>{tooltip?.children}</Link></p>
       )}
     </TooltipContent>
   </Tooltip>
@@ -809,5 +806,5 @@ export {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
-  useSidebar,
+  useSidebar
 }

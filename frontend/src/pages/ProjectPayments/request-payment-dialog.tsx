@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { toast } from "@/components/ui/use-toast";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeCreateDoc } from "frappe-react-sdk";
@@ -21,8 +23,8 @@ interface RequestPaymentDialogProps {
   totalAmount: number;
   totalAmountWithoutGST: number;
   totalPaid: number;
-  po?: any;
-  sr?: any;
+  po?: ProcurementOrder;
+  sr?: ServiceRequests;
   gst?: any
   isSr?: boolean;
   paymentsMutate?: any;
@@ -49,7 +51,7 @@ const RequestPaymentDialog = ({
 
   const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 
-  const handleRadioChange = (value) => {
+  const handleRadioChange = (value : string) => {
     setSelectedOption(value);
 
     if (value === "full") {
@@ -66,11 +68,11 @@ const RequestPaymentDialog = ({
     }
   };
 
-  const validateAmount = debounce((amount) => {
+  const validateAmount = debounce((amount : number) => {
 
     const compareAmount =  gst ? totalAmount - totalPaid : totalAmountWithoutGST - totalPaid;
 
-    if (parseFloat(amount) > compareAmount) {
+    if (amount > compareAmount) {
       setWarning(
         `Entered amount exceeds the total ${
           totalPaid ? "remaining" : ""
@@ -92,9 +94,8 @@ const RequestPaymentDialog = ({
         status: "Requested"
       });
 
-      await paymentsMutate();
-
       toggleRequestPaymentDialog()
+      await paymentsMutate();
 
       toast({
         title: "Success!",
@@ -131,8 +132,8 @@ const RequestPaymentDialog = ({
               value={customAmount}
               onChange={(e) => {
                 setCustomAmount(e.target.value);
-                setAmountRequesting(Number(e.target.value));
-                validateAmount(Number(e.target.value));
+                setAmountRequesting(parseFloat(e.target.value));
+                validateAmount(parseFloat(e.target.value));
               }}
             />
             </div>
@@ -152,7 +153,7 @@ const RequestPaymentDialog = ({
             value={percentage}
             onChange={(e) => {
               setPercentage(e.target.value);
-              setAmountRequesting(((gst ? totalAmount : totalAmountWithoutGST) * Number(e.target.value)) / 100);
+              setAmountRequesting(((gst ? totalAmount : totalAmountWithoutGST) * parseFloat(e.target.value)) / 100);
             }}
           />
           <Label htmlFor="percentage">% of the Amount</Label>

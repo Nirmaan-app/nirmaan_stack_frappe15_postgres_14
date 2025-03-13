@@ -47,7 +47,7 @@ export const ApprovePayments = () => {
         fields: ["*"],
         filters: [["status", "=", "Requested"]],
         limit: 100000,
-        orderBy: { field: "payment_date", order: "desc" }
+        orderBy: { field: "creation", order: "desc" }
     })
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList("Procurement Orders", {
@@ -135,9 +135,11 @@ export const ApprovePayments = () => {
                         <HoverCardTrigger>
                             <Info onClick={() => {
                               if (data?.document_type === "Procurement Orders") {
-                                navigate(`/purchase-orders/${data?.document_name?.replaceAll("/", "&=")}`)
+                                const po = purchaseOrders?.find(i => i?.name === data?.document_name)
+                                const tab = po?.status === "PO Approved" ? "Approved PO" : po?.status === "Dispatched" ? "Dispatched PO" : "Delivered PO"
+                                navigate(`/purchase-orders/${data?.document_name?.replaceAll("/", "&=")}?tab=${tab}`)
                               } else {
-                                navigate(`/approved-sr/${data?.document_name}`)
+                                navigate(`/service-requests/${data?.document_name}?tab=approved-sr`)
                               }
                             }} className="w-4 h-4 text-blue-600 cursor-pointer" />
                         </HoverCardTrigger>
@@ -149,7 +151,7 @@ export const ApprovePayments = () => {
             }
         },
             {
-                accessorKey: "payment_date",
+                accessorKey: "creation",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Date" />
@@ -157,7 +159,7 @@ export const ApprovePayments = () => {
                 },
                 cell: ({ row }) => {
                     const data = row.original
-                    return <div className="font-medium">{formatDate(data?.payment_date || data?.creation)}</div>;
+                    return <div className="font-medium">{formatDate(data?.creation || data?.payment_date)}</div>;
                 },
             },
             {

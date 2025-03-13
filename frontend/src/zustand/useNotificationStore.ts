@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export interface NotificationType {
     name: string;
@@ -19,7 +19,7 @@ export interface NotificationType {
     action_url?: string | null;
 }
 
-const updateNotificationInDB = async (db, name) => {
+const updateNotificationInDB = async (db : any, name : string) => {
     await db.updateDoc("Nirmaan Notifications", name, {
         seen: "true"
     });

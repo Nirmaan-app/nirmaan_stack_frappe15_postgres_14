@@ -4,43 +4,38 @@ import { useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "fra
 //import { HardHat } from "lucide-react";
 // import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { DialogClose, DialogDescription } from "@/components/ui/dialog";
 // import { ColumnDef } from "@tanstack/react-table";
 // import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 // import { DataTable } from "@/components/data-table/data-table";
-import { WPCard } from "@/components/wp-card";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import * as z from "zod";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { WPSkeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/use-toast";
 import { useFrappeCreateDoc } from "frappe-react-sdk";
-import { ButtonLoading } from "@/components/ui/button-loading";
+import { debounce } from "lodash";
 import {
-  ArrowLeft,
   CheckCheck,
-  CirclePlus,
   Info,
   Pencil,
-  X,
+  X
 } from "lucide-react";
-import { WPSkeleton } from "@/components/ui/skeleton";
-import { toast, useToast } from "@/components/ui/use-toast";
+import { useCallback, useEffect, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import ReactSelect from 'react-select';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from "./ui/alert-dialog";
+import { Badge } from "./ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
+import { Label } from "./ui/label";
+import { Separator } from "./ui/separator";
+import { Switch } from "./ui/switch";
 import {
   Table,
   TableBody,
@@ -49,25 +44,6 @@ import {
   TableHeader,
   TableRow,
 } from "./ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "./ui/alert-dialog";
-import { useCallback, useEffect, useState } from "react";
-import { Switch } from "./ui/switch";
-import { Badge } from "./ui/badge";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
-import { Label } from "./ui/label";
-import ReactSelect from 'react-select';
-import { Separator } from "./ui/separator";
-import { TailSpin } from "react-loader-spinner";
-import { debounce } from "lodash";
 
 interface WorkPackage {
   work_package_name: string;
@@ -376,6 +352,13 @@ export const ProcurementPackages = () => {
   //   }
   // }
 
+  const handleCategoryClick = (categoryName) => {
+    // Encode special characters in the category name
+    const encodedCategoryName = encodeURIComponent(categoryName);
+
+    navigate(`/items?Category=${encodedCategoryName}`);
+};
+
   return (
     <div className="flex-1 space-y-4">
       {/* <div className="flex items-center justify-between mb-2 space-y-2">
@@ -505,9 +488,7 @@ export const ProcurementPackages = () => {
                                       <HoverCardTrigger>
                                         <Info
                                           onClick={() =>
-                                            navigate(
-                                              `/items?Category=${cat?.name}`
-                                            )
+                                            handleCategoryClick(cat?.name)
                                           }
                                           className="w-4 h-4 text-blue-500 cursor-pointer"
                                         />

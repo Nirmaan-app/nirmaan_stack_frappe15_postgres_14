@@ -1,4 +1,4 @@
-export const formatDate = (dateString : Date) => {
+export const formatDate = (dateString : Date | string) => {
     if (!dateString) return "";
     return new Intl.DateTimeFormat('en-GB', {
         day: '2-digit',

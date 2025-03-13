@@ -1,0 +1,94 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-03-13 13:37:23.364997",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "project",
+  "associated_doctype",
+  "associated_docname",
+  "attachment_link_doctype",
+  "attachment_link_docname",
+  "attachment_section",
+  "attachment",
+  "attachment_type"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "associated_doctype",
+   "fieldtype": "Link",
+   "label": "Associated Doctype",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "associated_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Associated Docname",
+   "options": "associated_doctype"
+  },
+  {
+   "fieldname": "attachment_link_doctype",
+   "fieldtype": "Link",
+   "label": "Attachment Link Doctype",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "attachment_link_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Attachment Link Docname",
+   "options": "attachment_link_doctype"
+  },
+  {
+   "fieldname": "attachment_section",
+   "fieldtype": "Section Break",
+   "label": "Attachment"
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Attachment"
+  },
+  {
+   "fieldname": "attachment_type",
+   "fieldtype": "Data",
+   "label": "Attachment Type"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-03-13 13:50:33.963495",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Nirmaan Attachments",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

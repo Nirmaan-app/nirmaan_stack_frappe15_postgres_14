@@ -1,11 +1,20 @@
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"
 import { formatDate } from "@/utils/FormatDate"
+import { useFrappeGetDoc } from "frappe-react-sdk"
+import { useEffect, useState } from "react"
 import { Card } from "./card"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
-import { useEffect, useState } from "react"
-import { useFrappeGetDoc } from "frappe-react-sdk"
 
+interface ProcurementActionsHeaderCardProps {
+  orderData: ProcurementRequest | any
+  sentBack?: boolean
+  sr?: boolean
+  po?: boolean
+  amend?: boolean
+  pr?: boolean
+}
 
-export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend, pr}) => {
+export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend, pr} : ProcurementActionsHeaderCardProps) => {
     const [projectName, setProjectName] = useState<string | undefined>("")
   const [userName, setUserName] = useState<string | undefined>("")
   const [vendorId, setVendorId] = useState("")
@@ -95,7 +104,7 @@ export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend
       {(pr || po) && (
         <div className="border-0 flex flex-col justify-center">
           <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
-          <p className="text-left font-bold py-1 text-base text-black">{orderData?.work_package}</p>
+          <p className="text-left font-bold py-1 text-base text-black">{orderData?.work_package || "Custom Package"}</p>
         </div>
       )}
       {sentBack && (
