@@ -1,31 +1,33 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
+import { useUserData } from "@/hooks/useUserData";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
+import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import { Trash2 } from "lucide-react";
+import { useContext, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { Link, useSearchParams } from "react-router-dom";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog";
+import { Button } from "../ui/button";
 import { TableSkeleton } from "../ui/skeleton";
 import { useToast } from "../ui/use-toast";
-
-
-type PRTable = {
-    name: string
-    project_name: string
-    creation: string
-    category: string
-}
 
 export const SentBackRequest = () => {
 
     const [searchParams] = useSearchParams();
 
+    const {role} = useUserData()
+
     const type = searchParams.get("tab") || "Rejected"
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate : sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type', 'modified'],
             filters: [["workflow_state", "=", "Pending"], ["type", "=", type]],
@@ -59,11 +61,17 @@ export const SentBackRequest = () => {
     const { mark_seen_notification, notifications } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
+
+    const [deleteFlagged, setDeleteFlagged] = useState<SentBackCategory | null>(null);
+
+    const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
+
+    const {handleDeleteSB, deleteLoading} = usePRorSBDelete(sent_back_list_mutate);
         
     // const updateURL = (key, value) => {
     //     const url = new URL(window.location);
@@ -118,7 +126,7 @@ export const SentBackRequest = () => {
     //     },
     // ];
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<SentBackCategory>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -218,7 +226,20 @@ export const SentBackRequest = () => {
                         </div>
                     )
                 }
-            }
+            },
+            ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) ? [
+                            {
+                                id: "deleteOption",
+                                cell: ({row}) => {
+                                    return (
+                                        <Trash2 className="text-primary cursor-pointer" onClick={() => {
+                                            setDeleteFlagged(row.original)
+                                            toggleDeleteDialog()
+                                        }} />
+                                    )
+                                }
+                            }
+                        ] : []),
         ],
         [project_values, sent_back_list]
     )
@@ -250,6 +271,31 @@ export const SentBackRequest = () => {
             {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
             )}
+                    <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                <AlertDialogHeader className="text-start">
+                                    <AlertDialogTitle className="text-center">
+                                        Delete Sent Back PR
+                                    </AlertDialogTitle>
+                                        <AlertDialogDescription>Are you sure you want to delete this PR : {deleteFlagged?.name}?</AlertDialogDescription>
+                                    <div className="flex gap-2 items-center pt-4 justify-center">
+                                        {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                            <>
+                                                <AlertDialogCancel className="flex-1" asChild>
+                                                    <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                </AlertDialogCancel>
+                                                 <Button
+                                                    onClick={() => handleDeleteSB(deleteFlagged?.name)}
+                                                    className="flex-1">
+                                                        Confirm
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+            
+                                </AlertDialogHeader>
+                            </AlertDialogContent>
+                        </AlertDialog>
         </div>
     )
 }

@@ -218,7 +218,7 @@ export const VendorsSelectionSummary = () => {
           fields: ["*"],
           filters: [['name', '=', prId]]
       },
-      prId ? undefined : null
+      prId ? `Procurement Requests:${prId}` : null
   );
 
   const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
@@ -267,8 +267,8 @@ export const VendorsSelectionSummary = () => {
     return totals
   }, [orderData])
 
-  const getVendorName = (vendorId : string) : string => {
-    return vendor_list?.find(v => v?.name === vendorId)?.vendor_name
+  const getVendorName = (vendorId : string | undefined) : string => {
+    return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
   }
 
   const getLowest = (itemId: string) => {

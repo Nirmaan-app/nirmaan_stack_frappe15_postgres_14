@@ -2,6 +2,7 @@ from ..Notifications.pr_notifications import PrNotification, get_allowed_users, 
 import frappe
 from frappe import _
 from .procurement_requests import get_user_name
+import json
 
 def after_insert(doc, method):
         proc_admin_users = get_allowed_procurement_users(doc)
@@ -147,3 +148,28 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Notifications", {
         "docname": ("=", doc.name)
     })
+
+    procurement_request_name = doc.procurement_request
+
+    print(f"procurement_request_name {procurement_request_name}")
+
+    if procurement_request_name:
+        try:
+            procurement_request = frappe.get_doc("Procurement Requests", procurement_request_name)
+            procurement_list = frappe.parse_json(procurement_request.procurement_list).get('list', [])
+            print(f"procurement_list: {procurement_list}")
+            sb_item_list = doc.item_list if isinstance(doc.item_list, dict) else json.loads(doc.item_list)
+            for item in sb_item_list.get("list", []):
+                print(f"item: {item}")
+                for pr_item in procurement_list:
+                    print(f"pr_item: {pr_item}")
+                    if item['name'] == pr_item['name']:
+                        print(f"found item: {item['name']}")
+                        pr_item['status'] = "Deleted"
+                        break
+            
+            procurement_request.save(ignore_permissions=True)
+        except frappe.DoesNotExistError:
+            print(f"Procurement Request {procurement_request_name} not found.")
+        except Exception as e:
+            frappe.log_error(f"Error updating Procurement Request {procurement_request_name}: {e}", "on_trash")

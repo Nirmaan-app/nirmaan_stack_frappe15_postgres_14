@@ -1,4 +1,4 @@
-import { Vendor } from "@/components/service-request/select-service-vendor";
+import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor";
 
 export interface ProcurementItem {
   name: string;
@@ -16,7 +16,7 @@ export interface ProcurementItem {
 
 export interface Category {
   name: string;
-  makes: string[];
+  makes?: string[];
 }
 
 export interface RFQData {

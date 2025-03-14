@@ -1,13 +1,16 @@
 import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { UserContext } from "@/utils/auth/UserProvider";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ArrowBigRightDash, MessageCircleMore } from 'lucide-react';
-import { useEffect, useState } from "react";
+import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
+import { useContext, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
@@ -32,6 +35,11 @@ export const ProcurementOrder = () => {
     },
     orderId ? `Procurement Requests ${orderId}` : null
   );
+
+
+  const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
+  
+  const {handleDeletePR, deleteLoading} = usePRorSBDelete(prMutate);
 
   const { data: quote_data, isLoading : quote_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
     {
@@ -202,7 +210,38 @@ export const ProcurementOrder = () => {
             <h2 className="text-base pl-2 font-bold tracking-tight">PR Comments</h2>
             <RenderPRorSBComments  universalComment={comments} getUserName={getFullName} />
           </div>
-          <div className="flex flex-col justify-end items-end">
+          <div className="flex justify-between items-end">
+            <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                <AlertDialogTrigger asChild>
+                  <Button className="flex items-center gap-1">
+                    <Trash2 className="w-4 h-4" />
+                    Delete PR
+                  </Button>
+                </AlertDialogTrigger>
+                  <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                      <AlertDialogHeader className="text-start">
+                          <AlertDialogTitle className="text-center">
+                              Delete Procurement Request
+                          </AlertDialogTitle>
+                              <AlertDialogDescription>Are you sure you want to delete this PR?</AlertDialogDescription>
+                          <div className="flex gap-2 items-center pt-4 justify-center">
+                              {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                  <>
+                                      <AlertDialogCancel className="flex-1" asChild>
+                                          <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                      </AlertDialogCancel>
+                                       <Button
+                                          onClick={() => handleDeletePR(orderData?.name, true)}
+                                          className="flex-1">
+                                              Confirm
+                                      </Button>
+                                  </>
+                              )}
+                          </div>
+  
+                      </AlertDialogHeader>
+                  </AlertDialogContent>
+              </AlertDialog>
             {update_loading ? <TailSpin color="red" height={30} width={30} /> : (
               <Button onClick={handleStartProcuring} className="flex items-center gap-1">
                 Continue
