@@ -2,17 +2,11 @@ from ..Notifications.pr_notifications import PrNotification, get_allowed_users, 
 import frappe
 from frappe import _
 from .procurement_requests import get_user_name
+import json
 
 def after_insert(doc, method):
         proc_admin_users = get_allowed_procurement_users(doc)
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
-        # click_action_type = None
-        # if doc.type == 'Rejected':
-        #     click_action_type = 'rejected-sb'
-        # elif doc.type == 'Delayed':
-        #     click_action_type = 'delayed-sb'
-        # else:
-        #     click_action_type = 'cancelled-sb'
         
         if proc_admin_users:
             for user in proc_admin_users:
@@ -24,7 +18,7 @@ def after_insert(doc, method):
                         f"work package has been created by {get_user_name(frappe.session.user)}, click here to take action."
                         )
                     
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/sent-back-requests?type={doc.type}"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/procurement-requests?tab={doc.type}"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -83,7 +77,7 @@ def on_update(doc, method):
                             f"Hi {user['full_name']}, Vendors have been selected for the {doc.type} items of PR: {doc.procurement_request}. "
                             "Please review the selection and proceed with approval or rejection."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-sent-back"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approve%20Sent%20Back%20PO"
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
                     print(f"push notifications were not enabled for user: {user['full_name']}")
@@ -111,7 +105,7 @@ def on_update(doc, method):
                 new_notification_doc.seen = "false"
                 new_notification_doc.type = "info"
                 new_notification_doc.event_id = "sb:vendorSelected"
-                new_notification_doc.action_url = f"approve-sent-back/{doc.name}"
+                new_notification_doc.action_url = f"purchase-orders/{doc.name}?tab=Approve%20Sent%20Back%20PO"
                 new_notification_doc.insert()
                 frappe.db.commit()
 
@@ -154,3 +148,28 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Notifications", {
         "docname": ("=", doc.name)
     })
+
+    procurement_request_name = doc.procurement_request
+
+    print(f"procurement_request_name {procurement_request_name}")
+
+    if procurement_request_name:
+        try:
+            procurement_request = frappe.get_doc("Procurement Requests", procurement_request_name)
+            procurement_list = frappe.parse_json(procurement_request.procurement_list).get('list', [])
+            print(f"procurement_list: {procurement_list}")
+            sb_item_list = doc.item_list if isinstance(doc.item_list, dict) else json.loads(doc.item_list)
+            for item in sb_item_list.get("list", []):
+                print(f"item: {item}")
+                for pr_item in procurement_list:
+                    print(f"pr_item: {pr_item}")
+                    if item['name'] == pr_item['name']:
+                        print(f"found item: {item['name']}")
+                        pr_item['status'] = "Deleted"
+                        break
+            
+            procurement_request.save(ignore_permissions=True)
+        except frappe.DoesNotExistError:
+            print(f"Procurement Request {procurement_request_name} not found.")
+        except Exception as e:
+            frappe.log_error(f"Error updating Procurement Request {procurement_request_name}: {e}", "on_trash")

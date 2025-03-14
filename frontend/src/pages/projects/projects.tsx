@@ -3,7 +3,10 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
@@ -12,6 +15,8 @@ import { HardHat } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+
+const parseNumber = (value) => parseFloat(value) || 0;
 
 export default function Projects() {
 
@@ -45,7 +50,7 @@ export default function Projects() {
   const [prToProjectData, setPrToProjectData] = useState({});
   const [projectStatusCounts, setProjectStatusCounts] = useState({});
 
-  const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList(
+  const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
     "Procurement Requests",
     {
       fields: ["*"],
@@ -53,7 +58,7 @@ export default function Projects() {
     }
   );
 
-  const {data : po_item_data} = useFrappeGetDocList("Procurement Orders",
+  const {data : po_item_data} = useFrappeGetDocList<ProcurementOrder>("Procurement Orders",
     {
       fields: ["*"],
       filters: [["status", "!=", "Merged"]],
@@ -63,7 +68,7 @@ export default function Projects() {
   );
 
   const { data: serviceRequestsData, isLoading: sRloading } =
-      useFrappeGetDocList("Service Requests", {
+      useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
         filters: [
           ["status", "=", "Approved"],
@@ -71,51 +76,42 @@ export default function Projects() {
         limit: 10000,
       });
 
-  const getSRTotal = (project: string) => {
-    const filteredRequests = serviceRequestsData?.filter(
-      (item) => item.project === project
-    )
-
-    const totalAmount = filteredRequests?.reduce((total, item) => {
-      const gst = item.gst === "true" ? 1.18 : 1;
-      const amount = item.service_order_list?.list?.reduce((srTotal, i) => {
-        const srAmount = parseFloat(i.rate) * parseFloat(i.quantity) * gst;
-        return srTotal + srAmount;
-      }, 0)
-      return total + amount;
-    }, 0);
-
-    return totalAmount;
     
+
+  const getSRTotal = (project) => {
+    return serviceRequestsData
+      ?.filter((item) => item.project === project)
+      ?.reduce((total, item) => {
+        const gstMultiplier = item.gst === "true" ? 1.18 : 1;
+        return (
+          total +
+          (item?.service_order_list?.list?.reduce(
+            (srTotal, i) => srTotal + parseNumber(i.rate) * parseNumber(i.quantity) * gstMultiplier,
+            0
+          ) || 0)
+        );
+      }, 0) || 0;
   };
 
-  const getPOTotalWithGST = (projectId : string) => {
-    // Ensure the po_item_data is fetched
-    if (!po_item_data || !po_item_data.length) {
-      return 0;
-    }
-
-    const filteredOrders = po_item_data.filter(order => order.project === projectId);
+  const getPOTotalWithGST = (projectId) => {
+    if (!po_item_data?.length) return 0;
   
-    // Calculate the total amount including GST
-    const totalAmount = filteredOrders.reduce((total, order) => {
-      if (order.order_list && Array.isArray(order.order_list?.list)) {
-        // Sum the total amount for each order's items
-        const orderTotal = order.order_list?.list.reduce((orderSum, item) => {
-          const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
-          const taxAmount = (parseFloat(item.tax) / 100) * itemTotal; // Calculate GST based on tax percentage
-          return orderSum + itemTotal + taxAmount; // Add GST to the item total
-        }, 0);
-        return total + orderTotal;
-      }
-      return total;
-    }, 0);
-  
-    return totalAmount;
+    return po_item_data
+      .filter((order) => order.project === projectId)
+      .reduce((total, order) => {
+        return (
+          total +
+          (order.order_list?.list?.reduce((orderSum, item) => {
+            const itemTotal = parseNumber(item.quantity) * parseNumber(item.quote);
+            const taxAmount = (parseNumber(item.tax) / 100) * itemTotal;
+            return orderSum + itemTotal + taxAmount;
+          }, 0) || 0)
+        );
+      }, 0);
   };
   
 
-  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList(
+  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrder>(
     "Procurement Orders",
     {
       fields: ["*"],
@@ -131,14 +127,11 @@ export default function Projects() {
           limit: 100000
   })
 
-  const getTotalAmountPaid = (id) => {
-    const payments = projectPayments?.filter((payment) => payment.project === id);
-    return payments?.reduce((acc, payment) => {
-        const amount = parseFloat(payment.amount || 0)
-        // const tds = parseFloat(payment.tds || 0)
-        return acc + amount;
-    }, 0);
-}
+  const getTotalAmountPaid = (projectId) => {
+    return projectPayments
+      ?.filter((payment) => payment.project === projectId)
+      ?.reduce((total, payment) => total + parseNumber(payment.amount), 0) || 0;
+  };
 
 const {
     data: project_estimates,
@@ -149,41 +142,35 @@ const {
   });
 
   const getTotalEstimateAmt = (projectId) => {
-    const estimates = project_estimates?.filter(i => i?.project === projectId)
-    return estimates?.reduce(
-      (acc, i) =>
-        acc +
-        parseFloat(i?.quantity_estimate || 0) *
-        parseFloat(i?.rate_estimate || 0),
-      0
-    );
-  }
+    return project_estimates
+      ?.filter((i) => i?.project === projectId)
+      ?.reduce((total, i) => total + parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate), 0) || 0;
+  };
 
-  const projectTypeOptions = projectTypesList?.map((pt) => ({
-    label: pt.name,
-    value: pt.name,
-  }));
+  const projectTypeOptions = useMemo(
+    () =>
+      projectTypesList?.map((pt) => ({
+        label: pt.name,
+        value: pt.name,
+      })) || [],
+    [projectTypesList]
+  );
 
   // console.log("projecttype", projectTypeOptions)
 
   useEffect(() => {
-    if (pr_data) {
-      const groupedData = pr_data.reduce((acc, pr) => {
-        const projectKey = pr?.project;
-        if (projectKey) {
-          if (!acc[projectKey]) {
-            acc[projectKey] = [];
-          }
-          acc[projectKey].push(pr);
-        }
-        return acc;
-      }, {});
+    if (!pr_data) return;
 
-      setPrToProjectData(groupedData);
-    }
+    const groupedData = pr_data.reduce((acc, pr) => {
+      if (pr?.project) {
+        acc[pr.project] = acc[pr.project] || [];
+        acc[pr.project].push(pr);
+      }
+      return acc;
+    }, {});
+  
+    setPrToProjectData(groupedData);
   }, [pr_data]);
-
-  // console.log("prToProjectData", prToProjectData)
 
   const getItemStatus = (item: any, filteredPOs: any[]) => {
     return filteredPOs.some((po) =>

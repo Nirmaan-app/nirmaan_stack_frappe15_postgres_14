@@ -1,3 +1,5 @@
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
     Dialog,
@@ -5,66 +7,50 @@ import {
     DialogDescription,
     DialogHeader,
     DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
-import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react"
-import { ArrowLeft, CheckCheck, Undo2, X } from 'lucide-react';
-import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
+} from "@/components/ui/dialog";
+import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
-import { formatDate } from "@/utils/FormatDate";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { useUserData } from "@/hooks/useUserData";
+import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
+import { formatDate } from "@/utils/FormatDate";
 import TextArea from "antd/es/input/TextArea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useUserData } from "@/hooks/useUserData";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { CheckCheck, Undo2, X } from 'lucide-react';
+import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import { useNavigate, useParams } from "react-router-dom";
 
 const ApproveAmendPO = () => {
 
-    const { poId: po } = useParams<{ poId: string }>()
+    const { id: po } = useParams<{ id: string }>()
     const orderId = po?.replaceAll("&=", "/")
 
-    const [project, setProject] = useState<String | undefined>()
-    const [owner, setOwner] = useState<String | undefined>()
-    const { data: po_data, isLoading: po_loading, error: po_error } = useFrappeGetDoc<ProcurementOrdersType>("Procurement Orders", orderId, `Procurement Orders ${orderId}`);
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
+    const { data: po_data, isLoading: po_loading, error: po_error } = useFrappeGetDoc("Procurement Orders", orderId, `Procurement Orders ${orderId}`);
 
-    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
 
-    const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList("Nirmaan Versions", {
+    const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList<NirmaanVersionsType>("Nirmaan Versions", {
         fields: ["*"],
         filters: [["ref_doctype", "=", "Procurement Orders"], ["docname", "=", orderId]],
         limit: 1000,
         orderBy: { field: "creation", order: "desc" }
     })
 
-    useEffect(() => {
-        if (po_data) {
-            setProject(po_data?.project)
-            setOwner(po_data?.owner)
-        }
-    }, [po_data])
-
     const navigate = useNavigate()
 
-    const getUserName = (id) => {
-        if (usersList) {
-            return usersList.find((user) => user?.name === id)?.full_name
-        }
+    const getUserName = (id : string | undefined) => {
+        return usersList?.find((user) => user?.name === id)?.full_name || ""
     }
 
     // console.log("within 1st component", owner_data)
-    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-    if (po_error || project_error || owner_error || versionsError) return <h1>Error</h1>
+    if (po_loading || usersListLoading || versionsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (po_error || usersListError || versionsError) return <h1>Error</h1>
     if (po_data?.status !== "PO Amendment") return (
         <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -86,7 +72,7 @@ const ApproveAmendPO = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-amended-po")}
+                    onClick={() => navigate("/purchase-orders?tab=Approve Amended PO")}
                 >
                     Go Back
                 </button>
@@ -94,31 +80,29 @@ const ApproveAmendPO = () => {
         </div>
     );
     return (
-        <ApproveAmendPOPage po_data={po_data} project_data={project_data} versionsData={versions} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} usersList={usersList} />
+        <ApproveAmendPOPage po_data={po_data} versionsData={versions} usersList={usersList} />
     )
 }
 
 interface ApproveAmendPOPageProps {
-    po_data: ProcurementOrdersType | undefined
-    project_data: ProjectsType | undefined
-    owner_data: NirmaanUsersType | undefined | { full_name: String }
-    versionsData: NirmaanVersionsType | undefined
-    usersList: any
+    po_data: any
+    versionsData?: NirmaanVersionsType[]
+    usersList?: NirmaanUsersType[]
 }
 
 
-const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, usersList }: ApproveAmendPOPageProps) => {
+const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPOPageProps) => {
 
     const navigate = useNavigate()
     const userData = useUserData()
 
-    const getUserName = (name) => {
+    const getUserName = (name : string | undefined) => {
         if (usersList) {
             return usersList?.find((user) => user?.name === name)?.full_name
         }
     }
 
-    const { data: amendmentComment } = useFrappeGetDocList("Nirmaan Comments", {
+    const { data: amendmentComment } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
         filters: [["reference_name", "=", po_data?.name], ["subject", "=", "updating po(amendment)"]]
     })
@@ -202,7 +186,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, u
                 variant: "success"
             });
             setIsDialogOpen(false);
-            navigate("/approve-amended-po")
+            navigate("/purchase-orders?tab=Approve Amended PO")
         } catch (error) {
             console.log("error in ApproveAmmendPage", error)
             toast({
@@ -222,29 +206,10 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, u
     return (
         <div className="flex-1 space-y-4">
             {/* PO Details Card */}
-            <div className="flex items-center">
-                {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} /> */}
+            <div className="space-y-2">
                 <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Revert Amendments</h2>
+                <ProcurementActionsHeaderCard orderData={po_data} amend={true} />
             </div>
-            {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(po_data?.modified)}</p>
-                </div>
-                <div className="border-0 flex flex-col justify-center">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
-                </div>
-                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Vendor</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{po_data?.vendor_name}</p>
-                </div>
-                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Amended By</p>
-                    <p className="text-left font-bold py-1 font-bold text-base text-black">{po_data?.modified_by === "Administrator" ? "Administrator" : getUserName(po_data?.modified_by)}</p>
-                </div>
-            </Card> */}
-            <ProcurementActionsHeaderCard orderData={po_data} amend={true} />
 
             {/* Item Comparison Table */}
             <Card className="mt-4 p-4 shadow-lg overflow-hidden">
@@ -384,5 +349,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData, u
     );
 };
 
+export default ApproveAmendPO;
 
 export const Component = ApproveAmendPO;

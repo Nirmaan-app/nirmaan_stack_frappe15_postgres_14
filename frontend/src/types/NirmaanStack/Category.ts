@@ -5,7 +5,7 @@ export interface Category{
 	modified: string
 	owner: string
 	modified_by: string
-	docstatus: 0 | 1 | 2
+	docstatus?: 0 | 1 | 2
 	parent?: string
 	parentfield?: string
 	parenttype?: string
@@ -19,5 +19,5 @@ export interface Category{
 	/**	Tax : Data	*/
 	tax?: string
 	/**	New Items Addition : Data	*/
-	new_items?: string
+	new_items: string
 }

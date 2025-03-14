@@ -64,7 +64,6 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   OverviewSkeleton2,
-  Skeleton,
   TableSkeleton
 } from "@/components/ui/skeleton";
 import StatusBar from "@/components/ui/status-bar";
@@ -78,7 +77,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { DownOutlined } from "@ant-design/icons";
@@ -106,7 +105,6 @@ import {
   ChevronsUpDown,
   CircleCheckBig,
   CirclePlus,
-  Download,
   FilePenLine,
   HardHat,
   ListChecks,
@@ -160,12 +158,14 @@ const Project = () => {
     { project_id: projectId }
   );
 
+  if(isLoading || projectCustomerLoading || po_item_loading) {
+    return <div className="flex items-center h-[90vh] w-full justify-center">
+            <TailSpin color={"red"} />{" "}
+          </div>
+  }
+
   return (
-    <div>
-      {(isLoading || projectCustomerLoading || po_item_loading) && (
-        <Skeleton className="w-[30%] h-10" />
-      )}
-      {data && (
+        data && (
         <ProjectView
           projectId={projectId}
           data={data}
@@ -173,8 +173,7 @@ const Project = () => {
           projectCustomer={projectCustomer}
           po_item_data={po_item_data?.message?.po_items}
         />
-      )}
-    </div>
+      )
   );
 };
 
@@ -367,7 +366,7 @@ const ProjectView = ({
     `User Permission, filters(for_value),=,${projectId}`
   );
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments", {
     fields: ["*"],
     filters : [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 1000
@@ -600,12 +599,12 @@ const ProjectView = ({
       label: "Overview",
       key: "overview",
     },
-    role === "Nirmaan Admin Profile"
-      ? {
-        label: "Project Tracking",
-        key: "projectTracking",
-      }
-      : null,
+    // role === "Nirmaan Admin Profile"
+    //   ? {
+    //     label: "Project Tracking",
+    //     key: "projectTracking",
+    //   }
+    //   : null,
     {
       label: "PR Summary",
       key: "prsummary",
@@ -638,146 +637,146 @@ const ProjectView = ({
 
   const [areaNames, setAreaNames] = useState(null);
 
-  const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
-    const statusNames = Array.from(
-      new Set(
-        mile_data.flatMap((row) =>
-          row.status_list.list.map((statusObj) => statusObj.name)
-        )
-      )
-    );
-    setAreaNames(statusNames);
+  // const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
+  //   const statusNames = Array.from(
+  //     new Set(
+  //       mile_data.flatMap((row) =>
+  //         row.status_list.list.map((statusObj) => statusObj.name)
+  //       )
+  //     )
+  //   );
+  //   setAreaNames(statusNames);
 
-    return statusNames.map((statusName) => ({
-      accessorKey: `status_${statusName}`,
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black font-bold"
-            column={column}
-            title={statusName}
-          />
-        );
-      },
-      cell: ({ row }) => {
-        const statusObj = row.original.status_list.list.find(
-          (statusObj) => statusObj.name === statusName
-        );
-        return (
-          <div
-            className={`text-[#11050599] ${statusObj?.status === "WIP" && "text-yellow-500"
-              } ${statusObj?.status === "Halted" && "text-red-500"} ${statusObj?.status === "Completed" && "text-green-800"
-              }`}
-          >
-            {statusObj?.status && statusObj.status !== "Pending"
-              ? statusObj?.status
-              : "--"}
-          </div>
-        );
-      },
-    }));
-  };
+  //   return statusNames.map((statusName) => ({
+  //     accessorKey: `status_${statusName}`,
+  //     header: ({ column }) => {
+  //       return (
+  //         <DataTableColumnHeader
+  //           className="text-black font-bold"
+  //           column={column}
+  //           title={statusName}
+  //         />
+  //       );
+  //     },
+  //     cell: ({ row }) => {
+  //       const statusObj = row.original.status_list.list.find(
+  //         (statusObj) => statusObj.name === statusName
+  //       );
+  //       return (
+  //         <div
+  //           className={`text-[#11050599] ${statusObj?.status === "WIP" && "text-yellow-500"
+  //             } ${statusObj?.status === "Halted" && "text-red-500"} ${statusObj?.status === "Completed" && "text-green-800"
+  //             }`}
+  //         >
+  //           {statusObj?.status && statusObj.status !== "Pending"
+  //             ? statusObj?.status
+  //             : "--"}
+  //         </div>
+  //       );
+  //     },
+  //   }));
+  // };
 
-  const columns: ColumnDef<ScopesMilestones>[] = useMemo(() => {
-    const staticColumns: ColumnDef<ScopesMilestones>[] = [
-      {
-        accessorKey: "work_package",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader
-              className="text-black font-bold"
-              column={column}
-              title="Work Package"
-            />
-          );
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="text-[#11050599]">
-              {row.getValue("work_package")}
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "scope_of_work",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader
-              className="text-black font-bold"
-              column={column}
-              title="Scope of Work"
-            />
-          );
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="text-[#11050599]">
-              {row.getValue("scope_of_work")}
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "milestone",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader
-              className="text-black font-bold"
-              column={column}
-              title="Milestone"
-            />
-          );
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="text-[#11050599]">{row.getValue("milestone")}</div>
-          );
-        },
-      },
-      {
-        accessorKey: "start_date",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader
-              className="text-black font-bold"
-              column={column}
-              title="Start Date"
-            />
-          );
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="text-[#11050599]">
-              {formatDate(row.getValue("start_date"))}
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "end_date",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader
-              className="text-black font-bold"
-              column={column}
-              title="End Date"
-            />
-          );
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="text-[#11050599]">
-              {formatDate(row.getValue("end_date"))}
-            </div>
-          );
-        },
-      },
-    ];
+  // const columns: ColumnDef<ScopesMilestones>[] = useMemo(() => {
+  //   const staticColumns: ColumnDef<ScopesMilestones>[] = [
+  //     {
+  //       accessorKey: "work_package",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader
+  //             className="text-black font-bold"
+  //             column={column}
+  //             title="Work Package"
+  //           />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="text-[#11050599]">
+  //             {row.getValue("work_package")}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "scope_of_work",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader
+  //             className="text-black font-bold"
+  //             column={column}
+  //             title="Scope of Work"
+  //           />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="text-[#11050599]">
+  //             {row.getValue("scope_of_work")}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "milestone",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader
+  //             className="text-black font-bold"
+  //             column={column}
+  //             title="Milestone"
+  //           />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="text-[#11050599]">{row.getValue("milestone")}</div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "start_date",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader
+  //             className="text-black font-bold"
+  //             column={column}
+  //             title="Start Date"
+  //           />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="text-[#11050599]">
+  //             {formatDate(row.getValue("start_date"))}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "end_date",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader
+  //             className="text-black font-bold"
+  //             column={column}
+  //             title="End Date"
+  //           />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="text-[#11050599]">
+  //             {formatDate(row.getValue("end_date"))}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //   ];
 
-    const dynamicColumns = mile_data ? getStatusListColumns(mile_data) : [];
-    return [...staticColumns, ...dynamicColumns];
-  }, [mile_data]);
+  //   const dynamicColumns = mile_data ? getStatusListColumns(mile_data) : [];
+  //   return [...staticColumns, ...dynamicColumns];
+  // }, [mile_data]);
 
   const { data: quote_data } = useFrappeGetDocList("Quotation Requests", {
     fields: ["name", "item", "quote"],
@@ -1038,7 +1037,7 @@ const ProjectView = ({
           return (
             <Link
               className="text-blue-500 underline"
-              to={`/service-requests/${srId}`}
+              to={`/service-requests-list/${srId}`}
             >
               {srId?.slice(-5)}
             </Link>
@@ -2013,7 +2012,7 @@ const ProjectView = ({
                     <CardDescription className="space-y-2 lg:w-[50%]">
                       <span>Project GST(s)</span>
                       <ul className="list-disc list-inside space-y-1">
-                        {JSON.parse(data?.project_gst_number)?.list?.map((item) => (
+                        {JSON.parse(data?.project_gst_number || "{}")?.list?.map((item) => (
                           <li key={item?.location}>
                             <span className="font-bold">{item?.location}</span>
                           </li>
@@ -2157,7 +2156,7 @@ const ProjectView = ({
         )
       )}
 
-      {activePage === "projectTracking" && (
+      {/* {activePage === "projectTracking" && (
         <div className="pr-2">
           <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button
@@ -2191,7 +2190,7 @@ const ProjectView = ({
             <DataTable columns={columns} data={mile_data || []} />
           )}
         </div>
-      )}
+      )} */}
 
       {activePage === "prsummary" && (
         <div>

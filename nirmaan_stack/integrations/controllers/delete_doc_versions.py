@@ -81,7 +81,7 @@ def generate_versions(doc, method):
         data["changed"].append(["service_category_list", doc.service_category_list, []])
 
     elif doc.doctype == "Sent Back Category":
-        previous_state = doc.work_flow_state
+        previous_state = doc.workflow_state
 
         sb_details = {
             "project" : doc.project,

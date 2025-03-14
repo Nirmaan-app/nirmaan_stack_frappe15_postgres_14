@@ -86,5 +86,13 @@
   "name": "Electrical Work",
   "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/electrical_work.jpg.jpg",
   "work_package_name": "Electrical Work"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2025-03-14 18:15:25.804111",
+  "name": "WLD & RR",
+  "work_package_image": null,
+  "work_package_name": "WLD & RR"
  }
 ]

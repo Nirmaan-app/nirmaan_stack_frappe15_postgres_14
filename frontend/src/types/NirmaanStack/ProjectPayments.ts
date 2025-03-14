@@ -26,4 +26,6 @@ export interface ProjectPayments{
 	amount?: string
 	/**	TDS : Data	*/
 	tds?: string
+	payment_date?: string
+	status: string
 }

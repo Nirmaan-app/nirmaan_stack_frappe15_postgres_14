@@ -47,7 +47,7 @@ def on_update(doc, method):
                             f"Hi {user['full_name']}, Vendors have been selected for the {doc.name} Service Request. "
                             "Please review the selection and proceed with approval or rejection."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-service-request"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approve-service-order"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -59,7 +59,7 @@ def on_update(doc, method):
             "title": _("SR Status Updated"),
             "description": _(f"Vendors have been selected for the SR: {doc.name}!"),
             "project": doc.project,
-            # "work_package": doc.work_package,
+            "work_package": "Services",
             "sender": frappe.session.user,
             "docname": doc.name
         }
@@ -75,11 +75,11 @@ def on_update(doc, method):
             new_notification_doc.document = 'Service Requests'
             new_notification_doc.docname = doc.name
             new_notification_doc.project = doc.project
-            # new_notification_doc.work_package = doc.work_package
+            new_notification_doc.work_package = "Services"
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "sr:vendorSelected"
-            new_notification_doc.action_url = f"approve-service-request/{doc.name}"
+            new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approve-service-order"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -103,7 +103,7 @@ def on_update(doc, method):
                         f"Hi {user['full_name']}, SO: {doc.name} for the {doc.project} "
                         f"project has been amended by {get_user_name(frappe.session.user)} and is awaiting your review."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-amended-so"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approve-amended-so"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -115,7 +115,7 @@ def on_update(doc, method):
             "title": _("SR Status Updated!"),
             "description": _(f"SO: {doc.name} has been amended!"),
             "project": doc.project,
-            # "work_package": "Services",
+            "work_package": "Services",
             "sender": frappe.session.user,
             "docname": doc.name
         }
@@ -131,11 +131,11 @@ def on_update(doc, method):
             new_notification_doc.document = 'Service Requests'
             new_notification_doc.docname = doc.name
             new_notification_doc.project = doc.project
-            # new_notification_doc.work_package = doc.work_package
+            new_notification_doc.work_package = "Services"
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "sr:amended"
-            new_notification_doc.action_url = f"approve-amended-so/{doc.name}"
+            new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approve-amended-so"
             new_notification_doc.insert()
             frappe.db.commit()
 
@@ -163,9 +163,9 @@ def on_update(doc, method):
                             "click here to take action."
                         )
                     if user['role_profile'] != "Nirmaan Accountant Profile":
-                        click_action_url = f"{frappe.utils.get_url()}/frontend/approved-sr"
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approved-sr"
                     else:
-                        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments"
+                        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=PO%20Wise"
 
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -177,7 +177,7 @@ def on_update(doc, method):
             "title": _("SR Approved"),
             "description": _(f"Vendors have been approved for the SR: {doc.name}!"),
             "project": doc.project,
-            # "work_package": doc.work_package,
+            "work_package": "Services",
             "sender": frappe.session.user,
             "docname": doc.name
         }
@@ -193,12 +193,12 @@ def on_update(doc, method):
             new_notification_doc.document = 'Service Requests'
             new_notification_doc.docname = doc.name
             new_notification_doc.project = doc.project
-            # new_notification_doc.work_package = doc.work_package
+            new_notification_doc.work_package = "Services"
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "sr:approved"
             if user['role_profile'] != "Nirmaan Accountant Profile":
-                new_notification_doc.action_url = f"approved-sr/{doc.name}"
+                new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approved-sr"
             else:
                 new_notification_doc.action_url = f"project-payments/{doc.name}"
             new_notification_doc.insert()

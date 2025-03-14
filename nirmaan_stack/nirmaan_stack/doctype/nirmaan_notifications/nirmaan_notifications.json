@@ -59,9 +59,8 @@
   },
   {
    "fieldname": "work_package",
-   "fieldtype": "Link",
-   "label": "Work Package",
-   "options": "Procurement Packages"
+   "fieldtype": "Data",
+   "label": "Work Package"
   },
   {
    "fieldname": "seen",
@@ -120,7 +119,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:45:50.866881",
+ "modified": "2025-03-13 12:35:33.629279",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Notifications",

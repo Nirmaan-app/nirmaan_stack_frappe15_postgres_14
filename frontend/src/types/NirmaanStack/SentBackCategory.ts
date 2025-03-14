@@ -1,3 +1,4 @@
+import { Category, ProcurementItem, RFQData } from "./ProcurementRequests"
 
 export interface SentBackCategory{
 	name: string
@@ -5,23 +6,30 @@ export interface SentBackCategory{
 	modified: string
 	owner: string
 	modified_by: string
-	docstatus: 0 | 1 | 2
+	docstatus?: 0 | 1 | 2
 	parent?: string
 	parentfield?: string
 	parenttype?: string
 	idx?: number
 	/**	Procurement Request : Link - Procurement Requests	*/
-	procurement_request?: string
+	procurement_request: string
 	/**	Project : Link - Projects	*/
-	project?: string
+	project: string
 	/**	Category List : JSON	*/
-	category_list?: any
+	category_list:  {
+			list: Category[]
+		}
 	/**	Item List : JSON	*/
-	item_list?: any
+	item_list: {
+			list: ProcurementItem[]
+		}
+	/**	RFQ Data : JSON	*/
+	rfq_data : RFQData
 	/**	Type : Data	*/
-	type?: string
+	type: string
 	/**	Comments : Long Text	*/
 	comments?: string
 	/**	Amended From : Link - Sent Back Category	*/
 	amended_from?: string
+	workflow_state: string
 }

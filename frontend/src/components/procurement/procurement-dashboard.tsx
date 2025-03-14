@@ -1,14 +1,12 @@
-import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link, useNavigate } from "react-router-dom";
-import { TailSpin } from "react-loader-spinner";
-import { Card } from "../ui/card";
-import { Button } from "../ui/button";
-import { CirclePlus } from "lucide-react";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
+import { TailSpin } from "react-loader-spinner";
+import { Link } from "react-router-dom";
+import { Card } from "../ui/card";
 
 export default function ProcurementDashboard() {
 
-    const { approvedPRCount, updateQuotePRCount, chooseVendorPRCount, newPOCount, otherPOCount, newSBCounts, allSRCount, pendingSRCount, approvedSRCount } = useDocCountStore()
+    const { prCounts, newPOCount, otherPOCount,dispatchedPOCount, newSBCounts, allSRCount, pendingSRCount, approvedSRCount } = useDocCountStore()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocCount("Items");
@@ -27,41 +25,59 @@ export default function ProcurementDashboard() {
 
             </div> */}
             <div className="flex items-center space-y-2">
-                <h2 className=" font-bold tracking-tight">New PR Actions</h2>
+                <h2 className=" font-bold tracking-tight">PR and Sent Back Actions</h2>
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/procurement-requests?tab=New+PR+Request">
                         <p className="text-center py-6 font-bold text-gray-500">New PR Request</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {approvedPRCount || 0}
+                            {prCounts.approved || 0}
                         </p>
                     </Link>
                 </Card>
 
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=Update+Quote">
-                        <p className="text-center py-6 font-bold text-gray-500">Update Quote</p>
+                    <Link to="/procurement-requests?tab=In+Progress">
+                        <p className="text-center py-6 font-bold text-gray-500">In Progress</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {updateQuotePRCount || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=Choose+Vendor">
-                        <p className="text-center py-6 font-bold text-gray-500">Choose Vendor</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {chooseVendorPRCount || 0}
+                            {prCounts.inProgress || 0}
                         </p>
                     </Link>
                 </Card>
             </div>
+            <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Link to="/procurement-requests?tab=Rejected">
+                        <p className="text-center py-6 font-bold text-gray-500">Sent Back</p>
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
+                            {newSBCounts.rejected || 0}
+                        </p>
+                    </Link>
+                </Card>
+                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Link to="/procurement-requests?tab=Delayed">
+                        <p className="text-center py-6 font-bold text-gray-500">Skipped PR</p>
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
+                            {newSBCounts.delayed || 0}
+                        </p>
+                    </Link>
+                </Card>
+                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Link to="/procurement-requests?tab=Cancelled">
+                        <p className="text-center py-6 font-bold text-gray-500">Rejected PO</p>
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
+                            {newSBCounts.cancelled || 0}
+                        </p>
+                    </Link>
+                </Card>
+                </div>
             <div className="flex items-center space-y-2">
                 <h2 className=" font-bold tracking-tight">Service Requests</h2>
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/service-requests">
+                    <Link to="/service-requests-list">
                         <p className="text-center py-6 font-bold text-gray-500">All SRs</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
                             {allSRCount || 0}
@@ -70,8 +86,8 @@ export default function ProcurementDashboard() {
                 </Card>
 
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/choose-service-vendor">
-                        <p className="text-center py-6 font-bold text-gray-500">Select SR Vendor</p>
+                    <Link to="/service-requests?tab=choose-vendor">
+                        <p className="text-center py-6 font-bold text-gray-500">In Progress SR</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
                             {pendingSRCount || 0}
                         </p>
@@ -79,7 +95,7 @@ export default function ProcurementDashboard() {
                 </Card>
 
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/approved-sr">
+                    <Link to="/service-requests?tab=approved-sr">
                         <p className="text-center py-6 font-bold text-gray-500">Approved SR</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
                             {approvedSRCount || 0}
@@ -100,44 +116,22 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/purchase-orders?tab=Released+PO">
-                        <p className="text-center py-6 font-bold text-gray-500">Released PO</p>
+                    <Link to="/purchase-orders?tab=Dispatched+PO">
+                        <p className="text-center py-6 font-bold text-gray-500">Dispatched PO</p>
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
+                            {dispatchedPOCount || 0}
+                        </p>
+                    </Link>
+                </Card>
+                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Link to="/purchase-orders?tab=Delivered+PO">
+                        <p className="text-center py-6 font-bold text-gray-500">Delivered PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
                             {otherPOCount || 0}
                         </p>
                     </Link>
                 </Card>
             </div>
-            <div className="flex items-center space-y-2">
-                <h2 className="text-base pt-1 font-bold tracking-tight">Sent Back PR Actions</h2>
-            </div>
-            <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/sent-back-requests?type=Rejected">
-                        <p className="text-center py-6 font-bold text-gray-500">Rejected Sent Backs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {newSBCounts.rejected || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/sent-back-requests?type=Delayed">
-                        <p className="text-center py-6 font-bold text-gray-500">Delayed Sent Backs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {newSBCounts.delayed || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/sent-back-requests?type=Cancelled">
-                        <p className="text-center py-6 font-bold text-gray-500">Cancelled Sent Backs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {newSBCounts.cancelled || 0}
-                        </p>
-                    </Link>
-                </Card>
-            </div>
-
             <div className="flex items-center space-y-2">
                 <h2 className="text-base pt-1 font-bold tracking-tight">General Actions</h2>
             </div>

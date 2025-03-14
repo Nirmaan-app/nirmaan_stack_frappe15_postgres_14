@@ -1,34 +1,33 @@
-import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link, useSearchParams } from "react-router-dom";
-import { useContext, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
+import { useUserData } from "@/hooks/useUserData";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { useToast } from "../ui/use-toast";
-import { TableSkeleton } from "../ui/skeleton";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
+import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { useUserData } from "@/hooks/useUserData";
-import { Radio } from "antd";
-
-
-type PRTable = {
-    name: string
-    project_name: string
-    creation: string
-    category: string
-}
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
+import { ColumnDef } from "@tanstack/react-table";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
+import { Trash2 } from "lucide-react";
+import { useContext, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { Link, useSearchParams } from "react-router-dom";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog";
+import { Button } from "../ui/button";
+import { TableSkeleton } from "../ui/skeleton";
+import { useToast } from "../ui/use-toast";
 
 export const SentBackRequest = () => {
 
     const [searchParams] = useSearchParams();
 
-    const [type, setType] = useState<string>(searchParams.get("type") || "Rejected");
+    const {role} = useUserData()
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const type = searchParams.get("tab") || "Rejected"
+
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate : sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type', 'modified'],
             filters: [["workflow_state", "=", "Pending"], ["type", "=", type]],
@@ -55,73 +54,79 @@ export const SentBackRequest = () => {
         return total;
     }
 
-    const { role, user_id } = useUserData()
+    // const { role, user_id } = useUserData()
 
-    const { newSBCounts, adminNewSBCounts } = useDocCountStore()
+    // const { newSBCounts, adminNewSBCounts } = useDocCountStore()
 
     const { mark_seen_notification, notifications } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
+
+    const [deleteFlagged, setDeleteFlagged] = useState<SentBackCategory | null>(null);
+
+    const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
+
+    const {handleDeleteSB, deleteLoading} = usePRorSBDelete(sent_back_list_mutate);
         
-    const updateURL = (key, value) => {
-        const url = new URL(window.location);
-        url.searchParams.set(key, value);
-        window.history.pushState({}, "", url);
-    };
+    // const updateURL = (key, value) => {
+    //     const url = new URL(window.location);
+    //     url.searchParams.set(key, value);
+    //     window.history.pushState({}, "", url);
+    // };
 
 
-    const onClick = (value) => {
+    // const onClick = (value) => {
 
-        if (type === value) return; // Prevent redundant updates
+    //     if (type === value) return; // Prevent redundant updates
 
-        const newTab = value;
-        setType(newTab);
-        updateURL("type", newTab);
+    //     const newTab = value;
+    //     setType(newTab);
+    //     updateURL("type", newTab);
 
-    };
+    // };
 
-    const items = [
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Rejected</span>
-                    <span className="ml-2 text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.rejected : newSBCounts.rejected}
-                    </span>
-                </div>
-            ),
-            value: "Rejected",
-        },
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Delayed</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.delayed : newSBCounts.delayed}
-                    </span>
-                </div>
-            ),
-            value: "Delayed",
-        },
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Cancelled</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}
-                    </span>
-                </div>
-            ),
-            value: "Cancelled",
-        },
-    ];
+    // const items = [
+    //     {
+    //         label: (
+    //             <div className="flex items-center">
+    //                 <span>Rejected</span>
+    //                 <span className="ml-2 text-xs font-bold">
+    //                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.rejected : newSBCounts.rejected}
+    //                 </span>
+    //             </div>
+    //         ),
+    //         value: "Rejected",
+    //     },
+    //     {
+    //         label: (
+    //             <div className="flex items-center">
+    //                 <span>Delayed</span>
+    //                 <span className="ml-2 rounded text-xs font-bold">
+    //                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.delayed : newSBCounts.delayed}
+    //                 </span>
+    //             </div>
+    //         ),
+    //         value: "Delayed",
+    //     },
+    //     {
+    //         label: (
+    //             <div className="flex items-center">
+    //                 <span>Cancelled</span>
+    //                 <span className="ml-2 rounded text-xs font-bold">
+    //                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}
+    //                 </span>
+    //             </div>
+    //         ),
+    //         value: "Cancelled",
+    //     },
+    // ];
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<SentBackCategory>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -142,7 +147,7 @@ export const SentBackRequest = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`${sbId}`}
+                                to={`/sent-back-requests/${sbId}`}
                             >
                                 {sbId?.slice(-4)}
                             </Link>
@@ -221,7 +226,20 @@ export const SentBackRequest = () => {
                         </div>
                     )
                 }
-            }
+            },
+            ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) ? [
+                            {
+                                id: "deleteOption",
+                                cell: ({row}) => {
+                                    return (
+                                        <Trash2 className="text-primary cursor-pointer" onClick={() => {
+                                            setDeleteFlagged(row.original)
+                                            toggleDeleteDialog()
+                                        }} />
+                                    )
+                                }
+                            }
+                        ] : []),
         ],
         [project_values, sent_back_list]
     )
@@ -239,11 +257,7 @@ export const SentBackRequest = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            {/* <div className="flex items-center justify-between pl-2 space-y-2">
-                    <h2 className="text-lg font-bold tracking-tight">{type} Sent Back PR</h2>
-                </div> */}
-            {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-            {items && (
+            {/* {items && (
                     <Radio.Group
                         block
                         options={items}
@@ -253,43 +267,35 @@ export const SentBackRequest = () => {
                         value={type}
                         onChange={(e) => onClick(e.target.value)}
                     />
-                )}
+                )} */}
             {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
             )}
-
-            {/* <div className="overflow-x-auto">
-                        <table className="min-w-full divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sent Back ID</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PR number</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Package</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {sent_back_list?.map(item => (
-                                    <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/sent-back-request/${item.name}`}>{item.name}</Link></td>
-                                        <td className="px-6 py-4 whitespace-nowrap">{item.procurement_request.slice(-4)}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {item.creation.split(" ")[0]}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.project_name}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{getPackage(item.procurement_request)}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.category}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            {getTotal(item.name)}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div> */}
+                    <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                <AlertDialogHeader className="text-start">
+                                    <AlertDialogTitle className="text-center">
+                                        Delete Sent Back PR
+                                    </AlertDialogTitle>
+                                        <AlertDialogDescription>Are you sure you want to delete this PR : {deleteFlagged?.name}?</AlertDialogDescription>
+                                    <div className="flex gap-2 items-center pt-4 justify-center">
+                                        {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                            <>
+                                                <AlertDialogCancel className="flex-1" asChild>
+                                                    <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                </AlertDialogCancel>
+                                                 <Button
+                                                    onClick={() => handleDeleteSB(deleteFlagged?.name)}
+                                                    className="flex-1">
+                                                        Confirm
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+            
+                                </AlertDialogHeader>
+                            </AlertDialogContent>
+                        </AlertDialog>
         </div>
     )
 }

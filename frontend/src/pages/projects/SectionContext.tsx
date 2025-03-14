@@ -10,7 +10,7 @@ interface SectionContextProps {
 const SectionContext = createContext<SectionContextProps | null>(null);
 
 
-export const SectionProvider = ({ value, children }) => {
+export const SectionProvider = ({ value, children } : { value: SectionContextProps, children: React.ReactNode }) => {
   return <SectionContext.Provider value={value}>{children}</SectionContext.Provider>;
 };
 
