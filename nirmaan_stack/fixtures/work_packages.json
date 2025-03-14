@@ -70,5 +70,13 @@
   "name": "Civil & Interior",
   "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped WP/civil-work.jpg",
   "work_package_name": "Civil & Interior"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2025-03-14 18:15:04.842088",
+  "name": "WLD & RR",
+  "work_package_image": null,
+  "work_package_name": "WLD & RR"
  }
 ]
