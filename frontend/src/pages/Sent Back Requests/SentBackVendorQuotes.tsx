@@ -1,23 +1,20 @@
 import { VendorsReactMultiSelect } from "@/components/helpers/VendorsReactSelect";
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ProcurementHeaderCard } from "@/components/ui/ProcurementHeaderCard";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import formatToIndianRupee from "@/utils/FormatPrice";
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import _ from "lodash";
-import { CheckCheck, CircleMinus, CirclePlus, FolderPlus } from "lucide-react";
+import { CirclePlus, Info } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { MakesSelection } from "../ProcurementRequests/VendorQuotesSelection/ProcurementProgress";
+import GenerateRFQDialog from "../ProcurementRequests/VendorQuotesSelection/GenerateRFQDialog";
+import { SelectVendorQuotesTable } from "../ProcurementRequests/VendorQuotesSelection/SelectVendorQuotesTable";
 import { Vendor } from "../ServiceRequests/service-request/select-service-vendor";
 
 // Custom hook to persist state to localStorage
@@ -38,8 +35,9 @@ function usePersistentState<T>(key: string, defaultValue: T) {
   return [state, setState] as [T, typeof setState];
 }
 
-const useProcurementUpdates = (sbId: string, mutate : any) => {
+const useProcurementUpdates = (sbId: string, sbMutate : any) => {
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
+  const {mutate} = useSWRConfig()
 
   const navigate = useNavigate()
 
@@ -49,7 +47,8 @@ const useProcurementUpdates = (sbId: string, mutate : any) => {
       item_list: { list: updatedData }
     });
     
-    await mutate();
+    await sbMutate();
+    await mutate(`Sent Back Category:${sbId}`)
 
     if(value === "review") {
       toast({
@@ -87,7 +86,7 @@ export const SentBackVendorQuotes : React.FC = () => {
     sbId ? `Sent Back Category ${sbId}` : null
   );
 
-  const {data: vendors, isLoading: vendors_loading, error: vendors_error} = useFrappeGetDocList<Vendors>("Vendors", {
+  const {data: vendors, isLoading: vendors_loading} = useFrappeGetDocList<Vendors>("Vendors", {
       fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
       filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
       limit: 10000,
@@ -314,10 +313,38 @@ export const SentBackVendorQuotes : React.FC = () => {
         <div className="flex items-center max-sm:items-end justify-between">
     <div className="flex gap-4 max-sm:flex-col">
       <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
+      <div className="flex items-center gap-1">
       <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
         <span  role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
         <span role="radio" tabIndex={0} aria-checked={mode === "view"}  onClick={() => onClick("view")}  className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
       </div>
+              <HoverCard>
+                <HoverCardTrigger>
+                  <Info className="text-blue-500" />
+                </HoverCardTrigger>
+                <HoverCardContent>
+                  {mode === "edit" ? (
+                      <div>
+                          <p className="font-semibold mb-2 tracking-tight">Edit Mode Instructions:</p>
+                          <ul className="list-disc list-inside space-y-1 text-xs">
+                              <li>Select required vendors using the <b>Add More Vendors</b> button.</li>
+                              <li>Fill in the quotes for each relevant Item-Vendor combination.</li>
+                              <li>Select Makes (if applicable).</li>
+                              <li>Click <b>View</b> to review your item-vendor quote selections.</li>
+                          </ul>
+                      </div>
+                  ) : (
+                      <div>
+                          <p className="font-semibold mb-2 tracking-tight">View Mode Instructions:</p>
+                          <ul className="list-disc list-inside space-y-1 text-xs">
+                              <li>To enable the <b>Continue</b> button below the items table, select at least one Item-Vendor quote.</li>
+                              <li>Click <b>Continue</b> to navigate to the review selections page.</li>
+                          </ul>
+                      </div>
+                )}
+              </HoverCardContent>
+              </HoverCard>
+              </div>
     </div>
 
     <div className="flex gap-2 items-center">
@@ -328,14 +355,10 @@ export const SentBackVendorQuotes : React.FC = () => {
       </Button>
       )}
 
-      <Button variant={"outline"} className="text-primary border-primary flex gap-1">
-        <FolderPlus className="w-4 h-4" />
-        Generate RFQ
-        </Button>
-    </div>
-
-        </div>
-        <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
+      <GenerateRFQDialog orderData={{...orderData, procurement_list: { list : orderData?.item_list.list}}} />
+      </div>
+      </div>
+        {/* <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
             {orderData?.category_list?.list.map((cat: any, index) => {
               return <div key={cat.name} className="min-w-[400px]">
                 <Table>
@@ -404,7 +427,20 @@ export const SentBackVendorQuotes : React.FC = () => {
                         return (
                           <TableRow key={`${cat.name}-${item.name}`}>
                             <TableCell className="py-8">
-                            {item.item}
+                            <div className="inline items-baseline">
+                                <span>{item.item}</span>
+                                {item.comment && (
+                                  <HoverCard>
+                                    <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                    <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                      <div className="relative pb-4">
+                                        <span className="block">{item.comment}</span>
+                                        <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                      </div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>{item.unit}</TableCell>
                             <TableCell>{item.quantity}</TableCell>
@@ -412,15 +448,25 @@ export const SentBackVendorQuotes : React.FC = () => {
                               const data = formData?.details?.[item.name]?.vendorQuotes?.[v?.value]
                               const quote = data?.quote
                               const make = data?.make
+                              const isSelected = mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.value;
                               return (
                                 <TableCell key={`${item.name}-${v?.value}`}>
-                                  <div aria-disabled={mode === "edit" || !quote} aria-checked={mode === "view" && (selectedVendorQuotes?.get(item?.name) === v?.value)} 
+                                  <div aria-disabled={mode === "edit" || !quote} aria-checked={isSelected} 
                                   onClick={() => {
                                     if(mode === "edit") {
                                       return
                                     }
-                                    setSelectedVendorQuotes(new Map(selectedVendorQuotes.set(item.name, v?.value)))
-                                  }} role="radio" tabIndex={0} className={`min-w-[150px] max-w-[150px] space-y-2 p-2 border border-gray-400 rounded-md ${mode === "view" && !quote ? "aria-disabled:pointer-events-none aria-disabled:opacity-50" : ""} ${mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.value ? "bg-red-100" : ""}`}>
+                                    if(isSelected) {
+                                      const updatedQuotes = new Map(selectedVendorQuotes);
+                                      updatedQuotes.delete(item.name);
+                                      setSelectedVendorQuotes(updatedQuotes);
+                                    } else {
+                                      setSelectedVendorQuotes(new Map(selectedVendorQuotes.set(item.name, v?.value)));
+                                    }
+                                  }} role="radio" 
+                                  tabIndex={0} 
+                                  className={`min-w-[150px] max-w-[150px] space-y-3 p-3 border border-gray-300 rounded-md shadow-md transition-all 
+                                    ring-offset-2 ring-gray-300 focus:ring-2 focus:ring-primary hover:shadow-lg ${mode === "view" && !quote ? "pointer-events-none opacity-50" : ""} ${isSelected ? "bg-red-100 ring-2 ring-primary" : "bg-white"}`}>
                                     <div className="flex flex-col gap-1">
                                       <Label className="text-xs font-semibold text-primary">Make</Label>
                                       {mode === "edit" ? (
@@ -452,7 +498,9 @@ export const SentBackVendorQuotes : React.FC = () => {
                 </Table>
               </div>
             })}
-        </div>  
+        </div>   */}
+
+        <SelectVendorQuotesTable sentBack orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} handleQuoteChange={handleQuoteChange} removeVendor={removeVendor} />
     
     <div className="flex justify-end">
       <Button disabled={mode === "edit" || selectedVendorQuotes?.size !== orderData?.item_list?.list?.length} onClick={handleReviewChanges}>Continue</Button>

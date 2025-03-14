@@ -183,7 +183,7 @@ export const SBQuotesSelectionReview = () => {
         fields: ["*"],
         filters: [["name", "=", sbId]]
       },
-      sbId ? `Sent Back Category ${sbId}` : null
+      sbId ? `Sent Back Category:${sbId}` : null
   );
 
   const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
