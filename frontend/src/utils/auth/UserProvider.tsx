@@ -1,32 +1,37 @@
-import { useFrappeAuth, useSWRConfig } from "frappe-react-sdk";
-import React, { FC, PropsWithChildren, useEffect } from "react";
-import { createContext } from "react";
-import { useState } from "react";
-import { boolean } from "zod";
+import { AuthResponse, useFrappeAuth, useSWRConfig } from "frappe-react-sdk";
+import { createContext, FC, PropsWithChildren, useEffect, useState } from "react";
 // import { useNavigate } from 'react-router-dom'
 
 interface UserContextProps {
   isLoading: boolean;
   currentUser: string;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  login: (username: string, password: string) => Promise<AuthResponse>;
+  logout: () => Promise<undefined[]>;
   updateCurrentUser: VoidFunction;
   selectedProject: string | undefined;
   setSelectedProject: any;
   newItemDialog: boolean;
-  toggleNewItemDialog: any;
+  toggleNewItemDialog: () => void;
+  deleteDialog: boolean;
+  toggleDeleteDialog: () => void;
 }
 
 export const UserContext = createContext<UserContextProps>({
   currentUser: "",
   isLoading: false,
-  login: () => Promise.resolve(),
-  logout: () => Promise.resolve(),
+  login: async () => {
+    return {message : "loding not implemented" , user: ""}
+  },
+  logout: async () => {
+    return []
+  },
   updateCurrentUser: () => {},
-  selectedProject: "",
+  selectedProject: undefined,
   setSelectedProject: () => {},
   newItemDialog: false,
   toggleNewItemDialog: () => {},
+  deleteDialog: false,
+  toggleDeleteDialog: () => {},
 });
 
 export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
@@ -42,6 +47,11 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const toggleNewItemDialog = () => {
     setNewItemDialog((prevState) => !prevState);
+  };
+
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const toggleDeleteDialog = () => {
+    setDeleteDialog((prevState) => !prevState);
   };
 
   useEffect(() => {
@@ -114,6 +124,8 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
         setSelectedProject,
         newItemDialog,
         toggleNewItemDialog,
+        deleteDialog,
+        toggleDeleteDialog
       }}
     >
       {children}

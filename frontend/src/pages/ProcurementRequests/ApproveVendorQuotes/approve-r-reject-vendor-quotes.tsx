@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from '@/hooks/useUserData';
 import { CategoryWithChildren, DataItem } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
@@ -110,9 +111,9 @@ type ApproveRejectVendorQuotesPageProps = {
 
 export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesPageProps> = ({pr_data, pr_mutate, vendor_list, quotes_data, universalComment, getUserName}) => {
 
-    const [attachment, setAttachment] = useState(null)
+    const [attachment, setAttachment] = useState<NirmaanAttachment | null>(null)
 
-    const {data : attachmentsData} = useFrappeGetDocList("Nirmaan Attachments", {
+    const {data : attachmentsData} = useFrappeGetDocList<NirmaanAttachment>("Nirmaan Attachments", {
           fields: ["*"],
           filters: [["associated_doctype", "=", "Procurement Requests"], ["associated_docname", "=", pr_data?.name], ["attachment_type", "=", "custom pr attachment"]]
       },
@@ -570,23 +571,22 @@ const generateActionSummary = useCallback((actionType : string) => {
               )}
             </div>
 
-            <div className='grid grid-cols-3 items-center mt-4'>
-            <div className="flex items-center gap-2 col-span-2  sm:items-center sm:justify-center">
-                <h3 className='max-sm:hidden font-semibold tracking-tight'>Attachment</h3>
-                {attachment && (
-                <div
-                    style={{
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                        color: 'blue',
-                    }}
-                    onClick={() => handleAttachmentClick(attachment?.attachment)}
-                >
-                    {/* Display a generic attachment name or derive it from the URL */}
-                    {attachment?.attachment.split('/').pop()}
+            <div className='flex justify-between items-center mt-4 sm:pl-4'>
+                {attachment ? (
+                <div className="flex items-center gap-2">
+                    <h3 className='max-sm:hidden font-semibold tracking-tight'>Attachment</h3>
+                    <div
+                        style={{
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            color: 'blue',
+                        }}
+                        onClick={() => handleAttachmentClick(attachment?.attachment)}
+                    >
+                        {attachment?.attachment.split('/').pop()}
+                    </div>
                 </div>
-                )}
-            </div>
+                ) : <div />}
                 {(selectionMap.size > 0 || !orderData?.work_package) && <div className="flex justify-end gap-2 mr-2">
                         <Button onClick={toggleSentBackDialog} variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
                             <SendToBack className='w-4 h-4' />

@@ -8,7 +8,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -27,6 +26,7 @@ import {
 } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
 import {
   Select,
   SelectContent,
@@ -45,9 +45,11 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { Category } from "@/types/NirmaanStack/Category";
+import { Items } from "@/types/NirmaanStack/Items";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { formatDate } from "@/utils/FormatDate";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import TextArea from "antd/es/input/TextArea";
 import {
   useFrappeCreateDoc,
@@ -67,7 +69,6 @@ import {
   ListChecks,
   ListX,
   MessageCircleMore,
-  Paperclip,
   Pencil,
   Trash,
   Trash2,
@@ -80,9 +81,8 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect from "react-select";
 
-export const ApprovePRList = () => {
+export const ApprovePRList : React.FC = () => {
   const { prId: id } = useParams<{ prId: string }>();
-  console.log("id", id)
   const { data: pr, isLoading: pr_loading, error: pr_error, mutate: prMutate } = useFrappeGetDoc("Procurement Requests", id);
   const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc(
     "Projects",
@@ -160,16 +160,16 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   const navigate = useNavigate();
   const userData = useUserData();
 
-  const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category", {
+  const { data: category_list } = useFrappeGetDocList<Category>("Category", {
     fields: [ "category_name", "work_package", "image_url", "tax", "new_items", "name"],
     filters: [["work_package", "=", pr_data?.work_package]],
     orderBy: { field: "category_name", order: "asc" },
     limit: 10000,
   });
 
-  const { data: item_list, mutate: item_list_mutate } = useFrappeGetDocList("Items", {
+  const { data: item_list, mutate: item_list_mutate } = useFrappeGetDocList<Items>("Items", {
     fields: ["name", "item_name", "make_name", "unit_name", "category", "creation"],
-    filters: [["category", "in", category_list?.map((i) => i?.name)]],
+    filters: [["category", "in", (category_list || [])?.map((i) => i?.name)]],
     orderBy: { field: "creation", order: "desc" },
     limit: 100000,
   },
@@ -203,7 +203,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     ],
   });
 
-  const { createDoc: createDoc, error: update_error, loading: createLoading } = useFrappeCreateDoc();
+  const { createDoc: createDoc, loading: createLoading } = useFrappeCreateDoc();
 
   const [showNewItemsCard, setShowNewItemsCard] = useState(false)
 
@@ -211,7 +211,15 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     setShowNewItemsCard((prevState) => !prevState);
   };
 
-  const [itemOptions, setItemOptions] = useState([]);
+  interface ItemOptionsType {
+    label: string;
+    value: string;
+    category: string;
+    unit: string;
+    tax: number;
+  }
+
+  const [itemOptions, setItemOptions] = useState<ItemOptionsType[]>([]);
   const [page, setPage] = useState<string>("itemlist");
   const [curItem, setCurItem] = useState<string>("");
   const [curCategory, setCurCategory] = useState<string>("");
@@ -220,8 +228,8 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   const [dynamicPage, setDynamicPage] = useState<string | null>(null);
   const [universalComment, setUniversalComment] = useState<string | null>(null);
   const [stack, setStack] = useState([]);
-  const [uploadedFiles, setUploadedFiles] = useState({});
-  const [managersIdList, setManagersIdList] = useState(null);
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
+  const [managersIdList, setManagersIdList] = useState<string[] | null>(null);
   const [requestCategory, setRequestCategory] = useState("");
   const [newItem, setNewItem] = useState({})
 
@@ -256,11 +264,11 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     }
   }, [usersList]);
 
-  const getFullName = (id) => {
-    return usersList?.find((user) => user.name == id)?.full_name;
+  const getFullName = (id : string | undefined) => {
+    return usersList?.find((user) => user.name == id)?.full_name || ""
   };
 
-  const handleUniversalCommentChange = (e) => {
+  const handleUniversalCommentChange = (e : React.ChangeEvent<HTMLTextAreaElement>) => {
     setUniversalComment(e.target.value === "" ? null : e.target.value);
   };
 
@@ -268,8 +276,8 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     document.getElementById(`file-upload-${name}`)?.click();
   };
 
-  const handleFileChange = (event, catName) => {
-    const file = event.target.files[0];
+  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>, catName : string) => {
+    const file = event.target.files?.[0];
     if (file && file.type !== "application/pdf") {
       alert("Please upload a valid PDF file.");
       return;
@@ -282,7 +290,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     }
   };
 
-  const removeFile = (catName) => {
+  const removeFile = (catName : string) => {
     setUploadedFiles((prev) => {
       const newFiles = { ...prev };
       delete newFiles[catName];
@@ -290,22 +298,13 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     });
   };
 
-  const [orderData, setOrderData] = useState({
-    project: "",
-    work_package: "",
-    procurement_list: {
-      list: [],
-    },
-    category_list: {
-      list: [],
-    },
-  });
+  const [orderData, setOrderData] = useState<ProcurementRequest | null>(null);
 
   // console.log("pr_data", pr_data)
 
   useEffect(() => {
     if(category_list) {
-      const options = [];
+      const options : ItemOptionsType[] = [];
       item_list?.map((item) => {
         if (category_list.some(i => i.name === item.category)) {
           options.push({
@@ -321,10 +320,13 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     }
   }, [category_list, item_list])
 
+  console.log("pr_data", pr_data)
+
   useEffect(() => {
-    if (!orderData.project) {
+    if (!orderData?.project) {
       let mod_pr_data = {
         ...pr_data,
+        category_list: JSON.parse(pr_data?.category_list),
         procurement_list: JSON.parse(pr_data?.procurement_list),
       };
       setOrderData(mod_pr_data);
@@ -352,8 +354,8 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   }, [pr_data]);
 
   useEffect(() => {
-    const newCategories = [];
-    if (orderData.procurement_list.list.some((i) => i.status === "Request")) {
+    const newCategories : {name: string, status?: string, makes? : string[]}[] = [];
+    if (orderData && orderData.procurement_list.list.some((i) => i.status === "Request")) {
       orderData.procurement_list.list.map((item) => {
         const isDuplicate = newCategories.some(
           (category) =>
@@ -374,17 +376,17 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
         }
       });
     } else {
-      orderData.procurement_list.list.map((item) => {
+      orderData?.procurement_list.list.map((item) => {
         const isDuplicate = newCategories.some(
           (category) => category.name === item.category
         );
         if (!isDuplicate) {
           const makes = project_data.project_work_packages
-  ? JSON.parse(project_data.project_work_packages).work_packages
-      .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-      .filter((cat) => cat.name === item.category) // Filter categories matching item.category
-      .flatMap((cat) => cat.makes || []) // Extract and flatten makes
-  : []; // Return an empty array if project_work_packages is not defined
+          ? JSON.parse(project_data.project_work_packages).work_packages
+              .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+              .filter((cat) => cat.name === item.category) // Filter categories matching item.category
+              .flatMap((cat) => cat.makes || []) // Extract and flatten makes
+          : []; // Return an empty array if project_work_packages is not defined
           newCategories.push({ name: item.category, makes: makes || [] });
         }
       });
@@ -395,7 +397,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
         list: newCategories,
       },
     }));
-  }, [orderData.procurement_list]);
+  }, [orderData?.procurement_list]);
 
 
   const handleAdd = () => {
@@ -453,7 +455,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   };
 
   const handleSave = (itemName: string, newQuantity: string) => {
-    let curRequest = orderData.procurement_list.list;
+    let curRequest = orderData?.procurement_list?.list || [];
     curRequest = curRequest.map((curValue) => {
       if (curValue.item === itemName) {
         return {
@@ -474,7 +476,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   };
 
   const handleDelete = (item: string) => {
-    let curRequest = orderData.procurement_list.list;
+    let curRequest = orderData?.procurement_list?.list || [];
     let itemToPush = curRequest.find((curValue) => curValue.item === item);
 
     if (itemToPush.status !== "Request") {
@@ -493,7 +495,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   };
 
   const UndoDeleteOperation = () => {
-    let curRequest = orderData.procurement_list.list;
+    let curRequest = orderData?.procurement_list?.list || [];
     let itemToRestore = stack.pop();
 
     curRequest.push(itemToRestore);
@@ -508,7 +510,6 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     setStack([...stack]);
   };
 
-  // console.log("userdata", userData)
   const { toast } = useToast();
   const {
     updateDoc: updateDoc,
@@ -526,7 +527,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     if (uploadedFiles[category]) {
       try {
         const doc = await createDoc("Category BOQ Attachments", {
-          procurement_request: orderData.name,
+          procurement_request: orderData?.name,
           category: category,
         });
 
@@ -557,9 +558,9 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
         Object.keys(uploadedFiles).map((cat) => handleFileUpload(cat))
       );
 
-      const res = await updateDoc("Procurement Requests", orderData.name, {
-        procurement_list: orderData.procurement_list,
-        category_list: orderData.category_list,
+      const res = await updateDoc("Procurement Requests", orderData?.name, {
+        procurement_list: orderData?.procurement_list,
+        category_list: orderData?.category_list,
         workflow_state: "Approved",
       });
 
@@ -600,9 +601,9 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
       //     Object.keys(uploadedFiles).map(cat => handleFileUpload(cat))
       // );
 
-      const res = await updateDoc("Procurement Requests", orderData.name, {
-        procurement_list: orderData.procurement_list,
-        category_list: orderData.category_list,
+      const res = await updateDoc("Procurement Requests", orderData?.name, {
+        procurement_list: orderData?.procurement_list,
+        category_list: orderData?.category_list,
         workflow_state: "Rejected",
       });
 
@@ -610,7 +611,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
         await createDoc("Nirmaan Comments", {
           comment_type: "Comment",
           reference_doctype: "Procurement Requests",
-          reference_name: orderData.name,
+          reference_name: orderData?.name,
           comment_by: userData?.user_id,
           content: universalComment,
           subject: "rejecting pr",
@@ -628,7 +629,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     } catch (error) {
       toast({
         title: "Failed!",
-        description: `There was an error while Rejected PR: ${orderData.name}`,
+        description: `There was an error while Rejected PR: ${orderData?.name}`,
         variant: "destructive",
       });
       console.log("error occured while rejecting PR", error, submit_error);
@@ -637,7 +638,6 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
 
   const handleAddItem = async () => {
     try {
-
       const itemData = {
         category: curCategory.value,
         unit_name: newItem.unit_name,
@@ -646,7 +646,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
 
       const res = await createDoc("Items", itemData)
 
-      const curRequest = [...orderData.procurement_list.list];
+      const curRequest = [...orderData?.procurement_list?.list];
 
       const itemToAdd = {
         item: res?.item_name,
@@ -696,12 +696,12 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
 
   const handleDeletePr = async () => {
     try {
-      await deleteDoc("Procurement Requests", orderData.name);
+      await deleteDoc("Procurement Requests", orderData?.name);
       await mutate(`Procurement Requests ${orderData?.project}`);
       await mutate("ApprovePR,PRListMutate");
       toast({
         title: "Success!",
-        description: `PR: ${orderData.name} deleted successfully!`,
+        description: `PR: ${orderData?.name} deleted successfully!`,
         variant: "success",
       });
       navigate("/procurement-requests?tab=Approve PR");
@@ -709,7 +709,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
       console.log("error while deleting PR", error);
       toast({
         title: "Failed!",
-        description: `PR: ${orderData.name} deletion Failed!`,
+        description: `PR: ${orderData?.name} deletion Failed!`,
         variant: "destructive",
       });
     }
@@ -724,7 +724,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     try {
       const res = await createDoc("Items", itemData);
 
-      const curRequest = [...orderData.procurement_list.list];
+      const curRequest = [...orderData?.procurement_list.list];
 
       const combinedRequest = [...curRequest, ...stack];
 
@@ -771,7 +771,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
         },
       }));
 
-      await updateDoc("Procurement Requests", orderData.name, {
+      await updateDoc("Procurement Requests", orderData?.name, {
         procurement_list: { list: combinedRequest },
         category_list: {
           list: newCategories,
@@ -846,7 +846,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
       });
 
       if (itemIdToUpdate) {
-        let curRequest = [...orderData.procurement_list.list];
+        let curRequest = [...orderData?.procurement_list?.list];
 
         curRequest = curRequest.filter((curValue) => curValue.name !== requestItem?.name);
 
@@ -1074,7 +1074,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
               </div>
             )}
           </div>
-          {orderData?.procurement_list.list.length === 0 && (
+          {orderData?.procurement_list?.list?.length === 0 && (
             <div className="text-sm">
               No Items to display, please click on "Undo" button to recover the
               deleted items or add at least an item to enable the "Approve" or
@@ -1082,14 +1082,14 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
             </div>
           )}
 
-          {orderData.category_list.list?.filter((i) => i?.status !== "Request")
+          {(orderData || [])?.category_list?.list?.filter((i) => i?.status !== "Request")
             ?.length !== 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle>Added Items</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {orderData.category_list.list
+                  {orderData?.category_list?.list
                     ?.filter((i) => i?.status !== "Request")
                     ?.map((cat) => {
                       return (
@@ -1099,7 +1099,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                               <h3 className="text-sm font-semibold py-2">
                                 {cat.name}
                               </h3>
-                              <div
+                              {/* <div
                                 className={`text-blue-500 cursor-pointer flex gap-1 items-center border rounded-md border-blue-500 px-1 ${uploadedFiles[cat.name] &&
                                   "opacity-50 cursor-not-allowed"
                                   }`}
@@ -1118,8 +1118,8 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                                   }
                                   disabled={uploadedFiles[cat.name] ? true : false}
                                 />
-                              </div>
-                              {uploadedFiles[cat.name] && (
+                              </div> */}
+                              {/* {uploadedFiles[cat.name] && (
                                 <div className="flex items-center ml-2">
                                   <span className="text-sm">
                                     {uploadedFiles[cat.name].name}
@@ -1131,7 +1131,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                                     ✖
                                   </button>
                                 </div>
-                              )}
+                              )} */}
                             </div>
                             <div className="text-sm font-bold text-gray-500">
                             {JSON.parse(project_data.project_work_packages).work_packages
@@ -1167,7 +1167,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                               </tr>
                             </thead>
                             <tbody>
-                              {orderData.procurement_list.list?.map((item) => {
+                              {orderData?.procurement_list?.list?.map((item) => {
                                 if (
                                   item.category === cat.name &&
                                   item.status !== "Request"
@@ -1321,14 +1321,14 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
               </Card>
             )}
 
-          {orderData.category_list.list?.filter((i) => i?.status === "Request")
+          {(orderData || [])?.category_list?.list?.filter((i) => i?.status === "Request")
             ?.length !== 0 && (
               <Card className="bg-yellow-50">
                 <CardHeader>
                   <CardTitle>Requested Items</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {orderData.category_list.list
+                  {orderData?.category_list?.list
                     ?.filter((i) => i?.status === "Request")
                     ?.map((cat) => {
                       return (
@@ -1354,7 +1354,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                               </tr>
                             </thead>
                             <tbody>
-                              {orderData.procurement_list.list?.map((item) => {
+                              {orderData?.procurement_list?.list?.map((item) => {
                                 if (
                                   item.category === cat.name &&
                                   item.status === "Request"
@@ -1689,69 +1689,24 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
               </Card>
             )}
 
-          <div className="flex items-center space-y-2 pt-4">
-            <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">
+          <div className="space-y-2">
+            <h2 className="text-base pl-2 font-bold tracking-tight">
               PR Comments
             </h2>
-          </div>
-
-          <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
-            {universalComments?.filter(
-              (comment) =>
-                managersIdList?.includes(comment.comment_by) ||
-                (comment.comment_by === "Administrator" &&
-                  (comment.subject === "creating pr" ||
-                    comment.subject === "resolving pr" ||
-                    comment.subject === "editing pr"))
-            ).length ? (
-              universalComments
-                .filter(
+            <RenderPRorSBComments universalComment={(universalComments || [])
+                ?.filter(
                   (comment) =>
-                    managersIdList?.includes(comment.comment_by) ||
+                    (managersIdList || []).includes(comment.comment_by) ||
                     (comment.comment_by === "Administrator" &&
                       (comment.subject === "creating pr" ||
                         comment.subject === "resolving pr" ||
                         comment.subject === "editing pr"))
-                )
-                .map((cmt) => (
-                  <div
-                    key={cmt.name}
-                    className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg"
-                  >
-                    <Avatar>
-                      <AvatarImage
-                        src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`}
-                      />
-                      <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <p className="font-medium text-sm text-gray-900">
-                        {cmt.content}
-                      </p>
-                      <div className="flex justify-between items-center mt-2">
-                        <p className="text-sm text-gray-500">
-                          {cmt.comment_by === "Administrator"
-                            ? "Administrator"
-                            : getFullName(cmt.comment_by)}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {formatDate(cmt.creation.split(" ")[0])}{" "}
-                          {cmt.creation.split(" ")[1].substring(0, 5)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))
-            ) : (
-              <span className="text-xs font-semibold flex items-center justify-center">
-                No Comments Found.
-              </span>
-            )}
+                )} getUserName={getFullName} />
           </div>
 
           <div className="flex gap-4 justify-end items-end mt-4">
             <Button
-              disabled={!orderData.procurement_list.list.length}
+              disabled={!orderData?.procurement_list?.list?.length}
               variant="secondary"
               className=""
               onClick={() => {
@@ -1766,9 +1721,9 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
             </Button>
             <Button
               disabled={
-                !orderData.procurement_list.list.length ||
-                orderData.procurement_list.list?.some(
-                  (i) => i.status === "Request"
+                !orderData?.procurement_list?.list?.length ||
+                orderData?.procurement_list?.list?.some(
+                  (i) => i?.status === "Request"
                 )
               }
               className=""
@@ -1832,7 +1787,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                                   <i key={index}>{make}{index < arr.length - 1 && ", "}</i>
                                 ))
                             ) : (
-                              "- no makes specified")}
+                              "- no makes -")}
                             </div>
                             {uploadedFiles[cat.name] && (
                               <div className="flex gap-1 items-end">
@@ -1849,7 +1804,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {orderData?.procurement_list.list.map((item: any) => {
+                        {orderData?.procurement_list?.list?.map((item: any) => {
                           if (
                             item.category === cat.name &&
                             item.status !== "Request"
@@ -1887,7 +1842,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                             );
                           }
                         })}
-                        {orderData?.procurement_list.list.map((item: any) => {
+                        {orderData?.procurement_list?.list?.map((item: any) => {
                           if (
                             item.category === cat.name &&
                             item.status === "Request"
@@ -1927,61 +1882,6 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                   </div>
                 ));
               })()}
-
-              {universalComments?.filter(
-                (comment) =>
-                  managersIdList?.includes(comment.comment_by) ||
-                  (comment.comment_by === "Administrator" &&
-                    (comment.subject === "creating pr" ||
-                      comment.subject === "resolving pr" ||
-                      comment.subject === "editing pr"))
-              ).length !== 0 && (
-                  <div className="flex flex-col gap-2 py-4">
-                    <h2 className="text-base font-bold tracking-tight">
-                      Previous Comments
-                    </h2>
-                    <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
-                      {universalComments
-                        .filter(
-                          (comment) =>
-                            managersIdList?.includes(comment.comment_by) ||
-                            (comment.comment_by === "Administrator" &&
-                              (comment.subject === "creating pr" ||
-                                comment.subject === "resolving pr" ||
-                                comment.subject === "editing pr"))
-                        )
-                        .map((cmt) => (
-                          <div
-                            key={cmt.name}
-                            className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg"
-                          >
-                            <Avatar>
-                              <AvatarImage
-                                src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`}
-                              />
-                              <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1">
-                              <p className="font-medium text-sm text-gray-900">
-                                {cmt.content}
-                              </p>
-                              <div className="flex justify-between items-center mt-2">
-                                <p className="text-sm text-gray-500">
-                                  {cmt.comment_by === "Administrator"
-                                    ? "Administrator"
-                                    : getFullName(cmt.comment_by)}
-                                </p>
-                                <p className="text-xs text-gray-400">
-                                  {formatDate(cmt.creation.split(" ")[0])}{" "}
-                                  {cmt.creation.split(" ")[1].substring(0, 5)}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
             </div>
           </div>
           <div className="flex flex-col justify-end items-end">

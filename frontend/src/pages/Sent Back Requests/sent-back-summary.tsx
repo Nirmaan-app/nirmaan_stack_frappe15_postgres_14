@@ -1,13 +1,15 @@
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
+import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
-import { formatDate } from "@/utils/FormatDate";
+import { UserContext } from "@/utils/auth/UserProvider";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowBigRightDash, MessageCircleMore } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowBigRightDash, MessageCircleMore, Trash2 } from "lucide-react";
+import { useContext, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { Avatar, AvatarFallback, AvatarImage } from "../../components/ui/avatar";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../components/ui/hover-card";
@@ -19,13 +21,17 @@ export const SentBackSummary = () => {
     const { sbId : id } = useParams<{ sbId: string }>()
     const navigate = useNavigate();
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading, mutate : sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
             fields: ['*'],
             filters: [["name", "=", id]]
         },
         id ? undefined : null
     );
+
+    const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
+    
+    const {handleDeleteSB, deleteLoading} = usePRorSBDelete(sent_back_list_mutate);
 
     const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
@@ -40,8 +46,8 @@ export const SentBackSummary = () => {
         limit: 1000,
     })
 
-    const getFullName = (id : string) => {
-        return usersList?.find((user) => user.name == id)?.full_name
+    const getFullName = (id : string | undefined) => {
+        return usersList?.find((user) => user.name == id)?.full_name || ""
     }
 
     const [orderData, setOrderData] = useState<SentBackCategory | undefined>()
@@ -136,36 +142,42 @@ export const SentBackSummary = () => {
                         </TableBody>
                     </Table>
                 </div>
-                <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-4 pl-2 font-bold tracking-tight text-pageheader">Sent Back Comments</h2>
+                <div className="space-y-2">
+                    <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Sent Back Comments</h2>
+                    <RenderPRorSBComments universalComment={universalComments} getUserName={getFullName} />
                 </div>
-                <div className="border border-gray-200 rounded-lg p-4">
-                    {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
-                    {
-                        universalComments?.length ? (
-                            <div className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                <Avatar>
-                                    <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${universalComments[0]?.comment_by}`} />
-                                    <AvatarFallback>{universalComments[0]?.comment_by[0]}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1">
-                                    <p className="font-medium text-sm text-gray-900">{universalComments[0]?.content}</p>
-                                    <div className="flex justify-between items-center mt-2">
-                                        <p className="text-sm text-gray-500">
-                                            {universalComments[0]?.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
-                                        </p>
-                                        <p className="text-xs text-gray-400">
-                                            {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <span className="font-semibold text-xs">No Comments Found</span>
-                        )
-                    }
-                </div>
-                <div className="flex flex-col justify-end items-end">
+                <div className="flex justify-between items-end">
+                    <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                                    <AlertDialogTrigger asChild>
+                                      <Button className="flex items-center gap-1">
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                      <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                          <AlertDialogHeader className="text-start">
+                                              <AlertDialogTitle className="text-center">
+                                              Delete Sent Back PR
+                                              </AlertDialogTitle>
+                                                  <AlertDialogDescription>Are you sure you want to delete this Sent Back PR?</AlertDialogDescription>
+                                              <div className="flex gap-2 items-center pt-4 justify-center">
+                                                  {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                                      <>
+                                                          <AlertDialogCancel className="flex-1" asChild>
+                                                              <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                          </AlertDialogCancel>
+                                                           <Button
+                                                              onClick={() => handleDeleteSB(orderData?.name, true)}
+                                                              className="flex-1">
+                                                                  Confirm
+                                                          </Button>
+                                                      </>
+                                                  )}
+                                              </div>
+                      
+                                          </AlertDialogHeader>
+                                      </AlertDialogContent>
+                                  </AlertDialog>
                     <Button onClick={() => navigate(`/sent-back-requests/${id}?mode=edit`)} className="flex items-center gap-1">
                         Next
                         <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />

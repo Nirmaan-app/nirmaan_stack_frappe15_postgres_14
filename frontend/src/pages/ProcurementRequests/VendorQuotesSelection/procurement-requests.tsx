@@ -5,17 +5,19 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
+import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { useUserData } from "@/hooks/useUserData";
 import { ApprovePR } from "@/pages/ProcurementRequests/ApproveNewPR/approve-pr";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
-import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
 import React, { useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -23,21 +25,12 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { EstimatedPriceHoverCard } from "../../../components/procurement/EstimatedPriceHoverCard";
 import { TableSkeleton } from "../../../components/ui/skeleton";
 
-type PRTable = {
-    name: string
-    project: string
-    creation: string
-    work_package: string
-}
-
 export const ProcurementRequests : React.FC = () => {
 
     const [searchParams] = useSearchParams();
 
     const { role, user_id } = useUserData()
     const navigate = useNavigate()
-
-    const {deleteDoc, loading: deleteLoading} = useFrappeDeleteDoc()
 
     const [tab, setTab] = useState<string>(searchParams.get("tab") || ((["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator") ? "Approve PR" : "New PR Request"));
 
@@ -121,35 +114,16 @@ export const ProcurementRequests : React.FC = () => {
         // updateURL("tab", newTab);
     };
 
-    const [deleteDialog, setDeleteDialog] = useState(false);
-    const toggleDeleteDialog = () => setDeleteDialog(!deleteDialog);
+    const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
 
-    const [deleteFlagged, setDeleteFlagged] = useState(null);
+    const {handleDeletePR, deleteLoading} = usePRorSBDelete(prListMutate);
 
-    const handleDeletePR = async () => {
-        try {
-            await deleteDoc("Procurement Requests", deleteFlagged?.name);
-            await prListMutate();
-            toast({
-                title: "Success!",
-                description: `PR: ${deleteFlagged?.name} deleted successfully!`,
-                variant: "success"
-            })
-            toggleDeleteDialog()
-        } catch (error) {
-            console.log("error while deleting procurement request", error);
-            toast({
-                title: "Failed!",
-                description: `Procurement Request: ${deleteFlagged?.name} Deletion Failed!`,
-                variant: "destructive"
-            })
-        }
-    }
+    const [deleteFlagged, setDeleteFlagged] = useState<ProcurementRequest | null>(null);
 
     const { prCounts, adminPrCounts, newSBCounts, adminNewSBCounts } = useDocCountStore()
 
     const sentBackTabs = [
-        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role) ||
+        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ||
             user_id == "Administrator" ? [
                 {
                     label: (
@@ -204,7 +178,7 @@ export const ProcurementRequests : React.FC = () => {
     ]
 
     const items = [
-        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role) ||
+        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile",  "Nirmaan Project Lead Profile"].includes(role) ||
             user_id == "Administrator" ? [
         {
             label: (
@@ -253,7 +227,7 @@ export const ProcurementRequests : React.FC = () => {
     ] : []),
     ];
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<ProcurementRequest>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -348,7 +322,7 @@ export const ProcurementRequests : React.FC = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="flex flex-col gap-1 items-start justify-center">
-                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {row.getValue("category_list")?.list?.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
@@ -387,7 +361,6 @@ export const ProcurementRequests : React.FC = () => {
                     }
                 }
             ] : []),
-
         ],
         [project_values, procurement_request_list]
     )
@@ -453,7 +426,7 @@ export const ProcurementRequests : React.FC = () => {
                                         <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                                     </AlertDialogCancel>
                                      <Button
-                                        onClick={handleDeletePR}
+                                        onClick={() => handleDeletePR(deleteFlagged?.name)}
                                         className="flex-1">
                                             Confirm
                                     </Button>
