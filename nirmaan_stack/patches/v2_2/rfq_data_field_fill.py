@@ -36,7 +36,7 @@ def execute():
                 }
 
             # Parse makes JSON format
-            makes_data = qr.makes if isinstance(qr.makes, dict) else json.loads(qr.makes)
+            makes_data = qr.makes if isinstance(qr.makes, dict) else json.loads(qr.makes or "{}")
             enabled_make = None
             all_makes = []
 
