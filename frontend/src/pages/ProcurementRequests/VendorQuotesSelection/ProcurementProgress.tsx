@@ -60,6 +60,7 @@ const useProcurementUpdates = (prId: string, prMutate : any) => {
       })
       navigate(`/procurement-requests/${prId}?tab=In+Progress&mode=review`)
       localStorage.removeItem(`procurementDraft_${prId}`)
+      window.location.reload()
     }
   };
 

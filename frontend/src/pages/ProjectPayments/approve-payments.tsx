@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CircleCheck, CircleX, Info, SquarePen } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
@@ -109,7 +109,7 @@ export const ApprovePayments = () => {
 
   const { db } = useContext(FrappeContext) as FrappeConfig
   
-  const handleNewPRSeen = (notification) => {
+  const handleNewPRSeen = (notification : NotificationType | undefined) => {
       if (notification) {
           mark_seen_notification(db, notification)
       }

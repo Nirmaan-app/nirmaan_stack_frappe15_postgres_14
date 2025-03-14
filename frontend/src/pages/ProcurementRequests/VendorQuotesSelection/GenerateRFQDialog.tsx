@@ -66,10 +66,10 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
 
     const handleSelectAll = () => {
         setSelectedItems((prevSelected) => {
-            if (orderData?.category_list.list) {
+            if (orderData?.category_list?.list) {
                 const allSelected: { [category: string]: string[] } = {};
                 orderData.category_list.list.forEach((category: Category) => {
-                    const categoryItems = orderData.procurement_list.list.filter((item) => item.category === category.name);
+                    const categoryItems = orderData?.procurement_list?.list?.filter((item) => item?.category === category.name);
                     allSelected[category.name] = categoryItems.map((item) => item.name);
                 });
                 const isAllSelected = Object.keys(prevSelected).length === Object.keys(allSelected).length &&
@@ -104,7 +104,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                     Generate RFQ
                 </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="overflow-auto">
                 <DialogHeader>
                     <DialogTitle className='text-center text-primary'>Generate RFQ</DialogTitle>
                 </DialogHeader>
@@ -116,15 +116,15 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                       <div className="flex items-center mb-4 pb-2">
                             <Checkbox
                                 id={`select-all`}
-                                checked={getSelectedItemsArray().length === orderData.procurement_list.list.length}
+                                checked={getSelectedItemsArray().length === orderData?.procurement_list?.list?.length}
                                 onCheckedChange={handleSelectAll}
                             />
                             <Label htmlFor={`select-all`} className="ml-2 font-semibold">
-                                {getSelectedItemsArray().length === orderData.procurement_list.list.length ? 'Deselect All' : 'Select All'}
+                                {getSelectedItemsArray().length === orderData?.procurement_list?.list?.length ? 'Deselect All' : 'Select All'}
                             </Label>
                         </div>
-                        {orderData.category_list.list.map((category: Category) => {
-                            const categoryItems = orderData.procurement_list.list.filter((item) => item.category === category.name);
+                        {orderData?.category_list?.list?.map((category: Category) => {
+                            const categoryItems = orderData?.procurement_list?.list?.filter((item) => item?.category === category.name);
                             return (
                                 <div key={category.name}>
                                     <div className="flex items-center mb-4 border-b-2 pb-2">
@@ -186,7 +186,7 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
           const items : ProcurementItem[] = []
           Object.keys(selectedItems).forEach((category) => {
             const categoryItems = selectedItems[category];
-            const categoryItemsForRFQ = orderData.procurement_list.list.filter((item) => categoryItems.includes(item.name));
+            const categoryItemsForRFQ = orderData?.procurement_list?.list?.filter((item) => categoryItems.includes(item.name));
             items.push(...categoryItemsForRFQ);
           });
           setItemList(items);

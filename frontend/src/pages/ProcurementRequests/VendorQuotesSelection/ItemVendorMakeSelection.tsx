@@ -8,7 +8,7 @@ import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { ListChecks } from "lucide-react"
 import { useEffect, useState } from "react"
-import ReactSelect from "react-select"
+import ReactSelect, { components } from "react-select"
 
 interface MakesSelectionProps {
   vendor: Vendor
