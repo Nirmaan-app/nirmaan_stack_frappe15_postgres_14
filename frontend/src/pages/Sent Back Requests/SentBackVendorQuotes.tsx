@@ -58,6 +58,7 @@ const useProcurementUpdates = (sbId: string, sbMutate : any) => {
       })
       navigate(`/sent-back-requests/${sbId}?mode=review`)
       localStorage.removeItem(`sentBackDraft_${sbId}`)
+      window.location.reload()
     }
   };
 
@@ -318,32 +319,37 @@ export const SentBackVendorQuotes : React.FC = () => {
         <span  role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
         <span role="radio" tabIndex={0} aria-checked={mode === "view"}  onClick={() => onClick("view")}  className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
       </div>
-              <HoverCard>
-                <HoverCardTrigger>
-                  <Info className="text-blue-500" />
-                </HoverCardTrigger>
-                <HoverCardContent>
-                  {mode === "edit" ? (
-                      <div>
-                          <p className="font-semibold mb-2 tracking-tight">Edit Mode Instructions:</p>
-                          <ul className="list-disc list-inside space-y-1 text-xs">
-                              <li>Select required vendors using the <b>Add More Vendors</b> button.</li>
-                              <li>Fill in the quotes for each relevant Item-Vendor combination.</li>
-                              <li>Select Makes (if applicable).</li>
-                              <li>Click <b>View</b> to review your item-vendor quote selections.</li>
-                          </ul>
-                      </div>
-                  ) : (
-                      <div>
-                          <p className="font-semibold mb-2 tracking-tight">View Mode Instructions:</p>
-                          <ul className="list-disc list-inside space-y-1 text-xs">
-                              <li>To enable the <b>Continue</b> button below the items table, select at least one Item-Vendor quote.</li>
-                              <li>Click <b>Continue</b> to navigate to the review selections page.</li>
-                          </ul>
-                      </div>
-                )}
-              </HoverCardContent>
-              </HoverCard>
+      <HoverCard>
+    <HoverCardTrigger>
+        <Info className="text-blue-500" />
+    </HoverCardTrigger>
+    <HoverCardContent>
+        {mode === "edit" ? (
+            <div>
+                <p className="font-semibold mb-2 tracking-tight">Edit Mode Instructions:</p>
+                <ul className="list-disc list-inside space-y-1 text-xs">
+                    <li>Select required vendors using the <b>Add More Vendors</b> button.</li>
+                    <li>Fill in the quotes for each relevant Item-Vendor combination.</li>
+                    <li>Select Makes (if applicable).</li>
+                    <li>Click <b>View</b> to review your item-vendor quote selections.</li>
+                </ul>
+            </div>
+        ) : (
+            <div>
+                <p className="font-semibold mb-2 tracking-tight">View Mode Instructions:</p>
+                <ul className="list-disc list-inside space-y-1 text-xs">
+                    <li>
+                        As this is a Sent Back PR, you <b>must</b> select a vendor quote for <b>every</b> item listed.
+                    </li>
+                    <li>
+                        The <b>Continue</b> button will remain disabled until all items have a selected vendor quote.
+                    </li>
+                    <li>Once all items have a vendor quote selected, click <b>Continue</b> to proceed.</li>
+                </ul>
+            </div>
+        )}
+    </HoverCardContent>
+</HoverCard>
               </div>
     </div>
 
