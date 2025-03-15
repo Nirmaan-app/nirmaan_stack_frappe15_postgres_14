@@ -2,12 +2,12 @@ import { useUserData } from "@/hooks/useUserData";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { Category } from "@/types/NirmaanStack/ProcurementRequests";
+import { Category, ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
 import { Timeline } from "antd";
 import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
@@ -20,7 +20,7 @@ import { PRSummarySkeleton } from "./ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { toast } from "./ui/use-toast";
 
-const PRSummary = () => {
+const PRSummary : React.FC = () => {
 
     const { prId: id } = useParams<{ prId: string }>();
 
@@ -46,13 +46,16 @@ const PRSummary = () => {
     id ? undefined : null
     )
 
+    if(pr_error || procurementOrdersError || userError) {
+        return <h1>{pr_error?.message || procurementOrdersError?.message || userError?.message}</h1>;
+    }
+
+    if(prLoading || procurementOrdersLoading || userLoading || universalCommentsLoading) {
+        return <PRSummarySkeleton />;
+    }
+
     return (
-        <>
-            {pr_error && <h1>{pr_error.message}</h1>}
-            {procurementOrdersError && <h1>{procurementOrdersError.message}</h1>}
-            {userError && <h1>{userError.message}</h1>}
-            {(prLoading || procurementOrdersLoading || userLoading || universalCommentsLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} pr_data_mutate={pr_data_mutate} />}
-        </>
+        <PRSummaryPage pr_data={pr_data} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} pr_data_mutate={pr_data_mutate} />
     )
 };
 
@@ -65,17 +68,15 @@ interface PRSummaryPageProps {
     pr_data_mutate?: any
 }
 
-const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data_mutate }: PRSummaryPageProps) => {
+const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, universalComments, usersList, pr_data_mutate }) => {
     const navigate = useNavigate();
-    const userData = useUserData()
+    const { role, user_id } = useUserData()
     const { deleteDoc } = useFrappeDeleteDoc()
     const [poItemList, setPoItemList] = useState<Set<string>>(new Set())
+    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
+    const { mutate } = useSWRConfig()
 
-    const getFullName = (id: string) => {
-        return usersList?.find((user) => user.name === id)?.full_name
-    }
-
-    const { role } = useUserData()
+    const getFullName = useCallback((id: string) => usersList?.find(user => user.name === id)?.full_name, [usersList]);
 
     useEffect(() => {
         if(po_data) {
@@ -91,44 +92,18 @@ const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data
     }, [po_data])
 
     const statusRender = useCallback((status: string) => {
-
-        if (["Approved", "In Progress", "Vendor Selected"].includes(status)) {
-            return "Open PR";
-        }
+        if (["Approved", "In Progress", "Vendor Selected"].includes(status)) return "Open PR";
         const itemList = pr_data?.procurement_list?.list || [];
-
-        if (itemList?.some((i) => i?.status === "Deleted")) {
-            return "Open PR"
-        }
-        const allItemsApproved = itemList.every(item => { return poItemList.has(item?.name) });
-
+        // if (itemList?.some(i => i?.status === "Deleted")) return "Open PR";
+        const allItemsApproved = itemList.every(item => (poItemList.has(item?.name) || item?.status === "Deleted"));
         return allItemsApproved ? "Approved PO" : "Open PR";
     }, [poItemList, pr_data]);
 
-    const itemsTimelineList = universalComments?.map((cmt: any) => ({
-        label: (
-            <span className="max-sm:text-wrap text-xs m-0 p-0">{formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}</span>
-        ), children: (
-            <Card>
-                <CardHeader className="p-2">
-                    <CardTitle>
-                        {cmt.comment_by === "Administrator" ? (
-                            <span className="text-sm">Administrator</span>
-                        ) : (
-                            <span className="text-sm">{getFullName(cmt.comment_by)}</span>
-                        )}
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                    {cmt.content}
-                </CardContent>
-            </Card>
-        ), color:
-            cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue") : 'gray'
-    }))
-
-    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
-    const { mutate } = useSWRConfig()
+    const itemsTimelineList = useMemo(() => universalComments?.map(cmt => ({
+        label: <span className="max-sm:text-wrap text-xs m-0 p-0">{formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}</span>,
+        children: <Card><CardHeader className="p-2"><CardTitle><span className="text-sm">{cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}</span></CardTitle></CardHeader><CardContent className="p-3 pt-0">{cmt.content}</CardContent></Card>,
+        color: cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue") : 'gray'
+    })), [universalComments, getFullName]);
 
     const handleDeletePr = async () => {
         try {
@@ -150,12 +125,7 @@ const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data
         }
     }
 
-    const getItemStatus = useCallback((itemJson: any) => {
-        if(poItemList.has(itemJson.name)) {
-            return "Ordered"
-        }
-        return "In Progress"
-    } , [poItemList])
+    const getItemStatus = useCallback((itemJson: ProcurementItem) => poItemList.has(itemJson.name) ? "Ordered" : "In Progress", [poItemList]);
 
     const handleMarkDraftPR = async () => {
         try {
@@ -198,6 +168,45 @@ const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data
         }
     }
 
+    const categories = useMemo(() => {
+        const uniqueCategories = new Map<string, Category>();
+        try {
+            JSON.parse(pr_data?.category_list || "[]")?.list?.forEach((cat: Category) => {
+                if (!uniqueCategories.has(cat.name)) uniqueCategories.set(cat.name, cat);
+            });
+        } catch (e) {
+            console.error("Error parsing category_list JSON:", e);
+        }
+        return Array.from(uniqueCategories.values());
+    }, [pr_data]);
+
+    const deletedItems = useMemo(() => {
+        try {
+            return JSON.parse(pr_data?.procurement_list)?.list?.filter((i: ProcurementItem) => i?.status === "Deleted") || [];
+        } catch (error) {
+            console.log("Error parsing procurement_list JSON:", error);
+        }
+    }, [pr_data]);
+
+    const requestedItems = useCallback((cat: Category) => {
+        try {
+            return JSON.parse(pr_data?.procurement_list)?.list?.filter((item: ProcurementItem) => item.category === cat.name && item.status === "Request") || [];
+        } catch (e) {
+            console.error("Error parsing procurement_list JSON:", e);
+            return [];
+        }
+    }, [pr_data]);
+    
+    const categoryItems = useCallback((cat: Category) => {
+        try {
+            return JSON.parse(pr_data?.procurement_list)?.list?.filter((item: ProcurementItem) => item.category === cat.name && !["Request", "Deleted"].includes(item?.status)) || [];
+        } catch (e) {
+            console.error("Error parsing procurement_list JSON:", e);
+            return [];
+        }
+    }, [pr_data]);
+    
+
     return (
         <div className={`flex-1 space-y-2 md:space-y-4`}>
             <div className="flex items-center justify-between">
@@ -221,7 +230,7 @@ const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data
                         </div>
                     )}
                     {
-                        [...((!["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) && userData?.user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
+                        [...((!["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) && user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
                             <AlertDialog>
                                 <AlertDialogTrigger>
                                     <Button className="flex items-center gap-1">
@@ -302,7 +311,7 @@ const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data
                             </div>
                         </CardContent>
                     </Card>
-                    {userData.role !== "Nirmaan Project Manager Profile" &&
+                    {role !== "Nirmaan Project Manager Profile" &&
                         <Card className="w-full">
                             <CardHeader>
                                 <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
@@ -366,113 +375,93 @@ const PRSummaryPage = ({ pr_data, po_data, universalComments, usersList, pr_data
                         </CardHeader>
                     </Card>
                 </div>
-                <div className="flex flex-col flex-1">
-                    <Card className="w-full">
-                        <CardHeader>
-                            <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
-                                {(() => {
-                                    const categories : Category[] = [];
-                                    const uniqueCategoryNames = new Set<string>(); 
-                                    try {
-                                        const categoryList = JSON.parse(pr_data?.category_list || "[]")?.list || [];
-                                        categoryList.forEach((i : Category) => {
-                                            if (!uniqueCategoryNames.has(i?.name)) {
-                                                uniqueCategoryNames.add(i?.name);
-                                                categories.push(i);
-                                            }
-                                        });
-                                    } catch (e) {
-                                        console.error("Error parsing category_list JSON:", e);
-                                    }
-
-                                    return categories.map((cat) => (
-                                        <div className="overflow-x-auto w-full" key={cat.name}>
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[50%]">
-                                                            <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
-                                                        </TableHead>
-                                                        <TableHead className="w-[15%]">UOM</TableHead>
-                                                        <TableHead className="w-[15%]">Qty</TableHead>
-                                                        <TableHead className="w-[20%]">Status</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {(() => {
-                                                        const rows = [];
-                                                        try {
-                                                            const procurementList = JSON.parse(pr_data?.procurement_list)?.list || [];
-                                                            rows.push(
-                                                                ...procurementList
-                                                                    .filter((item) => item.category === cat.name && item.status !== "Request")
-                                                                    .map((item) => (
-                                                                        <TableRow key={item.item}>
-                                                                            <TableCell>
-                                                                                {item.item}
-                                                                                <div className="flex gap-1 pt-2 items-start">
-                                                                                    <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
-                                                                                    <p
-                                                                                        className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"
-                                                                                            }`}
-                                                                                    >
-                                                                                        {item.comment || "No Comments"}
-                                                                                    </p>
-                                                                                </div>
-                                                                            </TableCell>
-                                                                            <TableCell>{item.unit}</TableCell>
-                                                                            <TableCell>{item.quantity}</TableCell>
-                                                                            <TableCell>
-                                                                                <Badge variant="outline">
-                                                                                    {item.status === "Pending"
-                                                                                        ? "Pending"
-                                                                                        : item.status === "Deleted"
-                                                                                            ? "Deleted"
-                                                                                            : getItemStatus(item)}
-                                                                                </Badge>
-                                                                            </TableCell>
-                                                                        </TableRow>
-                                                                    ))
-                                                            );
-
-                                                            rows.push(
-                                                                ...procurementList
-                                                                    .filter((item) => item.category === cat.name && item.status === "Request")
-                                                                    .map((item) => (
-                                                                        <TableRow className="bg-yellow-50" key={item.item}>
-                                                                            <TableCell>
-                                                                                {item.item}
-                                                                                <div className="flex gap-1 pt-2 items-start">
-                                                                                    <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
-                                                                                    <p
-                                                                                        className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"
-                                                                                            }`}
-                                                                                    >
-                                                                                        {item.comment || "No Comments"}
-                                                                                    </p>
-                                                                                </div>
-                                                                            </TableCell>
-                                                                            <TableCell>{item.unit}</TableCell>
-                                                                            <TableCell>{item.quantity}</TableCell>
-                                                                            <TableCell>
-                                                                                <Badge variant="outline">Requested</Badge>
-                                                                            </TableCell>
-                                                                        </TableRow>
-                                                                    ))
-                                                            );
-                                                        } catch (e) {
-                                                            console.error("Error parsing procurement_list JSON:", e);
-                                                        }
-                                                        return rows;
-                                                    })()}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
-                                    ));
-                                })()}
-                                </CardHeader>
-                    </Card>
-                    <div />
+                <div className="flex flex-col flex-1 gap-4">
+                <Card className="w-full">
+                    <CardHeader>
+                        <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
+                        {categories.map((cat) => (
+                            <div className="overflow-x-auto w-full" key={cat.name}>
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-red-100">
+                                            <TableHead className="w-[50%]">
+                                                <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                            </TableHead>
+                                            <TableHead className="w-[15%]">UOM</TableHead>
+                                            <TableHead className="w-[15%]">Qty</TableHead>
+                                            <TableHead className="w-[20%]">Status</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {categoryItems(cat).map((item) => (
+                                            <TableRow key={item.item}>
+                                                <TableCell>
+                                                    {item.item}
+                                                    <div className="flex gap-1 pt-2 items-start">
+                                                        <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                        <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>{item.unit}</TableCell>
+                                                <TableCell>{item.quantity}</TableCell>
+                                                <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : item.status === "Deleted" ? "Deleted" : getItemStatus(item)}</Badge></TableCell>
+                                            </TableRow>
+                                        ))}
+                                        {requestedItems(cat).map((item) => (
+                                            <TableRow className="bg-yellow-50" key={item.item}>
+                                                <TableCell>
+                                                    {item.item}
+                                                    <div className="flex gap-1 pt-2 items-start">
+                                                        <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                        <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>{item.unit}</TableCell>
+                                                <TableCell>{item.quantity}</TableCell>
+                                                <TableCell><Badge variant="outline">Requested</Badge></TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        ))}
+                    </CardHeader>
+                </Card>
+                    {deletedItems?.length > 0 && (
+                        <Card className="w-full">
+                         <CardHeader>
+                             <CardTitle className="text-xl text-red-600">Deleted Items</CardTitle>
+                         </CardHeader>
+                         <CardContent>
+                         <Table>
+                             <TableHeader>
+                                 <TableRow className="bg-red-100">
+                                     <TableHead className="w-[50%]">
+                                         Item
+                                     </TableHead>
+                                     <TableHead className="w-[15%]">UOM</TableHead>
+                                     <TableHead className="w-[15%]">Qty</TableHead>
+                                     <TableHead className="w-[20%]">Status</TableHead>
+                                 </TableRow>
+                             </TableHeader>
+                             <TableBody>
+                                {
+                                    deletedItems?.map(i => (
+                                        <TableRow key={i?.name}>
+                                            <TableCell className="text-red-700 font-light">
+                                                {i?.item}
+                                            </TableCell>
+                                            <TableCell>{i?.unit}</TableCell>
+                                            <TableCell>{i?.quantity}</TableCell>
+                                            <TableCell>Deleted</TableCell>
+                                        </TableRow>
+                                    ))
+                                }
+                             </TableBody>
+                         </Table>
+                         </CardContent>
+                        </Card>
+                    )}
                 </div>
             </div>
         </div>

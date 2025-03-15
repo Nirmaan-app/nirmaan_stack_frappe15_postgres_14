@@ -1,4 +1,4 @@
-function formatToIndianRupee(price, retainDecimal = false) {
+function formatToIndianRupee(price : number | string | undefined) {
   // Ensure the price is a number before formatting
   const amount = parseFloat(price);
 

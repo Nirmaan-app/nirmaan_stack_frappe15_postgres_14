@@ -533,7 +533,7 @@ const generateActionSummary = useCallback((actionType : string) => {
               <p>Upon sending back, the following actions will be taken:</p>
               <ul className="mt-2 list-disc pl-5">
                   <li>
-                      A <strong>new rejected type sent-back</strong> will be created with the following items:
+                      A <strong>new sent-back</strong> will be created with the following items:
                       <ul className="mt-1 list-disc pl-5">
                           {selectedItems.map((item) => (
                               <li key={item.name}>

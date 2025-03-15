@@ -1,17 +1,18 @@
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor"
+import { NewVendor } from "@/pages/vendors/new-vendor"
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
-import _ from "lodash"
 import { CirclePlus, Info } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { VendorsReactMultiSelect } from "../../../components/helpers/VendorsReactSelect"
 import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard"
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../../../components/ui/alert-dialog"
 import { Button } from "../../../components/ui/button"
 import { toast } from "../../../components/ui/use-toast"
 import GenerateRFQDialog from "./GenerateRFQDialog"
@@ -100,7 +101,7 @@ export const ProcurementProgress : React.FC = () => {
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
     orderBy: { field: "vendor_name", order: "asc" },
-  })
+  }, "Material Vendors")
 
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
       fields: ["*"],
@@ -144,7 +145,7 @@ export const ProcurementProgress : React.FC = () => {
         const defaultMakes = matchingCategory ? matchingCategory.makes : [];
         newDetails[item.name] = {
           vendorQuotes: {},
-          makes: defaultMakes,
+          makes: defaultMakes || [],
         };
       });
       setFormData((prev) => ({ ...prev, details: newDetails }));
@@ -184,7 +185,7 @@ const onClick = async (value : string) => {
               return {
                 ...item,
                 vendor: vendorId,
-                quote: vendorData.quote,
+                quote: parseFloat(vendorData.quote),
                 make: vendorData.make,
               };
             }
@@ -202,89 +203,11 @@ const onClick = async (value : string) => {
     updateURL("mode", value);
 };
 
-const removeVendor = useCallback((vendorId: string) => {
-    setFormData((prev) => {
-      const updatedSelectedVendors = prev.selectedVendors.filter(
-        (v) => v?.value !== vendorId
-      );
-  
-      const updatedDetails = Object.keys(prev.details).reduce(
-        (acc, itemId) => {
-          const itemDetails = prev.details[itemId];
-          const updatedVendorQuotes = { ...itemDetails.vendorQuotes };
-          delete updatedVendorQuotes[vendorId];
-  
-          acc[itemId] = {
-            ...itemDetails,
-            vendorQuotes: updatedVendorQuotes,
-          };
-          return acc;
-        },
-        {} as typeof prev.details
-      );
-  
-      return {
-        ...prev,
-        selectedVendors: updatedSelectedVendors,
-        details: updatedDetails,
-      };
-    });
-
-    setSelectedVendorQuotes(prev => {
-      const updatedQuotes = new Map(prev)
-
-      for(const [itemId, vendor] of updatedQuotes) {
-        if (vendor === vendorId) updatedQuotes.delete(itemId)
-      }
-      return updatedQuotes
-    })
-
-    setOrderData((prev) => ({
-      ...prev,
-      procurement_list: {
-        list: prev.procurement_list.list.map((item) => 
-        item?.vendor === vendorId ? _.omit(item, ["vendor", "quote", "make"]) : item
-        )
-      }
-    }))
-  }, []);
-
   const handleVendorSelection = () => {
     setFormData((prev) => ({ ...prev, selectedVendors: [...prev.selectedVendors, ...selectedVendors] }));
     setSelectedVendors([]);
     setAddVendorsDialog(false);
   };
-
- const handleQuoteChange = useCallback((
-  itemId: string,
-  vendorId: string,
-  quote: number | undefined,
-) => {
-  setFormData((prev) => ({
-    ...prev,
-    details: {
-      ...prev.details,
-      [itemId]: {
-        ...prev.details[itemId],
-        vendorQuotes: {
-          ...prev.details[itemId].vendorQuotes,
-          [vendorId]: { ...(prev.details[itemId].vendorQuotes[vendorId] || {}), quote: quote },
-        },
-      },
-    },
-  }))
-
-  const isValidQuote = quote && quote > 0;
-  if (!isValidQuote) {
-    setSelectedVendorQuotes(prev => {
-      const updated = new Map(prev);
-      if (updated.get(itemId) === vendorId) {
-        updated.delete(itemId);
-      }
-      return updated;
-    });
-  }
-}, []);
 
 
 const handleReviewChanges = async () => {
@@ -296,7 +219,7 @@ const handleReviewChanges = async () => {
         return {
           ...item,
           vendor: vendorId,
-          quote: vendorData.quote,
+          quote: parseFloat(vendorData.quote),
           make: vendorData.make,
         };
       }
@@ -305,7 +228,7 @@ const handleReviewChanges = async () => {
       const { vendor, quote, make, ...rest } = item;
       return rest;
     }
-  });
+  }) || [];
 
   setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
 
@@ -351,14 +274,14 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
     <>
     <div className="flex-1 space-y-4">
       <ProcurementHeaderCard orderData={orderData} />
-      <div className="flex items-center max-sm:items-end justify-between">
-      <div className="flex gap-4 max-sm:flex-col">
-        <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
-        <div className="flex items-center gap-1">
-        <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
-          <span  role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
-          <span role="radio" tabIndex={0} aria-checked={mode === "view"}  onClick={() => onClick("view")}  className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
-        </div>
+      <div className="flex max-sm:flex-col max-sm:items-start items-center justify-between max-sm:gap-4">
+        <div className="flex gap-4 max-sm:justify-between w-full">
+          <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
+          <div className="flex items-center gap-1">
+            <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
+            <span  role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
+            <span role="radio" tabIndex={0} aria-checked={mode === "view"}  onClick={() => onClick("view")}  className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
+          </div>
         <HoverCard>
           <HoverCardTrigger>
             <Info className="text-blue-500" />
@@ -388,18 +311,18 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
         </div>
       </div>
 
-      <div className="flex gap-2 items-center">
+      <div className="flex gap-2 items-center max-sm:justify-end max-sm:w-full">
         {mode === "edit" && (
           <Button onClick={() => setAddVendorsDialog(true)} variant={"outline"} className="text-primary border-primary flex gap-1">
           <CirclePlus className="w-4 h-4" />
-          Add {formData?.selectedVendors?.length > 0 && "More"} Vendors
+          Select {formData?.selectedVendors?.length > 0 && "More"} Vendors
         </Button>
         )}
         <GenerateRFQDialog orderData={orderData} />
       </div>
       </div>
 
-      <SelectVendorQuotesTable orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} handleQuoteChange={handleQuoteChange} removeVendor={removeVendor} />
+      <SelectVendorQuotesTable orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} setOrderData={setOrderData} />
       
       
       <div className="flex justify-end items-end">
@@ -437,20 +360,43 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
         <Button disabled={mode === "edit" || !selectedVendorQuotes?.size} onClick={handleReviewChanges}>Continue</Button>
       </div>
 
-      <AlertDialog open={addVendorsDialog} onOpenChange={() => setAddVendorsDialog(!addVendorsDialog)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-center">Add Vendors</AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogDescription>
-            <VendorsReactMultiSelect vendorOptions={vendorOptions || []} setSelectedVendors={setSelectedVendors} />
-          </AlertDialogDescription>
+      <Dialog open={addVendorsDialog} onOpenChange={() => setAddVendorsDialog(!addVendorsDialog)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-center">Add Vendors</DialogTitle>
+          </DialogHeader>
+          <DialogDescription className="flex gap-2 items-center">
+            <div className="w-[90%]">
+              <VendorsReactMultiSelect vendorOptions={vendorOptions || []} setSelectedVendors={setSelectedVendors} />
+            </div>
+              <Sheet>
+                <SheetTrigger asChild>
+                  <CirclePlus 
+                  // onClick={() => setAddVendorsDialog(false)} 
+                  className="text-primary cursor-pointer" />
+                </SheetTrigger>
+                <SheetContent className="overflow-auto">
+                  <SheetHeader className="text-start">
+                    <SheetTitle>
+                      <div className="flex-1">
+                        <span className="underline">Add New Material Vendor</span>
+                      </div>
+                    </SheetTitle>
+                    <NewVendor
+                      navigation={false}
+                    />
+                  </SheetHeader>
+                </SheetContent>
+              </Sheet>
+          </DialogDescription>
           <div className="flex items-end gap-4">
-            <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
+            <DialogClose className="flex-1" asChild>
+              <Button variant={"outline"}>Cancel</Button>
+            </DialogClose>
             <Button onClick={handleVendorSelection} className="flex-1">Confirm</Button>
           </div>
-        </AlertDialogContent>
-      </AlertDialog>
+        </DialogContent>
+      </Dialog>
     </div>
     {update_loading && (
       <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">

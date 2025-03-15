@@ -119,6 +119,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     const getAmountPaid = getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid"))
 
+    const amountPending = getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status)));
+
     useEffect(() => {
         if (service_request) {
             setOrderData(service_request)
@@ -451,7 +453,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                           Request Payment
                         </Button>
 
-                        <RequestPaymentDialog totalAmount={getTotal * 1.18} totalAmountWithoutGST={getTotal} 
+                        <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal * 1.18} totalAmountWithoutGST={getTotal} 
                             totalPaid={getAmountPaid}
                             gst={service_request?.gst === "true"}
                             isSr={true}

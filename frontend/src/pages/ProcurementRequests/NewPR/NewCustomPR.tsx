@@ -1,3 +1,4 @@
+import { SelectUnit } from "@/components/helpers/SelectUnit";
 import { VendorsReactSelect } from "@/components/helpers/VendorsReactSelect";
 import { Button } from "@/components/ui/button";
 import {
@@ -397,6 +398,8 @@ const handleResolvePR = async () => {
     }
   };
 
+  console.log("order", order)
+
   if (prListLoading || vendorListLoading || procurementPackagesLoading || categoryDataLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   return (
@@ -527,13 +530,14 @@ const handleResolvePR = async () => {
 
                         {/* Unit Field */}
                         <TableCell>
-                          <Input
+                          {/* <Input
                             type="text"
                             value={item?.unit || ""}
                             onChange={(e) =>
                               handleInputChange(item.name, "unit", e.target.value)
                             }
-                          />
+                          /> */}
+                          <SelectUnit value={item?.unit || ""} onChange={(value) => handleInputChange(item.name, "unit", value)} />
                         </TableCell>
 
                         {/* Quantity Field */}
