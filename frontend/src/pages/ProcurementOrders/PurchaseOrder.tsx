@@ -611,7 +611,7 @@ const handleUnmergePOs = async () => {
 
             setTimeout(() => {
                 setIsRedirecting(false);
-                navigate(`/purchase-orders`);
+                navigate(`/purchase-orders?tab=Approved%20PO`);
                 window.location.reload();
             }, 1000); // Small delay ensures UI has time to update
         } else if (response.message.status === 400) {
@@ -655,7 +655,7 @@ const handleUnmergePOs = async () => {
         variant: "success",
       });
 
-      navigate("/purchase-orders");
+      navigate("/purchase-orders?tab=Approved%20PO");
     } catch (error) {
       console.log("Error while cancelling po", error);
       toast({
@@ -681,7 +681,7 @@ const handleUnmergePOs = async () => {
           description: response.message.message,
           variant: "success",
         });
-        navigate("/purchase-orders");
+        navigate("/purchase-orders?tab=Approved%20PO");
       } else if(response.message.status === 400) {
         toast({
           title: "Failed!",
@@ -942,6 +942,8 @@ const handleUnmergePOs = async () => {
 
   const amountPaid = getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid"));
 
+  const amountPending = getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status)));
+
   const validateAmount = debounce((amount : number) => {
     const { totalAmt } = getTotal;
 
@@ -1035,7 +1037,7 @@ const handleUnmergePOs = async () => {
           </p>
           <button
             className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => navigate("/purchase-orders")}
+            onClick={() => navigate("/purchase-orders?tab=Approved%20PO")}
           >
             Go Back
           </button>
@@ -1353,7 +1355,7 @@ const handleUnmergePOs = async () => {
                 >
                   Request Payment
                 </Button>
-                <RequestPaymentDialog totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
+                <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
                   po={PO} paymentsMutate={poPaymentsMutate}
                   />
                 </>
@@ -2603,11 +2605,11 @@ const handleUnmergePOs = async () => {
                         option.
                       </li>
                       <li>
-                        This action will create a{" "}
-                        <Badge variant="destructive">Cancelled</Badge> Sent Back
+                        This action will create a new{" "}
+                        <Badge variant="destructive">Cancelled</Badge> type Sent Back
                         Request within{" "}
                         <span className="text-red-700 font-semibold">
-                          New Sent Back
+                          Rejected PO tab of Procurement Requests
                         </span>{" "}
                         side option.
                       </li>
@@ -2616,7 +2618,7 @@ const handleUnmergePOs = async () => {
                 </div>
 
                 <AlertDialogDescription className="flex flex-col text-center gap-1">
-                  Cancelling this PO will create a new cancelled Sent Back.
+                  Cancelling this PO will create a new cancelled type Sent Back.
                   Continue?
                   <div className="flex flex-col gap-2 mt-2">
                     <Textarea

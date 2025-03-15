@@ -1,7 +1,7 @@
+import QuantityQuoteInput from "@/components/helpers/QtyandQuoteInput";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
@@ -9,7 +9,7 @@ import { ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementReq
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { CheckCheck, CircleMinus, MessageCircleMore } from "lucide-react";
-import React from "react";
+import React, { useCallback } from "react";
 import { MakesSelection } from "./ItemVendorMakeSelection";
 
 interface SelectVendorQuotesTableProps {
@@ -20,11 +20,101 @@ interface SelectVendorQuotesTableProps {
   selectedVendorQuotes : Map<any, any>
   setSelectedVendorQuotes : React.Dispatch<React.SetStateAction<Map<any, any>>>
   mode : string
-  handleQuoteChange : (itemId: string, vendorId: string, quote: number | undefined) => void
-  removeVendor : (vendorId: string) => void
+  setOrderData : React.Dispatch<React.SetStateAction<ProcurementRequest | SentBackCategory | undefined>>
 }
 
-export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = ({sentBack = false, orderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode, handleQuoteChange, removeVendor}) => {
+export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = ({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}) => {
+
+  const handleQuoteChange = useCallback((
+    itemId: string,
+    vendorId: string,
+    quote: string | undefined,
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      details: {
+        ...prev.details,
+        [itemId]: {
+          ...prev.details[itemId],
+          vendorQuotes: {
+            ...prev.details[itemId].vendorQuotes,
+            [vendorId]: { ...(prev.details[itemId].vendorQuotes[vendorId] || {}), quote: quote },
+          },
+        },
+      },
+    }))
+  
+  const isValidQuote = quote && parseFloat(quote) > 0;
+  if (!isValidQuote) {
+    setSelectedVendorQuotes(prev => {
+      const updated = new Map(prev);
+      if (updated.get(itemId) === vendorId) {
+        updated.delete(itemId);
+      }
+      return updated;
+    });
+  }
+  }, []);
+
+  const removeVendor = useCallback((vendorId: string) => {
+        setFormData((prev) => {
+          const updatedSelectedVendors = prev.selectedVendors.filter(
+            (v) => v?.value !== vendorId
+          );
+      
+          const updatedDetails = Object.keys(prev.details).reduce(
+            (acc, itemId) => {
+              const itemDetails = prev.details[itemId];
+              const updatedVendorQuotes = { ...itemDetails.vendorQuotes };
+              delete updatedVendorQuotes[vendorId];
+      
+              acc[itemId] = {
+                ...itemDetails,
+                vendorQuotes: updatedVendorQuotes,
+              };
+              return acc;
+            },
+            {} as typeof prev.details
+          );
+      
+          return {
+            ...prev,
+            selectedVendors: updatedSelectedVendors,
+            details: updatedDetails,
+          };
+        });
+    
+        setSelectedVendorQuotes(prev => {
+          const updatedQuotes = new Map(prev)
+    
+          for(const [itemId, vendor] of updatedQuotes) {
+            if (vendor === vendorId) updatedQuotes.delete(itemId)
+          }
+          return updatedQuotes
+        })
+      
+        if(sentBack) {
+          setOrderData((prev) => ({
+            ...prev,
+            item_list: {
+              list: prev?.item_list.list.map((item) => 
+              item?.vendor === vendorId ? _.omit(item, ["vendor", "quote", "make"]) : item
+              )
+            }
+          }))
+        } else {
+          setOrderData((prev) => ({
+              ...prev,
+              procurement_list: {
+                list: prev.procurement_list.list.map((item) => 
+                item?.vendor === vendorId ? _.omit(item, ["vendor", "quote", "make"]) : item
+                )
+              }
+            }))
+        }
+      }, []);
+    
+
   return (
         <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
               {orderData?.category_list?.list.map((cat: any, index : number) => {
@@ -148,10 +238,17 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                       <div className="flex flex-col gap-1">
                                         <Label className="text-xs font-semibold text-primary">Rate</Label>
                                         {mode === "edit" ? (
-                                          <Input className="h-8" type="number" value={quote || ""} onChange={(e) => {
-                                            const value = e.target.value === "" ? 0 : parseInt(e.target.value)
-                                            handleQuoteChange(item.name, v?.value || "", value)
-                                          }} />
+                                          // <Input
+                                          //     className="h-8"
+                                          //     value={quote || ""}
+                                          //     onChange={(e) => {
+                                          //         const value = e.target.value;
+                                          //         if (/^\d*\.?\d*$/.test(value) || value === "") {
+                                          //             handleQuoteChange(item.name, v?.value || "", value);
+                                          //         }
+                                          //     }}
+                                          // />
+                                          <QuantityQuoteInput value={quote || ""} onChange={(value) => handleQuoteChange(item.name, v?.value || "", value)} />
                                         ) : (
                                           <p>{quote ?  formatToIndianRupee(quote) : "--"}</p>
                                         )}

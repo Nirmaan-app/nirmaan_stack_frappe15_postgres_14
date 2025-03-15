@@ -21,6 +21,7 @@ import { TailSpin } from "react-loader-spinner";
 
 interface RequestPaymentDialogProps {
   totalAmount: number;
+  amountPending: number;
   totalAmountWithoutGST: number;
   totalPaid: number;
   po?: ProcurementOrder;
@@ -32,6 +33,7 @@ interface RequestPaymentDialogProps {
 
 const RequestPaymentDialog = ({
   totalAmount,
+  amountPending,
   totalAmountWithoutGST,
   totalPaid,
   po,
@@ -68,20 +70,22 @@ const RequestPaymentDialog = ({
     }
   };
 
-  const validateAmount = debounce((amount : number) => {
-
-    const compareAmount =  gst ? totalAmount - totalPaid : totalAmountWithoutGST - totalPaid;
+  const validateAmount = debounce((amount: number) => {
+    const compareAmount = (gst ? totalAmount : totalAmountWithoutGST) - totalPaid - amountPending;
 
     if (amount > compareAmount) {
       setWarning(
-        `Entered amount exceeds the total ${
-          totalPaid ? "remaining" : ""
-        } amount ${gst ? "including" : "excluding"} GST: ${formatToIndianRupee(compareAmount)}`
+        `Entered amount exceeds the total remaining amount ${gst ? "including" : "excluding"} GST: ${formatToIndianRupee(
+          compareAmount
+        )}. Paid amount: ${formatToIndianRupee(totalPaid)}. Pending/Approved amount: ${formatToIndianRupee(
+          amountPending
+        )}. If you want to create a new payment exceeding the remaining amount, delete payments that are in Requested or Approved state and create a new payment for the remaining amount.`
       );
     } else {
-      setWarning(""); // Clear warning if within the limit
+      setWarning("");
     }
   }, 300);
+
 
   const AddPayment = async () => {
     try {
@@ -141,7 +145,7 @@ const RequestPaymentDialog = ({
 
           {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
 
-          {(totalPaid <= 0 || !totalPaid) && (
+          {((totalPaid <= 0 || !totalPaid) && (amountPending === 0 || !amountPending)) && (
             <>
             {/* 2️⃣ Percentage of Amount */}
           <div className="flex items-center space-x-2">
