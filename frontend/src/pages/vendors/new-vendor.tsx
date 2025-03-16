@@ -242,7 +242,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
             try {
                 // Create the vendor document using the address document reference
-                const vendorDoc = await createDoc('Vendors', {
+                await createDoc('Vendors', {
                     vendor_name: values.vendor_name,
                     vendor_type: vendorType,
                     vendor_address: addressDoc.name,
@@ -273,36 +273,36 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 });
 
                 // Create quotation requests
-                const promises = [];
-                if (sentBackData) {
-                    sentBackData?.item_list?.list.forEach((item) => {
-                        const makes = sentBackData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
-                        const newItem = {
-                            procurement_task: sentBackData.procurement_request,
-                            category: item.category,
-                            item: item.name,
-                            vendor: vendorDoc.name,
-                            quantity: item.quantity,
-                            makes: { list: makes || [] }
-                        };
-                        promises.push(createDoc("Quotation Requests", newItem));
-                    });
-                } else if (prData) {
-                    prData?.procurement_list?.list.forEach((item) => {
-                        const makes = prData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
-                        const newItem = {
-                            procurement_task: prData.name,
-                            category: item.category,
-                            item: item.name,
-                            vendor: vendorDoc.name,
-                            quantity: item.quantity,
-                            makes: { list: makes || [] }
-                        };
-                        promises.push(createDoc("Quotation Requests", newItem));
-                    });
-                }
+                // const promises = [];
+                // if (sentBackData) {
+                //     sentBackData?.item_list?.list.forEach((item) => {
+                //         const makes = sentBackData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
+                //         const newItem = {
+                //             procurement_task: sentBackData.procurement_request,
+                //             category: item.category,
+                //             item: item.name,
+                //             vendor: vendorDoc.name,
+                //             quantity: item.quantity,
+                //             makes: { list: makes || [] }
+                //         };
+                //         promises.push(createDoc("Quotation Requests", newItem));
+                //     });
+                // } else if (prData) {
+                //     prData?.procurement_list?.list.forEach((item) => {
+                //         const makes = prData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
+                //         const newItem = {
+                //             procurement_task: prData.name,
+                //             category: item.category,
+                //             item: item.name,
+                //             vendor: vendorDoc.name,
+                //             quantity: item.quantity,
+                //             makes: { list: makes || [] }
+                //         };
+                //         promises.push(createDoc("Quotation Requests", newItem));
+                //     });
+                // }
 
-                await Promise.all(promises);
+                // await Promise.all(promises);
 
                 // Mutate the vendor-related data
                 if (service) {
@@ -310,11 +310,11 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 } else {
                     await mutate("Material Vendors");
                 }
-                await mutate("Quotation Requests");
-                if (prData) {
-                    await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
-                }
-                await mutate("Vendor Category");
+                // await mutate("Quotation Requests");
+                // if (prData) {
+                //     await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
+                // }
+                // await mutate("Vendor Category");
 
                 toast({
                     title: "Success!",

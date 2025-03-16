@@ -755,7 +755,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                 <div className="flex flex-col gap-2 items-end">
                   <Label className=" text-red-700">Total (Incl. GST)</Label>
                   <span>
-                    {formatToIndianRupee(Math.floor(getTotal?.totalAmt || 0))}
+                    {formatToIndianRupee(getTotal?.totalAmt)}
                   </span>
                 </div>
               </div>
