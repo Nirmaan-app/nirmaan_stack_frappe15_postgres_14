@@ -2,12 +2,6 @@ import logo from "@/assets/logo-svg.svg";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -39,16 +33,10 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
+  DialogTrigger
 } from "@/components/ui/dialog";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import {
   Popover,
   PopoverContent,
@@ -67,28 +55,23 @@ import {
   TableSkeleton
 } from "@/components/ui/skeleton";
 import StatusBar from "@/components/ui/status-bar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { DownOutlined } from "@ant-design/icons";
 import { ColumnDef } from "@tanstack/react-table";
 import {
-  Table as AntTable,
   ConfigProvider,
   Menu,
   MenuProps,
-  Radio,
-  Tree,
+  Radio
 } from "antd";
 import {
   useFrappeCreateDoc,
@@ -110,7 +93,7 @@ import {
   ListChecks,
   OctagonMinus
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
   Link,
@@ -118,12 +101,15 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
-import ReactSelect from "react-select";
 import { useReactToPrint } from "react-to-print";
 import { v4 as uuidv4 } from "uuid";
 import { Component as ProjectEstimates } from '../../components/add-project-estimates';
+import { AllTab } from "./AllTab";
+import { CategoryAccordion } from "./CategoryAccordion";
+import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
-
+import { ProjectMakesTab } from "./ProjectMakesTab";
+import { ServiceRequestsAccordion } from "./ServiceRequestsAccordion";
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -141,7 +127,22 @@ const projectStatuses = [
   },
 ];
 
-const Project = () => {
+interface po_item_data_item {
+  po_number: string
+  vendor_id: string
+  vendor_name: string
+  creation: string
+  item_id : string
+  quote : number
+  quantity : number
+  category: string
+  tax: number
+  unit: string
+  item_name: string
+  work_package: string
+}
+
+const Project : React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
   const {
@@ -153,7 +154,7 @@ const Project = () => {
   const { data: projectCustomer, isLoading: projectCustomerLoading } =
     useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`);
 
-  const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall(
+  const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{ message : { po_items : po_item_data_item[] }}>(
     "nirmaan_stack.api.procurement_orders.generate_po_summary",
     { project_id: projectId }
   );
@@ -177,18 +178,12 @@ const Project = () => {
   );
 };
 
-// Cannot add rest of hook calls to lazy component since skeleton loading is dependent upon them
 interface ProjectViewProps {
   projectId: string | undefined;
   data: any;
   project_mutate: any;
-  //mile_data?: any
   projectCustomer: any;
-  //projectAssignees?: any
-  //usersList?: any
-  //pr_data?: any
-  //po_data?: any
-  po_item_data: any;
+  po_item_data?: po_item_data_item[];
 }
 
 export const Component = Project;
@@ -223,22 +218,22 @@ const ProjectView = ({
   // const page = searchParams.get("page");
 
   // const tab = searchParams.get("tab");
-
   const { role } = useUserData();
+  const navigate = useNavigate();
   const [selectedUser, setSelectedUser] = useState(null);
-  const [userOptions, setUserOptions] = useState([]);
+  const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
 
   const [newStatus, setNewStatus] = useState<string>("");
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
 
   const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-  const [statusCounts, setStatusCounts] = useState({});
+  const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
   const [options, setOptions] = useState(null);
 
-  const [makeOptions, setMakeOptions] = useState(null);
+  const [makeOptions, setMakeOptions] = useState<{ label: string; value: string }[]>([]);
 
   const toggleEditSheet = () => {
     setEditSheetOpen((prevState) => !prevState);
@@ -366,39 +361,22 @@ const ProjectView = ({
     `User Permission, filters(for_value),=,${projectId}`
   );
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments", {
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
     filters : [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 1000
   })
 
-  const getTotalAmountPaid = () => {
-    const poAmount =  projectPayments?.filter(i => i?.document_type === "Procurement Orders")?.reduce((acc, payment) => {
-        const amount = parseFloat(payment.amount || 0)
-        return acc + amount;
-    }, 0);
-
-    const srAmount = projectPayments?.filter(i => i?.document_type === "Service Requests")?.reduce((acc, payment) => {
-      const amount = parseFloat(payment.amount || 0)
-      const tds = parseFloat(payment.tds || 0)
-      return acc + amount + tds;
-  }, 0);
-
-  return {poAmount, srAmount, totalAmount : poAmount + srAmount}
-  }
-
-  // console.log("projectPayments", projectPayments)
-
   const {
     data: usersList,
     isLoading: usersListLoading,
     mutate: usersListMutate,
-  } = useFrappeGetDocList("Nirmaan Users", {
+  } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
   });
 
-  const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList(
+  const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
     "Procurement Requests",
     {
       fields: ["*"],
@@ -408,14 +386,7 @@ const ProjectView = ({
     `Procurement Requests ${projectId}`
   );
 
-  const getUserFullName = (id) => {
-    if (id === "Administrator") return id;
-    if (usersList) {
-      return usersList.find((user) => user.name === id)?.full_name;
-    }
-  };
-
-  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList(
+  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
       fields: ["*"],
@@ -432,7 +403,7 @@ const ProjectView = ({
   const {
     data: po_data_for_posummary,
     isLoading: po_data_for_posummary_loading,
-  } = useFrappeGetDocList("Procurement Orders", {
+  } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
     fields: ["*"],
     filters: [
       ["project", "=", projectId],
@@ -445,14 +416,14 @@ const ProjectView = ({
   const {
     data: allServiceRequestsData,
     isLoading: allServiceRequestsDataLoading,
-  } = useFrappeGetDocList("Service Requests", {
+  } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 1000,
   });
 
   const { data: serviceRequestsData, isLoading: sRloading } =
-    useFrappeGetDocList("Service Requests", {
+    useFrappeGetDocList<ServiceRequests>("Service Requests", {
       fields: ["*"],
       filters: [
         ["status", "=", "Approved"],
@@ -465,7 +436,7 @@ const ProjectView = ({
     data: vendorsList,
     isLoading: vendorsListLoading,
     error: vendorsError,
-  } = useFrappeGetDocList("Vendors", {
+  } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type"],
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
@@ -475,6 +446,27 @@ const ProjectView = ({
     label: ven.vendor_name,
     value: ven.vendor_name,
   }));
+
+  const getTotalAmountPaid = useMemo(() => {
+    if (!projectPayments) {
+      return { poAmount: 0, srAmount: 0, totalAmount: 0 };
+    }
+
+    const poAmount = projectPayments
+      .filter((i) => i?.document_type === "Procurement Orders")
+      .reduce((acc, payment) => acc + parseFloat(payment.amount || '0'), 0);
+
+    const srAmount = projectPayments
+      .filter((i) => i?.document_type === "Service Requests")
+      .reduce((acc, payment) => acc + parseFloat(payment.amount || '0'), 0);
+
+    return { poAmount, srAmount, totalAmount: poAmount + srAmount };
+  }, [projectPayments]);
+
+  const getUserFullName = useCallback((id : string | undefined) => {
+    if (id === "Administrator") return id;
+    return usersList?.find((user) => user?.name === id)?.full_name || "";
+  }, [usersList])
 
   useEffect(() => {
     if (usersList && projectAssignees) {
@@ -502,30 +494,21 @@ const ProjectView = ({
 
   // console.log("poData", po_data)
 
-  const totalPosRaised = () => {
-    if (po_data && po_data.length > 0) {
-      const total = po_data.reduce((acc, po) => {
-        if (
-          po.order_list &&
-          po.order_list.list &&
-          po.order_list.list.length > 0
-        ) {
-          const poTotal = po.order_list.list.reduce((itemAcc, item) => {
-            const baseAmount = item.quote * item.quantity;
-            const taxAmount = baseAmount * (item.tax / 100);
-            // return itemAcc + (baseAmount + taxAmount);
-            return itemAcc + baseAmount;
-          }, 0);
-          return acc + poTotal;
-        }
-        return acc;
-      }, 0);
-
-      return total;
+  const totalPosRaised = useMemo(() => {
+    if (!po_data || po_data.length === 0) {
+      return 0;
     }
 
-    return 0;
-  };
+    return po_data.reduce((acc, po) => {
+      if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
+        return acc + po.order_list.list.reduce((itemAcc, item) => itemAcc + item.quote * item.quantity, 0);
+      }
+      return acc;
+    }, 0);
+  }, [po_data]);
+
+  // Accordion state
+  const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
 
   // Grouping functionality
   const groupedAssignees = useMemo(() => {
@@ -535,62 +518,48 @@ const ProjectView = ({
       usersList.some((user) => user.name === assignee.user)
     );
 
-    const grouped = filteredAssignees.reduce((acc, assignee) => {
+    return filteredAssignees.reduce((acc, assignee) => {
       const user = usersList.find((user) => user.name === assignee.user);
       if (user) {
         const { role_profile, full_name } = user;
 
-        const formattedRoleProfile = role_profile.replace(/Nirmaan\s|\sProfile/g, "");
+        const formattedRoleProfile = role_profile?.replace(/Nirmaan\s|\sProfile/g, "");
 
-        if (!acc[formattedRoleProfile]) {
-          acc[formattedRoleProfile] = [];
-        }
-
+        if (!acc[formattedRoleProfile]) acc[formattedRoleProfile] = [];
         acc[formattedRoleProfile].push(full_name);
       }
 
       return acc;
     }, {});
-
-    return grouped;
   }, [projectAssignees, usersList]);
 
-  // Accordion state
-  const [expandedRoles, setExpandedRoles] = useState({});
-
   useEffect(() => {
-    const initialExpandedState = Object.keys(groupedAssignees).reduce(
+    setExpandedRoles(Object.keys(groupedAssignees).reduce(
       (acc, roleProfile) => {
         acc[roleProfile] = true;
         return acc;
       },
-      {}
-    );
-    setExpandedRoles(initialExpandedState);
+      {}));
   }, [groupedAssignees]);
 
-  const toggleExpand = (roleProfile) => {
-    setExpandedRoles((prev) => ({
-      ...prev,
-      [roleProfile]: !prev[roleProfile],
-    }));
-  };
+  const toggleExpand = useCallback((roleProfile: string) => {
+    setExpandedRoles((prev) => ({ ...prev, [roleProfile]: !prev[roleProfile] }));
+  }, []);
 
-  const navigate = useNavigate();
 
-  type ScopesMilestones = {
-    work_package: string;
-    scope_of_work: string;
-    milestone: string;
-    start_date: string;
-    end_date: string;
-    status_list: {
-      list: {
-        name: string;
-        status: string;
-      }[];
-    };
-  };
+  // type ScopesMilestones = {
+  //   work_package: string;
+  //   scope_of_work: string;
+  //   milestone: string;
+  //   start_date: string;
+  //   end_date: string;
+  //   status_list: {
+  //     list: {
+  //       name: string;
+  //       status: string;
+  //     }[];
+  //   };
+  // };
 
   type MenuItem = Required<MenuProps>["items"][number];
 
@@ -778,73 +747,61 @@ const ProjectView = ({
   //   return [...staticColumns, ...dynamicColumns];
   // }, [mile_data]);
 
-  const { data: quote_data } = useFrappeGetDocList("Quotation Requests", {
-    fields: ["name", "item", "quote"],
+  const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations", {
+    fields: ["item_id", "quote"],
     limit: 100000,
   });
 
-  const getTotal = (order_id) => {
-    let total = 0;
 
-    const procurementRequest = pr_data?.find((item) => item.name === order_id);
-    const orderData = procurementRequest?.procurement_list;
-
-    const status = statusRender(procurementRequest?.status, order_id);
-
-    if (status === "Approved PO") {
-      const filteredPOs =
-        po_data?.filter((po) => po.procurement_request === order_id) || [];
-
-      filteredPOs.forEach((po) => {
-        po.order_list?.list.forEach((item) => {
-          if (item.quote && item.quantity) {
-            total += parseFloat(item.quote) * item.quantity;
-          }
-        });
-      });
-    } else {
-      orderData?.list.forEach((item) => {
-        const quotesForItem = quote_data
-          ?.filter((value) => value.item === item.name && value.quote != null)
-          ?.map((value) => value.quote);
-
-        let minQuote;
-        if (quotesForItem && quotesForItem.length)
-          minQuote = Math.min(...quotesForItem);
-        total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-      });
-    }
-
-    return total || "N/A";
-  };
-
-  const getItemStatus = (item: any, filteredPOs: any[]) => {
+  const getItemStatus = useCallback((item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => {
     return filteredPOs.some((po) =>
       po?.order_list?.list.some((poItem) => poItem?.name === item.name)
     );
-  };
+  }, []);
 
-  const statusRender = (status: string, prId: string) => {
+  const statusRender = useCallback((status: string, prId: string) => {
     const procurementRequest = pr_data?.find((pr) => pr?.name === prId);
-
     const itemList = procurementRequest?.procurement_list?.list || [];
 
     if (["Pending", "Approved", "Rejected"].includes(status)) {
       return "New PR";
     }
 
-    if (itemList?.some((i) => i?.status === "Deleted")) {
-      return "Open PR";
-    }
+     // if (itemList?.some((i) => i?.status === "Deleted")) {
+    //   return "Open PR";
+    // }
 
-    const filteredPOs =
-      po_data?.filter((po) => po?.procurement_request === prId) || [];
-    const allItemsApproved = itemList.every((item) => {
-      return getItemStatus(item, filteredPOs);
-    });
+    const filteredPOs = po_data?.filter((po) => po?.procurement_request === prId) || [];
+    const allItemsApproved = itemList.every((item) => item?.status === "Deleted" || getItemStatus(item, filteredPOs));
 
     return allItemsApproved ? "Approved PO" : "Open PR";
-  };
+  }, [pr_data, po_data, getItemStatus]);
+
+  const getTotal = useCallback((order_id: string) => {
+    let total = 0;
+    const procurementRequest = pr_data?.find((item) => item.name === order_id);
+    const orderData = procurementRequest?.procurement_list;
+    const status = statusRender(procurementRequest?.workflow_state, order_id);
+
+    if (status === "Approved PO") {
+      const filteredPOs = po_data?.filter((po) => po.procurement_request === order_id) || [];
+      filteredPOs.forEach((po) => {
+        po.order_list?.list.forEach((item) => {
+          if (item.quote && item.quantity) {
+            total += item.quote * item.quantity;
+          }
+        });
+      });
+    } else {
+      orderData?.list.forEach((item) => {
+        const quotesForItem = quote_data?.filter((value) => value.item_id === item.name && value.quote != null)?.map((value) => parseFloat(value.quote || "0"));
+        let minQuote;
+        if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
+        total += (minQuote || 0) * item.quantity;
+      });
+    }
+    return total || "N/A";
+  }, [pr_data, po_data, quote_data, statusRender]);
 
   useEffect(() => {
     if (pr_data) {
@@ -857,13 +814,14 @@ const ProjectView = ({
     }
   }, [pr_data]);
 
-  const statusOptions = [
+  const statusOptions = useMemo(() => [
     { label: "New PR", value: "New PR" },
     { label: "Open PR", value: "Open PR" },
     { label: "Approved PO", value: "Approved PO" },
-  ];
+  ], []);
 
-  const prSummaryColumns = [
+
+  const prSummaryColumns : ColumnDef<ProcurementRequest>[] = useMemo(() => [
     {
       accessorKey: "name",
       header: ({ column }) => {
@@ -934,8 +892,9 @@ const ProjectView = ({
         );
       },
       cell: ({ row }) => {
-        const status = row.getValue("workflow_state");
-        const prId = row.getValue("name");
+        const data = row.original
+        const status = data.workflow_state;
+        const prId = data?.name;
         return <div className="font-medium">{statusRender(status, prId)}</div>;
       },
       filterFn: (row, id, value) => {
@@ -974,18 +933,16 @@ const ProjectView = ({
         );
       },
       cell: ({ row }) => {
-        const categories = [];
+        const categories : Set<string> = new Set();
         const categoryList = row.getValue("category_list")?.list || [];
         categoryList?.forEach((i) => {
-          if (categories.every((j) => j?.name !== i?.name)) {
-            categories.push(i);
-          }
+            categories.add(i?.name);
         });
 
         return (
           <div className="flex flex-col gap-1 items-start justify-center">
-            {categories?.map((obj) => (
-              <Badge className="inline-block">{obj["name"]}</Badge>
+            {Array.from(categories)?.map((i) => (
+              <Badge className="inline-block">i</Badge>
             ))}
           </div>
         );
@@ -1011,21 +968,20 @@ const ProjectView = ({
         );
       },
     },
-  ];
+  ], [pr_data, statusOptions]);
 
-  const getSRTotal = (order_id: string) => {
+  const getSRTotal = useCallback((order_id: string) => {
     let total: number = 0;
-    const orderData = allServiceRequestsData?.find(
-      (item) => item.name === order_id
-    )?.service_order_list;
-    orderData?.list.map((item) => {
-      const price = item.rate * item.quantity;
-      total += price ? parseFloat(price) : 0;
+    const orderData = allServiceRequestsData?.find((item) => item.name === order_id)?.service_order_list;
+    orderData?.list.forEach((item) => {
+      const price = (item.rate || 0) * item.quantity;
+      total += price;
     });
     return total;
-  };
+  }, [allServiceRequestsData]);
 
-  const srSummaryColumns = useMemo(
+
+  const srSummaryColumns : ColumnDef<ServiceRequests>[] = useMemo(
     () => [
       {
         accessorKey: "name",
@@ -1111,61 +1067,55 @@ const ProjectView = ({
     [projectId, allServiceRequestsData]
   );
 
-  const getPOTotal = (order_id: string) => {
+  const getPOTotal = useCallback((order_id: string) => {
     let total: number = 0;
     let totalWithGST: number = 0;
-
-    const po = po_data_for_posummary?.find(
-      (item) => item.name === order_id
-    )
-
-    const loading_charges = parseFloat(po?.loading_charges || 0)
-    const freight_charges = parseFloat(po?.freight_charges || 0)
-
+    const po = po_data_for_posummary?.find((item) => item.name === order_id);
+    const loading_charges = parseFloat(po?.loading_charges || "0");
+    const freight_charges = parseFloat(po?.freight_charges || "0");
     const orderData = po?.order_list;
 
-    orderData?.list.map((item) => {
-      const price = parseFloat(item?.quote) || 0;
-      const quantity = parseFloat(item?.quantity) || 1;
-      const gst = parseFloat(item?.tax) || 0;
-
+    orderData?.list.forEach((item) => {
+      const price = item.quote || 0;
+      const quantity = item?.quantity || 1;
+      const gst = item?.tax || 0;
       total += price * quantity;
-
       const gstAmount = (price * gst) / 100;
       totalWithGST += (price + gstAmount) * quantity;
     });
 
-    total += loading_charges + freight_charges
-    totalWithGST += loading_charges * 1.18 + freight_charges * 1.18
+    total += loading_charges + freight_charges;
+    totalWithGST += loading_charges * 1.18 + freight_charges * 1.18;
 
-    return {
-      totalWithoutGST: total,
-      totalWithGST: totalWithGST,
-    };
-  };
+    return { totalWithoutGST: total, totalWithGST: totalWithGST };
+  }, [po_data_for_posummary]);
 
-  const getWorkPackageName = (poId) => {
+
+  const getWorkPackageName = useCallback((poId: string) => {
     const po = po_data_for_posummary?.find((j) => j?.name === poId);
-    return pr_data?.find((i) => i?.name === po?.procurement_request)
-      ?.work_package;
-  };
-
-  const wpOptions =
-    data &&
-    JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => ({
-      label: wp?.work_package_name,
-      value: wp?.work_package_name,
-    }));
-
-    const getTotalAmountPaidPOWise = (id) => {
-      const payments = projectPayments?.filter((payment) => payment.document_name === id);
+    return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
+  }, [po_data_for_posummary, pr_data]);
 
 
-      return payments?.reduce((acc, payment) => {
-          const amount = parseFloat(payment.amount || 0)
-          return acc + amount;
-      }, 0);
-  }
+  const wpOptions = useMemo(() => {
+    try {
+      if (data && data.project_work_packages) {
+        const workPackages: WorkPackage[] = JSON.parse(data.project_work_packages)?.work_packages;
+        return workPackages?.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })) || [];
+      }
+      return [];
+    } catch (error) {
+      console.error("Error parsing project_work_packages:", error);
+      return [];
+    }
+  }, [data]);
+
+
+  const getTotalAmountPaidPOWise = useCallback((id: string) => {
+    const payments = projectPayments?.filter((payment) => payment.document_name === id);
+    return payments?.reduce((acc, payment) => acc + parseFloat(payment.amount || "0"), 0);
+  }, [projectPayments]);
+
 
   // console.log("wpOtions", wpOptions)
 
@@ -1317,7 +1267,7 @@ const ProjectView = ({
     [projectId, po_data_for_posummary, data, projectPayments]
   );
 
-  const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
+  const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
 
   const today = new Date();
 
@@ -1379,14 +1329,14 @@ const ProjectView = ({
     }
   };
 
-  const groupItemsByWorkPackageAndCategory = (items) => {
-    const totals = {};
+  const groupItemsByWorkPackageAndCategory = useCallback((items : po_item_data_item[] | undefined) => {
+    const totals: { [key: string]: { amountWithTax: number; amountWithoutTax: number } } = {};
 
-    const allItemIds = [];
+    const allItemIds : string[] = [];
 
-    const groupedData = items?.reduce((acc, item) => {
-      const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
-      const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
+    const groupedData = items?.reduce((acc : { [workPackage: string]: { [category: string]: any[] } }, item : po_item_data_item) => {
+      const baseAmount = item.quote * item.quantity;
+      const taxAmount = baseAmount * (item.tax / 100);
       const amountPlusTax = baseAmount + taxAmount;
 
       if (totals[item.work_package]) {
@@ -1403,9 +1353,7 @@ const ProjectView = ({
         // totals[item.work_package] = amountWithTax;
       }
 
-      if (!acc[item.work_package]) {
-        acc[item.work_package] = {};
-      }
+      if (!acc[item.work_package]) acc[item.work_package] = {};
       if (!acc[item.work_package][item.category]) {
         acc[item.work_package][item.category] = [];
       }
@@ -1416,11 +1364,11 @@ const ProjectView = ({
 
       if (existingItem) {
         existingItem.quantity =
-          parseFloat(existingItem.quantity) + parseFloat(item.quantity);
+          existingItem.quantity + item.quantity;
         existingItem.amount += baseAmount;
         existingItem.amountWithTax += amountPlusTax;
         existingItem.averageRate = Math.floor(
-          (parseFloat(existingItem.averageRate) + parseFloat(item.quote)) / 2
+          (existingItem.averageRate + item.quote) / 2
         );
         existingItem.po_number = `${existingItem.po_number},${item.po_number}`;
       } else {
@@ -1465,24 +1413,22 @@ const ProjectView = ({
     })
 
     return { groupedData, totals };
-  };
+  }, [project_estimates]);
 
   useEffect(() => {
     if (!po_item_data || !project_estimates) return;
 
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
 
-    const totalAmountPaidWPWise = {}
+    const totalAmountPaidWPWise : { [key: string]: number } = {}
 
     const filteredPOPayments = projectPayments?.filter(i => i.document_type === "Procurement Orders")
 
     filteredPOPayments?.forEach(i => {
       const po = po_data?.find(j => j?.name === i?.document_name)
       const workPackage = pr_data?.find(j => j?.name === po?.procurement_request)?.work_package
-      if (!totalAmountPaidWPWise[workPackage]) {
-        totalAmountPaidWPWise[workPackage] = 0
-      }
-      totalAmountPaidWPWise[workPackage] += parseFloat(i.amount)
+      if (!totalAmountPaidWPWise[workPackage]) totalAmountPaidWPWise[workPackage] = 0
+      totalAmountPaidWPWise[workPackage] += parseFloat(i?.amount || "0")
     })
 
     Object.keys(totals)?.forEach((key) => {
@@ -1491,8 +1437,8 @@ const ProjectView = ({
       const totalEstimatedAmount = estimates?.reduce(
         (acc, i) =>
           acc +
-          parseFloat(i?.quantity_estimate || 0) *
-          parseFloat(i?.rate_estimate || 0),
+          parseFloat(i?.quantity_estimate || "0") *
+          parseFloat(i?.rate_estimate || "0"),
         0
       );
       totals[key].total_estimated_amount = totalEstimatedAmount || 0;
@@ -1575,24 +1521,17 @@ const ProjectView = ({
     if (data) {
       const workPackages =
         JSON.parse(data?.project_work_packages)?.work_packages || [];
-      const options = [];
-      options.push({ label: "All", value: "All" });
-      workPackages?.forEach((wp) => {
-        const option = {
-          label: wp?.work_package_name,
-          value: wp?.work_package_name,
-        };
-        options?.push(option);
-      });
-
-      options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" });
-      options?.push({ label: "Services", value: "Services" });
-
-      options.sort((a, b) => {
-        if (a.label === "All") return -1;
-        if (b.label === "All") return 1;
-        return a.label.localeCompare(b.label);
-      });
+        const options = [
+          { label: "All", value: "All" },
+          ...workPackages.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })),
+          { label: "Tool & Equipments", value: "Tool & Equipments" },
+          { label: "Services", value: "Services" },
+        ].sort((a, b) => {
+          if (a.label === "All") return -1;
+          if (b.label === "All") return 1;
+          return a.label.localeCompare(b.label);
+        });
+  
 
       setMakeOptions(options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label)));
 
@@ -1601,7 +1540,7 @@ const ProjectView = ({
     }
   }, [data]);
 
-  const handleStatusChange = (value: string) => {
+  const handleStatusChange = useCallback((value: string) => {
     if (value === data?.status) {
       setPopOverStatus();
       return;
@@ -1610,10 +1549,10 @@ const ProjectView = ({
       setNewStatus(value);
       setShowStatusChangeDialog(true);
     }
-  };
+  }, [data?.status, projectStatuses]);
 
-  const segregateServiceOrderData = (serviceRequestsData) => {
-    const result = [];
+  const segregateServiceOrderData = useCallback((serviceRequestsData : ServiceRequests[] | undefined) => {
+    const result : { [category: string]: { key: string; unit: string; quantity: number; amount: number; children: any[]; estimate_total: number } }[] = [];
     const servicesEstimates = project_estimates?.filter(
       (p) => p?.work_package === "Services"
     );
@@ -1621,7 +1560,7 @@ const ProjectView = ({
     serviceRequestsData?.forEach((serviceRequest) => {
       serviceRequest.service_order_list.list?.forEach((item) => {
         const { category, uom, quantity, rate } = item;
-        const amount = parseFloat(quantity) * parseFloat(rate);
+        const amount = quantity * rate;
 
         const existingCategory = result.find((entry) => entry[category]);
 
@@ -1635,7 +1574,7 @@ const ProjectView = ({
         );
 
         if (existingCategory) {
-          existingCategory[category].quantity += parseFloat(quantity);
+          existingCategory[category].quantity += quantity;
           existingCategory[category].amount += amount;
           existingCategory[category].children.push({ ...item, amount: amount });
         } else {
@@ -1654,7 +1593,7 @@ const ProjectView = ({
     });
 
     return result;
-  };
+  }, [project_estimates]);
 
   const segregatedServiceOrderData = useMemo(
     () => segregateServiceOrderData(serviceRequestsData),
@@ -1666,7 +1605,7 @@ const ProjectView = ({
       segregatedServiceOrderData?.reduce((acc, item) => {
         const category = Object.keys(item)[0];
         const { amount } = item[category];
-        return acc + parseFloat(amount);
+        return acc + amount;
       }, 0),
     [segregatedServiceOrderData]
   );
@@ -1675,7 +1614,7 @@ const ProjectView = ({
     const totalAmount = serviceRequestsData?.reduce((total, item) => {
       const gst = item?.gst === "true" ? 1.18 : 1;
       const amount = item?.service_order_list?.list?.reduce((srTotal, i) => {
-        const srAmount = parseFloat(i.rate) * parseFloat(i.quantity) * gst;
+        const srAmount = i.rate * i.quantity * gst;
         return srTotal + srAmount;
       }, 0)
       return total + amount;
@@ -1721,9 +1660,9 @@ const ProjectView = ({
     setShowStatusChangeDialog(false);
   };
 
-  const statusIcon = projectStatuses.find(
+  const statusIcon = useMemo(() => projectStatuses.find(
     (s) => s.value === data?.status
-  )?.icon;
+  )?.icon, [data?.status]);
 
   // console.log("options", options)
 
@@ -1856,7 +1795,7 @@ const ProjectView = ({
             <div>
               <span className="whitespace-nowrap">Total Amt Paid: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(getTotalAmountPaid()?.totalAmount)}
+                {formatToIndianRupee(getTotalAmountPaid.totalAmount)}
               </span>
             </div>
           </div>
@@ -1990,7 +1929,7 @@ const ProjectView = ({
                     <div className="space-y-4">
                     <CardDescription className="space-y-2">
                       <span>PO Amount (ex. GST)</span>
-                      <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}</p>
+                      <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised + totalServiceOrdersAmt)}</p>
                     </CardDescription>
 
                     <CardDescription className="space-y-2">
@@ -2209,7 +2148,7 @@ const ProjectView = ({
           ) : (
             <DataTable
               columns={prSummaryColumns}
-              data={pr_data || []}
+              data={pr_data?.filter(i => !i?.procurement_list?.list?.every(j => j?.status === "Deleted")) || []}
               statusOptions={statusOptions}
             />
           )}
@@ -2221,7 +2160,7 @@ const ProjectView = ({
           <Card>
             <CardContent className="flex flex-row items-center justify-between p-4">
               <CardDescription>
-                <h3 className="text-lg font-semibold text-gray-700">Summary</h3>
+                <p className="text-lg font-semibold text-gray-700">Summary</p>
                 <p className="text-sm text-gray-500">
                   Overview of totals across all work packages
                 </p>
@@ -2255,7 +2194,7 @@ const ProjectView = ({
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{getTotalAmountPaid()?.poAmount?.toLocaleString()}
+                          ₹{getTotalAmountPaid.poAmount?.toLocaleString()}
                         </span>
                       </p>
                     </div>
@@ -2505,7 +2444,7 @@ const ProjectView = ({
         <Card>
             <CardContent className="flex flex-row items-center justify-between p-4">
               <CardDescription>
-                <h3 className="text-lg font-semibold text-gray-700">Summary</h3>
+                <p className="text-lg font-semibold text-gray-700">Summary</p>
                 <p className="text-sm text-gray-500">
                   Overview of Service Order totals
                 </p>
@@ -2527,7 +2466,7 @@ const ProjectView = ({
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{getTotalAmountPaid()?.srAmount?.toLocaleString()}
+                          ₹{getTotalAmountPaid?.srAmount?.toLocaleString()}
                         </span>
                       </p>
                     </div>
@@ -2934,31 +2873,6 @@ const ProjectView = ({
                   ))}
                 </tr>
               </thead>
-              {/* <tbody className="bg-white divide-y divide-gray-200">
-                {mile_data?.map((item) => {
-                  console.log("item", item)
-                  const today = new Date().toISOString().split("T")[0];
-                  const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
-                  if(modifiedDate === today) {
-                  return <tr className="">
-                    <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
-                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-                      {item.scope_of_work}
-                    </td>
-                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.start_date)}</td>
-                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.end_date)}</td>
-                    {
-                      item.status_list?.list.map((area) => (
-                        <td className={`px-2 py-2 text-sm whitespace-normal border border-gray-100 ${(area.status === "WIP") ? "text-yellow-500" : area.status === "Completed" ? "text-green-800" : area.status === "Halted" ? "text-red-500" : ""}`}>{(area.status && area.status !== "Pending") ? area.status : "--"}</td>
-                      ))
-                    }
-                  </tr>
-                  } else {
-                    return <div>No milestones updated for today yet</div>
-                  }
-                })}
-              </tbody> */}
               <tbody className="bg-white divide-y divide-gray-200">
                 {mile_data?.filter((item) => {
                   const today = new Date().toISOString().split("T")[0];
@@ -3028,1163 +2942,3 @@ const ProjectView = ({
     </div>
   );
 };
-
-export const CategoryAccordion = ({
-  categorizedData,
-  selectedPackage,
-  projectEstimates,
-  po_data,
-}) => {
-
-  const selectedData = categorizedData?.[selectedPackage] || null;
-
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
-  const [expandedPORowKyes, setExpandedPORowKeys] = useState([]);
-
-  const navigate = useNavigate();
-
-  // console.log("selectedData", selectedData)
-
-  const getItemAttributes = (item) => {
-    const estimateItem = projectEstimates?.find(
-      (i) => i?.item === item?.item_id
-    );
-
-    const quantityDif =
-      item?.quantity -
-      estimateItem?.quantity_estimate;
-
-    let dynamicQtyClass = null;
-
-    if (estimateItem) {
-      if (quantityDif > 0) {
-        dynamicQtyClass = "text-primary";
-      } else if (
-        quantityDif < 0 &&
-        Math.abs(quantityDif) < 5
-      ) {
-        dynamicQtyClass = "text-yellow-600";
-      } else if (quantityDif === 0) {
-        dynamicQtyClass = "text-green-500";
-      } else {
-        dynamicQtyClass = "text-blue-500";
-      }
-    }
-
-    const updated_estd_amt =
-      estimateItem?.quantity_estimate > item?.quantity
-        ? estimateItem?.quantity_estimate *
-        item?.averageRate
-        : item.amount;
-
-    const percentage_change = Math.floor(
-      ((updated_estd_amt -
-        estimateItem?.rate_estimate *
-        estimateItem?.quantity_estimate) /
-        (estimateItem?.rate_estimate *
-          estimateItem?.quantity_estimate)) *
-      100
-    );
-
-    return { dynamicQtyClass, updated_estd_amt, percentage_change, estimateItem }
-  }
-
-  const columns = [
-    {
-      title: "Category",
-      dataIndex: "category",
-      key: "category",
-      width: "45%",
-      render: (text) => <span className="text-primary font-extrabold">{text}</span>,
-    },
-    {
-      title: "Total Amount (exc. GST)",
-      dataIndex: "total_amount",
-      key: "total_amount",
-      width: "30%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
-    },
-    {
-      title: "Total Estd. Amount (exc. GST)",
-      dataIndex: "total_estimate_amount",
-      key: "total_estimate_amount",
-      width: "30%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
-    },
-  ];
-
-  const innerColumns = [
-    // {
-    //   title: "Item ID",
-    //   dataIndex: "item_id",
-    //   key: "item_id",
-    //   render: (text) => <span className="italic">{text}</span>,
-    // },
-    {
-      title: "Item Name",
-      dataIndex: "item_name",
-      key: "item_name",
-      width: "30%",
-      render: (text) => <span className="italic">{text}</span>,
-    },
-    {
-      title: "Unit",
-      dataIndex: "unit",
-      key: "unit",
-      render: (text) => <span className="italic">{text || "--"}</span>,
-    },
-    {
-      title: "Qty Ordered",
-      dataIndex: "quantity",
-      key: "qty_quantity",
-      render: (text, data) => {
-        const { dynamicQtyClass } = getItemAttributes(data)
-        return <span className={`${text && dynamicQtyClass} italic`}>{text || "--"}</span>
-      }
-    },
-    {
-      title: "Estd. Qty",
-      key: "estd_quantity",
-      render: (text, data) => {
-        const { estimateItem } = getItemAttributes(data)
-        return <span className="italic">{estimateItem?.quantity_estimate || "--"}</span>
-      }
-    },
-    {
-      title: "PO Amt",
-      dataIndex: "amount",
-      key: "amount_spent",
-      render: (text) => (
-        <span className="italic">
-          {text ? formatToIndianRupee(text) : "--"}
-        </span>
-      ),
-    },
-    {
-      title: "Estd. Amt",
-      key: "amount_estd",
-      render: (text, data) => {
-        const { estimateItem } = getItemAttributes(data)
-        return <span className="italic">
-          {formatToIndianRupee(
-            estimateItem?.rate_estimate *
-            estimateItem?.quantity_estimate
-          )}
-        </span>
-      },
-    },
-    {
-      title: "Updated Estd. Amt",
-      key: "updated_amount_estd",
-      render: (text, data) => {
-        const { updated_estd_amt, percentage_change, estimateItem } = getItemAttributes(data)
-        return <span
-          className={`${(estimateItem?.quantity_estimate !==
-              undefined && updated_estd_amt)
-              ? updated_estd_amt >
-                (estimateItem?.rate_estimate *
-                  estimateItem?.quantity_estimate)
-                ? "text-red-500"
-                : "text-green-500"
-              : ""
-            } italic`}
-        >
-          {estimateItem?.quantity_estimate !==
-            undefined
-            ? formatToIndianRupee(updated_estd_amt)
-            : "--"}
-          {!isNaN(percentage_change) && (estimateItem?.quantity_estimate !==
-            undefined && ` (${percentage_change}%)`)}
-        </span>
-      },
-    },
-  ];
-
-  const innerPOColumns = [
-    {
-      title: "PO ID",
-      dataIndex: "name",
-      key: "name",
-      render: (text, data) => {
-        return <span className="underline cursor-pointer text-blue-600" onClick={() => navigate(`po/${text?.replaceAll("/", "&=")}`)}>
-          {text}
-        </span>
-      },
-      width: "42%",
-    },
-    {
-      title: "Quantity",
-      dataIndex: "po_item_quantity",
-      key: "po_item_quantity",
-    },
-    {
-      title: "Rate",
-      dataIndex: "po_item_quote",
-      key: "po_item_quote",
-      render: (text) => (
-        <span>{formatToIndianRupee(text)}</span>
-      )
-    },
-    {
-      title: "Vendor",
-      dataIndex: "vendor_name",
-      key: "vendor_name",
-    },
-  ];
-
-  return (
-    <div className="w-full">
-      {selectedData ? (
-        <div className="overflow-x-auto pb-4">
-          <ConfigProvider>
-            <AntTable
-              dataSource={Object.keys(selectedData)
-                ?.sort((a, b) =>
-                  a?.localeCompare(b)
-                )
-                ?.map((key) => {
-                  const totalAmount = selectedData[key]?.reduce(
-                    (sum, item) => sum + parseFloat(item?.amount),
-                    0
-                  );
-                  const categoryEstimates = projectEstimates?.filter(
-                    (i) => i?.category === key
-                  );
-                  const totalCategoryEstdAmt = categoryEstimates?.reduce(
-                    (sum, item) =>
-                      sum +
-                      parseFloat(item?.rate_estimate) *
-                      parseFloat(item?.quantity_estimate),
-                    0
-                  );
-                  return {
-                    key: key,
-                    total_amount: totalAmount,
-                    total_estimate_amount: totalCategoryEstdAmt,
-                    category: key,
-                    items: selectedData[key],
-                  }
-                })?.sort((a, b) => b?.total_estimate_amount - a?.total_estimate_amount)}
-              columns={columns}
-              pagination={false}
-              expandable={{
-                expandedRowKeys,
-                onExpandedRowsChange: setExpandedRowKeys,
-                expandedRowRender: (record) => (
-                  <AntTable
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.item_id || uuidv4()}
-                    expandable={{
-                      expandedPORowKyes,
-                      onExpandedRowsChange: setExpandedPORowKeys,
-                      expandedRowRender: (record) => {
-                        if (!record?.po_number) return null;
-                        const filteredPOData = po_data?.filter((i) => {
-                          const po_numbers = record?.po_number?.split(",");
-                          return po_numbers?.includes(i.name);
-                        });
-
-                        // Add the `item_id` field to each data object
-                        const enrichedPOData = filteredPOData?.map((item) => ({
-                          ...item,
-                          po_item_quantity: item?.order_list?.list?.find((i) => i?.name === record?.item_id)?.quantity,
-                          po_item_quote: item?.order_list?.list?.find((i) => i?.name === record?.item_id)?.quote,
-                        }));
-                        return (
-                          <AntTable
-                            dataSource={enrichedPOData}
-                            columns={innerPOColumns}
-                            pagination={false}
-                            rowKey={(item) => item.name || uuidv4()}
-                          />
-                        )
-                      },
-                      rowExpandable: (record) => !!record?.po_number
-                    }}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
-  )
-}
-
-export const AllTab = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt, getTotalAmountPaid }) => {
-
-  const [totalsAmounts, setTotalsAmounts] = useState({})
-
-  const serviceTotalEstdAmt = segregatedServiceOrderData
-    ?.reduce((acc, i) => {
-      const { estimate_total } = Object.values(i)[0];
-      return acc + parseFloat(estimate_total);
-    }, 0)
-
-  useEffect(() => {
-    const totalAmountsObject = { ...workPackageTotalAmounts }
-    if ((serviceTotalEstdAmt || totalServiceOrdersAmt)) {
-      totalAmountsObject["Services"] = { amountWithoutTax: totalServiceOrdersAmt, total_estimated_amount: serviceTotalEstdAmt, total_amount_paid: getTotalAmountPaid()?.srAmount }
-    }
-    setTotalsAmounts(totalAmountsObject)
-  }, [serviceTotalEstdAmt, workPackageTotalAmounts, totalServiceOrdersAmt])
-
-  const columns = [
-    {
-      title: "Work Package",
-      dataIndex: "work_package",
-      key: "work_package",
-      width: "25%",
-      render: (text) => <strong onClick={() => setProjectSpendsTab(text)} className="text-primary underline cursor-pointer">{text}</strong>,
-    },
-    {
-      title: "Total Amount (exc. GST)",
-      dataIndex: "amountWithoutTax",
-      key: "amountWithoutTax",
-      width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
-    },
-    {
-      title: "Total Estd. Amount (exc. GST)",
-      dataIndex: "total_estimated_amount",
-      key: "total_estimated_amount",
-      width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
-    },
-    {
-      title: "Total Amount Paid",
-      dataIndex: "total_amount_paid",
-      key: "total_amount_paid",
-      width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
-    },
-  ];
-
-  return (
-    <div className="w-full">
-      {Object.keys(totalsAmounts)?.length !== 0 ? (
-        <div className="overflow-x-auto">
-          <ConfigProvider>
-            <AntTable
-              dataSource={Object.keys(totalsAmounts)
-                ?.sort((a, b) =>
-                  a?.localeCompare(b)
-                )
-                ?.map((key) => {
-                  return {
-                    key: key,
-                    amountWithoutTax: totalsAmounts[key]?.amountWithoutTax,
-                    total_estimated_amount: totalsAmounts[key]?.total_estimated_amount,
-                    total_amount_paid: totalsAmounts[key]?.total_amount_paid,
-                    work_package: key,
-                  }
-                })?.
-                sort((a, b) => b?.total_estimated_amount - a?.total_estimated_amount)}
-              columns={columns}
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-// export const CategoryAccordion = ({
-//   categorizedData,
-//   selectedPackage,
-//   projectEstimates,
-//   po_data,
-// }) => {
-//   const [expandedItem, setExpandedItem] = useState(null); // State to track expanded item
-
-//   const selectedData = categorizedData?.[selectedPackage] || null;
-
-//   const navigate = useNavigate();
-
-//   const toggleExpandedItem = (itemId) => {
-//     setExpandedItem((prev) => (prev === itemId ? null : itemId));
-//   };
-
-//   // console.log('po_data',po_data)
-
-//   return (
-//     <div className="w-full">
-//       {selectedData ? (
-//         <div className="flex flex-col gap-4">
-//           <Accordion type="multiple" className="space-y-4">
-//             {Object.entries(selectedData)
-//               ?.sort(([a], [b]) => a?.localeCompare(b))
-//               ?.map(([category, items]) => {
-//                 const totalAmount = items.reduce(
-//                   (sum, item) => sum + parseFloat(item?.amount),
-//                   0
-//                 );
-
-//                 const categoryEstimates = projectEstimates?.filter(
-//                   (i) => i?.category === category
-//                 );
-//                 const totalCategoryEstdAmt = categoryEstimates?.reduce(
-//                   (sum, item) =>
-//                     sum +
-//                     parseFloat(item?.rate_estimate) *
-//                       parseFloat(item?.quantity_estimate),
-//                   0
-//                 );
-
-//                 return (
-//                   <AccordionItem
-//                     key={category}
-//                     value={category}
-//                     defaultChecked
-//                     className="border-b rounded-lg shadow"
-//                   >
-//                     <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-//                       <div className="flex space-x-4 text-sm text-gray-600">
-//                         <span className="font-semibold">{category}:</span>
-//                         <span>
-//                           Total Amount: ₹{totalAmount.toLocaleString()}
-//                         </span>
-//                         <span>
-//                           Total Estd Amount:{" "}
-//                           {formatToIndianRupee(totalCategoryEstdAmt)}
-//                         </span>
-//                       </div>
-//                     </AccordionTrigger>
-//                     <AccordionContent className="overflow-x-auto">
-//                       <Table className="min-w-full text-left text-sm">
-//                         <TableHeader>
-//                           <TableRow className="bg-gray-100 text-gray-700">
-//                             <TableHead className="px-4 py-2 font-semibold">
-//                               Item ID
-//                             </TableHead>
-//                             <TableHead className="px-4 py-2 font-semibold w-[40%]">
-//                               Item Name
-//                             </TableHead>
-//                             <TableHead className="px-4 py-2 font-semibold">
-//                               Unit
-//                             </TableHead>
-//                             <TableHead className="px-4 py-2 font-semibold">
-//                               Qty Ordered
-//                             </TableHead>
-//                             <TableHead className="px-4 py-2 font-semibold">
-//                               Estd Qty
-//                             </TableHead>
-//                             <TableHead className="px-4 py-2 font-semibold">
-//                               Amt Spent
-//                             </TableHead>
-//                             <TableHead className="px-4 py-2 font-semibold">
-//                               Estd. Amt
-//                             </TableHead>
-//                             <TableHead className="px-4 py-2 font-semibold">
-//                               Updated Estd. Amt
-//                             </TableHead>
-//                           </TableRow>
-//                         </TableHeader>
-//                         <TableBody>
-//                           {items?.map((item) => {
-//                             const estimateItem = projectEstimates?.find(
-//                               (i) => i?.item === item?.item_id
-//                             );
-
-//                             const quantityDif =
-//                                 item?.quantity -
-//                                 estimateItem?.quantity_estimate;
-//                               let dynamicQtyClass = null;
-
-//                               if (estimateItem) {
-//                                 if (quantityDif > 0) {
-//                                   dynamicQtyClass = "text-primary";
-//                                 } else if (
-//                                   quantityDif < 0 &&
-//                                   Math.abs(quantityDif) < 5
-//                                 ) {
-//                                   dynamicQtyClass = "text-yellow-600";
-//                                 } else if (quantityDif === 0) {
-//                                   dynamicQtyClass = "text-green-500";
-//                                 } else {
-//                                   dynamicQtyClass = "text-blue-500";
-//                                 }
-//                               }
-
-//                               const updated_estd_amt =
-//                                 estimateItem?.quantity_estimate > item?.quantity
-//                                   ? estimateItem?.quantity_estimate *
-//                                     item?.averageRate
-//                                   : item.amount;
-
-//                               const percentage_change = Math.floor(
-//                                 ((updated_estd_amt -
-//                                   estimateItem?.rate_estimate *
-//                                     estimateItem?.quantity_estimate) /
-//                                   (estimateItem?.rate_estimate *
-//                                     estimateItem?.quantity_estimate)) *
-//                                   100
-//                               );
-
-//                             const po_numbers = item?.po_number?.split(",");
-//                             const po_data_array = po_data?.filter((i) =>
-//                               po_numbers?.includes(i.name)
-//                             );
-
-//                             return (
-//                               <>
-//                                 <TableRow
-//                                   key={item.item_id}
-//                                   onClick={() => toggleExpandedItem(item.item_id)}
-//                                   className="cursor-pointer hover:bg-gray-100"
-//                                 >
-//                                   <TableCell className="px-4 py-2">
-//                                     {item.item_id.slice(5)}
-//                                   </TableCell>
-//                                   <TableCell className="px-4 py-2 text-blue-600 underline">
-//                                     {item.item_name}
-//                                   </TableCell>
-//                                   <TableCell className="px-4 py-2">
-//                                     {item.unit}
-//                                   </TableCell>
-//                                   <TableCell
-//                                     className={`px-4 py-2 ${dynamicQtyClass}`}
-//                                   >
-//                                     {item.quantity}
-//                                   </TableCell>
-//                                   <TableCell className="px-4 py-2">
-//                                     {estimateItem?.quantity_estimate || "--"}
-//                                   </TableCell>
-//                                   <TableCell className="px-4 py-2">
-//                                     ₹{parseFloat(item.amount).toLocaleString()}
-//                                   </TableCell>
-//                                   <TableCell className="px-4 py-2">
-//                                     {formatToIndianRupee(
-//                                       estimateItem?.rate_estimate *
-//                                         estimateItem?.quantity_estimate
-//                                     )}
-//                                   </TableCell>
-//                                   <TableCell
-//                                     className={`px-4 py-2 ${
-//                                       estimateItem?.quantity_estimate !==
-//                                       undefined
-//                                         ? updated_estd_amt >
-//                                           estimateItem?.rate_estimate *
-//                                             estimateItem?.quantity_estimate
-//                                           ? "text-red-500"
-//                                           : "text-green-500"
-//                                         : ""
-//                                     }`}
-//                                   >
-//                                     {estimateItem?.quantity_estimate !==
-//                                     undefined
-//                                       ? formatToIndianRupee(updated_estd_amt)
-//                                       : "--"}
-//                                     {estimateItem?.quantity_estimate !==
-//                                       undefined && ` (${percentage_change}%)`}
-//                                   </TableCell>
-//                                 </TableRow>
-//                                 {expandedItem === item.item_id && (
-//                                   <TableRow>
-//                                     <TableCell colSpan={8} className="px-4 py-2">
-//                                       <Table className="min-w-full text-left text-sm bg-gray-50">
-//                                         <TableHeader>
-//                                           <TableRow>
-//                                             <TableHead>PO ID</TableHead>
-//                                             <TableHead>Quantity</TableHead>
-//                                             <TableHead>Rate</TableHead>
-//                                             <TableHead>Vendor</TableHead>
-//                                           </TableRow>
-//                                         </TableHeader>
-//                                         <TableBody>
-//                                           {po_data_array?.map((po) => (
-//                                             <TableRow key={po?.name}>
-//                                               <TableCell className="text-blue-600 underline cursor-pointer" onClick={() => navigate(`po/${po?.name?.replaceAll("/", "&=")}`)}>{po?.name}</TableCell>
-//                                               <TableCell>{po?.order_list?.list?.find((i) => i?.name === item?.item_id)?.quantity}</TableCell>
-//                                               <TableCell>₹{parseFloat(po?.order_list?.list?.find((i) => i?.name === item?.item_id)?.quote).toLocaleString()}</TableCell>
-//                                               <TableCell>
-//                                               {po?.vendor_name}
-//                                               </TableCell>
-//                                             </TableRow>
-//                                           ))}
-//                                         </TableBody>
-//                                       </Table>
-//                                     </TableCell>
-//                                   </TableRow>
-//                                 )}
-//                               </>
-//                             );
-//                           })}
-//                         </TableBody>
-//                       </Table>
-//                     </AccordionContent>
-//                   </AccordionItem>
-//                 );
-//               })}
-//           </Accordion>
-//         </div>
-//       ) : (
-//         <div className="h-[10vh] flex items-center justify-center">
-//           No Results.
-//         </div>
-//       )}
-//     </div>
-//   );
-// };
-
-
-export const ServiceRequestsAccordion = ({
-  projectEstimates,
-  segregatedData,
-}) => {
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
-
-  // useEffect(() => {
-  //   if (segregatedData) {
-  //     setExpandedRowKeys(Object.keys(segregatedData));
-  //   }
-  // }, [segregatedData]);
-
-  // Main table columns
-  const columns = [
-    {
-      title: "Category",
-      dataIndex: "category",
-      key: "category",
-      width: "50%",
-      render: (text) => <strong className="text-primary">{text}</strong>,
-    },
-    {
-      title: "Total Amount (exc. GST)",
-      dataIndex: "amount",
-      key: "amount",
-      width: "20%",
-      render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
-    },
-    {
-      title: "Total Estd. Amount (exc. GST)",
-      dataIndex: "estimate_total",
-      key: "estimate_total",
-      width: "25%",
-      render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
-    },
-  ];
-
-  const innerColumns = [
-    {
-      title: "Description",
-      dataIndex: "description",
-      key: "description",
-      width: "40%",
-    },
-    {
-      title: "Unit",
-      dataIndex: "uom",
-      key: "unit",
-    },
-    {
-      title: "Quantity",
-      dataIndex: "quantity",
-      key: "quantity",
-      width: "20%",
-    },
-    {
-      title: "Amount Spent",
-      dataIndex: "amount",
-      key: "amount",
-      width: "25%",
-      render: (text) => (
-        <span className="italic">
-          {text ? formatToIndianRupee(text) : "--"}
-        </span>
-      ),
-    },
-  ];
-
-  return (
-    <div className="w-full">
-      {segregatedData?.length > 0 ? (
-        <div className="overflow-x-auto">
-          <ConfigProvider>
-            <AntTable
-              dataSource={segregatedData
-                ?.sort((a, b) =>
-                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
-                )
-                ?.map((key) => ({
-                  key: Object.values(key)[0]?.key,
-                  amount: Object.values(key)[0]?.amount,
-                  estimate_total: Object.values(key)[0]?.estimate_total,
-                  category: Object.keys(key)[0],
-                  items: Object.values(key)[0]?.children,
-                }))?.sort((a, b) => b?.estimate_total - a?.estimate_total)}
-              columns={columns}
-              pagination={false}
-              expandable={{
-                expandedRowKeys,
-                onExpandedRowsChange: setExpandedRowKeys,
-                expandedRowRender: (record) => (
-                  <AntTable
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.id || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
-  );
-};
-
-const CustomHoverCard = ({
-  totalPosRaised,
-  totalServiceOrdersAmt,
-  categorizedData,
-  workPackageTotalAmounts,
-}) => {
-  // Generate tree data for the Tree component
-  const generateTreeData = () => {
-    const treeData =
-      categorizedData &&
-      Object.entries(categorizedData)?.map(([workPackage, categories]) => {
-        // Children for each category in the work package
-        const categoryNodes = Object.entries(categories).map(
-          ([category, items]) => {
-            const totalAmount = items.reduce(
-              (sum, item) => sum + item.amount,
-              0
-            );
-            const totalAmountWithTax = items.reduce(
-              (sum, item) => sum + item.amountWithTax,
-              0
-            );
-
-            return {
-              title: `${category}: ₹${parseFloat(
-                totalAmountWithTax
-              ).toLocaleString()} (Base: ₹${parseFloat(
-                totalAmount
-              ).toLocaleString()})`,
-              key: `${workPackage}-${category}`,
-              children: items.map((item, index) => ({
-                title: `${item.item_name} - Qty: ${item.quantity}`,
-                key: `${workPackage}-${category}-${index}`,
-              })),
-            };
-          }
-        );
-
-        return {
-          title: `${workPackage} - Total: ₹${parseFloat(
-            workPackageTotalAmounts[workPackage]?.amountWithoutTax
-          ).toLocaleString()}`,
-          key: workPackage,
-          children: categoryNodes,
-        };
-      });
-
-    // Add service requests total as a standalone item
-    if (totalServiceOrdersAmt) {
-      treeData?.push({
-        title: `Service Requests Total: ₹${parseFloat(
-          totalServiceOrdersAmt
-        ).toLocaleString()}`,
-        key: "service-requests-total",
-      });
-    }
-
-    return treeData;
-  };
-
-  return (
-    <HoverCard>
-      <HoverCardTrigger>
-        <div className="underline">
-          <span className="whitespace-nowrap">PO Amt (ex. GST): </span>
-          <span className="max-sm:text-end max-sm:w-full text-primary">
-            {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
-          </span>
-        </div>
-      </HoverCardTrigger>
-      <HoverCardContent className="overflow-y-auto max-h-[80vh]">
-        {generateTreeData()?.length !== 0 ? (
-          <div>
-            <h3 className="font-semibold text-lg mb-2">
-              Total Spent Breakdown
-            </h3>
-            <Tree
-              showLine
-              switcherIcon={<DownOutlined />}
-              defaultExpandedKeys={["0-0"]}
-              treeData={generateTreeData()}
-            />
-          </div>
-        ) : (
-          <div className="flex items-center justify-center font-semibold text-xs">
-            Empty!
-          </div>
-        )}
-      </HoverCardContent>
-    </HoverCard>
-  );
-};
-
-export const ToolandEquipementAccordion = ({
-  projectEstimates,
-  categorizedData,
-}) => {
-  const selectedData = categorizedData?.["Tool & Equipments"] || null;
-
-  const toolandEquipEstimates = projectEstimates?.filter(
-    (p) => p?.work_package === "Tool & Equipments"
-  );
-
-  return (
-    <div className="w-full">
-      {selectedData ? (
-        <div className="flex flex-col gap-4">
-          <Accordion type="multiple" className="space-y-4">
-            {Object.entries(selectedData)
-              ?.sort(([a], [b]) => a?.localeCompare(b))
-              ?.map(([category, items]) => {
-                const totalAmount = items.reduce(
-                  (sum, item) => sum + parseFloat(item?.amount),
-                  0
-                );
-
-                // const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
-                // const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) =>
-                //   sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
-                // 0
-                // )
-                return (
-                  <AccordionItem
-                    key={category}
-                    value={category}
-                    className="border-b rounded-lg shadow"
-                  >
-                    <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-                      <div className="flex space-x-4 text-sm text-gray-600">
-                        <span className="font-semibold">{category}:</span>
-                        <span>
-                          Total Amount: ₹{totalAmount.toLocaleString()}
-                        </span>
-                        {/* <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span> */}
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="overflow-x-auto">
-                      <Table className="min-w-full text-left text-sm">
-                        <TableHeader>
-                          <TableRow className="bg-gray-100 text-gray-700">
-                            <TableHead className="px-4 py-2 font-semibold">
-                              Item ID
-                            </TableHead>
-                            <TableHead className="px-4 py-2 font-semibold w-[40%]">
-                              Item Name
-                            </TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">
-                              Unit
-                            </TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">
-                              Qty Ordered
-                            </TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">
-                              Estd Qty
-                            </TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">
-                              Amt Spent
-                            </TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">
-                              Estd. Amt
-                            </TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">
-                              Updated Estd. Amt
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {items?.map((item) => {
-                            const estimateItem = toolandEquipEstimates?.find(
-                              (i) => i?.item === item?.item_id
-                            );
-                            // const quantityDif = item?.quantity - estimateItem?.quantity_estimate
-                            // let dynamicQtyClass = null;
-
-                            // if(estimateItem) {
-                            //   if(quantityDif > 0) {
-                            //     dynamicQtyClass = "text-primary"
-                            //   } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
-                            //     dynamicQtyClass = "text-yellow-600"
-                            //   } else if(quantityDif === 0) {
-                            //     dynamicQtyClass = "text-green-500"
-                            //   } else {
-                            //     dynamicQtyClass = "text-blue-500"
-                            //   }
-                            // }
-
-                            // console.log("estimateItme", estimateItem)
-
-                            const updated_estd_amt =
-                              estimateItem?.quantity_estimate > item?.quantity
-                                ? estimateItem?.quantity_estimate *
-                                item?.averageRate
-                                : item.amount;
-
-                            const percentage_change = Math.floor(
-                              ((updated_estd_amt -
-                                estimateItem?.rate_estimate *
-                                estimateItem?.quantity_estimate) /
-                                (estimateItem?.rate_estimate *
-                                  estimateItem?.quantity_estimate)) *
-                              100
-                            );
-
-                            return (
-                              <TableRow key={item.item_id}>
-                                <TableCell className="px-4 py-2">
-                                  {item.item_id.slice(5)}
-                                </TableCell>
-                                <TableCell className="px-4 py-2">
-                                  {item.item_name}
-                                </TableCell>
-                                <TableCell className="px-4 py-2">
-                                  {item.unit}
-                                </TableCell>
-                                <TableCell className={`px-4 py-2`}>
-                                  {item.quantity}
-                                </TableCell>
-                                <TableCell className="px-4 py-2">
-                                  {estimateItem?.quantity_estimate || "--"}
-                                </TableCell>
-                                <TableCell className="px-4 py-2">
-                                  ₹{parseFloat(item.amount).toLocaleString()}
-                                </TableCell>
-                                <TableCell className="px-4 py-2">
-                                  {formatToIndianRupee(
-                                    estimateItem?.rate_estimate *
-                                    estimateItem?.quantity_estimate
-                                  )}
-                                </TableCell>
-                                <TableCell
-                                  className={`px-4 py-2 ${estimateItem?.quantity_estimate !==
-                                      undefined
-                                      ? updated_estd_amt >
-                                        estimateItem?.rate_estimate *
-                                        estimateItem?.quantity_estimate
-                                        ? "text-red-500"
-                                        : "text-green-500"
-                                      : ""
-                                    }`}
-                                >
-                                  {estimateItem?.quantity_estimate !== undefined
-                                    ? formatToIndianRupee(updated_estd_amt)
-                                    : "--"}
-                                  {estimateItem?.quantity_estimate !==
-                                    undefined && ` (${percentage_change}%)`}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </AccordionContent>
-                  </AccordionItem>
-                );
-              })}
-          </Accordion>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
-  );
-};
-
-export const ProjectMakesTab = ({ projectData, options, makesTab, setProjectMakesTab, project_mutate }) => {
-
-
-  const [wPmakesData, setWPMakesData] = useState([])
-
-  const [editCategory, setEditCategory] = useState(null)
-
-  const [selectedMakes, setSelectedMakes] = useState([])
-
-  const [reactSelectOptions, setReactSelectOptions] = useState([])
-  const [dialogOpen, setDialogOpen] = useState(false)
-
-  const toggleDialog = () => {
-    setDialogOpen((prevState) => !prevState);
-  };
-
-  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
-
-  const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
-    fields: ["make", "category"],
-    limit: 100000,
-  });
-
-  useEffect(() => {
-    if (makesTab) {
-      const filteredWPMakes = JSON.parse(projectData?.project_work_packages)?.work_packages?.find(wp => wp?.work_package_name === makesTab)?.category_list?.list
-      setWPMakesData(filteredWPMakes)
-    }
-  }, [makesTab, projectData])
-
-  useEffect(() => {
-    if (editCategory?.makes?.length > 0) {
-      const options = []
-      editCategory?.makes?.forEach(i => {
-        options.push({ label: i, value: i })
-      })
-      setSelectedMakes(options)
-    } else {
-      setSelectedMakes([])
-    }
-
-    if (editCategory?.name) {
-      const categoryMakes = categoryMakeList?.filter((i) => i?.category === editCategory?.name)?.map(j => ({ label: j?.make, value: j?.make })) || []
-      setReactSelectOptions(categoryMakes)
-    }
-  }, [editCategory])
-
-  const handleUpdateMakes = async () => {
-    try {
-      const reformattedMakes = selectedMakes?.map(i => i?.value)
-
-      const updatedWorkPackages = [...JSON.parse(projectData?.project_work_packages)?.work_packages]
-
-      updatedWorkPackages.forEach(wp => {
-        if (wp?.work_package_name === makesTab) {
-          wp.category_list.list.forEach(cat => {
-            if (cat?.name === editCategory?.name) {
-              cat.makes = reformattedMakes
-            }
-          })
-        }
-      })
-
-      await updateDoc("Projects", projectData?.name, {
-        project_work_packages: { work_packages: updatedWorkPackages }
-      })
-
-      await project_mutate()
-
-      toast({
-        title: "Success!",
-        description: `${editCategory?.name} Makes updated successfully!`,
-        variant: "success",
-      })
-
-      toggleDialog()
-
-    } catch (error) {
-      console.log("error while updating makes", error);
-      toast({
-        title: "Failed!",
-        description: `${error?.message}`,
-        variant: "destructive",
-      });
-    }
-  }
-
-  return (
-    <>
-      {options && (
-        <Radio.Group
-          block
-          options={options}
-          defaultValue="All"
-          optionType="button"
-          buttonStyle="solid"
-          value={makesTab}
-          onChange={(e) => setProjectMakesTab(e.target.value)}
-        />
-      )}
-
-      <Table>
-        <TableHeader className="bg-red-100">
-          <TableRow>
-            <TableHead className="w-[35%]">Category</TableHead>
-            <TableHead className="w-[50%]">Makes</TableHead>
-            <TableHead>Add/Edit</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {wPmakesData?.map((wpmake, index) => (
-            <TableRow key={index}>
-              <TableCell>{wpmake?.name}</TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-2">
-                  {wpmake?.makes?.length > 0 ? (
-                    wpmake?.makes?.map((make) => (
-                      <Badge key={make}>{make}</Badge>
-                    ))
-                  ) : (
-                    <span>--</span>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
-                  <DialogTrigger onClick={() => setEditCategory(wpmake)} asChild>
-                    <Button
-                      variant="outline"
-                    >
-                      Edit
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Edit <span className="text-primary">{editCategory?.name}</span> makes</DialogTitle>
-                      <DialogDescription className="pt-4">
-                        <ReactSelect
-                          options={reactSelectOptions}
-                          value={selectedMakes}
-                          className="w-full"
-                          placeholder="Select Makes..."
-                          isMulti
-                          onChange={(selected) =>
-                            setSelectedMakes(selected)
-                          }
-                        />
-                      </DialogDescription>
-                      <div className="pt-4 flex justify-end gap-2 items-center">
-                        {updateLoading ? <TailSpin color="red" height={30} width={30} /> : (
-                          <>
-                            <DialogClose asChild>
-                              <Button variant="secondary">Cancel</Button>
-                            </DialogClose>
-                            <Button onClick={handleUpdateMakes}>Save</Button>
-                          </>
-                        )}
-                      </div>
-                    </DialogHeader>
-                  </DialogContent>
-                </Dialog>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </>
-  )
-}

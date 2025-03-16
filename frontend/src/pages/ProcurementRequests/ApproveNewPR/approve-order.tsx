@@ -50,6 +50,7 @@ import { Items } from "@/types/NirmaanStack/Items";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import formatToIndianRupee from "@/utils/FormatPrice";
 import TextArea from "antd/es/input/TextArea";
 import {
   useFrappeCreateDoc,
@@ -320,8 +321,6 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     }
   }, [category_list, item_list])
 
-  console.log("pr_data", pr_data)
-
   useEffect(() => {
     if (!orderData?.project) {
       let mod_pr_data = {
@@ -460,7 +459,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
       if (curValue.item === itemName) {
         return {
           ...curValue,
-          quantity: parseInt(newQuantity),
+          quantity: parseFloat(newQuantity),
           comment: editItem?.comment || "",
         };
       }
@@ -1021,7 +1020,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                     className="h-[37px] w-full border p-2 rounded-lg outline-none"
                     onChange={(e) =>
                       setQuantity(
-                        e.target.value === "" ? null : parseInt(e.target.value)
+                        e.target.value === "" ? null : parseFloat(e.target.value)
                       )
                     }
                     value={quantity || ""}
@@ -1551,7 +1550,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                                                         setQuantity(
                                                           e.target.value === ""
                                                             ? 0
-                                                            : parseInt(
+                                                            : parseFloat(
                                                               e.target.value
                                                             )
                                                         )
@@ -1836,7 +1835,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                                 <TableCell>{item.unit}</TableCell>
                                 <TableCell>{item.quantity}</TableCell>
                                 <TableCell className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                  {minQuote ? minQuote * item.quantity : "N/A"}
+                                  {minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}
                                 </TableCell>
                               </TableRow>
                             );

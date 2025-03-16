@@ -27,143 +27,129 @@ import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { CategoryData, CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 
-export const columns : TableColumnsType<CategoryData> = [
+const COLUMN_WIDTHS = {
+  category: "auto",
+  totalAmount: "auto",
+  item: "20%",
+  unit: "5%",
+  quantity: "7%",
+  rate: "10%",
+  vendor: "15%",
+  amount: "12%",
+  lowestQuotedAmount: "10%",
+  threeMonthsLowestAmount: "10%",
+};
+
+export const columns: TableColumnsType<CategoryData> = [
   {
-    title: "Category",
-    dataIndex: "category",
-    key: "category",
-    className: "w-[70vw]",
-    render: (text) => {
-      return (
-        <strong className="text-primary">{text}</strong>
-      )
-    },
+      title: "Category",
+      dataIndex: "category",
+      key: "category",
+      width: COLUMN_WIDTHS.category,
+      render: (text) => <strong className="text-primary">{text}</strong>,
   },
   {
-    title: "Total Amount",
-    dataIndex: "totalAmount",
-    key: "amount",
-    className: "",
-    render: (text) => <Badge>{formatToIndianRupee(text)}</Badge>,
+      title: "Total Amount",
+      dataIndex: "totalAmount",
+      key: "amount",
+      width: COLUMN_WIDTHS.totalAmount,
+      render: (text) => <Badge>{formatToIndianRupee(text)}</Badge>,
   },
 ];
 
-export const innerColumns : TableColumnsType<DataItem> = [
+export const innerColumns: TableColumnsType<DataItem> = [
   {
-    title: "Item Name",
-    dataIndex: "item",
-    key: "item",
-    className: "min-w-[20vw]",
+      title: "Item Name",
+      dataIndex: "item",
+      key: "item",
+      width: COLUMN_WIDTHS.item,
   },
   {
-    title: "Unit",
-    dataIndex: "unit",
-    key: "unit",
-    className: "min-w-[10vw]",
+      title: "Unit",
+      dataIndex: "unit",
+      key: "unit",
+      width: COLUMN_WIDTHS.unit,
   },
   {
-    title: "Quantity",
-    dataIndex: "quantity",
-    key: "quantity",
-    className: "min-w-[5vw]",
+      title: "Quantity",
+      dataIndex: "quantity",
+      key: "quantity",
+      width: COLUMN_WIDTHS.quantity,
   },
   {
-    title: "Rate",
-    dataIndex: "quote",
-    key: "quote",
-    className: "min-w-[10vw]",
-    render: (text) => (
-      <span className="italic">
-        {formatToIndianRupee(text)}
-      </span>
-    ),
+      title: "Rate",
+      dataIndex: "quote",
+      key: "quote",
+      width: COLUMN_WIDTHS.rate,
+      render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
   },
   {
-    title: "Vendor",
-    dataIndex: "vendor_name",
-    key: "vendor",
-    className: "min-w-[20vw]",
-    render: (text) => (
-      <span className="italic">
-        {text}
-      </span>
-    ),
+      title: "Vendor",
+      dataIndex: "vendor_name",
+      key: "vendor",
+      width: COLUMN_WIDTHS.vendor,
+      render: (text) => <span className="italic">{text}</span>,
   },
   {
-    title: "Amount",
-    dataIndex: "amount",
-    key: "amount",
-    className: "min-w-[15vw]",
-    render: (text, record) => {
-      const amount = text;
-      const lowest3 = record?.threeMonthsLowestAmount
-    
-      if (!lowest3 || !amount) {
-        return (
-          <i>
-            {formatToIndianRupee(amount)}
-          </i>
-        );
-      }
+      title: "Amount",
+      dataIndex: "amount",
+      key: "amount",
+      width: COLUMN_WIDTHS.amount,
+      render: (text, record) => {
+          const amount = text;
+          const lowest3 = record?.threeMonthsLowestAmount;
 
-       const percentageDifference = (
-        (Math.abs(amount - lowest3) / lowest3) * 100
-      ).toFixed(0);
-    
-      const isLessThan = amount < lowest3;
-      const isEqual = amount === lowest3;
-      const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-      const Icon = isLessThan ? MoveDown : MoveUp;
-    
-      return (
-        <div
-          className="flex items-center gap-1"
-        >
-          <i>{formatToIndianRupee(amount)}</i>
-          {!isEqual && (
-              <div className={`${colorClass} flex items-center`}>
-                <span className="text-sm">
-                  ({`${percentageDifference}%`})
-                </span>
-                <Icon className="w-4 h-4" />
+          if (!lowest3 || !amount) {
+              return <i>{formatToIndianRupee(amount)}</i>;
+          }
+
+          const percentageDifference = ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
+          const isLessThan = amount < lowest3;
+          const isEqual = amount === lowest3;
+          const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
+          const Icon = isLessThan ? MoveDown : MoveUp;
+
+          return (
+              <div className="flex items-center gap-1">
+                  <i>{formatToIndianRupee(amount)}</i>
+                  {!isEqual && (
+                      <div className={`${colorClass} flex items-center`}>
+                          <span className="text-sm">({`${percentageDifference}%`})</span>
+                          <Icon className="w-4 h-4" />
+                      </div>
+                  )}
               </div>
-            )}
-        </div>
-      );
-    },
+          );
+      },
   },
   {
-    title: "Lowest Quoted Amount",
-    dataIndex: "lowestQuotedAmount",
-    key: "lowestQuotedAmount",
-    className: "min-w-[10vw]",
-    render: (text) => (
-      <span className="italic">
-        {text ? formatToIndianRupee(text) : "--"}
-      </span>
-    ),
+      title: "Lowest Quoted Amount",
+      dataIndex: "lowestQuotedAmount",
+      key: "lowestQuotedAmount",
+      width: COLUMN_WIDTHS.lowestQuotedAmount,
+      render: (text) => <span className="italic">{text ? formatToIndianRupee(text) : "--"}</span>,
   },
   {
-    title: "3 Months Lowest Amount",
-    dataIndex: "threeMonthsLowestAmount",
-    key: "threeMonthsLowestAmount",
-    className: "min-w-[10vw]",
-    render: (text, record) => {
+      title: "3 Months Lowest Amount",
+      dataIndex: "threeMonthsLowestAmount",
+      key: "threeMonthsLowestAmount",
+      width: COLUMN_WIDTHS.threeMonthsLowestAmount,
+      render: (text, record) => {
+          const amount = record.amount;
+          const lowest3 = text;
 
-      const amount = record.amount;
-      const lowest3 = text;
+          if (!lowest3) {
+              return <i>--</i>;
+          }
+          const isLessThan = amount < lowest3;
+          const isEqual = amount === lowest3;
+          const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
 
-      if (!lowest3) {
-          return <i>--</i>;
-      }
-      const isLessThan = amount < lowest3;
-      const isEqual = amount === lowest3;
-      const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-
-      return <i className={`${!isEqual && colorClass}`}>{formatToIndianRupee(lowest3)}</i>;
+          return <i className={`${!isEqual && colorClass}`}>{formatToIndianRupee(lowest3)}</i>;
+      },
   },
-},
 ];
+
 
 export const SBQuotesSelectionReview = () => {
 
