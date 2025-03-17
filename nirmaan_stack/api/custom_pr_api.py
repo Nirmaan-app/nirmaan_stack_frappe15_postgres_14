@@ -14,6 +14,7 @@ def new_custom_pr(project_id: str, order: list, categories: list, comment: str =
         attachment (dict, optional): Details of the file attachment. Defaults to None.
     """
     try:
+        frappe.db.begin()
         res = frappe.new_doc("Procurement Requests")
         res.project = project_id
         res.procurement_list = {"list": order}
@@ -42,9 +43,12 @@ def new_custom_pr(project_id: str, order: list, categories: list, comment: str =
 
         frappe.db.set_value("Procurement Requests", res.name, "workflow_state", "Vendor Selected")
 
-        return {"message": f"Custom PR: {res.name} Created Sent for Approval", "status": 200, "name": res.name}
+        frappe.db.commit()
+
+        return {"message": f"Custom PR: {res.name} Created and Sent for Approval", "status": 200, "name": res.name}
 
     except Exception as e:
+        frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "submit_procurement_request")
         return {"error": f"Unable to send Custom PR for approval: {str(e)}", "status": 400}
 

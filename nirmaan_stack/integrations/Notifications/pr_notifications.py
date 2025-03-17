@@ -30,7 +30,17 @@ def PrNotification(lead, notification_title, notification_body, click_action_url
                     print(f"Notification failed after {MAX_RETRY_ATTEMPTS} attempts for {lead['name']}.")
 
 
-def get_allowed_users(doc):
+def get_admin_users():
+    """Retrieves all Nirmaan Admin users."""
+    return frappe.db.get_list(
+        'Nirmaan Users',
+        filters={'role_profile': 'Nirmaan Admin Profile'},
+        fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+    )
+
+
+def get_allowed_lead_users(doc):
+        """Retrieves all Allowed Lead users for a given project."""
         allowed_users = frappe.db.get_list(
             'Nirmaan User Permissions',
             filters={'for_value': doc.project},
@@ -46,18 +56,11 @@ def get_allowed_users(doc):
             },
             fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
         )
-        admin_users = frappe.db.get_list(
-            'Nirmaan Users',
-            filters={
-                'role_profile': 'Nirmaan Admin Profile',
-            },
-            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
-        )
 
-        lead_admin_users = lead_users + admin_users
-        return lead_admin_users
+        return lead_users
 
 def get_allowed_procurement_users(doc):
+        """Retrieves all Allowed Procurement users for a given project."""
         allowed_users = frappe.db.get_list(
             'Nirmaan User Permissions',
             filters={'for_value': doc.project},
@@ -73,18 +76,11 @@ def get_allowed_procurement_users(doc):
             },
             fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
         )
-        admin_users = frappe.db.get_list(
-            'Nirmaan Users',
-            filters={
-                'role_profile': 'Nirmaan Admin Profile',
-            },
-            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
-        )
 
-        proc_admin_users = proc_users + admin_users
-        return proc_admin_users
+        return proc_users
 
 def get_allowed_manager_users(doc):
+        """Retrieves all Allowed Manager users for a given project."""
         allowed_users = frappe.db.get_list(
             'Nirmaan User Permissions',
             filters={'for_value': doc.project},
@@ -100,18 +96,11 @@ def get_allowed_manager_users(doc):
             },
             fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
         )
-        admin_users = frappe.db.get_list(
-            'Nirmaan Users',
-            filters={
-                'role_profile': 'Nirmaan Admin Profile',
-            },
-            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
-        )
 
-        manager_admin_users = manager_users + admin_users
-        return manager_admin_users
+        return manager_users
 
 def get_allowed_accountants(doc):
+    """Retrieves all Allowed Accountant users for a given project."""
     allowed_users = frappe.db.get_list(
             'Nirmaan User Permissions',
             filters={'for_value': doc.project},
