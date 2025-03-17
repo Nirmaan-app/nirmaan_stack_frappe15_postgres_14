@@ -1,6 +1,6 @@
 import frappe
 import json
-from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users, get_allowed_manager_users
+from ..Notifications.pr_notifications import PrNotification, get_admin_users, get_allowed_lead_users, get_allowed_procurement_users, get_allowed_manager_users
 from frappe import _
 
 def after_insert(doc, method):
@@ -64,7 +64,7 @@ def after_insert(doc, method):
 
         frappe.delete_doc("Procurement Requests", last_pr.name)
     elif doc.work_package is not None:
-        lead_admin_users = get_allowed_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users(doc)
         custom = True if doc.work_package is None else False
         if lead_admin_users:
             for user in lead_admin_users:
@@ -127,8 +127,9 @@ def update_quantity(data, target_name, new_quantity):
 
 def on_update(doc, method):
     custom = True if doc.work_package is None else False
-    if doc.workflow_state == "Vendor Selected":
-        lead_admin_users = get_allowed_users(doc)
+    old_doc = doc.get_doc_before_save()
+    if old_doc and old_doc.workflow_state in ('In Progress', 'Pending') and doc.workflow_state == "Vendor Selected":
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users(doc)
         if lead_admin_users:
             for user in lead_admin_users:
                 if user["push_notification"] == "true":
@@ -204,8 +205,8 @@ def on_update(doc, method):
             print("No project leads or admins found with push notifications enabled.")
 
 
-    elif doc.workflow_state == "Approved":
-        proc_admin_users = get_allowed_procurement_users(doc)
+    elif old_doc and old_doc.workflow_state == "Pending" and doc.workflow_state == "Approved":
+        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users(doc)
         if proc_admin_users:
             for user in proc_admin_users:
                 if user["push_notification"] == "true":
@@ -261,8 +262,8 @@ def on_update(doc, method):
             )
 
 
-    elif doc.workflow_state == "Rejected":
-        manager_admin_users = get_allowed_manager_users(doc)
+    elif old_doc and old_doc.workflow_state in ('Pending', 'Vendor Selected') and doc.workflow_state == "Rejected":
+        manager_admin_users = get_allowed_manager_users(doc) + get_admin_users(doc)
         if manager_admin_users:
             for user in manager_admin_users:
                 if user["push_notification"] == "true":

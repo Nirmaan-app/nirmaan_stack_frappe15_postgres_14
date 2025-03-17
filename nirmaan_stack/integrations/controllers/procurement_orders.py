@@ -1,10 +1,10 @@
 import frappe
 from frappe import _
-from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users, get_allowed_accountants
+from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
 from .procurement_requests import get_user_name
 
 def after_insert(doc, method):
-        proc_admin_users = get_allowed_procurement_users(doc)
+        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users(doc)
         accountant_users = get_allowed_accountants(doc)
         proc_admin_account_users = proc_admin_users + accountant_users
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
@@ -84,6 +84,7 @@ def on_update(doc, method):
     Manage Approved Quotations and Deletion of PO
     """
     doc = frappe.get_doc("Procurement Orders", doc.name)
+    old_doc = doc.get_doc_before_save()
     custom = doc.custom == "true"
 
     if(doc.status=="PO Approved"):
@@ -92,7 +93,7 @@ def on_update(doc, method):
         except frappe.DoesNotExistError:
             print("PO NOT AVAILABLE IN DB")
 
-    if(doc.status=="Dispatched"):
+    if old_doc and old_doc.status == 'PO Approved' and doc.status=="Dispatched":
         try:
             vendor = frappe.get_doc("Vendors", doc.vendor)
             orders = doc.order_list
@@ -128,8 +129,8 @@ def on_update(doc, method):
     if(doc.status=="Cancelled"):
         frappe.delete_doc("Procurement Orders", doc.name)
 
-    if(doc.status == "PO Amendment"):
-        lead_admin_users = get_allowed_users(doc)
+    if old_doc and old_doc.status == 'PO Approved' and doc.status == "PO Amendment":
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users(doc)
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
         if lead_admin_users:
             for user in lead_admin_users:

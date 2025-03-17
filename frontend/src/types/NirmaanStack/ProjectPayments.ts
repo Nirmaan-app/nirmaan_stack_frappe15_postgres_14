@@ -5,17 +5,17 @@ export interface ProjectPayments{
 	modified: string
 	owner: string
 	modified_by: string
-	docstatus: 0 | 1 | 2
+	docstatus?: 0 | 1 | 2
 	parent?: string
 	parentfield?: string
 	parenttype?: string
 	idx?: number
 	/**	Document Type : Link - DocType	*/
-	document_type?: string
+	document_type: string
 	/**	Document Name : Dynamic Link	*/
-	document_name?: string
+	document_name: string
 	/**	Project : Link - Projects	*/
-	project?: string
+	project: string
 	/**	Vendor : Link - Vendors	*/
 	vendor?: string
 	/**	UTR : Data	*/
@@ -23,9 +23,9 @@ export interface ProjectPayments{
 	/**	Payment Attachment : Attach	*/
 	payment_attachment?: string
 	/**	Amount : Data	*/
-	amount?: string
+	amount: number
 	/**	TDS : Data	*/
-	tds?: string
+	tds?: number
 	payment_date?: string
 	status: string
 }

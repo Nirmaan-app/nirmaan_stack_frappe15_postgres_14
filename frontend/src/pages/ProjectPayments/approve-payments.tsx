@@ -6,9 +6,15 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Input } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
+import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CircleCheck, CircleX, Info, SquarePen } from "lucide-react";
@@ -33,31 +39,31 @@ export const ApprovePayments = () => {
     setDialogOpen(!dialogOpen);
   };
 
-    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
     });
 
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["name", "vendor_name"],
         limit: 10000,
     });
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
         filters: [["status", "=", "Requested"]],
         limit: 100000,
         orderBy: { field: "creation", order: "desc" }
     })
 
-    const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList("Procurement Orders", {
+    const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
             fields: ["*"],
             filters: [["status", "not in", ["Cancelled", "Merged"]]],
             limit: 100000,
             orderBy: { field: "modified", order: "desc" },
         });
     
-    const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList("Service Requests", {
+    const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
         filters: [["status", "=", "Approved"]],
         limit: 10000,
@@ -70,21 +76,21 @@ export const ApprovePayments = () => {
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
-    const projectValues = projects?.map((item) => ({
+    const projectValues = useMemo(() => projects?.map((item) => ({
         label: item.project_name,
         value: item.name,
-    })) || [];
+    })) || [], [projects]);
 
-    const vendorValues = vendors?.map((item) => ({
+    const vendorValues = useMemo(() => vendors?.map((item) => ({
         label: item.vendor_name,
         value: item.name,
-    })) || [];
+    })) || [], [vendors]);
 
   const handleSubmit = async () => {
     try {
       await updateDoc("Project Payments", selectedPO?.name, {
         status: ["edit", "approve"].includes(dialogType) ? "Approved" : "Rejected",
-        amount: dialogType === "edit" ? Number(amountInput) : selectedPO?.amount
+        amount: dialogType === "edit" ? parseNumber(amountInput) : parseNumber(selectedPO?.amount)
       })
 
       await projectPaymentsMutate()
@@ -206,7 +212,7 @@ export const ApprovePayments = () => {
                   }
                   return <div className="font-medium">
                       {formatToIndianRupee(isSr ? (order?.gst === "true" ? getSRTotal(order) : getSRTotal(order) * 1.18 ) : 
-                      getPOTotal(order, parseFloat(order?.loading_charges), parseFloat(order?.freight_charges))?.totalAmt)}
+                      getPOTotal(order, parseNumber(order?.loading_charges), parseNumber(order?.freight_charges))?.totalAmt)}
                   </div>
               },
           },

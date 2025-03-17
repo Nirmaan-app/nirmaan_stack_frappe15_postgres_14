@@ -1,3 +1,4 @@
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
@@ -7,7 +8,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
-import { CirclePlus, Info } from "lucide-react"
+import { CirclePlus, Info, Undo2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
@@ -43,25 +44,32 @@ const useProcurementUpdates = (prId: string, prMutate : any) => {
 
   const navigate = useNavigate()
 
-  const updateProcurementData = async (formData: RFQData, updatedData : ProcurementItem[],  value : string) => {
+  const updateProcurementData = async (formData: RFQData | null = null, updatedData : ProcurementItem[],  value : string) => {
     await updateDoc("Procurement Requests", prId, {
       rfq_data: formData,
-      procurement_list: { list: updatedData }
+      procurement_list: { list: updatedData },
+      workflow_state: value === "revert" ? "Approved" : undefined
     });
     
     await prMutate();
 
     await mutate(`Procurement Requests:${prId}`)
 
-    if(value === "review") {
+    if(value === "review" || value === "revert") {
       toast({
         title: "Success!",
-        description: `Quotes updated and saved successfully!`,
+        description: value === "revert" ? `PR: ${prId} changes reverted successfully!` : `Quotes updated and saved successfully!`,
         variant: "success",
       })
-      navigate(`/procurement-requests/${prId}?tab=In+Progress&mode=review`)
+      if(value === "revert") {
+        navigate(`/procurement-requests?tab=New%20PR%20Request`)
+      } else {
+        navigate(`/procurement-requests/${prId}?tab=In+Progress&mode=review`)
+      }
       localStorage.removeItem(`procurementDraft_${prId}`)
-      window.location.reload()
+      if(value === "review") {
+        window.location.reload()
+      }
     }
   };
 
@@ -92,9 +100,11 @@ export const ProcurementProgress : React.FC = () => {
     filters: [["name", "=", prId]]
   }, prId ? `Procurement Requests ${prId}` : null)
 
-  // const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
-    
-  // const {handleDeletePR, deleteLoading} = usePRorSBDelete(procurement_request_mutate);
+  const [revertDialog, setRevertDialog] = useState(false);
+
+  const toggleRevertDialog = () => {
+    setRevertDialog(!revertDialog);
+  };
 
   const {data: vendors, isLoading: vendors_loading} = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
@@ -167,7 +177,7 @@ export const ProcurementProgress : React.FC = () => {
 const vendorOptions = useVendorOptions(vendors, formData.selectedVendors);
 
 const updateURL = (key : string, value : string) => {
-    const url = new URL(window.location);
+    const url = new URL(window.location.href);
     url.searchParams.set(key, value);
     window.history.pushState({}, "", url);
 };
@@ -236,6 +246,19 @@ const handleReviewChanges = async () => {
 
   await updateProcurementData(formData, updatedOrderList, "review");
 };
+
+const handleRevertPR = async () => {
+  const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
+      const { vendor, quote, make, ...rest } = item;
+      return rest;
+  }) || [];
+
+  setOrderData({ ...orderData, procurement_list: { list: updatedOrderList }, rfq_data: { selectedVendors : [], details : {}} });
+
+  setIsRedirecting("revert");
+
+  await updateProcurementData(undefined, updatedOrderList, "revert"); 
+} 
 
 if (procurement_request_loading || vendors_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
@@ -325,28 +348,28 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
       <SelectVendorQuotesTable orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} setOrderData={setOrderData} />
       
       
-      <div className="flex justify-end items-end">
-        {/* <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+        <div className="flex justify-between items-end">
+                  <AlertDialog open={revertDialog} onOpenChange={toggleRevertDialog}>
                         <AlertDialogTrigger asChild>
                           <Button className="flex items-center gap-1">
-                            <Trash2 className="w-4 h-4" />
-                            Delete PR
+                            <Undo2 className="w-4 h-4" />
+                            Revert PR
                           </Button>
                         </AlertDialogTrigger>
                           <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
                               <AlertDialogHeader className="text-start">
                                   <AlertDialogTitle className="text-center">
-                                      Delete Procurement Request
+                                      Revert Procurement Request
                                   </AlertDialogTitle>
-                                      <AlertDialogDescription>Are you sure you want to delete this PR?</AlertDialogDescription>
+                                      <AlertDialogDescription>Are you sure you want to revert the PR changes?, this will permanently empty the rfq data filled if any.</AlertDialogDescription>
                                   <div className="flex gap-2 items-center pt-4 justify-center">
-                                      {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                      {update_loading ? <TailSpin color="red" width={40} height={40} /> : (
                                           <>
                                               <AlertDialogCancel className="flex-1" asChild>
                                                   <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                                               </AlertDialogCancel>
                                                <Button
-                                                  onClick={() => handleDeletePR(orderData?.name, true)}
+                                                  onClick={handleRevertPR}
                                                   className="flex-1">
                                                       Confirm
                                               </Button>
@@ -356,7 +379,7 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
           
                               </AlertDialogHeader>
                           </AlertDialogContent>
-                      </AlertDialog> */}
+                      </AlertDialog>
         <Button disabled={mode === "edit" || !selectedVendorQuotes?.size} onClick={handleReviewChanges}>Continue</Button>
       </div>
 
@@ -401,7 +424,7 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
     {update_loading && (
       <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
         <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-          <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : "Redirecting... Please wait"}</p>
+          <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : isRedirecting === "revert" ? "Reverting Changes... Please wait" : "Redirecting... Please wait"}</p>
         </div>
       </div>
     )}

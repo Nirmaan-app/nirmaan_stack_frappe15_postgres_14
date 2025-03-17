@@ -62,13 +62,13 @@ export interface ProcurementOrder {
 	/**	Category List : JSON	*/
 	category_list?: any
 	/**	Advance : Data	*/
-	advance: string
+	advance?: string
 	/**	Loading Charges : Data	*/
-	loading_charges: string
+	loading_charges?: number
 	/**	Freight Charges : Data	*/
-	freight_charges: string
+	freight_charges?: number
 	/**	Notes : Data	*/
-	notes: string
+	notes?: string
 	/**	Status : Data	*/
 	status: string
 	/**	Delivery Contact : Data	*/

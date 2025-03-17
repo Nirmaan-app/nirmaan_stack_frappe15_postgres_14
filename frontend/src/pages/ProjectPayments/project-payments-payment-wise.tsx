@@ -9,14 +9,19 @@ import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
+import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Info, Paperclip, Trash2 } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApprovePayments } from "./approve-payments";
@@ -26,13 +31,13 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const [searchParams] = useSearchParams();
 
-    const {role, user_id} = useUserData();
+    const {role} = useUserData();
 
     const {paymentsCount, adminPaymentsCount} = useDocCountStore()
 
     const navigate = useNavigate()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") ? "Approve Payments" : "New Payments"));
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : "All Payments"));
 
     const [dialogType, setDialogType] = useState<"fulfill" | "delete">("fulfill");
 
@@ -44,25 +49,27 @@ export const ProjectPaymentsPaymentWise = () => {
 
     const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc()
 
-    const [paymentData, setPaymentData] = useState({});
+    const [paymentData, setPaymentData] = useState<ProjectPayments | null>(null);
 
-    const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+    const [paymentScreenshot, setPaymentScreenshot] = useState<File  | null>(null);
 
-    const handleFileChange = (event) => {
-        setPaymentScreenshot(event.target.files[0]);
+    const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+        if(event.target.files && event.target.files.length > 0) {
+            setPaymentScreenshot(event.target.files[0]);
+        }
     };
 
-    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
     });
 
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["*"],
         limit: 10000,
     });
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
         limit: 100000,
         orderBy: { field: "payment_date", order: "desc" }
@@ -78,70 +85,74 @@ export const ProjectPaymentsPaymentWise = () => {
         setFulFillPaymentDialog((prevState) => !prevState);
     };
 
-    const adminTabs = [
-        ...(["Nirmaan Admin Profile"].includes(role) || user_id === "Administrator" ? [
+    const adminTabs = useMemo(() => [
+        ...(["Nirmaan Admin Profile"].includes(role) ? [
             {
                 label: (
                     <div className="flex items-center">
                         <span>Approve Payments</span>
                         <span className="ml-2 text-xs font-bold">
-                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPaymentsCount?.requested : paymentsCount?.requested}
+                            {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
                         </span>
                     </div>
                 ),
                 value: "Approve Payments",
             },
         ] : [])
-    ]
+    ], [role, adminPaymentsCount, paymentsCount])
 
-    const items = [
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>New Payments</span>
-                    <span className="ml-2 text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPaymentsCount?.approved : paymentsCount?.approved}
-                    </span>
-                </div>
-            ),
-            value: "New Payments",
-        },
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Fulfilled Payments</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPaymentsCount?.paid : paymentsCount?.paid}
-                    </span>
-                </div>
-            ),
-            value: "Fulfilled Payments",
-        },
-    ];
+    const items = useMemo(() => [
+        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>New Payments</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.approved : paymentsCount?.approved}
+                        </span>
+                    </div>
+                ),
+                value: "New Payments",
+            },
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Fulfilled Payments</span>
+                        <span className="ml-2 rounded text-xs font-bold">
+                            {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.paid : paymentsCount?.paid}
+                        </span>
+                    </div>
+                ),
+                value: "Fulfilled Payments",
+            },
+        ] : [])
+    ], [role, adminPaymentsCount, paymentsCount])
 
-    const updateURL = (key, value) => {
-        const url = new URL(window.location);
-        url.searchParams.set(key, value);
-        window.history.pushState({}, "", url);
-    };
+    const updateURL = useCallback((params: Record<string, string>) => {
+        const url = new URL(window.location.href);
+        Object.entries(params).forEach(([key, value]) => {
+          url.searchParams.set(key, value);
+        });
+        window.history.pushState({}, '', url);
+    }, []);
 
-    const onClick = (value) => {
+    const onClick = useCallback(
+        (value : string) => {
         if (tab === value) return; // Prevent redundant updates
 
-        const newTab = value;
-        setTab(newTab);
-        updateURL("tab", newTab);
-    };
+        setTab(value);
+        updateURL({ tab: value });
+    }, [tab, updateURL]);
 
-    const FilfillPayment = async () => {
+    const FulfillPayment = async () => {
         try {
 
             await updateDoc("Project Payments", paymentData?.name, {
                 status: "Paid",
                 payment_date: paymentData?.payment_date,
                 utr: paymentData?.utr,
-                tds: paymentData?.tds,
-                amount: paymentData?.amount
+                tds: parseNumber(paymentData?.tds),
+                amount: parseNumber(paymentData?.amount)
             })
 
             if (paymentScreenshot) {
@@ -203,35 +214,35 @@ export const ProjectPaymentsPaymentWise = () => {
         }
     }
 
-    const getRowSelection = (vendor) => {
+    const getRowSelection = useCallback((vendor : string) => {
         const data = vendors?.find((item) => item.name === vendor);
         if (data?.account_number) {
             return false
         }
         return true;
-    }
+    }, [vendors])
 
-    const projectValues = projects?.map((item) => ({
+    const projectValues = useMemo(() => projects?.map((item) => ({
         label: item.project_name,
         value: item.name,
-    })) || [];
+    })) || [], [projects])
 
-    const vendorValues = vendors?.map((item) => ({
+    const vendorValues = useMemo(() => vendors?.map((item) => ({
         label: item.vendor_name,
         value: item.name,
-    })) || [];
+    })) || [], [vendors])
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
 
-    const columns = useMemo(
+    const columns : ColumnDef<ProjectPayments>[] = useMemo(
         () => [
             ...(tab === "New Payments" ? [
                 {
@@ -386,7 +397,7 @@ export const ProjectPaymentsPaymentWise = () => {
                 },
                 cell: ({ row }) => {
                     return <div className="font-medium">
-                        {formatToIndianRupee(parseFloat(row.original?.amount))}
+                        {formatToIndianRupee(row.original.amount)}
                     </div>
                 },
             },
@@ -401,7 +412,7 @@ export const ProjectPaymentsPaymentWise = () => {
                     cell: ({ row }) => {
                         const data = row.original
                         return <div className="font-medium">
-                            {formatToIndianRupee(parseFloat(data?.amount) - parseFloat(data?.tds || 0))}
+                            {formatToIndianRupee(parseNumber(data?.amount) - parseNumber(data?.tds))}
                         </div>
                     },
                 },
@@ -414,7 +425,7 @@ export const ProjectPaymentsPaymentWise = () => {
                     },
                     cell: ({ row }) => {
                         return <div className="font-medium">
-                            {row.original?.tds ? formatToIndianRupee(parseFloat(row.original?.tds)) : "--"}
+                            {row.original?.tds ? formatToIndianRupee(parseNumber(row.original?.tds)) : "--"}
                         </div>
                     },
                 },
@@ -485,7 +496,7 @@ export const ProjectPaymentsPaymentWise = () => {
                 )}
                 <Radio.Group
                     block
-                    options={["PO Wise"]}
+                    options={[...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []), "All Payments"]}
                     optionType="button"
                     buttonStyle="solid"
                     value={tab}
@@ -503,7 +514,7 @@ export const ProjectPaymentsPaymentWise = () => {
                     <DataTable columns={columns} data={projectPayments?.filter(p => p?.status === (tab === "New Payments" ? "Approved" : "Paid")) || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} isExport={tab === "New Payments"} />
                 )
             ) : (
-                <ProjectPaymentsList />
+                <ProjectPaymentsList tab={tab} />
             )}
 
             <AlertDialog open={fulFillPaymentDialog} onOpenChange={toggleFulFillPaymentDialog}>
@@ -549,11 +560,11 @@ export const ProjectPaymentsPaymentWise = () => {
                                                 placeholder="Enter TDS Amount"
                                                 value={paymentData?.tds || ""}
                                                 onChange={(e) => {
-                                                    const tdsValue = parseFloat(e.target.value || 0);
+                                                    const tdsValue = parseFloat(e.target.value);
                                                     setPaymentData({ ...paymentData, tds: tdsValue })
                                                 }}
                                             />
-                                            {paymentData?.tds > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((paymentData?.amount || 0) - paymentData?.tds)}</span>}
+                                            {parseNumber(paymentData?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee(parseNumber(paymentData?.amount) - parseNumber(paymentData?.tds))}</span>}
                                         </div>
                                     </div>
                                     <div className="flex gap-4 w-full" >
@@ -608,8 +619,8 @@ export const ProjectPaymentsPaymentWise = () => {
                                     </AlertDialogCancel>
                                     {dialogType === "fulfill" ?
                                         <Button
-                                            onClick={FilfillPayment}
-                                            disabled={!paymentData.utr || !paymentData.payment_date}
+                                            onClick={FulfillPayment}
+                                            disabled={!paymentData?.utr || !paymentData?.payment_date}
                                             className="flex-1">Confirm
                                         </Button>
                                         :
