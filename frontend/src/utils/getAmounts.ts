@@ -1,5 +1,6 @@
 import { PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { parseNumber } from "./parseNumber";
 
 export const getPOTotal = (order : any, loadingCharges = 0, freightCharges = 0) => {
   if(!order) return {total : 0, totalGst: 0, totalAmt: 0};
@@ -15,12 +16,12 @@ export const getPOTotal = (order : any, loadingCharges = 0, freightCharges = 0) 
     const price = item.quote;
     const gst = price * item.quantity * (item.tax / 100);
 
-    totalGst += (gst || 0);
-    total += (price || 0) * (item.quantity || 1);
+    totalGst += parseNumber(gst);
+    total += parseNumber(price) * (item.quantity || 1);
   });
 
-  total += loadingCharges + freightCharges;
-  totalGst += loadingCharges * 0.18 + freightCharges * 0.18;
+  total += parseNumber(loadingCharges) + parseNumber(freightCharges);
+  totalGst += parseNumber(loadingCharges * 0.18) + parseNumber(freightCharges * 0.18);
 
   return { total, totalGst: totalGst, totalAmt: total + totalGst };
 };
@@ -35,9 +36,9 @@ export const getSRTotal = (order: any) => {
   }
 
   orderData?.map((item : any) => {
-    const price = item?.rate;
-    const quantity = item?.quantity;
-    total += parseFloat(price || 0) * parseFloat(quantity || 1);
+    const price = parseNumber(item?.rate);
+    const quantity = parseNumber(item?.quantity);
+    total += price * (quantity || 1);
   });
 
   return total;
@@ -57,7 +58,7 @@ export const getTotalAmountPaid = (payments: ProjectPayments[]): number => {
 
   let total = 0;
   for (const payment of payments) {
-    total += parseFloat(payment?.amount || "0")
+    total += parseNumber(payment?.amount)
   }
 
   totalAmountCache.set(key, total);

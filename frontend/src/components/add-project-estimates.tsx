@@ -1,32 +1,29 @@
-import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Skeleton } from "./ui/skeleton";
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Trash } from "lucide-react";
-import { Button } from "./ui/button";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
-import ReactSelect from 'react-select';
-import { Input } from "./ui/input";
-import { toast } from "./ui/use-toast";
-import { ConfigProvider, Radio, Table } from "antd";
-import formatToIndianRupee from "@/utils/FormatPrice";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
-import { Separator } from "./ui/separator";
-import { Pencil2Icon } from "@radix-ui/react-icons";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { TailSpin } from "react-loader-spinner";
-import { Textarea } from "./ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Label, Pie, PieChart } from "recharts";
 import {
     ChartConfig,
     ChartContainer,
     ChartTooltip,
     ChartTooltipContent,
 } from "@/components/ui/chart";
+import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { Pencil2Icon } from "@radix-ui/react-icons";
+import { ConfigProvider, Radio, Table } from "antd";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { Trash } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { useParams, useSearchParams } from "react-router-dom";
+import ReactSelect from 'react-select';
+import { Label, Pie, PieChart } from "recharts";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Skeleton } from "./ui/skeleton";
+import { Textarea } from "./ui/textarea";
+import { toast } from "./ui/use-toast";
 
 const chartConfig = {
     visitors: {
@@ -49,7 +46,7 @@ const chartConfig = {
 
 const AddProjectEstimates = ({ projectTab = false }) => {
     const { projectId } = useParams()
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", projectId)
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc("Projects", projectId)
     const { data: estimates_data, isLoading: estimates_loading, error: estimates_error, mutate: estimates_data_mutate } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
         fields: ['*'],
         filters: [["project", "=", projectId]],
@@ -65,9 +62,10 @@ const AddProjectEstimates = ({ projectTab = false }) => {
 }
 
 interface AddProjectEstimatesPageProps {
-    project_data: ProjectsType | undefined
-    estimates_data: ProjectEstimatesType[] | undefined
+    project_data?: any
+    estimates_data?: ProjectEstimatesType[]
     estimates_data_mutate?: any
+    projectTab?: boolean
 }
 
 type Category = {
@@ -82,7 +80,6 @@ type WorkPackageCategoryList = {
 };
 
 const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_mutate, projectTab }: AddProjectEstimatesPageProps) => {
-    const navigate = useNavigate()
     const [defaultValues, setDefaultValues] = useState<null | string[]>(null)
     const [workPackageCategoryList, setWorkPackageCategoryList] = useState<WorkPackageCategoryList>({});
     const [curCategory, setCurCategory] = useState({})
@@ -110,25 +107,23 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [searchParams] = useSearchParams(); // Only for initialization
     const [selectedPackage, setSelectedPackage] = useState(searchParams.get("eTab") || "All")
 
-    const updateURL = (key, value) => {
-        const url = new URL(window.location);
-        url.searchParams.set(key, value);
-        window.history.pushState({}, "", url);
-    };
 
-    const handleSetSelectedPackage = (value) => {
+    const updateURL = useCallback((params: Record<string, string>) => {
+        const url = new URL(window.location.href);
+        Object.entries(params).forEach(([key, value]) => {
+          url.searchParams.set(key, value);
+        });
+        window.history.pushState({}, '', url);
+    }, []);
+
+    const handleSetSelectedPackage = useCallback(
+    (value : string) => {
         if (selectedPackage === value) return
         setSelectedPackage(value)
         setCurCategory({ [value]: null })
         setSelectedItem({ [value]: null })
-        updateURL("eTab", value)
-    }
-
-    // useEffect(() => {
-    //     const currentTab = searchParams.get("eTab") || "All";
-    //     setSelectedPackage(currentTab);
-    //     // updateURL("eTab", currentTab)
-    // }, []);
+        updateURL({ eTab: value })
+    }, [selectedPackage, updateURL])
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {

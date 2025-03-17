@@ -34,6 +34,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Table as AntTable, ConfigProvider } from "antd";
@@ -53,7 +55,7 @@ import {
   Trash2,
   Undo2
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
@@ -148,8 +150,8 @@ export interface Vendor {
   value: string
   label: string
   vendor_type?: string
-  city: string
-  state: string
+  city?: string
+  state?: string
 }
 
 export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = ({ sr_data, usersList, universalComments, sr_data_mutate, amend = false }) => {
@@ -160,15 +162,15 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
   const [section, setSection] = useState("choose-vendor");
   const [vendorOptions, setVendorOptions] = useState<Vendor[] | undefined>([]);
   const [selectedVendor, setSelectedvendor] = useState<Vendor | null>(null);
-  const [amounts, setAmounts] = useState<{ [key: string]: string }>({}); // New state for amounts
-  const [order, setOrder] = useState(
+  const [amounts, setAmounts] = useState<{ [key: string]: number }>({}); // New state for amounts
+  const [order, setOrder] = useState<ServiceItemType[]>(
     sr_data && JSON.parse(sr_data?.service_order_list)?.list
   );
     const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
 
   const groupedData = useMemo(() => {
-    return order?.reduce((acc, item) => {
+    return order?.reduce((acc : Record<string, ServiceItemType[]>, item : ServiceItemType) => {
       acc[item.category] = acc[item.category] || [];
       acc[item.category].push(item);
       return acc;
@@ -195,7 +197,7 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
 }, [order]);
 
   // Main table columns
-  const columns = [
+  const columns = useMemo(() => [
     {
       title: "Service",
       dataIndex: "category",
@@ -213,10 +215,10 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
         </span>
       ),
     },
-  ];
+  ], [selectedVendor]);
 
   // Inner table columns
-  const innerColumns = [
+  const innerColumns = useMemo(() => [
     {
       title: "Description",
       dataIndex: "description",
@@ -267,7 +269,7 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
     //     width: "20%",
     //     render: (text) => <span className="italic">{formatToIndianRupee(parseFloat(text) * 1.18)}</span>,
     // },
-  ];
+  ], []);
 
   const { data: category_data } = useFrappeGetDocList("Category", {
     fields: ["*"],
@@ -277,7 +279,7 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
 
   const {
     data: vendor_list,
-  } = useFrappeGetDocList(
+  } = useFrappeGetDocList<Vendors>(
     "Vendors",
     {
       fields: ["*"],
@@ -312,13 +314,13 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
     loading: update_loading,
   } = useFrappeUpdateDoc();
 
-  const getFullName = (id: any) => {
-    return usersList?.find((user) => user?.name == id)?.full_name;
-  };
+  const getFullName = useCallback((id: string | undefined) => {
+    return usersList?.find((user) => user?.name == id)?.full_name || "";
+  }, [usersList]);
 
   const handleAmountChange = (id: string, value: string) => {
     const numericValue = value.replace(/₹\s*/, "");
-    setAmounts((prev) => ({ ...prev, [id]: numericValue }));
+    setAmounts((prev) => ({ ...prev, [id]: parseFloat(numericValue) }));
   };
 
 
@@ -340,12 +342,12 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
 
   const checkNextButtonStatus = useMemo(() => {
     const allAmountsFilled = Object.values(amounts).every(
-      (amount) => amount && parseFloat(amount) > 0
+      (amount) => amount && amount > 0
     );
     const allAmountsCount = Object.keys(amounts)?.length === order?.length;
     const allFieldsFilled = order?.some(
       (i) =>
-        !parseFloat(i?.quantity) || !i?.uom || !i?.description || !i?.category
+        !i?.quantity || !i?.uom || !i?.description || !i?.category
     )
     return allAmountsFilled && allAmountsCount && !allFieldsFilled && order.length !== 0 && selectedVendor?.value;
 
@@ -355,8 +357,8 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
     if ((["Rejected"].includes(sr_data?.status) || amend) && vendor_list) {
       const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor);
       const selectedVendor = {
-        value: vendor?.name,
-        label: vendor?.vendor_name,
+        value: vendor?.name || "",
+        label: vendor?.vendor_name || "",
         city: vendor?.vendor_city,
         state: vendor?.vendor_state,
       };
@@ -488,7 +490,7 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
         }
       }
 
-  const handleInputChange = (id: string, field: string, value: string) => {
+  const handleInputChange = (id: string, field: string, value: string | number) => {
     if (field) {
       const updatedOrder = order.map((item: any) =>
         item.id === id ? { ...item, [field]: value } : item
@@ -621,7 +623,7 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
                               handleInputChange(
                                 item.id,
                                 "quantity",
-                                e.target.value
+                                parseFloat(e.target.value)
                               )
                             }
                           />

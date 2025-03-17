@@ -8,19 +8,20 @@ import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import { ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { omit } from "lodash";
 import { CheckCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import React, { useCallback } from "react";
 import { MakesSelection } from "./ItemVendorMakeSelection";
 
 interface SelectVendorQuotesTableProps {
   sentBack?: boolean
-  orderData : ProcurementRequest | SentBackCategory
+  orderData : any
   formData : RFQData
   setFormData : React.Dispatch<React.SetStateAction<RFQData>>
   selectedVendorQuotes : Map<any, any>
   setSelectedVendorQuotes : React.Dispatch<React.SetStateAction<Map<any, any>>>
   mode : string
-  setOrderData : React.Dispatch<React.SetStateAction<ProcurementRequest | SentBackCategory | undefined>>
+  setOrderData : any
 }
 
 export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = ({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}) => {
@@ -98,7 +99,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
             ...prev,
             item_list: {
               list: prev?.item_list.list.map((item) => 
-              item?.vendor === vendorId ? _.omit(item, ["vendor", "quote", "make"]) : item
+              item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
               )
             }
           }))
@@ -107,7 +108,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
               ...prev,
               procurement_list: {
                 list: prev.procurement_list.list.map((item) => 
-                item?.vendor === vendorId ? _.omit(item, ["vendor", "quote", "make"]) : item
+                item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
                 )
               }
             }))

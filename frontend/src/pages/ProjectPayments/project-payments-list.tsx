@@ -9,18 +9,25 @@ import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getTotalAmountPaid } from "@/utils/getAmounts";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { parseNumber } from "@/utils/parseNumber";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { debounce } from "lodash";
 import { Paperclip, SquarePlus } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+import { AllPayments } from "./AllPayments";
 
-export const ProjectPaymentsList = () => {
+export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
@@ -30,31 +37,31 @@ export const ProjectPaymentsList = () => {
 
     const [warning, setWarning] = useState("");
 
-    const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList("Procurement Orders", {
+    const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "not in", ["Cancelled", "Merged"]]],
         limit: 100000,
         orderBy: { field: "modified", order: "desc" },
     });
 
-    const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList("Service Requests", {
+    const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
         filters: [["status", "=", "Approved"]],
         limit: 10000,
         orderBy: { field: "modified", order: "desc" },
     });
 
-    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList("Projects", {
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
     });
 
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["name", "vendor_name"],
         limit: 10000,
     });
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
         filters: [["status", "=", "Paid"]],
         limit: 100000
@@ -96,75 +103,77 @@ export const ProjectPaymentsList = () => {
         tds: ""
     });
 
-    const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+    const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
-    const handleFileChange = (event) => {
-        setPaymentScreenshot(event.target.files[0]);
+    const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+        if(event.target.files && event.target.files.length > 0) {
+            setPaymentScreenshot(event.target.files[0]);
+        }
     };
 
     const { notifications, mark_seen_notification } = useNotificationStore();
 
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
 
-    const projectValues = projects?.map((item) => ({
+    const projectValues = useMemo(() => projects?.map((item) => ({
         label: item.project_name,
         value: item.name,
-    })) || [];
+    })) || [], [projects])
 
-    const vendorValues = vendors?.map((item) => ({
+    const vendorValues = useMemo(() => vendors?.map((item) => ({
         label: item.vendor_name,
         value: item.name,
-    })) || [];
+    })) || [], [vendors])
 
-    const getTotalAmount = (order, type: "Purchase Order" | "Service Order") => {
+    const getTotalAmount = (order : any, type: "Purchase Order" | "Service Order") => {
         if (type === "Purchase Order") {
             let total = 0;
             let totalWithTax = 0;
-            const loading_charges = parseFloat(order?.loading_charges || 0)
-            const freight_charges = parseFloat(order?.freight_charges || 0)
+            const loading_charges = order?.loading_charges || 0;
+            const freight_charges = order?.freight_charges || 0
             const orderData = order.order_list;
             orderData?.list.forEach((item) => {
-                const price = parseFloat(item?.quote || 0);
-                const quantity = parseFloat(item?.quantity || 1);
-                const tax = parseFloat(item?.tax || 0);
+                const price = parseNumber(item?.quote);
+                const quantity = parseNumber(item?.quantity) || 1;
+                const tax = parseNumber(item?.tax)
                 totalWithTax += price * quantity * (1 + tax / 100);
                 total += price * quantity;
             });
 
-            total += loading_charges + freight_charges
-            totalWithTax += loading_charges * 1.18 + freight_charges * 1.18
+            total += parseNumber(loading_charges) + parseNumber(freight_charges)
+            totalWithTax += parseNumber(loading_charges) * 1.18 + parseNumber(freight_charges) * 1.18
             return {total, totalWithTax};
         }
         if (type === "Service Order") {
             let total = 0;
             const orderData = order.service_order_list;
             orderData?.list.forEach((item) => {
-                const price = parseFloat(item?.rate) || 0;
-                const quantity = parseFloat(item?.quantity) || 1;
+                const price = parseNumber(item?.rate);
+                const quantity = parseNumber(item?.quantity) || 1;
                 total += price * quantity;
             });
             return {total, totalWithTax : total * 1.18};
         }
-        return 0;
+        return {total: 0, totalWithTax: 0};
     };
 
-    const getAmountPaid = (id) => {
-        const payments = projectPayments?.filter((payment) => payment.document_name === id);
+    const getAmountPaid =  useCallback((id : string) => {
+        const payments = projectPayments?.filter((payment) => payment.document_name === id) || [];
         return getTotalAmountPaid(payments);
-    }
+    }, [projectPayments])
 
-    const combinedData = [
+    const combinedData = useMemo(() => [
         ...(purchaseOrders?.map((order) => ({ ...order, type: "Purchase Order" })) || []),
         ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
-    ];
+    ], [purchaseOrders, serviceOrders])
 
-    const getDataAttributes = (data) => {
+    const getDataAttributes = useCallback((data : any) => {
         let project = ""
         let vendor = ""
         let gst = ""
@@ -173,12 +182,12 @@ export const ProjectPaymentsList = () => {
             vendor = data?.vendor_name
             gst = "true"
         } else {
-            project = projects?.find(i => i?.name === data?.project)?.project_name
-            vendor = vendors?.find(i => i?.name === data?.vendor)?.vendor_name
+            project = projects?.find(i => i?.name === data?.project)?.project_name || ""
+            vendor = vendors?.find(i => i?.name === data?.vendor)?.vendor_name || ""
             gst = data?.gst
         }
         return { project, vendor, vendor_id: data?.vendor, project_id: data?.project, document_type: data?.type, document_name: data?.name, gst }
-    }
+    }, [projects, vendors])
 
     const AddPayment = async () => {
         try {
@@ -189,8 +198,8 @@ export const ProjectPaymentsList = () => {
                 project: newPayment?.project_id,
                 vendor: newPayment?.vendor_id,
                 utr: newPayment?.utr,
-                amount: newPayment?.amount,
-                tds: newPayment?.tds,
+                amount: parseNumber(newPayment?.amount),
+                tds: parseNumber(newPayment?.tds),
                 payment_date: newPayment?.payment_date,
                 status: "Paid"
             })
@@ -248,7 +257,7 @@ export const ProjectPaymentsList = () => {
         }
     }
 
-    const validateAmount = debounce((amount) => {
+    const validateAmount = debounce((amount : string) => {
         const order =
           newPayment?.doctype === "Procurement Orders"
             ? purchaseOrders?.find((i) => i?.name === newPayment?.docname)
@@ -273,7 +282,7 @@ export const ProjectPaymentsList = () => {
             ? (totalWithTax - totalAmountPaid)
             : (total - totalAmountPaid);
     
-        if (parseFloat(amount) > compareAmount) {
+        if (parseNumber(amount) > compareAmount) {
           setWarning(
             `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${
               newPayment?.doctype === "Procurement Orders" ? "including" : order.gst === "true" ? "including" : "excluding"
@@ -285,7 +294,7 @@ export const ProjectPaymentsList = () => {
       }, 300);
     
       // Handle input change
-      const handleAmountChange = (e) => {
+      const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
         const amount = e.target.value;
         setNewPayment({ ...newPayment, amount });
         validateAmount(amount);
@@ -424,9 +433,12 @@ export const ProjectPaymentsList = () => {
 
     const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
+    if(tab === "All Payments") {
+        return <AllPayments />
+    }
+
     return (
         <div className="flex-1 space-y-4">
-
             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
                     <AlertDialogHeader className="text-start ">
@@ -488,7 +500,7 @@ export const ProjectPaymentsList = () => {
                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                     }}
                                 />
-                                {newPayment?.tds > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((newPayment?.amount || 0) - newPayment?.tds)}</span>}
+                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
                                 </div>
                             </div>
                             <div className="flex gap-4 w-full">
@@ -549,7 +561,7 @@ export const ProjectPaymentsList = () => {
                                     </AlertDialogCancel>
                                     <Button
                                         onClick={AddPayment}
-                                        disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                        disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
                                         className="flex-1">Add Payment
                                     </Button>
                                 </>

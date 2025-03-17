@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import {
   handlePOAmendedEvent,
   handlePONewEvent,
@@ -65,7 +66,7 @@ import {
 import { Separator } from "../ui/separator";
 
 export function NewSidebar() {
-  const [role, setRole] = useState(null);
+  const [role, setRole] = useState<string | null>(null);
   const location = useLocation();
 
   const navigate = useNavigate();
@@ -81,7 +82,7 @@ export function NewSidebar() {
 
   const { toggleSidebar, isMobile, state } = useSidebar();
 
-  const { data } = useFrappeGetDoc(
+  const { data } = useFrappeGetDoc<NirmaanUsers>(
     "Nirmaan Users",
     user_id,
     user_id === "Administrator" ? null : undefined
@@ -97,16 +98,8 @@ export function NewSidebar() {
     updatePRCounts,
     updateSBCounts,
     updatePOCounts,
-    newPOCount,
-    adminNewPOCount,
     updateSRCounts,
-    approvedSRCount,
-    adminApprovedSRCount,
     updatePaymentsCount,
-    prCounts,
-    adminPrCounts,
-    pendingSRCount, 
-    adminPendingSRCount
   } = useDocCountStore();
 
   const { add_new_notification, delete_notification, clear_notifications, add_all_notific_directly } =
@@ -490,6 +483,10 @@ export function NewSidebar() {
     await handleSRApprovedEvent(db, event, add_new_notification);
   });
 
+  useFrappeEventListener("payment:fulfilled", async (event) => {
+    await handlePONewEvent(db, event, add_new_notification);
+  });
+
   useFrappeEventListener("payment:delete", (event) => {
     handlePRDeleteEvent(event, delete_notification);
   });
@@ -722,7 +719,7 @@ export function NewSidebar() {
     //       },
     //     ]
     //   : []),
-      ...(user_id == "Administrator" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Admin Profile"
+      ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile"].includes(role)
         ? [
             {
                 key: '/project-payments',

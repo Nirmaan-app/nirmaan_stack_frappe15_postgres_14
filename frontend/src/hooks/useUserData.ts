@@ -1,6 +1,6 @@
-import Cookies from 'js-cookie'
-import { useFrappeGetDoc } from 'frappe-react-sdk'
 import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers'
+import { useFrappeGetDoc } from 'frappe-react-sdk'
+import Cookies from 'js-cookie'
 
 /**
  * Simple hook to fetch user data from cookies
@@ -24,8 +24,8 @@ export const useUserData = () => {
   }
   const {data, isLoading, error} = useFrappeGetDoc<NirmaanUsers>("Nirmaan Users", user_id)
 
-  const role = data?.role_profile
-  const has_project = data?.has_project
+  const role = data?.role_profile || ""
+  const has_project = data?.has_project || "false"
 
   if(isLoading) return {user_id, full_name, user_image, role:"Loading", has_project:"false"};
   if(error) {
