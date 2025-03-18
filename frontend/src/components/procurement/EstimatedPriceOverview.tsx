@@ -1,16 +1,17 @@
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft } from "lucide-react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useCallback } from "react";
+import { useLocation } from "react-router-dom";
 
-export const EstimatedPriceOverview = () => {
-    const navigate = useNavigate();
+export const EstimatedPriceOverview : React.FC = () => {
     const location = useLocation();
 
     const searchParams = new URLSearchParams(location.search);
     const poId = searchParams.get("poId");
     const itemId = searchParams.get("itemId");
 
-    const { data: quote_data } = useFrappeGetDocList("Approved Quotations", {
+    const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations", {
         fields: ["*"],
         filters: [["procurement_order", "=", poId], ["item_id", "=", itemId]],
         limit: 1000,
@@ -18,18 +19,18 @@ export const EstimatedPriceOverview = () => {
 
     // console.log("quote_data", quote_data);
 
-    const calculateTotals = (item) => {
-        const totalWithoutGST = parseFloat(item?.quote || 0) * parseFloat(item?.quantity || 0)
-        const tax = item?.tax || 0;
-        const gst = totalWithoutGST * (parseFloat(tax) / 100);
+    const calculateTotals = useCallback((item : ApprovedQuotations) => {
+        const totalWithoutGST = parseNumber(item?.quote) * parseNumber(item?.quantity)
+        const tax = parseNumber(item?.tax);
+        const gst = totalWithoutGST * (tax / 100);
         const totalWithGST = totalWithoutGST + gst;
         return { totalWithoutGST, gst, totalWithGST };
-    };
+    }, [quote_data]);
 
     return (
         <div className="flex-1 space-y-4">
-            <div className="flex items-center gap-1">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+            <div className="flex items-center gap-1 pl-4">
+                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                 <h1 className="text-2xl font-bold text-gray-800">Approved Quotations: <span className="text-primary">{itemId}</span></h1>
             </div>
 

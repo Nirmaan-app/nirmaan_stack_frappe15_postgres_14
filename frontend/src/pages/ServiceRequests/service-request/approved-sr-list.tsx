@@ -1,5 +1,6 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
@@ -11,17 +12,17 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import { ColumnDef } from "@tanstack/react-table";
+import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 interface ApprovedSRListProps {
     for_vendor?: string
 }
 
-
 export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = undefined }) => {
-    const sr_filters: any = [["status", "=", "Approved"]]
+    const sr_filters: Filter<FrappeDoc<ServiceRequests>>[] | undefined = [["status", "=", "Approved"]]
     if (for_vendor) {
         sr_filters.push(["vendor", "=", for_vendor])
     }
@@ -51,25 +52,24 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
         "Service Vendors"
     )
 
-    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name }))
+    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
 
 
     useFrappeDocTypeEventListener("Service Requests", async () => {
         await serviceListMutate()
     })
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const project_values = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name})) || [], [projects])
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         const orderData = service_list?.find(item => item.name === order_id);
         return getSRTotal(orderData)
-    }
+    }, [service_list])
 
-    const getAmountPaid = (id : string) => {
+    const getAmountPaid = useCallback((id : string) => {
         const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
-
         return getTotalAmountPaid(payments)
-    }
+    }, [projectPayments])
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
@@ -81,11 +81,11 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
         }
     }
 
-    const getVendorName = (vendorId: string) => {
-        return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name;
-    }
+    const getVendorName = useCallback((vendorId: string | undefined) => {
+        return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name || "";
+    }, [vendorsList])
 
-    const columns = useMemo(
+    const columns : ColumnDef<ServiceRequests>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -95,7 +95,8 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
                     )
                 },
                 cell: ({ row }) => {
-                    const srId = row.getValue("name")
+                    const data = row.original
+                    const srId = data?.name
                     const isNew = notifications.find(
                         (item) => item.docname === srId && item.seen === "false" && item.event_id === "sr:approved"
                     )
@@ -104,12 +105,15 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
+                            <div className="flex items-center gap-2">
                             <Link
                                 className="underline hover:underline-offset-2"
                                 to={for_vendor === undefined ? `${srId}?tab=approved-sr` : `/service-requests-list/${srId}`}
                             >
                                 {srId?.slice(-5)}
                             </Link>
+                            <ItemsHoverCard order_list={data.service_order_list.list} isSR />
+                            </div>
                         </div>
                     )
                 }

@@ -1,5 +1,6 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
@@ -7,10 +8,11 @@ import { Category, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRe
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 export const ApproveSelectVendor : React.FC = () => {
@@ -30,17 +32,17 @@ export const ApproveSelectVendor : React.FC = () => {
     })
 
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         let total: number = 0;
         const allItems = procurement_request_list?.find(item => item?.name === order_id)?.procurement_list?.list;
         const orderData = allItems?.filter((item) => item.status === "Pending")
         orderData?.map((item) => {
-            total += (item.quote || 0) * item.quantity;
+            total += parseNumber((item.quote || 0) * item.quantity);
         })
         return total;
-    }
+    }, [procurement_request_list])
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
     useFrappeDocTypeEventListener("Procurement Requests", async () => {
         await pr_list_mutate()
@@ -49,7 +51,7 @@ export const ApproveSelectVendor : React.FC = () => {
     const {notifications, mark_seen_notification} = useNotificationStore()
 
     const {db} = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification : NotificationType) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if(notification) {
             mark_seen_notification(db, notification)
         }
@@ -83,6 +85,7 @@ export const ApproveSelectVendor : React.FC = () => {
                                     {prId?.slice(-4)}
                                 </Link>
                                  {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+                                 <ItemsHoverCard order_list={data?.procurement_list?.list} isPR />
                             </div>
                         </div>
                     )
@@ -115,14 +118,9 @@ export const ApproveSelectVendor : React.FC = () => {
                     const project = project_values.find(
                         (project) => project.value === row.getValue("project")
                     )
-                    if (!project) {
-                        return null;
-                    }
-
                     return (
                         <p className="font-medium">
-                            {project.label}
-                            {/* {row.getValue("project")} */}
+                            {project?.label || "--"}
                         </p>
                     )
                 },
@@ -140,7 +138,7 @@ export const ApproveSelectVendor : React.FC = () => {
                 cell: ({ row }) => {
                     return (
                         <p className="font-medium">
-                            {row.getValue("work_package")}
+                            {row.getValue("work_package") || "--"}
                         </p>
                     )
                 }

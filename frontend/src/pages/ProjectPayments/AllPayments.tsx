@@ -201,7 +201,7 @@ export const AllPayments : React.FC = () => {
               <DataTable columns={columns} data={projectPayments || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} />
           )}
 
-          <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
+                    <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
                         <DialogContent>
                           <DialogHeader>
                             <DialogTitle className="text-center">Share Payment Screenshot via WhatsApp</DialogTitle>
@@ -242,7 +242,7 @@ export const AllPayments : React.FC = () => {
                             </Button>
                           </div>
                         </DialogContent>
-                      </Dialog>
+                    </Dialog>
       </div>
 
       );

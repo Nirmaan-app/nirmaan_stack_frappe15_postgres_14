@@ -1,26 +1,21 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { parseNumber } from "@/utils/parseNumber";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
-
-type PRTable = {
-    name: string
-    project_name: string
-    creation: string
-    category: string
-}
-
-export const ApproveSelectSentBack = () => {
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sbListMutate } = useFrappeGetDocList("Sent Back Category",
+export const ApproveSelectSentBack : React.FC = () => {
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sbListMutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
             fields: ["*"],
             filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
@@ -30,24 +25,22 @@ export const ApproveSelectSentBack = () => {
         "Sent Back Category(filters,in,Vendor Selected,Partially Approved)"
     );
 
-    // console.log("sbdata", sent_back_list)
-
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
     })
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         let total: number = 0;
         const orderData = sent_back_list?.find(item => item.name === order_id)?.item_list;
         orderData?.list.map((item) => {
-            const price = item.quote;
-            total += (price ? parseFloat(price) : 0) * item.quantity;
+            const price = parseNumber(item.quote);
+            total += parseNumber(price * item.quantity);
         })
         return total;
-    }
+    }, [sent_back_list])
 
     useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
         await sbListMutate()
@@ -56,13 +49,13 @@ export const ApproveSelectSentBack = () => {
     const {notifications, mark_seen_notification} = useNotificationStore()
 
     const {db} = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if(notification) {
             mark_seen_notification(db, notification)
         }
     }
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<SentBackCategory>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -72,7 +65,8 @@ export const ApproveSelectSentBack = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const sbId = row.getValue("name")
+                    const data = row.original
+                    const sbId = data?.name
                     const isNew = notifications.find(
                         (item) => item.docname === sbId && item.seen === "false" && item.event_id === "sb:vendorSelected"
                     )
@@ -81,12 +75,15 @@ export const ApproveSelectSentBack = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`${sbId}?tab=Approve Sent Back PO`}
-                            >
-                                {sbId?.slice(-5)}
-                            </Link>
+                            <div className="flex gap-1 items-center">
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`${sbId}?tab=Approve Sent Back PO`}
+                                >
+                                    {sbId?.slice(-5)}
+                                </Link>
+                                <ItemsHoverCard order_list={data?.item_list?.list} isSB />
+                            </div>
                         </div>
                     )
                 }

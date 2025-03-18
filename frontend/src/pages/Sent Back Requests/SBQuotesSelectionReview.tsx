@@ -9,6 +9,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ProcurementHeaderCard } from "@/components/ui/ProcurementHeaderCard";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from '@/hooks/useUserData';
@@ -17,17 +18,20 @@ import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
+import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MoveDown, MoveUp, Undo2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, Undo2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { CategoryData, CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 
-const COLUMN_WIDTHS = {
+export const COLUMN_WIDTHS = {
   category: "auto",
   totalAmount: "auto",
   item: "20%",
@@ -63,6 +67,27 @@ export const innerColumns: TableColumnsType<DataItem> = [
       dataIndex: "item",
       key: "item",
       width: COLUMN_WIDTHS.item,
+      render: (text, record) => (
+            <div className="flex flex-col gap-1">
+              <div className="inline items-baseline">
+              <span>{text}</span>
+              {record?.comment && (
+                <HoverCard>
+                  <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                  <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                    <div className="relative pb-4">
+                      <span className="block">{record.comment}</span>
+                      <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                    </div>
+                  </HoverCardContent>
+                </HoverCard>
+              )}
+              </div>
+              {record?.make && (
+                <span className="text-xs">Selected make : <b>{record.make}</b></span>
+              )}
+            </div>
+          )
   },
   {
       title: "Unit",
@@ -151,7 +176,7 @@ export const innerColumns: TableColumnsType<DataItem> = [
 ];
 
 
-export const SBQuotesSelectionReview = () => {
+export const SBQuotesSelectionReview : React.FC = () => {
 
   const { sbId } = useParams<{ sbId: string }>();
   const navigate = useNavigate();
@@ -179,7 +204,7 @@ export const SBQuotesSelectionReview = () => {
         limit: 10000
   });
 
-  const { data: quote_data, isLoading : quote_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
+  const { data: quotes_data, isLoading : quotes_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
     {
         fields: ["*"],
         limit: 100000
@@ -213,32 +238,17 @@ export const SBQuotesSelectionReview = () => {
   //   useMemo(() => (vendor_list || [])?.find(v => v?.name === vendorId)?.vendor_name
   //   , [vendorId, vendor_list])
 
-  const getVendorName = (vendorId : string) : string => {
-    return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
-  }
+  const getVendorName = useCallback((vendorId: string | undefined) => {
+        return vendor_list?.find(vendor => vendor?.name === vendorId)?.vendor_name || "";
+  }, [vendor_list]);
 
-  const getLowest = (itemId: string) => {
-      const filtered : number[] = []
-      Object.values(orderData?.rfq_data?.details?.[itemId]?.vendorQuotes || {})?.map(i => {
-      if(i?.quote) {
-        filtered.push(i?.quote)
-      }
-    })
-       
-    let minQuote;
-    if (filtered.length > 0) minQuote = Math.min(...filtered);
-    return minQuote || 0;
+  const getLowest = useCallback((itemId: string) => {
+        return getLowestQuoteFilled(orderData, itemId)
+    }, [orderData]);
 
-  }
-
-  const getThreeMonthsLowest = (itemId : string) => {
-        const quotesForItem = quote_data
-        ?.filter(value => value?.item_id === itemId && ![null, "0", 0, undefined].includes(value?.quote))
-        ?.map(value => parseFloat(value?.quote));
-      let minQuote;
-      if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-      return minQuote || 0;
-  }
+  const getThreeMonthsLowest = useCallback((itemId : string) => {
+      return getThreeMonthsLowestFiltered(quotes_data, itemId)
+  }, [quotes_data]);
 
   const getFinalVendorQuotesData = useMemo(() => {
     const data : CategoryWithChildren[] = []
@@ -319,14 +329,14 @@ interface VendorWiseApprovalItems {
   }
 }
 
-const generateActionSummary = () => {
+const generateActionSummary = useCallback(() => {
     let vendorWiseApprovalItems : VendorWiseApprovalItems  = {};
     let approvalOverallTotal : number = 0;
 
     orderData?.item_list?.list.forEach((item) => {
-        const vendor = item?.vendor;
+        const vendor = item?.vendor || "";
             // Approval items segregated by vendor
-            const itemTotal = item.quantity * (item.quote || 0);
+            const itemTotal = parseNumber(item.quantity * (item.quote || 0));
             if (!vendorWiseApprovalItems[vendor]) {
                 vendorWiseApprovalItems[vendor] = {
                     items: [],
@@ -342,7 +352,7 @@ const generateActionSummary = () => {
         vendorWiseApprovalItems,
         approvalOverallTotal,
     };
-};
+}, [orderData]);
 
 const {
     vendorWiseApprovalItems,
@@ -350,7 +360,7 @@ const {
 } = generateActionSummary();
 
 
-if (sent_back_list_loading || quote_data_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+if (sent_back_list_loading || quotes_data_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     
   return (
           <div className="flex-1 space-y-4">

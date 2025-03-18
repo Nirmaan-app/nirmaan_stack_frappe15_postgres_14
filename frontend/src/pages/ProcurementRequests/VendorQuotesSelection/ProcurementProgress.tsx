@@ -7,9 +7,10 @@ import { NewVendor } from "@/pages/vendors/new-vendor"
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
+import { parseNumber } from "@/utils/parseNumber"
 import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
 import { CirclePlus, Info, Undo2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { VendorsReactMultiSelect } from "../../../components/helpers/VendorsReactSelect"
@@ -67,9 +68,9 @@ const useProcurementUpdates = (prId: string, prMutate : any) => {
         navigate(`/procurement-requests/${prId}?tab=In+Progress&mode=review`)
       }
       localStorage.removeItem(`procurementDraft_${prId}`)
-      if(value === "review") {
-        window.location.reload()
-      }
+      // if(value === "review") {
+      //   window.location.reload()
+      // }
     }
   };
 
@@ -118,9 +119,9 @@ export const ProcurementProgress : React.FC = () => {
       limit: 1000,
     })
   
-  const getFullName = (id : string | undefined) => {
+  const getFullName = useCallback((id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
-  }
+  }, [usersList]);
 
   const { updateProcurementData, update_loading } = useProcurementUpdates(prId, procurement_request_mutate)
 
@@ -195,7 +196,7 @@ const onClick = async (value : string) => {
               return {
                 ...item,
                 vendor: vendorId,
-                quote: parseFloat(vendorData.quote),
+                quote: parseNumber(vendorData.quote),
                 make: vendorData.make,
               };
             }
@@ -229,7 +230,7 @@ const handleReviewChanges = async () => {
         return {
           ...item,
           vendor: vendorId,
-          quote: parseFloat(vendorData.quote),
+          quote: parseNumber(vendorData.quote),
           make: vendorData.make,
         };
       }

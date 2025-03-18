@@ -1,5 +1,6 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { SentBackRequest } from "@/components/procurement/sent-back-request";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -13,13 +14,15 @@ import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
+import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
-import React, { useContext, useMemo, useState } from "react";
+import React, { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { EstimatedPriceHoverCard } from "../../../components/procurement/EstimatedPriceHoverCard";
@@ -32,7 +35,7 @@ export const ProcurementRequests : React.FC = () => {
     const { role, user_id } = useUserData()
     const navigate = useNavigate()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || ((["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator") ? "Approve PR" : "New PR Request"));
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PR" : "New PR Request"));
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
         {
@@ -59,45 +62,35 @@ export const ProcurementRequests : React.FC = () => {
         await prListMutate()
     })
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         let total: number = 0;
         let usedQuotes = {}
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
         // console.log("orderData", orderData)
         orderData?.list.map((item) => {
-            const quotesForItem = quote_data
-                ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
-                ?.map(value => value.quote);
-            let minQuote;
-            if (quotesForItem && quotesForItem.length > 0) {
-                minQuote = Math.min(...quotesForItem);
+            const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
+            if (minQuote) {
                 const estimateQuotes = quote_data
-                    ?.filter(value => value.item_id === item.name && parseFloat(value.quote) === parseFloat(minQuote))?.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-                const latestQuote = estimateQuotes?.length > 0 ? estimateQuotes[0] : null;
-                usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity } }
+                    ?.filter(value => value.item_id === item.name && parseNumber(value.quote) === minQuote)?.sort((a, b) => new Date(b.modified) - new Date(a.modified)) || [];
+                const latestQuote = estimateQuotes.length ? estimateQuotes[0] : null;
+                usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity }}
             }
-            total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+            total += minQuote * item.quantity;
         })
         return { total: total || "N/A", usedQuotes: usedQuotes }
-    }
+    }, [quote_data, procurement_request_list])
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
-
-    // useEffect(() => {
-    //     const currentTab = searchParams.get("tab") || "New PR Request";
-    //     setTab(currentTab);
-    //     updateURL("tab", currentTab);
-    // }, []);
 
     // const updateURL = (key, value) => {
     //     const url = new URL(window.location);
@@ -106,9 +99,7 @@ export const ProcurementRequests : React.FC = () => {
     // };
 
     const onClick = (value : string) => {
-
-        if (tab === value) return; // Prevent redundant updates
-
+        if (tab === value) return;
         setTab(value);
         navigate(`/procurement-requests?tab=${value}`)
         // updateURL("tab", newTab);
@@ -122,9 +113,8 @@ export const ProcurementRequests : React.FC = () => {
 
     const { prCounts, adminPrCounts, newSBCounts, adminNewSBCounts } = useDocCountStore()
 
-    const sentBackTabs = [
-        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ||
-            user_id == "Administrator" ? [
+    const sentBackTabs = useMemo(() => [
+        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
                 {
                     label: (
                         <div className="flex items-center">
@@ -159,73 +149,50 @@ export const ProcurementRequests : React.FC = () => {
                     value: "Cancelled",
                 },
             ] : [])
-    ]
+    ], [role, prCounts, adminPrCounts, newSBCounts, adminNewSBCounts])
 
-    const adminTabs = [
-        ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator" ? [
+    const adminTabs = useMemo(() => [
+        ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
             {
                 label: (
                     <div className="flex items-center">
                         <span>Approve PR</span>
                         <span className="ml-2 text-xs font-bold">
-                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.pending : prCounts.pending}
+                            {(role === "Nirmaan Admin Profile") ? adminPrCounts.pending : prCounts.pending}
                         </span>
                     </div>
                 ),
                 value: "Approve PR",
             },
         ] : []),
-    ]
+    ], [role, prCounts, adminPrCounts])
 
-    const items = [
-        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile",  "Nirmaan Project Lead Profile"].includes(role) ||
-            user_id == "Administrator" ? [
+    const items = useMemo(() => [
+        ...(["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile",  "Nirmaan Project Lead Profile"].includes(role) ? [
         {
             label: (
                 <div className="flex items-center">
                     <span>New PR Request</span>
                     <span className="ml-2 text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.approved : prCounts.approved}
+                        {(role === "Nirmaan Admin Profile") ? adminPrCounts.approved : prCounts.approved}
                     </span>
                 </div>
             ),
             value: "New PR Request",
         },
-        // {
-        //     label: (
-        //         <div className="flex items-center">
-        //             <span>Update Quote</span>
-        //             <span className="ml-2 rounded text-xs font-bold">
-        //                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminUpdateQuotePRCount : updateQuotePRCount}
-        //             </span>
-        //         </div>
-        //     ),
-        //     value: "Update Quote",
-        // },
-        // {
-        //     label: (
-        //         <div className="flex items-center">
-        //             <span>Choose Vendor</span>
-        //             <span className="ml-2 rounded text-xs font-bold">
-        //                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminChooseVendorPRCount : chooseVendorPRCount}
-        //             </span>
-        //         </div>
-        //     ),
-        //     value: "Choose Vendor",
-        // },
         {
             label: (
                 <div className="flex items-center">
                     <span>In Progress</span>
                     <span className="ml-2 text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.inProgress : prCounts.inProgress}
+                        {(role === "Nirmaan Admin Profile") ? adminPrCounts.inProgress : prCounts.inProgress}
                     </span>
                 </div>
             ),
             value: "In Progress",
         },
     ] : []),
-    ];
+    ], [role, adminPrCounts, prCounts])
 
     const columns: ColumnDef<ProcurementRequest>[] = useMemo(
         () => [
@@ -237,7 +204,8 @@ export const ProcurementRequests : React.FC = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const prId = row.getValue("name")
+                    const data = row.original
+                    const prId = data?.name
                     const isNew = notifications.find(
                         (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:approved"
                     )
@@ -246,12 +214,15 @@ export const ProcurementRequests : React.FC = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`${prId}?tab=${tab}`}
-                            >
-                                {prId?.slice(-4)}
-                            </Link>
+                            <div className="flex items-center gap-2">
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`${prId}?tab=${tab}`}
+                                >
+                                    {prId?.slice(-4)}
+                                </Link>
+                                <ItemsHoverCard order_list={data?.procurement_list?.list} isPR/>
+                            </div>
                         </div>
                     )
                 }
@@ -282,14 +253,9 @@ export const ProcurementRequests : React.FC = () => {
                     const project = project_values.find(
                         (project) => project.value === row.getValue("project")
                     )
-                    if (!project) {
-                        return null;
-                    }
-
                     return (
                         <div className="font-medium">
-                            {project.label}
-                            {/* {row.getValue("project")} */}
+                            {project?.label || "--"}
                         </div>
                     )
                 },
@@ -426,7 +392,7 @@ export const ProcurementRequests : React.FC = () => {
                                         <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                                     </AlertDialogCancel>
                                      <Button
-                                        onClick={() => handleDeletePR(deleteFlagged?.name)}
+                                        onClick={() => handleDeletePR(deleteFlagged?.name || "")}
                                         className="flex-1">
                                             Confirm
                                     </Button>

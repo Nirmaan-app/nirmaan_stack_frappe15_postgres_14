@@ -1,11 +1,13 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
+import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -29,9 +31,9 @@ export const SelectServiceVendorList : React.FC = () => {
         await serviceListMutate()
     })
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const columns = useMemo(
+    const columns : ColumnDef<ServiceRequests>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -41,11 +43,13 @@ export const SelectServiceVendorList : React.FC = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const data = row.original
                     return (
-                        <div className="font-medium">
+                        <div className="font-medium flex items-center gap-2">
                             <Link className="underline hover:underline-offset-2" to={`${row.getValue("name")}?tab=choose-vendor`}>
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
+                            <ItemsHoverCard order_list={data?.service_order_list?.list} isSR />
                         </div>
                     )
                 }
@@ -90,21 +94,6 @@ export const SelectServiceVendorList : React.FC = () => {
                     return value.includes(row.getValue(id))
                 },
             },
-            // {
-            //     accessorKey: "work_package",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="Package" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         return (
-            //             <div className="font-medium">
-            //                 {row.getValue("work_package")}
-            //             </div>
-            //         )
-            //     }
-            // },
             {
                 accessorKey: "service_category_list",
                 header: ({ column }) => {

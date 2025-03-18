@@ -8,9 +8,10 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { UserContext } from "@/utils/auth/UserProvider";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
@@ -18,7 +19,7 @@ import { Button } from "../../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
 import { toast } from "../../../components/ui/use-toast";
 
-export const ProcurementOrder = () => {
+export const ProcurementOrder : React.FC = () => {
 
   const { prId: orderId } = useParams<{ prId: string }>()
   const navigate = useNavigate();
@@ -63,9 +64,9 @@ export const ProcurementOrder = () => {
     limit: 1000,
   })
 
-  const getFullName = (id : string | undefined) => {
+  const getFullName = useCallback((id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
-  }
+  }, [usersList]);
 
   const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
@@ -169,11 +170,7 @@ export const ProcurementOrder = () => {
                     <TableBody>
                       {orderData?.procurement_list.list.map((item: any) => {
                         if (item.category === cat.name) {
-                          const quotesForItem = quote_data
-                            ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
-                            ?.map(value => value.quote);
-                          let minQuote;
-                          if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                          const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
                           return (
                             <TableRow key={item.item}>
                               <TableCell>

@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/use-toast";
 import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { CirclePlus, Info } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
@@ -59,7 +60,7 @@ const useProcurementUpdates = (sbId: string, sbMutate : any) => {
       })
       navigate(`/sent-back-requests/${sbId}?mode=review`)
       localStorage.removeItem(`sentBackDraft_${sbId}`)
-      window.location.reload()
+      // window.location.reload()
     }
   };
 
@@ -152,7 +153,7 @@ export const SentBackVendorQuotes : React.FC = () => {
   const vendorOptions = useVendorOptions(vendors, formData.selectedVendors);
 
   const updateURL = (key : string, value : string) => {
-      const url = new URL(window.location);
+      const url = new URL(window.location.href);
       url.searchParams.set(key, value);
       window.history.pushState({}, "", url);
   };
@@ -170,7 +171,7 @@ export const SentBackVendorQuotes : React.FC = () => {
               return {
                 ...item,
                 vendor: vendorId,
-                quote: parseFloat(vendorData.quote  || "0"),
+                quote: parseNumber(vendorData.quote),
                 make: vendorData.make,
               };
             }
@@ -203,7 +204,7 @@ export const SentBackVendorQuotes : React.FC = () => {
           return {
             ...item,
             vendor: vendorId,
-            quote: parseFloat(vendorData.quote || "0"),
+            quote: parseNumber(vendorData.quote),
             make: vendorData.make,
           };
         }

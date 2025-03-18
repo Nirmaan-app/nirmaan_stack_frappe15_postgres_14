@@ -11,9 +11,11 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import getLowestQuoteFilled from '@/utils/getLowestQuoteFilled';
+import getThreeMonthsLowestFiltered from '@/utils/getThreeMonthsLowest';
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { CheckCheck, ListChecks, SendToBack, Undo2 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
@@ -153,31 +155,40 @@ export const ApproveSBVendorQuotesPage : React.FC<ApproveSBVendorQuotesPageProps
      }));
   }, [sb_data])
 
-  const getVendorName = (vendorId: string) => {
-      return vendor_list?.find(vendor => vendor.name === vendorId)?.vendor_name
-  }
+  const getVendorName = useCallback((vendorId: string | undefined) => {
+      return vendor_list?.find(vendor => vendor?.name === vendorId)?.vendor_name || "";
+  }, [vendor_list])
 
-  const getLowest = (itemId: string) => {
-      const filtered : number[] = []
-      Object.values(orderData?.rfq_data?.details?.[itemId]?.vendorQuotes || {})?.map(i => {
-      if(i?.quote) {
-        filtered.push(i?.quote)
-      }
-    })
+//   const getLowest = (itemId: string) => {
+//       const filtered : number[] = []
+//       Object.values(orderData?.rfq_data?.details?.[itemId]?.vendorQuotes || {})?.map(i => {
+//       if(i?.quote) {
+//         filtered.push(i?.quote)
+//       }
+//     })
        
-    let minQuote;
-    if (filtered.length > 0) minQuote = Math.min(...filtered);
-    return minQuote || 0;
-  }
+//     let minQuote;
+//     if (filtered.length > 0) minQuote = Math.min(...filtered);
+//     return minQuote || 0;
+//   }
 
-  const getThreeMonthsLowest = (itemId : string) => {
-      const quotesForItem = quotes_data
-        ?.filter(value => value?.item_id === itemId && ![null, "0", 0, undefined].includes(value?.quote))
-        ?.map(value => parseFloat(value?.quote || "0"));
-      let minQuote;
-      if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-      return minQuote || 0;
-  }
+    const getLowest = useCallback((itemId: string) => {
+          return getLowestQuoteFilled(orderData, itemId)
+    }, [orderData]);
+
+//   const getThreeMonthsLowest = (itemId : string) => {
+//       const quotesForItem = quotes_data
+//         ?.filter(value => value?.item_id === itemId && ![null, "0", 0, undefined].includes(value?.quote))
+//         ?.map(value => parseFloat(value?.quote || "0"));
+//       let minQuote;
+//       if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+//       return minQuote || 0;
+//   }
+
+const getThreeMonthsLowest = useCallback((itemId : string) => {
+    return getThreeMonthsLowestFiltered(quotes_data, itemId)
+  }, [quotes_data]);
+
 
   const getCategoryTotals = useMemo(() => {
     const totals : {[category: string]: number} = {}
@@ -368,7 +379,7 @@ const newHandleSentBack = async () => {
   }
 };
 
-const generateActionSummary = (actionType : string) => {
+const generateActionSummary = useCallback((actionType : string) => {
   if (actionType === "approve") {
       const selectedItems : DataItem[] = [];
       const selectedVendors : {[itemName: string]: string} = {};
@@ -486,7 +497,7 @@ const generateActionSummary = (actionType : string) => {
   }
 
   return "No valid action details available.";
-};
+}, [selectionMap, dataSource, orderData]);
 
   return (
         <div className="flex-1 space-y-4">
