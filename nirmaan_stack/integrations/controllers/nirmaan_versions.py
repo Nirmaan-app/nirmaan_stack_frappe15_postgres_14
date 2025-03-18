@@ -25,6 +25,7 @@ def generate_amend_version(doc, method):
 def remove_amend_version(doc, method):
     if doc.ref_doctype != "Procurement Orders":
         return
+
     data = json.loads(doc.data)
 
     # Check if the status changed from "PO Amendment" to "PO Approved"
@@ -64,36 +65,49 @@ def remove_amend_version(doc, method):
                 (change[2]["list"] for change in nv_data['changed'] if change[0] == "order_list"), []
             )
 
-        # Compare lengths
-        if len(changed_list) >= len(original_list):
-            frappe.delete_doc("Nirmaan Versions", nvs[0].name)
-            return
+        # Update the associated procurement request
+        procurement_order = frappe.get_doc("Procurement Orders", doc.docname)
+        procurement_request_id = procurement_order.procurement_request
+        procurement_request = frappe.get_doc("Procurement Requests", procurement_request_id)
 
-        # Find items removed in the changed list
+        # Update or delete items in the Procurement Request
         original_items = {item['name']: item for item in original_list}
         changed_items = {item['name']: item for item in changed_list}
+
+        for changed_item in changed_list:
+            original_item = original_items.get(changed_item['name'])
+            if original_item:
+                # Item exists in both lists, check for changes
+                if original_item['quantity'] != changed_item['quantity']:
+                    # Quantity or make changed, update in Procurement Request
+                    for pr_item in procurement_request.procurement_list["list"]:
+                        if pr_item['name'] == changed_item['name']:
+                            pr_item['quantity'] = changed_item['quantity']
+                            break
+            else:
+                # Item added in the changed list.
+                for pr_item in procurement_request.procurement_list["list"]:
+                    if pr_item['name'] == changed_item['name']:
+                        pr_item['quantity'] = changed_item['quantity']
+                        break
+
+        # Find items removed in the changed list and mark as deleted
         removed_items = [
             item for name, item in original_items.items()
             if name not in changed_items
         ]
 
         if removed_items:
-            # Update the associated procurement request
-            procurement_order = frappe.get_doc("Procurement Orders", doc.docname)
-            procurement_request_id = procurement_order.procurement_request
-            procurement_request = frappe.get_doc("Procurement Requests", procurement_request_id)
-
-            # Mark removed items as "Deleted"
             for item in procurement_request.procurement_list["list"]:
                 if item['name'] in {removed_item['name'] for removed_item in removed_items}:
                     item["status"] = "Deleted"
 
-            procurement_request.save(ignore_permissions=True)
-            
+        procurement_request.save(ignore_permissions=True)
         frappe.delete_doc("Nirmaan Versions", nvs[0].name)
     else:
         # No action if the status hasn't changed to "PO Approved"
         pass
+
 
 def generate_sr_amend_version(doc, method):
     if doc.ref_doctype != "Service Requests":

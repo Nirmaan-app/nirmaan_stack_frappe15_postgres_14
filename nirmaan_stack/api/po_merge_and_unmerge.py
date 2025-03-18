@@ -13,6 +13,7 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: dict):
         order_data (dict): Data from the current Procurement Order's order list.
     """
     try:
+        frappe.db.begin()
         po_doc = frappe.get_doc("Procurement Orders", po_id)
         if not po_doc:
             raise frappe.ValidationError(f"Procurement Order {po_id} not found.")
@@ -63,6 +64,8 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: dict):
 
         for po_name in merge_hierarchy.keys():
             frappe.delete_doc("Procurement Orders", po_name)
+        
+        frappe.db.commit()
 
         return {
             "message": f"{len(fresh_merged_pos) + len(merge_hierarchy)} POs merged into {new_po_doc.name}",
@@ -71,6 +74,7 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: dict):
         }
 
     except Exception as e:
+        frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "handle_merge_pos")
         return {"error": f"Failed to merge POs: {str(e)}", "status": 400}
 
@@ -84,6 +88,7 @@ def handle_unmerge_pos(po_id: str, prev_merged_pos: list):
         prev_merged_pos (list): List of previously merged Procurement Orders.
     """
     try:
+        frappe.db.begin()
         po_doc = frappe.get_doc("Procurement Orders", po_id)
         if not po_doc:
             raise frappe.ValidationError(f"Procurement Order {po_id} not found.")
@@ -93,9 +98,11 @@ def handle_unmerge_pos(po_id: str, prev_merged_pos: list):
             frappe.db.set_value("Procurement Orders", po["name"], "merged", None)
 
         frappe.delete_doc("Procurement Orders", po_id)
+        frappe.db.commit()
 
         return {"message": "Successfully unmerged PO(s)", "status": 200}
 
     except Exception as e:
+        frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "handle_unmerge_pos")
         return {"error": f"Error while unmerging PO(s): {str(e)}", "status": 400}

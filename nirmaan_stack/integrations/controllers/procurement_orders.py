@@ -4,9 +4,7 @@ from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_us
 from .procurement_requests import get_user_name
 
 def after_insert(doc, method):
-        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users(doc)
-        accountant_users = get_allowed_accountants(doc)
-        proc_admin_account_users = proc_admin_users + accountant_users
+        proc_admin_account_users = get_allowed_procurement_users(doc) + get_admin_users() + get_allowed_accountants(doc)
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
         custom = doc.custom == "true"
         if proc_admin_account_users:
@@ -130,7 +128,7 @@ def on_update(doc, method):
         frappe.delete_doc("Procurement Orders", doc.name)
 
     if old_doc and old_doc.status == 'PO Approved' and doc.status == "PO Amendment":
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
         if lead_admin_users:
             for user in lead_admin_users:
