@@ -12,14 +12,15 @@ class VendorGSTExistError(frappe.ValidationError):
 
 class Vendors(Document):
 	def before_insert(self):
-		if not self.vendor_gst:
-			pass
-		else:
-			vendor_gsts = frappe.db.get_list("Vendors")
-			for vendor_gst in vendor_gsts:
-				vendor = frappe.get_doc("Vendors", vendor_gst)
-				if self.vendor_gst == vendor.vendor_gst:
-					frappe.throw(_("Vendor with this GST already exist."), exc=VendorGSTExistError)
+		# if not self.vendor_gst:
+		# 	pass
+		# else:
+		# 	vendor_gsts = frappe.db.get_list("Vendors")
+		# 	for vendor_gst in vendor_gsts:
+		# 		vendor = frappe.get_doc("Vendors", vendor_gst)
+		# 		if self.vendor_gst == vendor.vendor_gst:
+		# 			frappe.throw(_("Vendor with this GST already exist."), exc=VendorGSTExistError)
+		pass
 
 	def autoname(self):
 		vendor_type = self.vendor_type

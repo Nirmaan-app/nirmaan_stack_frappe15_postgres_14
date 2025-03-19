@@ -1,11 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ConfigProvider, Table } from "antd";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 interface ServiceRequestsAccordionProps {
-  projectEstimates?: any[];
   segregatedData?: {
     [category: string]: {
         key: string;
@@ -20,7 +19,6 @@ interface ServiceRequestsAccordionProps {
 
 
 export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> = ({
-  projectEstimates,
   segregatedData,
 }) => {
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
@@ -32,7 +30,7 @@ export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> 
   // }, [segregatedData]);
 
   // Main table columns
-  const columns = [
+  const columns = useMemo(() => [
     {
       title: "Category",
       dataIndex: "category",
@@ -54,9 +52,9 @@ export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> 
       width: "25%",
       render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
     },
-  ];
+  ], [segregatedData]);
 
-  const innerColumns = [
+  const innerColumns = useMemo(() => [
     {
       title: "Description",
       dataIndex: "description",
@@ -85,11 +83,11 @@ export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> 
         </span>
       ),
     },
-  ];
+  ], [segregatedData]);
 
   return (
     <div className="w-full">
-      {segregatedData?.length > 0 ? (
+      {(segregatedData || []).length > 0 ? (
         <div className="overflow-x-auto">
           <ConfigProvider>
             <Table
