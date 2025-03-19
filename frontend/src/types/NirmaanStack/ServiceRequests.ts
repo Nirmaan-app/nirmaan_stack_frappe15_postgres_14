@@ -2,13 +2,13 @@ interface ServiceCategoryType {
 	name: string
 }
 
-interface ServiceItemType {
+export interface ServiceItemType {
 	id: string
 	category: string
 	description: string
 	uom: string
-	quantity: number
-	rate?: number
+	quantity: string | number
+	rate?: string | number
 }
 
 export interface ServiceRequests{

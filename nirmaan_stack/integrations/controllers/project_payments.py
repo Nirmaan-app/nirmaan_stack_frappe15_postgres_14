@@ -1,10 +1,10 @@
-from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_accountants
+from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
 import frappe
 from frappe import _
 from .procurement_requests import get_user_name
 
 def after_insert(doc, method):
-        lead_admin_users = get_allowed_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
 
         project = frappe.get_doc("Projects", doc.project)
         
@@ -64,7 +64,8 @@ def after_insert(doc, method):
 
 
 def on_update(doc, method):
-    if doc.status == "Approved":
+    old_doc = doc.get_doc_before_save()
+    if old_doc and old_doc.status == 'Requested' and doc.status == "Approved":
         accountants = get_allowed_accountants(doc)
         project = frappe.get_doc("Projects", doc.project)
         if accountants:
@@ -114,6 +115,58 @@ def on_update(doc, method):
                 )
         else:
             print("No accountants found with push notifications enabled.")
+    
+    elif old_doc and old_doc.status == 'Approved' and doc.status == 'Paid':
+        allowed_users = get_allowed_lead_users(doc) + get_admin_users() + get_allowed_manager_users(doc) + get_allowed_procurement_users(doc)
+        project = frappe.get_doc("Projects", doc.project)
+        vendor = frappe.get_doc("Vendors", doc.vendor)
+        if allowed_users:
+            for user in allowed_users:
+                if user["push_notification"] == "true":
+                    notification_title = f"Payment Fulfilled for Vendor: {vendor.vendor_name}!"
+                    notification_body = (
+                            f"Hi {user['full_name']}, the payment: {doc.name} associated with PO: {doc.document_name} has been fulfilled."
+                        )
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=All%20Payments"
+                    PrNotification(user, notification_title, notification_body, click_action_url)
+                else:
+                    print(f"push notifications were not enabled for user: {user['full_name']}")
+                message = {
+                    "title": _("Payment Status Changed"),
+                    "description": _(f"The payment: {doc.name} has been fulfilled!"),
+                    "project": doc.project,
+                    "sender": frappe.session.user,
+                    "docname": doc.name
+                }
+
+                new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+                new_notification_doc.recipient = user['name']
+                new_notification_doc.recipient_role = user['role_profile']
+                if frappe.session.user != 'Administrator':
+                    new_notification_doc.sender = frappe.session.user
+                new_notification_doc.title = message["title"]
+                new_notification_doc.description = message["description"]
+                new_notification_doc.document = 'Project Payments'
+                new_notification_doc.docname = doc.name
+                new_notification_doc.project = doc.project
+                new_notification_doc.seen = "false"
+                new_notification_doc.type = "info"
+                new_notification_doc.event_id = "payment:fulfilled"
+                new_notification_doc.action_url = f"project-payments?tab=All%20Payments"
+                new_notification_doc.insert()
+                frappe.db.commit()
+
+                message["notificationId"] = new_notification_doc.name
+                print(f"running publish realtime for: {user}")
+
+                frappe.publish_realtime(
+                    event="payment:fulfilled",  # Custom event name
+                    message=message,
+                    user=user['name']  # Notify only specific users
+                )
+        else:
+            print("No accountants found with push notifications enabled.")
+
 
 def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {

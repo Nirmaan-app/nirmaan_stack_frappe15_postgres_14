@@ -31,8 +31,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { debounce } from "lodash";
 import { TailSpin } from "react-loader-spinner";
@@ -61,8 +65,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     const [orderData, setOrderData] = useState(null)
     // const [vendorAddress, setVendorAddress] = useState()
     // const [projectAddress, setProjectAddress] = useState()
-    const [notes, setNotes] = useState([])
-    const [curNote, setCurNote] = useState(null)
+    const [notes, setNotes] = useState<{id : string, note : string}[]>([])
+    const [curNote, setCurNote] = useState<string | null>(null)
     const [gstEnabled, setGstEnabled] = useState(false)
     const [advance, setAdvance] = useState(0)
     // const [customAdvance, setCustomAdvance] = useState(false);
@@ -101,23 +105,25 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             tds: ""
     });
     
-    const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+    const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
-    const handleFileChange = (event) => {
-        setPaymentScreenshot(event.target.files[0]);
+    const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+        if(event.target.files && event.target.files.length > 0) {
+            setPaymentScreenshot(event.target.files[0]);
+        }
     };
 
-    const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
+    const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
-    const { data: project, isLoading: project_loading } = useFrappeGetDoc("Projects", service_request?.project, service_request?.project ? `Projects ${service_request?.project}` : null)
+    const { data: project, isLoading: project_loading } = useFrappeGetDoc<Projects>("Projects", service_request?.project, service_request?.project ? `Projects ${service_request?.project}` : null)
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
         filters: [["document_name", "=", id]],
         limit: 100
     })
 
-    const getAmountPaid = getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid"))
+    const getAmountPaid = getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || [])
 
     const amountPending = getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status)));
 
@@ -132,7 +138,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             } else {
                 setGstEnabled(false)
             }
-            setAdvance(parseFloat(service_request?.advance) || 0)
+            setAdvance(parseNumber(service_request?.advance))
             if (service_request?.project_gst) {
                 setSelectedGST((prev) => ({ ...prev, gst: service_request?.project_gst }));
               }
@@ -174,7 +180,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     const getTotal = useMemo(() => getSRTotal(orderData), [orderData])
 
-    const [editingIndex, setEditingIndex] = useState(null);
+    const [editingIndex, setEditingIndex] = useState<string | null>(null);
 
     const [amendDialog, setAmendDialog] = useState(false);
 
@@ -185,28 +191,27 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     const handleAddNote = () => {
         if (editingIndex !== null) {
             const updatedNotes = notes.map(note =>
-                note.id === editingIndex ? { ...note, note: curNote } : note
+                note.id === editingIndex ? { ...note, note: curNote || "" } : note
             );
             setNotes(updatedNotes);
             setEditingIndex(null);
         } else {
-            const newNote = { id: uuidv4(), note: curNote }
+            const newNote = { id: uuidv4(), note: curNote || "" }
             setNotes([...notes, newNote])
         }
         setCurNote(null);
     };
 
-    const handleEditNote = (id) => {
-        setCurNote(notes?.find((i) => i?.id === id)?.note);
+    const handleEditNote = (id : string) => {
+        setCurNote(notes?.find((i) => i?.id === id)?.note || "");
         setEditingIndex(id);
     };
 
-    const handleDeleteNote = (id) => {
+    const handleDeleteNote = (id : string) => {
         setNotes(notes.filter((note) => note?.id !== id));
     };
 
     const handleNotesSave = async () => {
-
         try {
 
             let updatedData = {}
@@ -257,8 +262,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 project: service_request?.project,
                 vendor: service_request?.vendor,
                 utr: newPayment?.utr,
-                amount: newPayment?.amount,
-                tds: newPayment?.tds,
+                amount: parseNumber(newPayment?.amount),
+                tds: parseNumber(newPayment?.tds),
                 payment_date: newPayment?.payment_date,
                 status: "Paid"
             })
@@ -310,13 +315,13 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         }
     }
 
-    const validateAmount = debounce((amount) => {
+    const validateAmount = debounce((amount : string) => {
     
         const compareAmount = service_request?.gst === "true"
             ? (getTotal * 1.18 - getAmountPaid)
             : (getTotal - getAmountPaid);
     
-        if (parseFloat(amount) > compareAmount) {
+        if (parseNumber(amount) > compareAmount) {
           setWarning(
             `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
             ${service_request?.gst === "true" ? "including" : "excluding"
@@ -328,7 +333,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
       }, 300);
     
     // Handle input change
-    const handleAmountChange = (e) => {
+    const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
       const amount = e.target.value;
       setNewPayment({ ...newPayment, amount });
       validateAmount(amount);
@@ -518,7 +523,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                                                     }}
                                                                 />
-                                                                {parseFloat(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((newPayment?.amount || 0) - newPayment?.tds)}</span>}
+                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
                                                                 </div>
                                                             </div>
                                                             <div className="flex gap-4 w-full">
@@ -581,7 +586,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={ !newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>

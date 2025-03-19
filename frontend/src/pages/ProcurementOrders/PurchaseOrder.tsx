@@ -68,6 +68,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
 import {
@@ -374,6 +375,7 @@ export const PurchaseOrder = ({
             item.vendor === PO?.vendor &&
             item.status === "PO Approved" &&
             item.name !== poId &&
+            item?.custom != "true" &&
             !AllPoPaymentsList?.some((j) => j?.document_name === item.name)
             // item.merged !== "true" &&
         );
@@ -393,15 +395,10 @@ export const PurchaseOrder = ({
     try {
       setLoadingFuncName("onSubmit");
       const updateData = {
-        advance: `${data.advance !== "" ? parseFloat(data.advance) : 0}, ${
-          data.materialReadiness !== "" ? parseFloat(data.materialReadiness) : 0
-        }, ${data.afterDelivery !== "" ? parseFloat(data.afterDelivery) : 0}, ${
-          data.xDaysAfterDelivery !== "" ? parseFloat(data.xDaysAfterDelivery) : 0
-        }, ${data.xDays !== "" ? parseFloat(data.xDays) : 0}`,
-        loading_charges:
-          data.loadingCharges !== "" ? parseFloat(data.loadingCharges) : 0,
-        freight_charges:
-          data.freightCharges !== "" ? parseFloat(data.freightCharges) : 0,
+        advance: `${parseNumber(data?.advance)}, ${parseNumber(data?.materialReadiness)}, ${parseNumber(data?.afterDelivery)}, ${
+          parseNumber(data?.xDaysAfterDelivery)}, ${parseNumber(data?.xDays)}`,
+        loading_charges: parseNumber(data?.loadingCharges),
+        freight_charges: parseNumber(data?.freightCharges),
         notes: data.notes || "",
         project_gst: selectedGST?.gst,
       };
@@ -450,25 +447,25 @@ export const PurchaseOrder = ({
     if (!poData) return;
     
     const chargesArray = poData.advance?.split(', ');
-    const parsedCharges = chargesArray.map(charge => parseFloat(charge));
+    const parsedCharges = chargesArray?.map(charge => parseFloat(charge));
     
-    setAdvance(parsedCharges[0] || 0);
-    setMaterialReadiness(parsedCharges[1] || 0);
-    setAfterDelivery(parsedCharges[2] || 0);
-    setXDaysAfterDelivery(parsedCharges[3] || 0);
-    setXDays(parsedCharges[4] || 0);
-    setLoadingCharges(parseFloat(poData.loading_charges || "0"));
-    setFreightCharges(parseFloat(poData.freight_charges || "0"));
+    setAdvance(parsedCharges?.[0] || 0);
+    setMaterialReadiness(parsedCharges?.[1] || 0);
+    setAfterDelivery(parsedCharges?.[2] || 0);
+    setXDaysAfterDelivery(parsedCharges?.[3] || 0);
+    setXDays(parsedCharges?.[4] || 0);
+    setLoadingCharges(parseNumber(poData.loading_charges));
+    setFreightCharges(parseNumber(poData.freight_charges));
     setNotes(poData.notes || '');
 
     reset({
-      advance: parsedCharges[0] || 0,
-      materialReadiness: parsedCharges[1] || 0,
-      afterDelivery: parsedCharges[2] || 0,
-      xDaysAfterDelivery: parsedCharges[3] || 0,
-      xDays: parsedCharges[4] || 0,
-      loadingCharges: parseFloat(poData.loading_charges || "0"),
-      freightCharges: parseFloat(poData.freight_charges || "0"),
+      advance: parsedCharges?.[0] || 0,
+      materialReadiness: parsedCharges?.[1] || 0,
+      afterDelivery: parsedCharges?.[2] || 0,
+      xDaysAfterDelivery: parsedCharges?.[3] || 0,
+      xDays: parsedCharges?.[4] || 0,
+      loadingCharges: parseNumber(poData.loading_charges),
+      freightCharges: parseNumber(poData.freight_charges),
       notes: poData.notes || '',
     });
 
@@ -603,7 +600,7 @@ const handleUnmergePOs = async () => {
 
             toast({
                 title: "Success!",
-                description: response.message,
+                description: response.message.message,
                 variant: "success",
             });
 
@@ -1049,7 +1046,7 @@ const handleUnmergePOs = async () => {
     <div className="flex-1 space-y-4">
       {!summaryPage &&
         !accountsPage &&
-        !PO?.custom &&
+        PO?.custom != "true" &&
         !estimatesViewing &&
         PO?.status === "PO Approved" &&
         PO?.merged !== "true" &&
@@ -1416,7 +1413,7 @@ const handleUnmergePOs = async () => {
                                                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                                                     }}
                                                                 />
-                                                                {parseFloat(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((parseFloat(newPayment?.amount) || 0) - parseFloat(newPayment?.tds))}</span>}
+                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((parseNumber(newPayment?.amount)) - parseNumber(newPayment?.tds))}</span>}
                                                                 </div>
                                                             </div>
                                                             <div className="flex gap-4 w-full">

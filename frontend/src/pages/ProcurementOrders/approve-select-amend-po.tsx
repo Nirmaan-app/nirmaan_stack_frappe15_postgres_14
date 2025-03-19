@@ -1,19 +1,22 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { parseNumber } from "@/utils/parseNumber";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
-export const ApproveSelectAmendPO = () => {
-    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
+export const ApproveSelectAmendPO : React.FC = () => {
+    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders",
         {
             fields: ["*"],
             filters: [["status", "=", "PO Amendment"]],
@@ -27,7 +30,7 @@ export const ApproveSelectAmendPO = () => {
         limit: 1000
     })
 
-    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["vendor_name", 'vendor_type'],
         filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
         limit: 10000
@@ -39,24 +42,24 @@ export const ApproveSelectAmendPO = () => {
         await mutate()
     })
 
-    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         let total: number = 0;
         const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
         orderData?.list.map((item) => {
             const price = item.quote;
-            total += (price ? parseFloat(price) : 0) * (item.quantity ? parseFloat(item.quantity) : 1);
+            total += parseNumber(price * item.quantity);
         })
         return total;
-    }
+    }, [procurement_order_list])
 
     const {notifications, mark_seen_notification} = useNotificationStore()
 
 
     const {db} = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if(notification) {
             mark_seen_notification(db, notification)
         }
@@ -72,7 +75,8 @@ export const ApproveSelectAmendPO = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const poId = row.getValue("name")
+                    const data = row.original
+                    const poId = data?.name
                     const isNew = notifications.find(
                         (item) => item.docname === poId && item.seen === "false" && item.event_id === "po:amended"
                     )
@@ -81,12 +85,15 @@ export const ApproveSelectAmendPO = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`${poId?.replaceAll("/", "&=")}?tab=Approve Amended PO`}
-                            >
-                                {poId?.toUpperCase()}
-                            </Link>
+                            <div className="flex gap-1 items-center">
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`${poId?.replaceAll("/", "&=")}?tab=Approve Amended PO`}
+                                >
+                                    {poId?.toUpperCase()}
+                                </Link>
+                            <ItemsHoverCard order_list={data?.order_list?.list} />
+                            </div>
                         </div>
                     )
                 }
@@ -180,7 +187,7 @@ export const ApproveSelectAmendPO = () => {
                 }
             }
         ],
-        [project_values]
+        [project_values, procurement_order_list, vendorOptions]
     )
 
     const { toast } = useToast()
@@ -195,16 +202,10 @@ export const ApproveSelectAmendPO = () => {
     }
 
     return (
-        <>
             <div className="flex-1 md:space-y-4">
-                {/* <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-lg pt-1 pl-2 font-bold tracking-tight">Approve Amended PO</h2>
-                </div> */}
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
                 )}
             </div>
-
-        </>
     )
 }

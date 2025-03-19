@@ -1,5 +1,5 @@
 import frappe
-from ..Notifications.pr_notifications import PrNotification, get_allowed_users, get_allowed_procurement_users, get_allowed_accountants
+from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
 from frappe import _
 from .procurement_requests import get_user_name
 
@@ -37,7 +37,7 @@ def on_update(doc, method):
     previous_doc = doc.get_doc_before_save()
 
     if doc.status == "Vendor Selected":
-        lead_admin_users = get_allowed_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
         if lead_admin_users:
             for user in lead_admin_users:
                 if user["push_notification"] == "true":
@@ -93,7 +93,7 @@ def on_update(doc, method):
             )
     
     if doc.status == "Amendment":
-        lead_admin_users = get_allowed_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
         if lead_admin_users:
             for user in lead_admin_users:
                 if user["push_notification"] == "true":
@@ -150,7 +150,7 @@ def on_update(doc, method):
 
 
     if previous_doc and previous_doc.status == "Vendor Selected" and doc.status == "Approved":
-        proc_admin_users = get_allowed_procurement_users(doc)
+        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users()
         accountant_users = get_allowed_accountants(doc)
         proc_admin_accountant_users = proc_admin_users + accountant_users
         if proc_admin_accountant_users:

@@ -66,6 +66,7 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import {
   ConfigProvider,
@@ -231,7 +232,7 @@ const ProjectView = ({
   const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
-  const [options, setOptions] = useState(null);
+  const [options, setOptions] = useState<{ label: string; value: string }[]>([]);
 
   const [makeOptions, setMakeOptions] = useState<{ label: string; value: string }[]>([]);
 
@@ -244,79 +245,61 @@ const ProjectView = ({
   const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
   const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || makeOptions?.[0]?.value);
 
-  // Synchronize state with search parameters on initial load
-  // useEffect(() => {
-  //   const currentTab = searchParams.get("tab") || "All";
-  //   const currentPage = searchParams.get("page") || "overview";
+  const updateURL = useCallback((params: Record<string, string>, removeParams: string[] = []) => {
+    const url = new URL(window.location.href);
+    Object.entries(params).forEach(([key, value]) => {
+      url.searchParams.set(key, value);
+    });
+    removeParams.forEach((key) => {
+      url.searchParams.delete(key);
+    });
+    window.history.pushState({}, '', url);
+  }, []);
 
-  //   setActiveTab(currentTab);
-  //   setActivePage(currentPage);
-
-  //   const MakesTab = makeOptions?.[0]?.value
-  //   const currentMakesTab = searchParams.get("makesTab") || MakesTab;
-  //   setMakesTab(currentMakesTab);
-  // }, []);
-
-  const updateURL = (key, value) => {
-    const url = new URL(window.location);
-    url.searchParams.set(key, value);
-    window.history.pushState({}, "", url);
-  };
-
-  const setProjectSpendsTab = (tab) => {
-    if (activeTab === tab) return; // Prevent redundant updates
-    setActiveTab(tab);
-    updateURL("tab", tab);
-  };
-
-  const setProjectMakesTab = (tab) => {
-    if (makesTab === tab) return; // Prevent redundant updates
-    setMakesTab(tab);
-    updateURL("makesTab", tab);
-  };
-
-  const onClick: MenuProps["onClick"] = (e) => {
-    if (activePage === e.key) return; // Prevent redundant updates
-
-    const newPage = e.key;
-    if (newPage === "projectspends" || newPage === "projectestimates" || newPage === "projectmakes") {
-      if (newPage === "projectspends") {
-        setActiveTab("All");
-      } else if (newPage === "projectmakes") {
-        setMakesTab(makeOptions?.[0]?.value)
+  const setProjectSpendsTab = useCallback(
+    (tab: string) => {
+      if (activeTab !== tab) {
+        setActiveTab(tab);
+        updateURL({ tab });
       }
-      updateURL("page", newPage);
-      if (newPage === "projectspends") {
-        updateURL("tab", "All");
-        const url = new URL(window.location);
-        url.searchParams.delete("eTab");
-        url.searchParams.delete("makesTab");
-        window.history.pushState({}, "", url); // Remove tab param
-      } else if (newPage === "projectmakes") {
-        updateURL("makesTab", makeOptions?.[0]?.value);
-        const url = new URL(window.location);
-        url.searchParams.delete("eTab");
-        url.searchParams.delete("tab");
-        window.history.pushState({}, "", url); // Remove tab param
+    },
+    [activeTab, updateURL]
+  );
+
+  const setProjectMakesTab = useCallback(
+    (tab: string) => {
+      if (makesTab !== tab) {
+        setMakesTab(tab);
+        updateURL({ makesTab: tab });
+      }
+    },
+    [makesTab, updateURL]
+  );
+
+  const onClick: MenuProps['onClick'] = useCallback(
+    (e) => {
+      if (activePage === e.key) return;
+
+      const newPage = e.key;
+
+      if (newPage === 'projectspends') {
+        setActiveTab('All');
+        updateURL({ page: newPage, tab: 'All' }, ['eTab', 'makesTab']);
+      } else if (newPage === 'projectmakes') {
+        setMakesTab(makeOptions?.[0]?.value || '');
+        updateURL({ page: newPage, makesTab: makeOptions?.[0]?.value || '' }, ['eTab', 'tab']);
+      } else if (newPage === 'projectestimates'){
+        updateURL({page: newPage, eTab: 'All'}, ['tab', 'makesTab'])
       } else {
-        updateURL("eTab", "All");
-        const url = new URL(window.location);
-        url.searchParams.delete("tab");
-        url.searchParams.delete("makesTab");
-        window.history.pushState({}, "", url); // Remove tab param
+        setActiveTab('');
+        setMakesTab('');
+        updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab']);
       }
-    } else {
-      setActiveTab(""); // Clear tab state if moving away from project spends
-      updateURL("page", newPage);
-      const url = new URL(window.location);
-      url.searchParams.delete("tab");
-      url.searchParams.delete("eTab");
-      url.searchParams.delete("makesTab");
-      window.history.pushState({}, "", url); // Remove tab param
-    }
+      setActivePage(newPage);
+    },
+    [activePage, makeOptions, updateURL]
+  );
 
-    setActivePage(newPage);
-  };
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList(
     "Project Work Milestones",
@@ -442,10 +425,10 @@ const ProjectView = ({
     limit: 10000,
   });
 
-  const vendorOptions = vendorsList?.map((ven) => ({
+  const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({
     label: ven.vendor_name,
     value: ven.vendor_name,
-  }));
+  })), [vendorsList]);
 
   const getTotalAmountPaid = useMemo(() => {
     if (!projectPayments) {
@@ -454,11 +437,11 @@ const ProjectView = ({
 
     const poAmount = projectPayments
       .filter((i) => i?.document_type === "Procurement Orders")
-      .reduce((acc, payment) => acc + parseFloat(payment.amount || '0'), 0);
+      .reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
 
     const srAmount = projectPayments
       .filter((i) => i?.document_type === "Service Requests")
-      .reduce((acc, payment) => acc + parseFloat(payment.amount || '0'), 0);
+      .reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
 
     return { poAmount, srAmount, totalAmount: poAmount + srAmount };
   }, [projectPayments]);
@@ -511,7 +494,7 @@ const ProjectView = ({
   const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
 
   // Grouping functionality
-  const groupedAssignees = useMemo(() => {
+  const groupedAssignees : {[key: string]: string[]} = useMemo(() => {
     if (!projectAssignees || !usersList) return {};
 
     const filteredAssignees = projectAssignees.filter((assignee) =>
@@ -523,7 +506,7 @@ const ProjectView = ({
       if (user) {
         const { role_profile, full_name } = user;
 
-        const formattedRoleProfile = role_profile?.replace(/Nirmaan\s|\sProfile/g, "");
+        const formattedRoleProfile = role_profile?.replace(/Nirmaan\s|\sProfile/g, "") || "";
 
         if (!acc[formattedRoleProfile]) acc[formattedRoleProfile] = [];
         acc[formattedRoleProfile].push(full_name);
@@ -535,7 +518,7 @@ const ProjectView = ({
 
   useEffect(() => {
     setExpandedRoles(Object.keys(groupedAssignees).reduce(
-      (acc, roleProfile) => {
+      (acc : Record<string, boolean>, roleProfile) => {
         acc[roleProfile] = true;
         return acc;
       },
@@ -781,23 +764,23 @@ const ProjectView = ({
     let total = 0;
     const procurementRequest = pr_data?.find((item) => item.name === order_id);
     const orderData = procurementRequest?.procurement_list;
-    const status = statusRender(procurementRequest?.workflow_state, order_id);
+    const status = statusRender(procurementRequest?.workflow_state || "", order_id);
 
     if (status === "Approved PO") {
       const filteredPOs = po_data?.filter((po) => po.procurement_request === order_id) || [];
       filteredPOs.forEach((po) => {
         po.order_list?.list.forEach((item) => {
           if (item.quote && item.quantity) {
-            total += item.quote * item.quantity;
+            total += parseNumber(item.quote * item.quantity);
           }
         });
       });
     } else {
       orderData?.list.forEach((item) => {
-        const quotesForItem = quote_data?.filter((value) => value.item_id === item.name && value.quote != null)?.map((value) => parseFloat(value.quote || "0"));
-        let minQuote;
+        const quotesForItem = quote_data?.filter((value) => value.item_id === item.name && value.quote != null)?.map((value) => parseNumber(value.quote));
+        let minQuote = 0;
         if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
-        total += (minQuote || 0) * item.quantity;
+        total += minQuote * item.quantity;
       });
     }
     return total || "N/A";
@@ -1071,14 +1054,14 @@ const ProjectView = ({
     let total: number = 0;
     let totalWithGST: number = 0;
     const po = po_data_for_posummary?.find((item) => item.name === order_id);
-    const loading_charges = parseFloat(po?.loading_charges || "0");
-    const freight_charges = parseFloat(po?.freight_charges || "0");
+    const loading_charges = parseNumber(po?.loading_charges);
+    const freight_charges = parseNumber(po?.freight_charges);
     const orderData = po?.order_list;
 
     orderData?.list.forEach((item) => {
-      const price = item.quote || 0;
-      const quantity = item?.quantity || 1;
-      const gst = item?.tax || 0;
+      const price = parseNumber(item.quote);
+      const quantity = parseNumber(item?.quantity) || 1;
+      const gst = parseNumber(item?.tax);
       total += price * quantity;
       const gstAmount = (price * gst) / 100;
       totalWithGST += (price + gstAmount) * quantity;
@@ -1113,7 +1096,7 @@ const ProjectView = ({
 
   const getTotalAmountPaidPOWise = useCallback((id: string) => {
     const payments = projectPayments?.filter((payment) => payment.document_name === id);
-    return payments?.reduce((acc, payment) => acc + parseFloat(payment.amount || "0"), 0);
+    return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
   }, [projectPayments]);
 
 
@@ -1335,8 +1318,8 @@ const ProjectView = ({
     const allItemIds : string[] = [];
 
     const groupedData = items?.reduce((acc : { [workPackage: string]: { [category: string]: any[] } }, item : po_item_data_item) => {
-      const baseAmount = item.quote * item.quantity;
-      const taxAmount = baseAmount * (item.tax / 100);
+      const baseAmount = parseNumber(item.quote * item.quantity);
+      const taxAmount = baseAmount * (parseNumber(item.tax) / 100);
       const amountPlusTax = baseAmount + taxAmount;
 
       if (totals[item.work_package]) {
@@ -1381,7 +1364,7 @@ const ProjectView = ({
         });
       }
       return acc;
-    }, {});
+    }, {}) || {};
 
     const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item))
 
@@ -1405,7 +1388,7 @@ const ProjectView = ({
         po_number: undefined,
         quantity: undefined,
         quote: undefined,
-        tax: parseFloat(item?.item_tax),
+        tax: parseNumber(item?.item_tax),
         vendor_id: undefined,
         vendor_name: undefined,
         work_package: item.work_package,
@@ -1428,7 +1411,7 @@ const ProjectView = ({
       const po = po_data?.find(j => j?.name === i?.document_name)
       const workPackage = pr_data?.find(j => j?.name === po?.procurement_request)?.work_package
       if (!totalAmountPaidWPWise[workPackage]) totalAmountPaidWPWise[workPackage] = 0
-      totalAmountPaidWPWise[workPackage] += parseFloat(i?.amount || "0")
+      totalAmountPaidWPWise[workPackage] += parseNumber(i?.amount)
     })
 
     Object.keys(totals)?.forEach((key) => {
@@ -1437,8 +1420,8 @@ const ProjectView = ({
       const totalEstimatedAmount = estimates?.reduce(
         (acc, i) =>
           acc +
-          parseFloat(i?.quantity_estimate || "0") *
-          parseFloat(i?.rate_estimate || "0"),
+          parseNumber(i?.quantity_estimate) *
+          parseNumber(i?.rate_estimate),
         0
       );
       totals[key].total_estimated_amount = totalEstimatedAmount || 0;
@@ -1560,7 +1543,7 @@ const ProjectView = ({
     serviceRequestsData?.forEach((serviceRequest) => {
       serviceRequest.service_order_list.list?.forEach((item) => {
         const { category, uom, quantity, rate } = item;
-        const amount = quantity * rate;
+        const amount = parseNumber(quantity) || 1 * parseNumber(rate);
 
         const existingCategory = result.find((entry) => entry[category]);
 
@@ -1569,12 +1552,12 @@ const ProjectView = ({
         );
 
         const estimate_total = estimateItem?.reduce(
-          (acc, i) => acc + i?.quantity_estimate * i?.rate_estimate,
+          (acc, i) => acc + parseNumber(i?.quantity_estimate * i?.rate_estimate),
           0
         );
 
         if (existingCategory) {
-          existingCategory[category].quantity += quantity;
+          existingCategory[category].quantity += parseNumber(quantity);
           existingCategory[category].amount += amount;
           existingCategory[category].children.push({ ...item, amount: amount });
         } else {
@@ -1582,7 +1565,7 @@ const ProjectView = ({
             [category]: {
               key: uuidv4(),
               unit: uom,
-              quantity: parseFloat(quantity),
+              quantity: parseNumber(quantity),
               amount: amount,
               children: [{ ...item, amount: amount }],
               estimate_total: estimate_total,
@@ -1605,7 +1588,7 @@ const ProjectView = ({
       segregatedServiceOrderData?.reduce((acc, item) => {
         const category = Object.keys(item)[0];
         const { amount } = item[category];
-        return acc + amount;
+        return acc + parseNumber(amount);
       }, 0),
     [segregatedServiceOrderData]
   );
@@ -1614,7 +1597,7 @@ const ProjectView = ({
     const totalAmount = serviceRequestsData?.reduce((total, item) => {
       const gst = item?.gst === "true" ? 1.18 : 1;
       const amount = item?.service_order_list?.list?.reduce((srTotal, i) => {
-        const srAmount = i.rate * i.quantity * gst;
+        const srAmount = parseNumber(i.rate) * parseNumber(i.quantity) * gst;
         return srTotal + srAmount;
       }, 0)
       return total + amount;
@@ -1683,11 +1666,6 @@ const ProjectView = ({
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between max-md:flex-col max-md:gap-2 max-md:items-start">
-        {/* <div className="flex items-center">
-           <ArrowLeft
-            className="cursor-pointer mr-1"
-            onClick={() => navigate("/projects")}
-          /> */}
         <div className="inline-block">
           <span className="text-xl md:text-3xl font-bold tracking-tight text-wrap mr-1 md:ml-2">
             {data?.project_name.toUpperCase()}
@@ -1787,8 +1765,8 @@ const ProjectView = ({
               <span className="whitespace-nowrap">Total Estimates: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
                 {formatToIndianRupee(project_estimates?.reduce((acc, i) => {
-                  const amount = i?.quantity_estimate * i?.rate_estimate;
-                  return acc + parseFloat(amount);
+                  const amount = parseNumber(i?.quantity_estimate * i?.rate_estimate);
+                  return acc + amount;
                 }, 0))}
               </span>
             </div>
@@ -1822,10 +1800,6 @@ const ProjectView = ({
             />
           </ConfigProvider>
         </div>
-
-        {/* {totalPosRaised && ( */}
-
-        {/* )} */}
       </div>
 
       {/* Overview Section */}
@@ -1851,11 +1825,6 @@ const ProjectView = ({
               <CardContent className="flex flex-col gap-10 w-full">
                 <div className="flex max-lg:flex-col max-lg:gap-10">
                   <div className="space-y-4 lg:w-[50%]">
-                    {/* <CardDescription className="space-y-2">
-                      <span>Project Id</span>
-                      <p className="font-bold text-black">{data?.name}</p>
-                    </CardDescription> */}
-
                     <CardDescription className="space-y-2">
                       <span>Start Date</span>
                       <p className="font-bold text-black">
@@ -1936,8 +1905,8 @@ const ProjectView = ({
                       <span>Totals Estimates</span>
                       <p className="font-bold text-black">
                         {formatToIndianRupee(project_estimates?.reduce((acc, i) => {
-                          const amount = i?.quantity_estimate * i?.rate_estimate;
-                          return acc + parseFloat(amount);
+                          const amount = parseNumber(i?.quantity_estimate * i?.rate_estimate);
+                          return acc + amount;
                         }, 0))}
                       </p>
                     </CardDescription>
@@ -1960,9 +1929,6 @@ const ProjectView = ({
                     </CardDescription>
                 </div>
               </CardContent>
-              {/* </CardHeader>
-                    </Card>
-                </CardContent> */}
             </Card>
             <Card>
               <CardHeader>
@@ -2243,34 +2209,7 @@ const ProjectView = ({
               onChange={(e) => setProjectSpendsTab(e.target.value)}
             />
           )}
-          {/* <div className="w-full flex flex-col gap-2">
-            <div className="flex gap-2 items-center">
-              <h2 className="font-semibold text-gray-500">Work Packages</h2>
-              <ArrowDown className="w-4 h-4" />
-            </div> */}
-          {/* {selectedPackage && (
-              <Select
-                value={selectedPackage}
-                onValueChange={(value) => setSelectedPackage(value)}
-              >
-                <SelectTrigger id="work-package-dropdown" className="w-full">
-                  <SelectValue placeholder="Choose a work package" />
-                </SelectTrigger>
 
-                <SelectContent>
-                  {workPackages.map((packageItem, index) => (
-                    <SelectItem key={index} value={packageItem.work_package_name}>
-                      {packageItem.work_package_name}
-                      <div className="flex space-x-4 text-sm text-gray-600">
-                        <span className="font-semibold">{packageItem.work_package_name}:</span>
-                        <span>Total Amount: {formatToIndianRupee(workPackageTotalAmounts?.[packageItem.work_package_name]?.amountWithoutTax)}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )} */}
-          {/* </div> */}
           {activeTab &&
             !["All", "Services"].includes(activeTab) && (
               <CategoryAccordion
@@ -2284,127 +2223,6 @@ const ProjectView = ({
                 po_data={po_data}
               />
             )}
-
-          {/* {activeTab === "All" && (
-            <>
-              <div>
-                <div className="flex gap-2 items-center">
-                  <h2 className="font-semibold text-gray-500">Work Packages</h2>
-                  <ArrowDown className="w-4 h-4" />
-                </div>
-                {JSON.parse(data?.project_work_packages)
-                  ?.work_packages?.sort((a, b) =>
-                    a?.work_package_name?.localeCompare(b?.work_package_name)
-                  )
-                  ?.map((wp) => (
-                    <div key={wp?.work_package_name}>
-                      <h3 className="text-sm font-semibold py-4">
-                        {wp?.work_package_name}
-                      </h3>
-                      <CategoryAccordion
-                        categorizedData={categorizedData}
-                        selectedPackage={wp?.work_package_name}
-                        projectEstimates={
-                          project_estimates?.filter(
-                            (i) => i?.work_package === wp?.work_package_name
-                          ) || []
-                        }
-                      />
-                    </div>
-                  ))}
-              </div>
-              <Separator />
-              <div>
-                <div className="flex gap-2 items-center mb-4">
-                  <h2 className="font-semibold text-gray-500">
-                    Tools & Equipments
-                  </h2>
-                  <ArrowDown className="w-4 h-4" />
-                </div>
-                <div>
-                  <ToolandEquipementAccordion
-                    projectEstimates={project_estimates}
-                    categorizedData={categorizedData}
-                  />
-                </div>
-              </div>
-              <Separator />
-            </>
-          )} */}
-
-          {/* {activeTab === "All" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Object.keys(workPackageTotalAmounts)
-                ?.sort((a, b) => a?.localeCompare(b))
-                ?.map((wp) => {
-                  const totalAmount =
-                    workPackageTotalAmounts[wp]?.amountWithoutTax || 0;
-                  const estimatedAmount =
-                    workPackageTotalAmounts[wp]?.total_estimated_amount || 0;
-
-                  return (
-                    <div
-                      key={wp}
-                      className="bg-white shadow-lg rounded-lg p-4 border border-gray-200"
-                    >
-                      <h3
-                        onClick={() => setProjectSpendsTab(wp)}
-                        className="text-lg cursor-pointer font-semibold text-gray-700 flex items-center underline"
-                      >
-                        {wp}
-                        <ArrowBigRightIcon className="text-gray-500" />
-                      </h3>
-                      <div className="mt-4">
-                        <p className="text-sm text-gray-500">Total Amount:</p>
-                        <p className="text-xl font-bold text-green-600">
-                          ₹{totalAmount.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="mt-4">
-                        <p className="text-sm text-gray-500">
-                          Estimated Amount:
-                        </p>
-                        <p className="text-xl font-bold text-blue-600">
-                          ₹{estimatedAmount.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              {totalServiceOrdersAmt && (
-                <div
-                  key="Services"
-                  className="bg-white shadow-lg rounded-lg p-4 border border-gray-200"
-                >
-                  <h3
-                    onClick={() => setProjectSpendsTab("Services")}
-                    className="text-lg cursor-pointer font-semibold text-gray-700 flex items-center underline"
-                  >
-                    Services
-                    <ArrowBigRightIcon className="text-gray-500" />
-                  </h3>
-                  <div className="mt-4">
-                    <p className="text-sm text-gray-500">Total Amount:</p>
-                    <p className="text-xl font-bold text-green-600">
-                      ₹{totalServiceOrdersAmt.toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="mt-4">
-                    <p className="text-sm text-gray-500">Estimated Amount:</p>
-                    <p className="text-xl font-bold text-blue-600">
-                      ₹
-                      {segregatedServiceOrderData
-                        ?.reduce((acc, i) => {
-                          const { estimate_total } = Object.values(i)[0];
-                          return acc + parseFloat(estimate_total);
-                        }, 0)
-                        .toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )} */}
 
           {activeTab === "All" && (
             <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} getTotalAmountPaid={getTotalAmountPaid} />

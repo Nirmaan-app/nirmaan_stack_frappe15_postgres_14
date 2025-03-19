@@ -6,18 +6,20 @@ import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
+import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests"
 import formatToIndianRupee from "@/utils/FormatPrice"
+import { parseNumber } from "@/utils/parseNumber"
 import { ConfigProvider, Table } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { CheckCheck, ListChecks, ListX, Undo2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams } from "react-router-dom"
 
 export const ApproveServiceRequest : React.FC = () => {
     const { srId: id } = useParams<{ srId: string }>()
     const navigate = useNavigate()
-    const [serviceOrderData, setServiceOrderData] = useState(null)
+    const [serviceOrderData, setServiceOrderData] = useState<ServiceItemType[] | null>(null)
     const [isLoading, setIsLoading] = useState<string | null>(null);
     const [comment, setComment] = useState('')
     const userData = useUserData()
@@ -62,12 +64,13 @@ export const ApproveServiceRequest : React.FC = () => {
     // }, [serviceOrderData]);
 
     const groupedData = useMemo(() => {
-        return serviceOrderData?.reduce((acc, item) => {
+        return (serviceOrderData || [])?.reduce((acc : Record<string, { items :ServiceItemType[], total : number, totalWithGST : number}>, item) => {
             const category = item.category
             acc[category] = acc[category] || { items: [], total: 0, totalWithGST: 0 }
             acc[category].items.push(item)
-            acc[category].total += parseFloat(item.rate) * parseFloat(item.quantity)
-            acc[category].totalWithGST += parseFloat(item.rate) * parseFloat(item.quantity) * 1.18 // Assuming 18% GST
+            const total = parseNumber(item?.rate) * parseNumber(item?.quantity)
+            acc[category].total += total
+            acc[category].totalWithGST += total * 1.18 // Assuming 18% GST
             return acc
         }, {})
     }, [serviceOrderData])
@@ -81,7 +84,7 @@ export const ApproveServiceRequest : React.FC = () => {
     // console.log("groupedData", groupedData)
 
     // Main table columns
-    const columns = [
+    const columns = useMemo(() => [
         {
             title: "Service",
             dataIndex: "category",
@@ -95,10 +98,10 @@ export const ApproveServiceRequest : React.FC = () => {
             width: "45%",
             render: () => <span className="font-semibold text-primary">{serviceVendor?.vendor_name}</span>,
         },
-    ];
+    ], [serviceVendor]);
 
     // Inner table columns
-    const innerColumns = [
+    const innerColumns = useMemo(() => [
         {
             title: "Description",
             dataIndex: "description",
@@ -132,18 +135,18 @@ export const ApproveServiceRequest : React.FC = () => {
             dataIndex: "amount",
             key: "amount",
             width: "10%",
-            render: (text, record) => <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(record?.id === undefined ? text : record.rate * record.quantity)}</span>,
+            render: (text, record) => <span className={`italic`}>{formatToIndianRupee(record?.id?.endsWith('total') ? text : record.rate * record.quantity)}</span>,
         },
         {
             title: "Amt inc. tax",
-            dataIndex: "amount",
+            dataIndex: "amountinctax",
             key: "amountinctax",
             width: "20%",
             render: (text, record) => {
-                return <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(parseFloat(record?.id === undefined ? text : record.rate * record.quantity) * 1.18)}</span>
+                return <span className={`italic`}>{formatToIndianRupee(record?.id?.endsWith('total') ? text : record.rate * record.quantity * 1.18)}</span>
             },
         },
-    ];
+    ], []);
 
     const handleApprove = async () => {
         try {
@@ -211,9 +214,9 @@ export const ApproveServiceRequest : React.FC = () => {
         }
     }
 
-    const getUserName = (id : string | undefined) => {
+    const getUserName = useCallback((id : string | undefined) => {
         return usersList?.find((user) => user?.name === id)?.full_name || ""
-    }
+    }, [usersList]);
 
     if(serviceVendor_loading || service_request_loading || usersListLoading || universalCommentLoading) {
         return (
@@ -287,6 +290,7 @@ export const ApproveServiceRequest : React.FC = () => {
                                     dataSource={[
                                         ...record.items,
                                         {
+                                            id: `${record.key}-total`,
                                             description: <strong>Total</strong>,
                                             amount: record.total,
                                             amountinctax: record.totalWithGST,
@@ -294,8 +298,7 @@ export const ApproveServiceRequest : React.FC = () => {
                                     ]}
                                     columns={innerColumns}
                                     pagination={false}
-                                    rowKey={(item) => item.id || 'total'}
-                                // rowClassName={(record) => record?.id === undefined ? "bg-gray-200" : ""}
+                                    rowKey={(item) => item.id}
                                 />
                             ),
                         }}
@@ -374,7 +377,6 @@ export const ApproveServiceRequest : React.FC = () => {
                 <RenderPRorSBComments universalComment={universalComment} getUserName={getUserName} />
             </div>
             </div>
-
     )
 }
 

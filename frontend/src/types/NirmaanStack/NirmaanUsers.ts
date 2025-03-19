@@ -15,7 +15,7 @@ export interface NirmaanUsers{
 	/**	Last name : Data	*/
 	last_name?: string
 	/**	Full name : Data	*/
-	full_name?: string
+	full_name: string
 	/**	Has Project : Data	*/
 	has_project?: string
 	/**	Mobile : Data	*/
@@ -23,7 +23,7 @@ export interface NirmaanUsers{
 	/**	Email : Data	*/
 	email: string
 	/**	Nirmaan Role Name : Data	*/
-	role_profile?: string
+	role_profile: string
 	/**	FCM Token : Long Text	*/
 	fcm_token?: string
 	/**	Push Notification : Data	*/

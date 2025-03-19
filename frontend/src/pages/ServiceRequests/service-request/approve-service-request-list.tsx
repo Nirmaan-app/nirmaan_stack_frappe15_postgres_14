@@ -1,5 +1,6 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -7,21 +8,14 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { parseNumber } from "@/utils/parseNumber";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
-
-type PRTable = {
-    name: string
-    project_name: string
-    creation: string
-    category: string
-}
-
-export const ApproveSelectSR = () => {
+export const ApproveSelectSR : React.FC = () => {
     const { data: service_request_list, isLoading: service_request_list_loading, error: service_request_list_error, mutate: sr_list_mutate } = useFrappeGetDocList<ServiceRequests>("Service Requests",
         {
             fields: ["*"],
@@ -35,14 +29,12 @@ export const ApproveSelectSR = () => {
         await sr_list_mutate()
     })
 
-    // console.log("sbdata", sent_back_list)
-
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
     })
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
     const { data: vendorsList, isLoading: vendorsListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["vendor_name", 'vendor_type', 'name'],
@@ -52,36 +44,32 @@ export const ApproveSelectSR = () => {
         "Service Vendors"
     )
 
-    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name }))
+    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         let total: number = 0;
-
-        // console.log("service_request_list", service_request_list)
         const orderData = service_request_list?.find(item => item.name === order_id)?.service_order_list;
         orderData?.list.map((item) => {
-            const price = (item?.rate * item?.quantity);
-            total += price ? parseFloat(price) : 0
+            total += parseNumber(item?.rate) * parseNumber(item?.quantity);
         })
         return total;
-    }
+    }, [service_request_list])
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
 
-    const getVendorName = (vendorId: string) => {
-        return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name;
-    }
+    const getVendorName = useCallback((vendorId: string | undefined) => {
+        return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name || "";
+    }, [vendorsList])
 
-    // console.log("service list", service_request_list)
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<ServiceRequests>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -91,7 +79,8 @@ export const ApproveSelectSR = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const srId = row.getValue("name")
+                    const data = row.original
+                    const srId = data?.name
                     const isNew = notifications.find(
                         (item) => item.docname === srId && item.seen === "false" && item.event_id === "sr:vendorSelected"
                     )
@@ -100,31 +89,19 @@ export const ApproveSelectSR = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`${srId}?tab=approve-service-order`}
-                            >
-                                {srId?.slice(-5)}
-                            </Link>
+                            <div className="flex items-center gap-2">
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`${srId}?tab=approve-service-order`}
+                                >
+                                    {srId?.slice(-5)}
+                                </Link>
+                                <ItemsHoverCard order_list={data.service_order_list.list} isSR />
+                            </div>
                         </div>
                     )
                 }
             },
-            // {
-            //     accessorKey: "procurement_request",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="PR Number" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         return (
-            //             <div className="font-medium">
-            //                 {row.getValue("procurement_request")?.slice(-4)}
-            //             </div>
-            //         )
-            //     }
-            // },
             {
                 accessorKey: "creation",
                 header: ({ column }) => {
@@ -151,14 +128,9 @@ export const ApproveSelectSR = () => {
                     const project = project_values.find(
                         (project) => project.value === row.getValue("project")
                     )
-                    if (!project) {
-                        return null;
-                    }
-
                     return (
                         <div className="font-medium">
-                            {project.label}
-                            {/* {row.getValue("project")} */}
+                            {project?.label || "--"}
                         </div>
                     )
                 },
@@ -167,7 +139,6 @@ export const ApproveSelectSR = () => {
                 },
             },
             {
-                // accessorKey: "vendor",
                 id: "vendor_name",
                 header: ({ column }) => {
                     return (
@@ -203,12 +174,6 @@ export const ApproveSelectSR = () => {
         ],
         [service_request_list, project_values, vendorsList, vendorOptions]
     )
-
-    // let filteredList;
-
-    // if (sent_back_list) {
-    //     filteredList = sent_back_list.filter((item) => item.item_list?.list?.some((i) => i.status === "Pending"))
-    // }
 
     const { toast } = useToast()
 

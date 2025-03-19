@@ -1,5 +1,6 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { EstimatedPriceHoverCard } from "@/components/procurement/EstimatedPriceHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -8,19 +9,13 @@ import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
+import { parseNumber } from "@/utils/parseNumber";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import React, { useContext, useMemo } from "react";
+import React, { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
-
-type PRTable = {
-    name: string
-    project: string
-    creation: string
-    work_package: string
-    category_list: {}
-}
 
 export const ApprovePR : React.FC = () => {
 
@@ -53,37 +48,33 @@ export const ApprovePR : React.FC = () => {
 
     // console.log('quotes', quote_data)
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         let total: number = 0;
         let usedQuotes = {}
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
         orderData?.list?.filter((i) => i.status !== "Request")?.map((item: any) => {
-            const quotesForItem = quote_data
-                ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
-                ?.map(value => value.quote);
-            let minQuote;
-            if (quotesForItem && quotesForItem.length > 0) {
-                minQuote = Math.min(...quotesForItem);
+            const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
+            if (minQuote) {
                 const estimateQuotes = quote_data
-                    ?.filter(value => value.item_id === item.name && parseFloat(value.quote) === parseFloat(minQuote))?.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-                const latestQuote = estimateQuotes?.length > 0 ? estimateQuotes[0] : null;
+                    ?.filter(value => value.item_id === item.name && parseNumber(value.quote) === minQuote)?.sort((a, b) => new Date(b.modified) - new Date(a.modified)) || [];
+                const latestQuote = estimateQuotes?.length ? estimateQuotes[0] : null;
                 usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity } }
             }
-            total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+            total += minQuote * item.quantity;
         })
         return { total: total || "N/A", usedQuotes: usedQuotes }
-    }
+    }, [procurement_request_list, quote_data])
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const { db } = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<ProcurementRequest>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -93,7 +84,8 @@ export const ApprovePR : React.FC = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const prId = row.getValue("name")
+                    const data = row.original
+                    const prId = data?.name
                     const isNew = notifications.find(
                         (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:new"
                     )
@@ -102,12 +94,15 @@ export const ApprovePR : React.FC = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`/procurement-requests/${prId}?tab=Approve PR`}
-                            >
-                                {prId?.slice(-4)}
-                            </Link>
+                            <div className="flex items-center gap-1">
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`/procurement-requests/${prId}?tab=Approve PR`}
+                                >
+                                    {prId?.slice(-4)}
+                                </Link>
+                                <ItemsHoverCard order_list={data?.procurement_list?.list} isPR/>
+                            </div>
                         </div>
                     )
                 },
@@ -138,14 +133,10 @@ export const ApprovePR : React.FC = () => {
                     const project = project_values.find(
                         (project) => project.value === row.getValue("project")
                     )
-                    if (!project) {
-                        return null;
-                    }
 
                     return (
                         <div className="font-medium">
-                            {project.label}
-                            {/* {row.getValue("project")} */}
+                            {project?.label || "--"}
                         </div>
                     )
                 },
@@ -176,17 +167,15 @@ export const ApprovePR : React.FC = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const categories = []
-                    const categoryList = row.getValue("category_list")?.list || []
+                    const categories : Set<string> = new Set()
+                    const categoryList : {name : string}[]= row.getValue("category_list")?.list || []
                     categoryList?.forEach((i) => {
-                        if(categories.every((j) => j?.name !== i?.name)) {
-                            categories.push(i)
-                        }
+                        categories.add(i?.name)
                     })
 
                     return (
                         <div className="flex flex-col gap-1 items-start justify-center">
-                            {categories?.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {Array.from(categories)?.map((obj) => <Badge className="inline-block">{obj}</Badge>)}
                         </div>
                     )
                 }

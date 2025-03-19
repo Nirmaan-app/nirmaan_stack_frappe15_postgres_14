@@ -50,13 +50,13 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
     const [page, setPage] = useState<string>('categorylist');
     const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
     const [curCategory, setCurCategory] = useState<string>("");
-    const [curEntry, setCurEntry] = useState({ description: "", uom: "", quantity: "" });
-    const [editEntry, setEditEntry] = useState({ description: "", uom: "", quantity: "" });
-    const [orderList, setOrderList] = useState<{ list: { id: string, category: string, description: string, uom: string, quantity: string }[] }>({ list: [] });
+    const [curEntry, setCurEntry] = useState({ description: "", uom: "", quantity: 0 });
+    const [editEntry, setEditEntry] = useState({ description: "", uom: "", quantity: 0 });
+    const [orderList, setOrderList] = useState<{ list: { id: string, category: string, description: string, uom: string, quantity: number }[] }>({ list: [] });
     const [universalComment, setUniversalComment] = useState<string | null>(null);
     const [stack, setStack] = useState<any[]>([]);
 
-    const { createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc();
+    const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 
     const { mutate } = useSWRConfig();
 
@@ -96,7 +96,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
             quantity: curEntry.quantity
         };
         setOrderList(prevState => ({ list: [...prevState.list, serviceObject] }));
-        setCurEntry({ description: "", uom: "", quantity: "" });
+        setCurEntry({ description: "", uom: "", quantity: 0 });
     };
 
     const handleDelete = (id: string) => {
@@ -119,7 +119,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                     : item
             )
         }));
-        setEditEntry({ description: "", uom: "", quantity: "" });
+        setEditEntry({ description: "", uom: "", quantity: 0 });
         document?.getElementById("editDialogCloseSR")?.click();
     };
 
@@ -244,7 +244,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                             <h3 className="font-bold">{curCategory}</h3>
                             <Pencil className="w-4 h-4 text-blue-600 cursor-pointer"
                                 onClick={() => {
-                                    setCurEntry({ description: "", uom: "", quantity: "" });
+                                    setCurEntry({ description: "", uom: "", quantity: 0 });
                                     setPage('categorylist');
                                 }}
                             />
@@ -275,13 +275,13 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                     placeholder="Enter Quantity"
                                     id="quantity"
                                     type="number"
-                                    onChange={(e) => setCurEntry({ ...curEntry, quantity: e.target.value })}
+                                    onChange={(e) => setCurEntry({ ...curEntry, quantity: parseFloat(e.target.value) })}
                                     value={curEntry.quantity}
                                 />
                             </div>
                             <Button
                                 variant="default"
-                                className="flex items-center gap-1 "
+                                className="flex items-center gap-1"
                                 onClick={handleAdd}
                                 disabled={!curEntry.description || !curEntry.uom || !curEntry.quantity}
                             >
@@ -367,7 +367,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                                                     <Label htmlFor="edit-quantity">Quantity</Label>
                                                                     <Input
                                                                         id="edit-quantity"
-                                                                        onChange={(e) => setEditEntry({ ...editEntry, quantity: e.target.value })}
+                                                                        onChange={(e) => setEditEntry({ ...editEntry, quantity: parseFloat(e.target.value) })}
                                                                         value={editEntry.quantity}
                                                                     />
                                                                 </div>

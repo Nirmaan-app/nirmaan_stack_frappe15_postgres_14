@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/use-toast";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeCreateDoc } from "frappe-react-sdk";
 import { debounce } from "lodash";
@@ -94,7 +95,7 @@ const RequestPaymentDialog = ({
         document_name: !isSr ? po?.name : sr?.name,
         project: !isSr ? po?.project : sr?.project,
         vendor: !isSr ? po?.vendor : sr?.vendor,
-        amount: Math.floor(amountRequesting),
+        amount: parseNumber(amountRequesting),
         status: "Requested"
       });
 
