@@ -1,17 +1,19 @@
 import ProjectSelect from "@/components/custom-select/project-select"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders"
 import { UserContext } from "@/utils/auth/UserProvider"
 import { formatDate } from "@/utils/FormatDate"
 import { useFrappeGetDocList } from "frappe-react-sdk"
-import { useContext } from "react"
+import { useContext, useMemo } from "react"
 import { Link } from "react-router-dom"
 
-const DeliveryNotes = () => {
+const DeliveryNotes : React.FC = () => {
 
-    const { data: procurementOrdersList, isLoading: procurementRequestsListLoading } = useFrappeGetDocList("Procurement Orders", {
+    const { data: procurementOrdersList } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment", "Cancelled", "Merged"]]],
+        orderBy: { field: "creation", order: "desc" },
         limit: 100000,
     })
 
@@ -112,18 +114,10 @@ const DeliveryNotes = () => {
         }
     };
 
-    // console.log("project", project)
+    const selectedProjectPOs = useMemo(() => procurementOrdersList?.filter(i => i?.project === selectedProject) || [], [procurementOrdersList, selectedProject])
 
     return (
         <div className="flex-1 space-y-4 min-h-[50vh]">
-            {/* <div className="">
-                <div className="flex items-center ">
-                    <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
-                    <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Update Delivery Notes</h2>
-                </div>
-            </div> */}
-            {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
-
             <div className="border border-gray-200 rounded-lg p-0.5 min-w-[400px]">
                 <ProjectSelect onChange={handleChange} />
                 {selectedProject && <div className="pt-4">
@@ -137,8 +131,8 @@ const DeliveryNotes = () => {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {procurementOrdersList?.filter(i => i?.project === selectedProject)?.length > 0 ? (
-                                procurementOrdersList?.filter(i => i?.project === selectedProject)?.map(item => (
+                            {selectedProjectPOs.length > 0 ? (
+                                selectedProjectPOs?.map(item => (
                                     <TableRow key={item.name}>
                                         <TableCell>
                                             <Link className="underline text-blue-300 hover:text-blue-500" to={`${item.name.replaceAll("/", "&=")}`}>DN-{item.name.split('/')[1]}</Link>

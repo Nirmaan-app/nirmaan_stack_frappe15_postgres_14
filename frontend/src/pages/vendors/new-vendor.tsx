@@ -7,10 +7,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
+import { SERVICECATEGORIES } from "@/lib/ServiceCategories"
+import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
+import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "frappe-react-sdk"
 import { ListChecks, ListRestart } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
 import ReactSelect from 'react-select'
@@ -18,6 +20,7 @@ import * as z from "zod"
 
 const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
 const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
       const vendorGstSchema = isTaxGSTType
@@ -109,7 +112,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
         bank_branch: z.string().optional(),
         ifsc: z
         .string()
-        .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, {
+        .regex(IFSC_REGEX, {
           message: "Invalid IFSC code. Example: SBIN0005943"
         })
         .optional(),
@@ -123,7 +126,14 @@ interface SelectOption {
     value: string;
 }
 
-export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined, service = false }) => {
+interface NewVendorProps {
+  dynamicCategories?: {category_name : string, work_package : string}[];
+  navigation?: boolean;
+  renderCategorySelection?: boolean;
+  service?: boolean;
+}
+
+export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, service = false }) => {
 
     const navigate = useNavigate()
     const [vendorType, setVendorType] = useState<string | null>(null)
@@ -145,18 +155,20 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         "Category"
     );
 
+    const { data: existingVendors } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["vendor_gst"], limit: 10000 }, "Vendors");
+
     const { mutate } = useSWRConfig()
     const { toast } = useToast()
-    const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
-    const { deleteDoc } = useFrappeDeleteDoc()
+
+    const {call : createVendorAndAddress, loading: createVendorAndAddressLoading } = useFrappePostCall("nirmaan_stack.api.create_vendor_and_address.create_vendor_and_address")
 
     const [categories, setCategories] = useState<SelectOption[]>([])
 
-    const category_options: SelectOption[] = (dynamicCategories.length ? dynamicCategories : category_list)
+    const category_options: SelectOption[] = useMemo(() => (dynamicCategories.length ? dynamicCategories : category_list)
         ?.map(item => ({
             label: `${!dynamicCategories.length ? `${item.category_name}-(${item.work_package})` : item.category_name}`,
             value: item.category_name
-        })) || [];
+        })) || [], [dynamicCategories, category_list]);
 
     const handleChange = (selectedOptions: SelectOption[]) => {
         setCategories(selectedOptions)
@@ -198,6 +210,43 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         IFSC && IFSC?.length === 11 ? undefined : null
       );
 
+    const [gstError, setGstError] = useState<string | null>(null);
+
+    const gst = form.watch("vendor_gst")
+    const validateGst = useCallback(
+        (gst: string | undefined) => {
+          if (taxationType !== "GST" || !gst || gst?.length !== 15) {
+            setGstError(null);
+            form.clearErrors("vendor_gst")
+            return true;
+          }
+    
+        //   if (!GST_REGEX.test(gst)) {
+        //     setGstError('Invalid GST format. Example: 22AAAAA0000A1Z5');
+        //     return false;
+        //   }
+    
+          if (existingVendors?.some((vendor) => vendor.vendor_gst === gst)) {
+            setGstError('Vendor with this GST already exists.');
+            // form.setError("vendor_gst", 
+            //     {
+            //     type: "manual",
+            //     message: "Vendor with this GST already exists.",
+            //     },
+            // );
+            return false;
+          }
+    
+          setGstError(null);
+          return true;
+        },
+        [existingVendors, vendorType, taxationType]
+      );
+
+    useEffect(() => {
+        validateGst(gst)
+    }, [gst, vendorType, taxationType])
+
     useEffect(() => {
         if (bank_details && !bank_details.message.error) {
             form.setValue("bank_branch", bank_details.message.BRANCH);
@@ -216,140 +265,202 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
     }, [bank_details, IFSC]) 
 
-    const onSubmit = async (values: VendorFormValues) => {
+    const onSubmit = useCallback(
+        async (values: VendorFormValues) => {
 
         try {
             if (values.vendor_city === "Not Found" || values.vendor_state === "Not Found") {
-                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+                toast({
+                    title: "Error!",
+                    description: "City and State are 'Note Found', Please Enter a Valid Pincode",
+                    variant: "destructive"
+                });
+                return
+            }
+
+            if(gstError) {
+                form.trigger("vendor_gst", {
+                    shouldFocus: true
+                })
+                toast({
+                    title: "Error!",
+                    description: "Duplicate GST Number!",
+                    variant: "destructive"
+                });
+                return
             }
 
             let category_json = categories.map((cat) => cat["value"]);
 
-            const service_categories = ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services", "Painting Services", "Carpentry Services", "POP Services"]
-            // Create the address document
-            const addressDoc = await createDoc('Address', {
-                address_title: values.vendor_name,
-                address_type: "Shop",
-                address_line1: values.address_line_1,
-                address_line2: values.address_line_2,
-                city: values.vendor_city,
-                state: values.vendor_state,
-                country: "India",
-                pincode: values.pin,
-                email_id: values.vendor_email,
-                phone: values.vendor_mobile,
-            });
+            const formattedDynamicCategories = dynamicCategories?.map((item) => item?.category_name);
 
-            try {
-                // Create the vendor document using the address document reference
-                await createDoc('Vendors', {
-                    vendor_name: values.vendor_name,
-                    vendor_type: vendorType,
-                    vendor_address: addressDoc.name,
-                    vendor_city: addressDoc.city,
-                    vendor_state: addressDoc.state,
-                    vendor_contact_person_name: values.vendor_contact_person_name,
-                    vendor_mobile: values.vendor_mobile,
-                    vendor_email: values.vendor_email,
-                    vendor_gst: values.vendor_gst,
-                    account_number: values.account_number,
-                    account_name: values.account_name,
-                    bank_name: values.bank_name,
-                    bank_branch: values.bank_branch,
-                    ifsc: bank_details && bank_details.message.error ? null : values.ifsc,
-                    vendor_category: vendorType === "Service" ? { categories: service_categories }
-                        :
-                        vendorType === "Material" ?
-                        {
-                            categories: (!renderCategorySelection && dynamicCategories.length)
-                                ? dynamicCategories
-                                : category_json
-                        } :
-                        {
-                            categories : (!renderCategorySelection && dynamicCategories.length)
-                                ? [...dynamicCategories, ...service_categories]
-                                : [...category_json, ...service_categories]
-                        }
-                });
+            const response = await createVendorAndAddress({
+                values: {...values, ifsc : bank_details && bank_details.message.error ? null : values.ifsc},
+                vendorType: vendorType,
+                category_json: category_json,
+                service_categories: SERVICECATEGORIES,
+                dynamicCategories: formattedDynamicCategories,
+                renderCategorySelection: renderCategorySelection,
+                service: service,
+              });
 
-                // Create quotation requests
-                // const promises = [];
-                // if (sentBackData) {
-                //     sentBackData?.item_list?.list.forEach((item) => {
-                //         const makes = sentBackData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
-                //         const newItem = {
-                //             procurement_task: sentBackData.procurement_request,
-                //             category: item.category,
-                //             item: item.name,
-                //             vendor: vendorDoc.name,
-                //             quantity: item.quantity,
-                //             makes: { list: makes || [] }
-                //         };
-                //         promises.push(createDoc("Quotation Requests", newItem));
-                //     });
-                // } else if (prData) {
-                //     prData?.procurement_list?.list.forEach((item) => {
-                //         const makes = prData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
-                //         const newItem = {
-                //             procurement_task: prData.name,
-                //             category: item.category,
-                //             item: item.name,
-                //             vendor: vendorDoc.name,
-                //             quantity: item.quantity,
-                //             makes: { list: makes || [] }
-                //         };
-                //         promises.push(createDoc("Quotation Requests", newItem));
-                //     });
-                // }
-
-                // await Promise.all(promises);
-
-                // Mutate the vendor-related data
+              if (response.message.status === 200) {
                 if (service) {
-                    await mutate("Service Vendors");
+                  await mutate('Service Vendors');
                 } else {
-                    await mutate("Material Vendors");
+                  await mutate('Material Vendors');
                 }
-                // await mutate("Quotation Requests");
-                // if (prData) {
-                //     await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
-                // }
-                // await mutate("Vendor Category");
-
+      
                 toast({
-                    title: "Success!",
-                    description: "Vendor Created Successfully!",
-                    variant: "success"
+                  title: 'Success!',
+                  description: response.message.message,
+                  variant: 'success',
                 });
-
-                // Navigate or close window
+      
                 if (navigation) {
-                    navigate("/vendors");
-                } else {
-                    closewindow();
+                  navigate('/vendors');
+                } else if (closewindow) {
+                  closewindow();
                 }
-            } catch (vendorError) {
-                // Delete the address document if vendor creation fails
-                await deleteDoc('Address', addressDoc.name);
-                throw vendorError;
-            }
+              } else if (response.message.status === 400) {
+                toast({
+                  title: 'Failed!',
+                  description: response.message.error,
+                  variant: 'destructive',
+                });
+              }
+      
+            // Create the address document
+            // const addressDoc = await createDoc('Address', {
+            //     address_title: values.vendor_name,
+            //     address_type: "Shop",
+            //     address_line1: values.address_line_1,
+            //     address_line2: values.address_line_2,
+            //     city: values.vendor_city,
+            //     state: values.vendor_state,
+            //     country: "India",
+            //     pincode: values.pin,
+            //     email_id: values.vendor_email,
+            //     phone: values.vendor_mobile,
+            // });
+
+            // try {
+            //     // Create the vendor document using the address document reference
+            //     await createDoc('Vendors', {
+            //         vendor_name: values.vendor_name,
+            //         vendor_type: vendorType,
+            //         vendor_address: addressDoc.name,
+            //         vendor_city: addressDoc.city,
+            //         vendor_state: addressDoc.state,
+            //         vendor_contact_person_name: values.vendor_contact_person_name,
+            //         vendor_mobile: values.vendor_mobile,
+            //         vendor_email: values.vendor_email,
+            //         vendor_gst: values.vendor_gst,
+            //         account_number: values.account_number,
+            //         account_name: values.account_name,
+            //         bank_name: values.bank_name,
+            //         bank_branch: values.bank_branch,
+            //         ifsc: bank_details && bank_details.message.error ? null : values.ifsc,
+            //         vendor_category: vendorType === "Service" ? { categories: SERVICECATEGORIES }
+            //             :
+            //             vendorType === "Material" ?
+            //             {
+            //                 categories: (!renderCategorySelection && dynamicCategories.length)
+            //                     ? dynamicCategories
+            //                     : category_json
+            //             } :
+            //             {
+            //                 categories : (!renderCategorySelection && dynamicCategories.length)
+            //                     ? [...dynamicCategories, ...SERVICECATEGORIES]
+            //                     : [...category_json, ...SERVICECATEGORIES]
+            //             }
+            //     });
+
+            //     // Create quotation requests
+            //     // const promises = [];
+            //     // if (sentBackData) {
+            //     //     sentBackData?.item_list?.list.forEach((item) => {
+            //     //         const makes = sentBackData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
+            //     //         const newItem = {
+            //     //             procurement_task: sentBackData.procurement_request,
+            //     //             category: item.category,
+            //     //             item: item.name,
+            //     //             vendor: vendorDoc.name,
+            //     //             quantity: item.quantity,
+            //     //             makes: { list: makes || [] }
+            //     //         };
+            //     //         promises.push(createDoc("Quotation Requests", newItem));
+            //     //     });
+            //     // } else if (prData) {
+            //     //     prData?.procurement_list?.list.forEach((item) => {
+            //     //         const makes = prData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
+            //     //         const newItem = {
+            //     //             procurement_task: prData.name,
+            //     //             category: item.category,
+            //     //             item: item.name,
+            //     //             vendor: vendorDoc.name,
+            //     //             quantity: item.quantity,
+            //     //             makes: { list: makes || [] }
+            //     //         };
+            //     //         promises.push(createDoc("Quotation Requests", newItem));
+            //     //     });
+            //     // }
+
+            //     // await Promise.all(promises);
+
+            //     // Mutate the vendor-related data
+            //     if (service) {
+            //         await mutate("Service Vendors");
+            //     } else {
+            //         await mutate("Material Vendors");
+            //     }
+            //     // await mutate("Quotation Requests");
+            //     // if (prData) {
+            //     //     await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
+            //     // }
+            //     // await mutate("Vendor Category");
+
+            //     toast({
+            //         title: "Success!",
+            //         description: "Vendor Created Successfully!",
+            //         variant: "success"
+            //     });
+
+            //     // Navigate or close window
+            //     if (navigation) {
+            //         navigate("/vendors");
+            //     } else {
+            //         closewindow();
+            //     }
+            // } catch (vendorError) {
+            //     // Delete the address document if vendor creation fails
+            //     await deleteDoc('Address', addressDoc.name);
+            //     throw vendorError;
+            // }
         } catch (error) {
-            if (error?.exc_type === "VendorGSTExistError") {
-                toast({
-                    title: "Duplicate Value Error!",
-                    description: `Vendor with this GST already exists!`,
-                    variant: "destructive"
-                });
-            } else {
-                toast({
-                    title: "Failed!",
-                    description: `${error?.exception}`,
-                    variant: "destructive"
-                });
-            }
+            // if (error?.exc_type === "VendorGSTExistError") {
+            //     toast({
+            //         title: "Duplicate Value Error!",
+            //         description: `Vendor with this GST already exists!`,
+            //         variant: "destructive"
+            //     });
+            // } else {
+            //     toast({
+            //         title: "Failed!",
+            //         description: `${error?.exception}`,
+            //         variant: "destructive"
+            //     });
+            // }
+
+            toast({
+                 title: "Failed!",
+                 description: "Failed to Create a New Vendor",
+                 variant: "destructive"
+             });
+
             console.error("Submit Error", error);
         }
-    };
+    }, [createVendorAndAddress, navigation, mutate, vendorType, categories, dynamicCategories,renderCategorySelection, service, validateGst ]);
 
 
     const [pincode, setPincode] = useState("")
@@ -478,9 +589,15 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                         <FormItem>
                                             <FormLabel className="flex">{taxationType === "GST" ? "GST Number" : "PAN Number"} {vendorType !== "Service" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                                             <FormControl>
-                                                <Input placeholder={taxationType === "GST" ? "enter gst..." : "enter pan..."} {...field} />
+                                                <Input placeholder={taxationType === "GST" ? "enter gst..." : "enter pan..."}
+                                                 {...field}
+                                                onChange={(e) => {
+                                                    field.onChange(e)
+                                                }}
+                                                 />
                                             </FormControl>
                                             <FormMessage />
+                                            {gstError && <FormMessage>{gstError}</FormMessage>}
                                         </FormItem>
 
                                     )}
@@ -672,7 +789,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                                     )}
                                 />
                                 <div className="flex space-x-2 items-center justify-end">
-                                    {(loading) ? (<ButtonLoading />) : (
+                                    {(createVendorAndAddressLoading) ? (<ButtonLoading />) : (
                                         <>
                                             <Button type="button" variant="secondary" className="flex items-center gap-1" onClick={() => resetForm()}>
                                                 <ListRestart className="h-4 w-4" />
