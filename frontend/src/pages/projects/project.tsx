@@ -152,10 +152,10 @@ const Project : React.FC = () => {
     data,
     isLoading,
     mutate: project_mutate,
-  } = useFrappeGetDoc("Projects", projectId);
+  } = useFrappeGetDoc("Projects", projectId, projectId ? undefined : null);
 
   const { data: projectCustomer, isLoading: projectCustomerLoading } =
-    useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`);
+    useFrappeGetDoc("Customers", data?.customer, data?.customer ? `Customers ${data?.customer}` : null);
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{ message : { po_items : po_item_data_item[] }}>(
     "nirmaan_stack.api.procurement_orders.generate_po_summary",
@@ -308,7 +308,9 @@ const ProjectView = ({
     }
   );
 
-  const {data: projectType} = useFrappeGetDoc("Project Types", data?.project_type)
+  const {data: projectType} = useFrappeGetDoc("Project Types", data?.project_type, data?.project_type ? undefined : null)
+
+  console.log("projectTpye",projectType )
 
   const {
     data: project_estimates,
