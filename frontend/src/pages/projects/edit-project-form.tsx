@@ -211,7 +211,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
   const {
     data: project_address,
     mutate: project_address_mutate,
-  } = useFrappeGetDoc("Address", data?.project_address);
+  } = useFrappeGetDoc("Address", data?.project_address, data?.project_address ? undefined : null);
 
   // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
   //     fields: ["*"],
@@ -346,7 +346,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
 
   const {
     data: pincode_data,
-  } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`);
+  } = useFrappeGetDoc("Pincodes", pincode, pincode ? `Pincodes ${pincode}` : null);
 
   const debouncedFetch = useCallback((value: string) => {
     if (value.length >= 6) {
