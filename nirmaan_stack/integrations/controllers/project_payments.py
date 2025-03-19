@@ -4,7 +4,7 @@ from frappe import _
 from .procurement_requests import get_user_name
 
 def after_insert(doc, method):
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
 
         project = frappe.get_doc("Projects", doc.project)
         
@@ -117,7 +117,7 @@ def on_update(doc, method):
             print("No accountants found with push notifications enabled.")
     
     elif old_doc and old_doc.status == 'Approved' and doc.status == 'Paid':
-        allowed_users = get_allowed_lead_users(doc) + get_admin_users(doc) + get_allowed_manager_users(doc) + get_allowed_procurement_users(doc)
+        allowed_users = get_allowed_lead_users(doc) + get_admin_users() + get_allowed_manager_users(doc) + get_allowed_procurement_users(doc)
         project = frappe.get_doc("Projects", doc.project)
         vendor = frappe.get_doc("Vendors", doc.vendor)
         if allowed_users:

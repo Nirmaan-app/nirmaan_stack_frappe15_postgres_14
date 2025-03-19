@@ -12,7 +12,7 @@ import { parseNumber } from "@/utils/parseNumber"
 import { ConfigProvider, Table } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { CheckCheck, ListChecks, ListX, Undo2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams } from "react-router-dom"
 
@@ -68,8 +68,9 @@ export const ApproveServiceRequest : React.FC = () => {
             const category = item.category
             acc[category] = acc[category] || { items: [], total: 0, totalWithGST: 0 }
             acc[category].items.push(item)
-            acc[category].total += parseNumber(item?.rate) * parseNumber(item?.quantity)
-            acc[category].totalWithGST += parseNumber(item?.rate) * parseNumber(item?.quantity) * 1.18 // Assuming 18% GST
+            const total = parseNumber(item?.rate) * parseNumber(item?.quantity)
+            acc[category].total += total
+            acc[category].totalWithGST += total * 1.18 // Assuming 18% GST
             return acc
         }, {})
     }, [serviceOrderData])
@@ -134,15 +135,15 @@ export const ApproveServiceRequest : React.FC = () => {
             dataIndex: "amount",
             key: "amount",
             width: "10%",
-            render: (text, record) => <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(record?.id === undefined ? text : record.rate * record.quantity)}</span>,
+            render: (text, record) => <span className={`italic`}>{formatToIndianRupee(record?.id?.endsWith('total') ? text : record.rate * record.quantity)}</span>,
         },
         {
             title: "Amt inc. tax",
-            dataIndex: "amount",
+            dataIndex: "amountinctax",
             key: "amountinctax",
             width: "20%",
             render: (text, record) => {
-                return <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(parseNumber(record?.id === undefined ? text : record.rate * record.quantity) * 1.18)}</span>
+                return <span className={`italic`}>{formatToIndianRupee(record?.id?.endsWith('total') ? text : record.rate * record.quantity * 1.18)}</span>
             },
         },
     ], []);
@@ -213,9 +214,9 @@ export const ApproveServiceRequest : React.FC = () => {
         }
     }
 
-    const getUserName = (id : string | undefined) => {
+    const getUserName = useCallback((id : string | undefined) => {
         return usersList?.find((user) => user?.name === id)?.full_name || ""
-    }
+    }, [usersList]);
 
     if(serviceVendor_loading || service_request_loading || usersListLoading || universalCommentLoading) {
         return (
@@ -289,7 +290,7 @@ export const ApproveServiceRequest : React.FC = () => {
                                     dataSource={[
                                         ...record.items,
                                         {
-                                            id: "total",
+                                            id: `${record.key}-total`,
                                             description: <strong>Total</strong>,
                                             amount: record.total,
                                             amountinctax: record.totalWithGST,

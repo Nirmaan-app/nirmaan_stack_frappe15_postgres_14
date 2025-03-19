@@ -5,18 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { HardHat } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-
-const parseNumber = (value) => parseFloat(value) || 0;
 
 export default function Projects() {
 
@@ -47,7 +47,7 @@ export default function Projects() {
       "Project Types"
     );
 
-  const [prToProjectData, setPrToProjectData] = useState({});
+  const [prToProjectData, setPrToProjectData] = useState<Record<string, ProcurementRequest[]>>({});
   const [projectStatusCounts, setProjectStatusCounts] = useState({});
 
   const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
@@ -78,7 +78,7 @@ export default function Projects() {
 
     
 
-  const getSRTotal = (project) => {
+  const getSRTotal = useCallback((project : string) => {
     return serviceRequestsData
       ?.filter((item) => item.project === project)
       ?.reduce((total, item) => {
@@ -91,9 +91,9 @@ export default function Projects() {
           ) || 0)
         );
       }, 0) || 0;
-  };
+  }, [serviceRequestsData]);
 
-  const getPOTotalWithGST = (projectId) => {
+  const getPOTotalWithGST = useCallback((projectId : string) => {
     if (!po_item_data?.length) return 0;
   
     return po_item_data
@@ -108,7 +108,7 @@ export default function Projects() {
           }, 0) || 0)
         );
       }, 0);
-  };
+  }, [po_item_data]);
   
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrder>(
@@ -121,17 +121,17 @@ export default function Projects() {
     }
   );
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList("Project Payments", {
+  const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
           fields: ["*"],
           filters: [["status", "=", "Paid"]],
           limit: 100000
   })
 
-  const getTotalAmountPaid = (projectId) => {
+  const getTotalAmountPaid = useCallback((projectId : string) => {
     return projectPayments
       ?.filter((payment) => payment.project === projectId)
       ?.reduce((total, payment) => total + parseNumber(payment.amount), 0) || 0;
-  };
+  }, [projectPayments]);
 
 const {
     data: project_estimates,
@@ -141,11 +141,11 @@ const {
     limit: 100000,
   });
 
-  const getTotalEstimateAmt = (projectId) => {
+  const getTotalEstimateAmt = useCallback((projectId : string) => {
     return project_estimates
       ?.filter((i) => i?.project === projectId)
       ?.reduce((total, i) => total + parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate), 0) || 0;
-  };
+  }, [project_estimates]);
 
   const projectTypeOptions = useMemo(
     () =>
@@ -161,7 +161,7 @@ const {
   useEffect(() => {
     if (!pr_data) return;
 
-    const groupedData = pr_data.reduce((acc, pr) => {
+    const groupedData = pr_data.reduce((acc : Record<string, ProcurementRequest[]>, pr) => {
       if (pr?.project) {
         acc[pr.project] = acc[pr.project] || [];
         acc[pr.project].push(pr);
@@ -172,13 +172,13 @@ const {
     setPrToProjectData(groupedData);
   }, [pr_data]);
 
-  const getItemStatus = (item: any, filteredPOs: any[]) => {
+  const getItemStatus = useCallback((item: any, filteredPOs: ProcurementOrder[]) => {
     return filteredPOs.some((po) =>
       po?.order_list?.list.some((poItem) => poItem?.name === item.name)
     );
-  };
+  }, []);
 
-  const statusRender = (status: string, procurementRequest: any) => {
+  const statusRender = useCallback((status: string, procurementRequest: ProcurementRequest) => {
     const itemList = procurementRequest?.procurement_list?.list || [];
 
     if (["Pending", "Approved", "Rejected"].includes(status)) {
@@ -194,11 +194,11 @@ const {
     });
 
     return allItemsApproved ? "Approved PO" : "Open PR";
-  };
+  }, [getItemStatus, po_data]);
 
   useEffect(() => {
     if (prToProjectData && po_data) {
-      const statusCounts = {};
+      const statusCounts : Record<string, Record<string, number>> = {};
 
       for (const [project, prs] of Object.entries(prToProjectData)) {
         statusCounts[project] = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };

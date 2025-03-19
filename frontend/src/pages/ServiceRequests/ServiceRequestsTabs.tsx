@@ -1,7 +1,7 @@
 import { useUserData } from "@/hooks/useUserData";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApproveSelectAmendSR } from "./service-request/approve-amend-sr-list";
 import { ApproveSelectSR } from "./service-request/approve-service-request-list";
@@ -11,20 +11,20 @@ import { SelectServiceVendorList } from "./service-request/select-service-vendor
 export const ServiceRequestsTabs : React.FC = () => {
     const [searchParams] = useSearchParams();
 
-    const {role, user_id} = useUserData();
+    const {role} = useUserData();
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || ((["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator") ? "approve-service-order" : "choose-vendor"));
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "approve-service-order" : "choose-vendor"));
 
     const {pendingSRCount, adminPendingSRCount, approvedSRCount, adminApprovedSRCount, adminAmendedSRCount, amendedSRCount, adminSelectedSRCount, selectedSRCount} = useDocCountStore()
 
-    const adminTabs = [
-        ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator" ? [
+    const adminTabs = useMemo(() => [
+        ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role)  ? [
             {
                 label: (
                     <div className="flex items-center">
                         <span>Approve Service Order</span>
                         <span className="ml-2 text-xs font-bold">
-                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminSelectedSRCount : selectedSRCount}
+                            {role === "Nirmaan Admin Profile" ? adminSelectedSRCount : selectedSRCount}
                         </span>
                     </div>
                 ),
@@ -35,7 +35,7 @@ export const ServiceRequestsTabs : React.FC = () => {
                     <div className="flex items-center">
                         <span>Approve Amended SO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminAmendedSRCount : amendedSRCount}
+                            {role === "Nirmaan Admin Profile" ? adminAmendedSRCount : amendedSRCount}
                         </span>
                     </div>
                 ),
@@ -43,15 +43,15 @@ export const ServiceRequestsTabs : React.FC = () => {
 
             }
         ] : []),
-    ]
+    ], [role, adminSelectedSRCount, selectedSRCount, adminAmendedSRCount, amendedSRCount]);
 
-    const items = [
+    const items = useMemo(() => [
         {
           label: (
               <div className="flex items-center">
                   <span>In Progress SR</span>
                   <span className="ml-2 text-xs font-bold">
-                      {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPendingSRCount : pendingSRCount}
+                      {role === "Nirmaan Admin Profile" ? adminPendingSRCount : pendingSRCount}
                   </span>
               </div>
           ),
@@ -62,26 +62,24 @@ export const ServiceRequestsTabs : React.FC = () => {
               <div className="flex items-center">
                   <span>Approved SR</span>
                   <span className="ml-2 rounded text-xs font-bold">
-                      {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminApprovedSRCount : approvedSRCount}
+                      {role === "Nirmaan Admin Profile" ? adminApprovedSRCount : approvedSRCount}
                   </span>
               </div>
           ),
           value: "approved-sr",
       },
-  ];
+  ], [role, adminPendingSRCount, pendingSRCount, adminApprovedSRCount, approvedSRCount]);
 
-  const updateURL = (key, value) => {
-      const url = new URL(window.location);
+  const updateURL = (key : string, value : string) => {
+      const url = new URL(window.location.href);
       url.searchParams.set(key, value);
       window.history.pushState({}, "", url);
   };
 
-  const onClick = (value) => {
-      if (tab === value) return; // Prevent redundant updates
-
-      const newTab = value;
-      setTab(newTab);
-      updateURL("tab", newTab);
+  const onClick = (value : string) => {
+      if (tab === value) return;
+      setTab(value);
+      updateURL("tab", value);
   };
 
   return (
@@ -108,7 +106,6 @@ export const ServiceRequestsTabs : React.FC = () => {
               />
           )}
         </div>
-
           {tab === "choose-vendor" ? (
             <SelectServiceVendorList />
           ) : tab === "approve-service-order" ? (

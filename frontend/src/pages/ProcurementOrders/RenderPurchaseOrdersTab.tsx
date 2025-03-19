@@ -10,7 +10,7 @@ export const RenderPurchaseOrdersTab : React.FC = () => {
 
   const ApprovePO = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes"));
 
-  const ApproveAmendedPO = React.lazy(() => import("@/pages/approve-amend-po"));
+  const ApproveAmendedPO = React.lazy(() => import("@/pages/ProcurementOrders/approve-amend-po"));
 
   const ApproveSentBackPO = React.lazy(() => import("@/pages/Sent Back Requests/ApproveSBVendorQuotes"));
 
@@ -22,15 +22,15 @@ export const RenderPurchaseOrdersTab : React.FC = () => {
             <TailSpin color={"red"} />{" "}
         </div>
     }>
-            {tab === "Approve PO" ? (
-                  <ApprovePO />
-                ) : tab === "Approve Amended PO" ? (
-                  <ApproveAmendedPO />
-                ) : tab === "Approve Sent Back PO" ? (
-                  <ApproveSentBackPO /> 
-                ) : (
-                  <PurchaseOrder />
-                )}
+        {tab === "Approve PO" ? (
+            <ApprovePO />
+          ) : tab === "Approve Amended PO" ? (
+            <ApproveAmendedPO />
+          ) : tab === "Approve Sent Back PO" ? (
+            <ApproveSentBackPO /> 
+          ) : (
+            <PurchaseOrder />
+          )}
     </Suspense>
   )
 }

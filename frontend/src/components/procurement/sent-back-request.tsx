@@ -7,19 +7,21 @@ import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useSearchParams } from "react-router-dom";
+import { ItemsHoverCard } from "../helpers/ItemsHoverCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { TableSkeleton } from "../ui/skeleton";
 import { useToast } from "../ui/use-toast";
 
-export const SentBackRequest = () => {
+export const SentBackRequest : React.FC = () => {
 
     const [searchParams] = useSearchParams();
 
@@ -42,17 +44,17 @@ export const SentBackRequest = () => {
         limit: 1000
     })
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects]);
 
-    const getTotal = (order_id: string) => {
+    const getTotal = useCallback((order_id: string) => {
         let total: number = 0;
         const orderData = sent_back_list?.find(item => item.name === order_id)?.item_list;
         orderData?.list.map((item) => {
-            const price = item.quote;
-            total += (price ? parseFloat(price) : 0) * item.quantity;
+            const price = parseNumber(item.quote);
+            total += parseNumber(price * item.quantity);
         })
         return total;
-    }
+    }, [sent_back_list]);
 
     // const { role, user_id } = useUserData()
 
@@ -136,7 +138,8 @@ export const SentBackRequest = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const sbId = row.getValue("name")
+                    const data = row.original
+                    const sbId = data?.name
                     const isNew = notifications.find(
                         (item) => item.docname === sbId && item.seen === "false" && item.event_id === `${type}-sb:new`
                     )
@@ -145,12 +148,15 @@ export const SentBackRequest = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
+                            <div className="flex items-center gap-2">
                             <Link
                                 className="underline hover:underline-offset-2"
                                 to={`/sent-back-requests/${sbId}`}
                             >
                                 {sbId?.slice(-4)}
                             </Link>
+                            <ItemsHoverCard order_list={data?.item_list?.list} isSB />
+                            </div>
                         </div>
                     )
                 }
@@ -196,14 +202,10 @@ export const SentBackRequest = () => {
                     const project = project_values.find(
                         (project) => project.value === row.getValue("project")
                     )
-                    if (!project) {
-                        return null;
-                    }
 
                     return (
                         <div className="font-medium">
-                            {project.label}
-                            {/* {row.getValue("project")} */}
+                            {project?.label || "--"}
                         </div>
                     )
                 },
@@ -257,17 +259,6 @@ export const SentBackRequest = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            {/* {items && (
-                    <Radio.Group
-                        block
-                        options={items}
-                        defaultValue="Rejected"
-                        optionType="button"
-                        buttonStyle="solid"
-                        value={type}
-                        onChange={(e) => onClick(e.target.value)}
-                    />
-                )} */}
             {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
             )}
@@ -285,7 +276,7 @@ export const SentBackRequest = () => {
                                                     <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                                                 </AlertDialogCancel>
                                                  <Button
-                                                    onClick={() => handleDeleteSB(deleteFlagged?.name)}
+                                                    onClick={() => handleDeleteSB(deleteFlagged?.name || "")}
                                                     className="flex-1">
                                                         Confirm
                                                 </Button>

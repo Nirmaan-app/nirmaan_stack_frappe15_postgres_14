@@ -64,7 +64,7 @@ def after_insert(doc, method):
 
         frappe.delete_doc("Procurement Requests", last_pr.name)
     elif doc.work_package is not None:
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
         custom = True if doc.work_package is None else False
         if lead_admin_users:
             for user in lead_admin_users:
@@ -129,7 +129,7 @@ def on_update(doc, method):
     custom = True if doc.work_package is None else False
     old_doc = doc.get_doc_before_save()
     if old_doc and old_doc.workflow_state in ('In Progress', 'Pending') and doc.workflow_state == "Vendor Selected":
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users(doc)
+        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
         if lead_admin_users:
             for user in lead_admin_users:
                 if user["push_notification"] == "true":
@@ -206,7 +206,7 @@ def on_update(doc, method):
 
 
     elif old_doc and old_doc.workflow_state == "Pending" and doc.workflow_state == "Approved":
-        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users(doc)
+        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users()
         if proc_admin_users:
             for user in proc_admin_users:
                 if user["push_notification"] == "true":
@@ -263,7 +263,7 @@ def on_update(doc, method):
 
 
     elif old_doc and old_doc.workflow_state in ('Pending', 'Vendor Selected') and doc.workflow_state == "Rejected":
-        manager_admin_users = get_allowed_manager_users(doc) + get_admin_users(doc)
+        manager_admin_users = get_allowed_manager_users(doc) + get_admin_users()
         if manager_admin_users:
             for user in manager_admin_users:
                 if user["push_notification"] == "true":

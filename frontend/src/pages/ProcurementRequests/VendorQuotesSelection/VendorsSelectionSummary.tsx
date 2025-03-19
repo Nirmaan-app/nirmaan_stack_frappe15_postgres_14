@@ -8,16 +8,20 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { COLUMN_WIDTHS } from "@/pages/Sent Back Requests/SBQuotesSelectionReview";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
+import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
@@ -49,7 +53,7 @@ export const columns : TableColumnsType<CategoryData> = [
     title: "Category",
     dataIndex: "category",
     key: "category",
-    className: "w-[70vw]",
+    className: COLUMN_WIDTHS.category,
     render: (text) => {
       return (
         <strong className="text-primary">{text}</strong>
@@ -60,7 +64,7 @@ export const columns : TableColumnsType<CategoryData> = [
     title: "Total Amount",
     dataIndex: "totalAmount",
     key: "amount",
-    className: "",
+    className: COLUMN_WIDTHS.totalAmount,
     render: (text) => <Badge>{text ? formatToIndianRupee(text) : "Delayed"}</Badge>,
   },
 ];
@@ -70,7 +74,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     title: "Item Name",
     dataIndex: "item",
     key: "item",
-    className: "min-w-[20vw]",
+    className: COLUMN_WIDTHS.item,
     render: (text, record) => (
       <div className="flex flex-col gap-1">
         <div className="inline items-baseline">
@@ -97,19 +101,19 @@ export const innerColumns : TableColumnsType<DataItem> = [
     title: "Unit",
     dataIndex: "unit",
     key: "unit",
-    className: "min-w-[10vw]",
+    className: COLUMN_WIDTHS.unit,
   },
   {
     title: "Quantity",
     dataIndex: "quantity",
     key: "quantity",
-    className: "min-w-[5vw]",
+    className: COLUMN_WIDTHS.quantity,
   },
   {
     title: "Rate",
     dataIndex: "quote",
     key: "quote",
-    className: "min-w-[10vw]",
+    className: COLUMN_WIDTHS.rate,
     render: (text) => (
       <span className="italic">
         {text ? formatToIndianRupee(text) : "Delayed"}
@@ -120,7 +124,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     title: "Vendor",
     dataIndex: "vendor_name",
     key: "vendor",
-    className: "min-w-[20vw]",
+    className: COLUMN_WIDTHS.vendor,
     render: (text) => (
       <span className="italic">
         {text || "Delayed"}
@@ -131,7 +135,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     title: "Amount",
     dataIndex: "amount",
     key: "amount",
-    className: "min-w-[15vw]",
+    className: COLUMN_WIDTHS.amount,
     render: (text, record) => {
       const amount = text;
       const lowest3 = record?.threeMonthsLowestAmount
@@ -174,7 +178,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     title: "Lowest Quoted Amount",
     dataIndex: "lowestQuotedAmount",
     key: "lowestQuotedAmount",
-    className: "min-w-[10vw]",
+    className: COLUMN_WIDTHS.lowestQuotedAmount,
     render: (text) => (
       <span className="italic">
         {text ? formatToIndianRupee(text) : "--"}
@@ -185,7 +189,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     title: "3 Months Lowest Amount",
     dataIndex: "threeMonthsLowestAmount",
     key: "threeMonthsLowestAmount",
-    className: "min-w-[10vw]",
+    className: COLUMN_WIDTHS.threeMonthsLowestAmount,
     render: (text, record) => {
 
       const amount = record.amount;
@@ -203,7 +207,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
 },
 ];
 
-export const VendorsSelectionSummary = () => {
+export const VendorsSelectionSummary : React.FC = () => {
 
   const { prId } = useParams<{ prId: string }>();
   const navigate = useNavigate();
@@ -228,7 +232,7 @@ export const VendorsSelectionSummary = () => {
         limit: 10000
   });
 
-  const { data: quote_data, isLoading : quote_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
+  const { data: quotes_data, isLoading : quotes_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
     {
         fields: ["*"],
         limit: 100000
@@ -239,16 +243,16 @@ export const VendorsSelectionSummary = () => {
         limit: 1000,
       })
       
-  const getFullName = (id : string | undefined) => {
+  const getFullName = useCallback((id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
-  }
+  }, [usersList]);
 
   useEffect(() => {
-    if(!orderData?.project && procurement_request_list) {
+    if(procurement_request_list) {
       const procurementRequest = procurement_request_list[0]
       setOrderData(procurementRequest)
     }
-  })
+  }, [procurement_request_list])
 
   const getCategoryTotals = useMemo(() => {
     const totals : {[category: string]: number} = {}
@@ -267,32 +271,17 @@ export const VendorsSelectionSummary = () => {
     return totals
   }, [orderData])
 
-  const getVendorName = (vendorId : string | undefined) : string => {
+  const getVendorName = useCallback((vendorId : string | undefined) : string => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
-  }
+  }, [vendor_list])
 
-  const getLowest = (itemId: string) => {
-      const filtered : number[] = []
-      Object.values(orderData?.rfq_data?.details?.[itemId]?.vendorQuotes || {})?.map(i => {
-      if(i?.quote) {
-        filtered.push(i?.quote)
-      }
-    })
-       
-    let minQuote;
-    if (filtered.length > 0) minQuote = Math.min(...filtered);
-    return minQuote || 0;
+  const getLowest = useCallback((itemId: string) => {
+        return getLowestQuoteFilled(orderData, itemId)
+    }, [orderData]);
 
-  }
-
-  const getThreeMonthsLowest = (itemId : string) => {
-        const quotesForItem = quote_data
-        ?.filter(value => value?.item_id === itemId && ![null, "0", 0, undefined].includes(value?.quote))
-        ?.map(value => parseFloat(value?.quote));
-      let minQuote;
-      if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-      return minQuote || 0;
-  }
+  const getThreeMonthsLowest = useCallback((itemId : string) => {
+      return getThreeMonthsLowestFiltered(quotes_data, itemId)
+    }, [quotes_data]);
 
   const getFinalVendorQuotesData = useMemo(() => {
     const data : CategoryWithChildren[] = []
@@ -372,7 +361,7 @@ interface VendorWiseApprovalItems {
   }
 }
 
-  const generateActionSummary = () => {
+  const generateActionSummary = useCallback(() => {
     let allDelayedItems : ProcurementItem[] = [];
     let vendorWiseApprovalItems : VendorWiseApprovalItems  = {};
     let approvalOverallTotal : number = 0;
@@ -384,7 +373,7 @@ interface VendorWiseApprovalItems {
             allDelayedItems.push(item);
         } else {
             // Approval items segregated by vendor
-            const itemTotal = item.quantity * (item.quote || 0);
+            const itemTotal = parseNumber(item.quantity * (item.quote || 0));
             if (!vendorWiseApprovalItems[vendor]) {
                 vendorWiseApprovalItems[vendor] = {
                     items: [],
@@ -402,7 +391,7 @@ interface VendorWiseApprovalItems {
         vendorWiseApprovalItems,
         approvalOverallTotal,
     };
-};
+}, [orderData]);
 
 const {
     allDelayedItems,
@@ -410,7 +399,7 @@ const {
     approvalOverallTotal,
 } = generateActionSummary();
 
-if (procurement_request_list_loading || quote_data_loading || vendor_list_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+if (procurement_request_list_loading || quotes_data_loading || vendor_list_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   if (orderData?.workflow_state !== "In Progress") {
     return (

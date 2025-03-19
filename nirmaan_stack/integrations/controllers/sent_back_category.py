@@ -5,7 +5,7 @@ from .procurement_requests import get_user_name
 import json
 
 def after_insert(doc, method):
-        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users(doc)
+        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users()
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
         
         if proc_admin_users:
@@ -68,7 +68,7 @@ def after_insert(doc, method):
 def on_update(doc, method):
     old_doc = doc.get_doc_before_save()
     if old_doc and old_doc.workflow_state == 'Pending' and doc.workflow_state == "Vendor Selected":
-        admin_lead_users = get_allowed_lead_users(doc) + get_admin_users(doc)
+        admin_lead_users = get_allowed_lead_users(doc) + get_admin_users()
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
         if admin_lead_users:
             for user in admin_lead_users:

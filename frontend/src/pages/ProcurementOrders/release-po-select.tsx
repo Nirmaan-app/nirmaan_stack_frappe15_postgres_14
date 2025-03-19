@@ -1,40 +1,38 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
 import { useToast } from "../../components/ui/use-toast";
-import { ApproveSelectAmendPO } from "../approve-select-amend-po";
 import { ApproveSelectVendor } from "../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
 import { ApproveSelectSentBack } from "../Sent Back Requests/approve-select-sent-back";
+import { ApproveSelectAmendPO } from "./approve-select-amend-po";
 
-
-// interface ReleasePOSelectProps {
-//     status: string
-//     not: boolean
-// }
-
-export const ReleasePOSelect = () => {
+export const ReleasePOSelect : React.FC = () => {
 
     const [searchParams] = useSearchParams();
 
-    const { role, user_id } = useUserData()
+    const { role } = useUserData()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || ((["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) || user_id === "Administrator") ? "Approve PO" : "Approved PO"));
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : "Approved PO"));
 
-    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
+    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders",
         {
             fields: ["*"],
             filters: [["status", (tab === "Dispatched PO" || role === "Nirmaan Estimates Executive Profile") ? "not in" : "in", tab === "Dispatched PO" ? ["PO Approved", "PO Amendment", "Merged", "Partially Delivered", "Delivered"] : (role === "Nirmaan Estimates Executive Profile" ? ["PO Amendment", "Merged"] : tab === "Approved PO" ? ["PO Approved"] : ["Partially Delivered", "Delivered"])]],
@@ -43,11 +41,10 @@ export const ReleasePOSelect = () => {
         },
     );
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList("Project Payments", {
+    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
             fields: ["*"],
             limit: 100000
         })
-    // console.log("data", procurement_order_list)
 
     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
         await mutate()
@@ -58,7 +55,7 @@ export const ReleasePOSelect = () => {
         limit: 1000
     })
 
-    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["vendor_name", 'vendor_type'],
         filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
         limit: 1000
@@ -66,65 +63,49 @@ export const ReleasePOSelect = () => {
         "Material Vendors"
     )
 
-    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
+    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getAmountPaid = (id) => {
-        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid");
+    const getAmountPaid = useCallback((id : string) => {
+        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
         return getTotalAmountPaid(payments);
-    }
+    }, [projectPayments])
 
     const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount } = useDocCountStore()
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification) => {
+    const handleNewPRSeen = (notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }
 
-    // useEffect(() => {
-    //     const currentTab = searchParams.get("tab") || "Approved PO";
-    //     setTab(currentTab);
-    //     updateURL("tab", currentTab);
-    // }, []);
-
-    const updateURL = (key, value) => {
-        const url = new URL(window.location);
+    const updateURL = (key : string, value : string) => {
+        const url = new URL(window.location.href);
         url.searchParams.set(key, value);
         window.history.pushState({}, "", url);
     };
 
-    // const setPOTab = (changeTab) => {
-    //   if (tab === changeTab) return; // Prevent redundant updates
-    //   setTab(changeTab);
-    //   updateURL("tab", changeTab);
-    // };
-
-    const onClick = (value) => {
+    const onClick = (value : string) => {
 
         if (tab === value) return; // Prevent redundant updates
-
-        const newTab = value;
-        setTab(newTab);
-        updateURL("tab", newTab);
+        setTab(value);
+        updateURL("tab", value);
 
     };
 
-    // type MenuItem = Required<MenuProps>["items"][number];
-
-    const adminTabs = [
+    const adminTabs = useMemo(() => [
         ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
             role
-          ) || user_id == "Administrator" ? [
+          ) ? [
             {
                 label: (
                     <div className="flex items-center">
                         <span>Approve PO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrCounts.approve
+                            {role === "Nirmaan Admin Profile" ? adminPrCounts.approve
                                 : prCounts.approve}
                         </span>
                     </div>
@@ -136,7 +117,7 @@ export const ReleasePOSelect = () => {
                     <div className="flex items-center">
                         <span>Approve Amended PO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminAmendPOCount
+                            {role === "Nirmaan Admin Profile" ? adminAmendPOCount
                                 : amendPOCount}
                         </span>
                     </div>
@@ -148,7 +129,7 @@ export const ReleasePOSelect = () => {
                     <div className="flex items-center">
                         <span>Approve Sent Back PO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewApproveSBCount
+                            {role === "Nirmaan Admin Profile" ? adminNewApproveSBCount
                     : newSBApproveCount}
                         </span>
                     </div>
@@ -156,15 +137,15 @@ export const ReleasePOSelect = () => {
                 value: "Approve Sent Back PO",
             },
           ] : []),
-    ]
+    ], [role, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount])
 
-    const items = [
+    const items = useMemo(() => [
         {
             label: (
                 <div className="flex items-center">
                     <span>Approved PO</span>
                     <span className="ml-2 text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewPOCount : newPOCount}
+                        {role === "Nirmaan Admin Profile" ? adminNewPOCount : newPOCount}
                     </span>
                 </div>
             ),
@@ -175,7 +156,7 @@ export const ReleasePOSelect = () => {
                 <div className="flex items-center">
                     <span>Dispatched PO</span>
                     <span className="ml-2 rounded text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminDispatchedPOCount : dispatchedPOCount}
+                        {role === "Nirmaan Admin Profile" ? adminDispatchedPOCount : dispatchedPOCount}
                     </span>
                 </div>
             ),
@@ -186,13 +167,13 @@ export const ReleasePOSelect = () => {
                 <div className="flex items-center">
                     <span>Delivered PO</span>
                     <span className="ml-2 rounded text-xs font-bold">
-                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminOtherPOCount : otherPOCount}
+                        {role === "Nirmaan Admin Profile" ? adminOtherPOCount : otherPOCount}
                     </span>
                 </div>
             ),
             value: "Delivered PO",
         },
-    ];
+    ], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminOtherPOCount, otherPOCount])
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
@@ -215,18 +196,23 @@ export const ReleasePOSelect = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`${poId}?tab=${tab}`}
-                            >
-                                {id?.toUpperCase()}
-                            </Link>
-                            {data?.custom === "true" && (
-                                <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
-                            )}
+                                <div className="flex gap-1 items-center">
+                                    <Link
+                                      className="underline hover:underline-offset-2"
+                                      to={`${poId}?tab=${tab}`}
+                                      onClick={() => handleNewPRSeen(isNew)}
+                                    >
+                                      {id?.toUpperCase()}
+                                    </Link>
+                                    <ItemsHoverCard order_list={data?.order_list?.list} />
+                                </div>
+                            
+                                    {data?.custom === "true" && (
+                                        <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
+                                    )}
                         </div>
-                    )
-                }
+                        )
+                    }
             },
             {
                 accessorKey: "procurement_request",
@@ -325,7 +311,7 @@ export const ReleasePOSelect = () => {
                     const data = row.original;
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getPOTotal(data,  parseFloat(data?.loading_charges), parseFloat(data?.freight_charges))?.total)}
+                            {formatToIndianRupee(getPOTotal(data,  parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.total)}
                         </div>
                     )
                 }
@@ -341,7 +327,7 @@ export const ReleasePOSelect = () => {
                     const data = row.original;
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getPOTotal(data,  parseFloat(data?.loading_charges), parseFloat(data?.freight_charges))?.totalAmt)}
+                            {formatToIndianRupee(getPOTotal(data,  parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.totalAmt)}
                         </div>
                     )
                 }

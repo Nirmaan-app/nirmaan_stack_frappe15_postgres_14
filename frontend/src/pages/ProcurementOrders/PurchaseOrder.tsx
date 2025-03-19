@@ -375,6 +375,7 @@ export const PurchaseOrder = ({
             item.vendor === PO?.vendor &&
             item.status === "PO Approved" &&
             item.name !== poId &&
+            item?.custom != "true" &&
             !AllPoPaymentsList?.some((j) => j?.document_name === item.name)
             // item.merged !== "true" &&
         );
@@ -599,7 +600,7 @@ const handleUnmergePOs = async () => {
 
             toast({
                 title: "Success!",
-                description: response.message,
+                description: response.message.message,
                 variant: "success",
             });
 
@@ -1045,7 +1046,7 @@ const handleUnmergePOs = async () => {
     <div className="flex-1 space-y-4">
       {!summaryPage &&
         !accountsPage &&
-        !PO?.custom &&
+        PO?.custom != "true" &&
         !estimatesViewing &&
         PO?.status === "PO Approved" &&
         PO?.merged !== "true" &&
