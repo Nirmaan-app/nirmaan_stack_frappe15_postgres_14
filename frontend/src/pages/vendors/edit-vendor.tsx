@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
+import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useFrappeGetCall,
@@ -21,7 +22,7 @@ import {
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import { ListChecks, ListRestart } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
 import ReactSelect from "react-select";
@@ -29,6 +30,7 @@ import * as z from "zod";
 
 const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
 const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
     const vendorGstSchema = isTaxGSTType
@@ -117,7 +119,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
         account_name: z.string().optional(),
         ifsc: z
                 .string()
-                .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, {
+                .regex(IFSC_REGEX, {
                   message: "Invalid IFSC code. Example: SBIN0005943"
                 })
                 .optional(),
@@ -220,21 +222,19 @@ export const EditVendor = ({ toggleEditSheet }) => {
   const { updateDoc, loading } = useFrappeUpdateDoc();
   const { toast } = useToast();
 
-  const category_options: SelectOption[] =
-    category_list?.map((item) => ({
+  const category_options: SelectOption[] = useMemo(
+    () => category_list?.map((item) => ({
       label: `${item.category_name}-(${item.work_package})`,
       value: item.category_name,
-    })) || [];
+    })) || [], [category_list]);
 
-    const service_categories = ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services", "Painting Services", "Carpentry Services", "POP Services"]
-
-  const default_options: SelectOption[] =
-    (data &&
-      JSON.parse(data?.vendor_category)?.categories?.filter(i => !service_categories.includes(i))?.map((item) => ({
+  const default_options: SelectOption[] = useMemo(
+    () => (data &&
+      JSON.parse(data?.vendor_category)?.categories?.filter(i => !SERVICECATEGORIES.includes(i))?.map((item) => ({
         label: item,
         value: item,
       }))) ||
-    [];
+    [], [data, SERVICECATEGORIES]);
 
   const [categories, setCategories] = useState(default_options || []);
 
@@ -307,7 +307,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
     let category_json = categoriesSelected
 
     if(vendorChange || data?.vendor_type === "Service" || data?.vendor_type === "Material & Service") {
-      category_json = [...categoriesSelected, ...service_categories]
+      category_json = [...categoriesSelected, ...SERVICECATEGORIES]
     }
 
     try {
