@@ -1,13 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface AllTabProps {
   workPackageTotalAmounts?: {
     [key: string]: any;
     };
-  setProjectSpendsTab?: (tab: any) => void;
+  setProjectSpendsTab: (tab: any) => void;
   segregatedServiceOrderData?: {
     [category: string]: {
         key: string;
@@ -28,13 +29,13 @@ interface AllTabProps {
 
 export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt, getTotalAmountPaid }) => {
 
-  const [totalsAmounts, setTotalsAmounts] = useState({})
+  const [totalsAmounts, setTotalsAmounts] = useState<{ [key: string]: any }>({})
 
-  const serviceTotalEstdAmt = segregatedServiceOrderData
+  const serviceTotalEstdAmt = useMemo(() => segregatedServiceOrderData
     ?.reduce((acc, i) => {
       const { estimate_total } = Object.values(i)[0];
-      return acc + parseFloat(estimate_total);
-    }, 0)
+      return acc + parseNumber(estimate_total);
+    }, 0), [segregatedServiceOrderData])
 
   useEffect(() => {
     const totalAmountsObject = { ...workPackageTotalAmounts }
@@ -44,7 +45,7 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
     setTotalsAmounts(totalAmountsObject)
   }, [serviceTotalEstdAmt, workPackageTotalAmounts, totalServiceOrdersAmt])
 
-  const columns = [
+  const columns = useMemo(() => [
     {
       title: "Work Package",
       dataIndex: "work_package",
@@ -73,7 +74,7 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
       width: "20%",
       render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
     },
-  ];
+  ], [totalsAmounts])
 
   return (
     <div className="w-full">

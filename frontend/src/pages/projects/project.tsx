@@ -1,6 +1,7 @@
 import logo from "@/assets/logo-svg.svg";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,6 +67,7 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import {
@@ -245,7 +247,7 @@ const ProjectView = ({
   const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
   const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || makeOptions?.[0]?.value);
 
-  const updateURL = useCallback((params: Record<string, string>, removeParams: string[] = []) => {
+  const updateURL = (params: Record<string, string>, removeParams: string[] = []) => {
     const url = new URL(window.location.href);
     Object.entries(params).forEach(([key, value]) => {
       url.searchParams.set(key, value);
@@ -254,30 +256,23 @@ const ProjectView = ({
       url.searchParams.delete(key);
     });
     window.history.pushState({}, '', url);
-  }, []);
+  };
 
-  const setProjectSpendsTab = useCallback(
-    (tab: string) => {
+  const setProjectSpendsTab = (tab: string) => {
       if (activeTab !== tab) {
         setActiveTab(tab);
         updateURL({ tab });
       }
-    },
-    [activeTab, updateURL]
-  );
+    }
 
-  const setProjectMakesTab = useCallback(
-    (tab: string) => {
+  const setProjectMakesTab = (tab: string) => {
       if (makesTab !== tab) {
         setMakesTab(tab);
         updateURL({ makesTab: tab });
       }
-    },
-    [makesTab, updateURL]
-  );
+    }
 
-  const onClick: MenuProps['onClick'] = useCallback(
-    (e) => {
+  const onClick: MenuProps['onClick'] = (e) => {
       if (activePage === e.key) return;
 
       const newPage = e.key;
@@ -296,9 +291,7 @@ const ProjectView = ({
         updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab']);
       }
       setActivePage(newPage);
-    },
-    [activePage, makeOptions, updateURL]
-  );
+    }
 
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList(
@@ -379,8 +372,7 @@ const ProjectView = ({
       ], // removed ["status", "!=", "PO Approved"] for now
       limit: 1000,
       orderBy: { field: "creation", order: "desc" },
-    },
-    `Procurement Orders ${projectId}`
+    }
   );
 
   const {
@@ -405,7 +397,7 @@ const ProjectView = ({
     limit: 1000,
   });
 
-  const { data: serviceRequestsData, isLoading: sRloading } =
+  const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } =
     useFrappeGetDocList<ServiceRequests>("Service Requests", {
       fields: ["*"],
       filters: [
@@ -446,10 +438,12 @@ const ProjectView = ({
     return { poAmount, srAmount, totalAmount: poAmount + srAmount };
   }, [projectPayments]);
 
-  const getUserFullName = useCallback((id : string | undefined) => {
-    if (id === "Administrator") return id;
-    return usersList?.find((user) => user?.name === id)?.full_name || "";
-  }, [usersList])
+  const getUserFullName = (id : string | undefined) => {
+    return useMemo(() => {
+      if (id === "Administrator") return id;
+      return usersList?.find((user) => user?.name === id)?.full_name || "";
+    }, [id, usersList]);
+  }
 
   useEffect(() => {
     if (usersList && projectAssignees) {
@@ -484,7 +478,7 @@ const ProjectView = ({
 
     return po_data.reduce((acc, po) => {
       if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
-        return acc + po.order_list.list.reduce((itemAcc, item) => itemAcc + item.quote * item.quantity, 0);
+        return acc + po.order_list.list.reduce((itemAcc, item) => itemAcc + parseNumber(item.quote * item.quantity), 0);
       }
       return acc;
     }, 0);
@@ -736,31 +730,37 @@ const ProjectView = ({
   });
 
 
-  const getItemStatus = useCallback((item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => {
-    return filteredPOs.some((po) =>
-      po?.order_list?.list.some((poItem) => poItem?.name === item.name)
-    );
-  }, []);
+  const getItemStatus = useMemo(
+    () => (item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => {
+      return filteredPOs.some((po) =>
+        po?.order_list?.list.some((poItem) => poItem?.name === item.name)
+      );
+    },
+    []
+  );
 
-  const statusRender = useCallback((status: string, prId: string) => {
-    const procurementRequest = pr_data?.find((pr) => pr?.name === prId);
-    const itemList = procurementRequest?.procurement_list?.list || [];
+  const statusRender = useMemo(
+    () => (status: string, prId: string) => {
+      const procurementRequest = pr_data?.find((pr) => pr?.name === prId);
+      const itemList = procurementRequest?.procurement_list?.list || [];
 
-    if (["Pending", "Approved", "Rejected"].includes(status)) {
-      return "New PR";
-    }
+      if (['Pending', 'Approved', 'Rejected', 'Draft'].includes(status)) {
+        return 'New PR';
+      }
 
-     // if (itemList?.some((i) => i?.status === "Deleted")) {
-    //   return "Open PR";
-    // }
+      const filteredPOs = po_data?.filter((po) => po?.procurement_request === prId) || [];
+      const allItemsApproved = itemList.every(
+        (item) => item?.status === 'Deleted' || getItemStatus(item, filteredPOs)
+      );
 
-    const filteredPOs = po_data?.filter((po) => po?.procurement_request === prId) || [];
-    const allItemsApproved = itemList.every((item) => item?.status === "Deleted" || getItemStatus(item, filteredPOs));
+      return allItemsApproved ? 'Approved PO' : 'Open PR';
+    },
+    [pr_data, po_data, getItemStatus]
+  );
 
-    return allItemsApproved ? "Approved PO" : "Open PR";
-  }, [pr_data, po_data, getItemStatus]);
 
-  const getTotal = useCallback((order_id: string) => {
+  const getTotal = (order_id: string) => {
+    return useMemo(() => {
     let total = 0;
     const procurementRequest = pr_data?.find((item) => item.name === order_id);
     const orderData = procurementRequest?.procurement_list;
@@ -777,14 +777,13 @@ const ProjectView = ({
       });
     } else {
       orderData?.list.forEach((item) => {
-        const quotesForItem = quote_data?.filter((value) => value.item_id === item.name && value.quote != null)?.map((value) => parseNumber(value.quote));
-        let minQuote = 0;
-        if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
-        total += minQuote * item.quantity;
+        const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
+        total += parseNumber(minQuote * item.quantity);
       });
     }
     return total || "N/A";
-  }, [pr_data, po_data, quote_data, statusRender]);
+    }, [pr_data, po_data, quote_data, statusRender, order_id]);
+  };
 
   useEffect(() => {
     if (pr_data) {
@@ -817,10 +816,15 @@ const ProjectView = ({
         );
       },
       cell: ({ row }) => {
+        const data = row.original
+        const name = data?.name
         return (
+          <div className="flex items-center gap-1">
           <Link className="text-blue-500 underline" to={row.getValue("name")}>
-            <div>{row.getValue("name").split("-")[2]}</div>
+            <div>{name?.split("-")[2]}</div>
           </Link>
+          <ItemsHoverCard order_list={data?.procurement_list.list} />
+          </div>
         );
       },
     },
@@ -919,13 +923,13 @@ const ProjectView = ({
         const categories : Set<string> = new Set();
         const categoryList = row.getValue("category_list")?.list || [];
         categoryList?.forEach((i) => {
-            categories.add(i?.name);
+            categories.add(i?.name || "");
         });
 
         return (
           <div className="flex flex-col gap-1 items-start justify-center">
             {Array.from(categories)?.map((i) => (
-              <Badge className="inline-block">i</Badge>
+              <Badge className="inline-block">{i}</Badge>
             ))}
           </div>
         );
@@ -953,15 +957,17 @@ const ProjectView = ({
     },
   ], [pr_data, statusOptions]);
 
-  const getSRTotal = useCallback((order_id: string) => {
+  const getSRTotal = (order_id: string) => {
+    return useMemo(() => {
     let total: number = 0;
     const orderData = allServiceRequestsData?.find((item) => item.name === order_id)?.service_order_list;
     orderData?.list.forEach((item) => {
-      const price = (item.rate || 0) * item.quantity;
+      const price = parseNumber(item.rate) * parseNumber(item.quantity);
       total += price;
     });
     return total;
-  }, [allServiceRequestsData]);
+    }, [allServiceRequestsData, order_id]);
+  };
 
 
   const srSummaryColumns : ColumnDef<ServiceRequests>[] = useMemo(
@@ -972,14 +978,18 @@ const ProjectView = ({
           return <DataTableColumnHeader column={column} title="SR Number" />;
         },
         cell: ({ row }) => {
-          const srId = row.getValue("name");
+          const data = row.original
+          const srId = data?.name;
           return (
-            <Link
+            <div className="flex items-center gap-1">
+              <Link
               className="text-blue-500 underline"
               to={`/service-requests-list/${srId}`}
             >
               {srId?.slice(-5)}
             </Link>
+            <ItemsHoverCard order_list={data?.service_order_list.list} isSR />
+            </div>
           );
         },
       },
@@ -1050,7 +1060,8 @@ const ProjectView = ({
     [projectId, allServiceRequestsData]
   );
 
-  const getPOTotal = useCallback((order_id: string) => {
+  const getPOTotal = (order_id: string) => {
+    return useMemo(() => {
     let total: number = 0;
     let totalWithGST: number = 0;
     const po = po_data_for_posummary?.find((item) => item.name === order_id);
@@ -1071,19 +1082,22 @@ const ProjectView = ({
     totalWithGST += loading_charges * 1.18 + freight_charges * 1.18;
 
     return { totalWithoutGST: total, totalWithGST: totalWithGST };
-  }, [po_data_for_posummary]);
+    }, [po_data_for_posummary, order_id]);
+  }
 
 
-  const getWorkPackageName = useCallback((poId: string) => {
+  const getWorkPackageName = (poId: string) => {
+    return useMemo(() => {
     const po = po_data_for_posummary?.find((j) => j?.name === poId);
     return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
-  }, [po_data_for_posummary, pr_data]);
+    }, [po_data_for_posummary, pr_data, poId]);
+  }
 
 
   const wpOptions = useMemo(() => {
     try {
       if (data && data.project_work_packages) {
-        const workPackages: WorkPackage[] = JSON.parse(data.project_work_packages)?.work_packages;
+        const workPackages = JSON.parse(data.project_work_packages)?.work_packages;
         return workPackages?.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })) || [];
       }
       return [];
@@ -1094,10 +1108,12 @@ const ProjectView = ({
   }, [data]);
 
 
-  const getTotalAmountPaidPOWise = useCallback((id: string) => {
+  const getTotalAmountPaidPOWise =(id: string) => {
+    return useMemo(() => {
     const payments = projectPayments?.filter((payment) => payment.document_name === id);
     return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-  }, [projectPayments]);
+    }, [projectPayments, id]);
+  }
 
 
   // console.log("wpOtions", wpOptions)
@@ -1110,7 +1126,8 @@ const ProjectView = ({
           return <DataTableColumnHeader column={column} title="ID" />;
         },
         cell: ({ row }) => {
-          const id = row.getValue("name");
+          const data = row.original
+          const id = data?.name;
           return (
             <div className="font-medium flex items-center gap-2 relative">
               <Link
@@ -1119,6 +1136,7 @@ const ProjectView = ({
               >
                 {id}
               </Link>
+              <ItemsHoverCard order_list={data?.order_list.list} />
             </div>
           );
         },
@@ -1312,7 +1330,7 @@ const ProjectView = ({
     }
   };
 
-  const groupItemsByWorkPackageAndCategory = useCallback((items : po_item_data_item[] | undefined) => {
+  const groupItemsByWorkPackageAndCategory = useMemo(() => (items : po_item_data_item[] | undefined) => {
     const totals: { [key: string]: { amountWithTax: number; amountWithoutTax: number } } = {};
 
     const allItemIds : string[] = [];
@@ -1396,7 +1414,7 @@ const ProjectView = ({
     })
 
     return { groupedData, totals };
-  }, [project_estimates]);
+    }, [project_estimates, items]);
 
   useEffect(() => {
     if (!po_item_data || !project_estimates) return;
@@ -1409,7 +1427,7 @@ const ProjectView = ({
 
     filteredPOPayments?.forEach(i => {
       const po = po_data?.find(j => j?.name === i?.document_name)
-      const workPackage = pr_data?.find(j => j?.name === po?.procurement_request)?.work_package
+      const workPackage = pr_data?.find(j => j?.name === po?.procurement_request)?.work_package || ""
       if (!totalAmountPaidWPWise[workPackage]) totalAmountPaidWPWise[workPackage] = 0
       totalAmountPaidWPWise[workPackage] += parseNumber(i?.amount)
     })
@@ -1534,7 +1552,8 @@ const ProjectView = ({
     }
   }, [data?.status, projectStatuses]);
 
-  const segregateServiceOrderData = useCallback((serviceRequestsData : ServiceRequests[] | undefined) => {
+  const segregateServiceOrderData = (serviceRequestsData : ServiceRequests[] | undefined) => {
+    return useMemo(() => {
     const result : { [category: string]: { key: string; unit: string; quantity: number; amount: number; children: any[]; estimate_total: number } }[] = [];
     const servicesEstimates = project_estimates?.filter(
       (p) => p?.work_package === "Services"
@@ -1543,7 +1562,7 @@ const ProjectView = ({
     serviceRequestsData?.forEach((serviceRequest) => {
       serviceRequest.service_order_list.list?.forEach((item) => {
         const { category, uom, quantity, rate } = item;
-        const amount = parseNumber(quantity) || 1 * parseNumber(rate);
+        const amount = (parseNumber(quantity) || 1) * parseNumber(rate);
 
         const existingCategory = result.find((entry) => entry[category]);
 
@@ -1576,12 +1595,10 @@ const ProjectView = ({
     });
 
     return result;
-  }, [project_estimates]);
+    }, [project_estimates, serviceRequestsData]);
+  }
 
-  const segregatedServiceOrderData = useMemo(
-    () => segregateServiceOrderData(serviceRequestsData),
-    [serviceRequestsData]
-  );
+  const segregatedServiceOrderData = segregateServiceOrderData(approvedServiceRequestsData)
 
   const totalServiceOrdersAmt = useMemo(
     () =>
@@ -1590,11 +1607,11 @@ const ProjectView = ({
         const { amount } = item[category];
         return acc + parseNumber(amount);
       }, 0),
-    [segregatedServiceOrderData]
+    [segregatedServiceOrderData, approvedServiceRequestsData]
   );
 
-  const getAllSRsTotal =useMemo(() => {
-    const totalAmount = serviceRequestsData?.reduce((total, item) => {
+  const getAllSRsTotal = useMemo(() => {
+    const totalAmount = approvedServiceRequestsData?.reduce((total, item) => {
       const gst = item?.gst === "true" ? 1.18 : 1;
       const amount = item?.service_order_list?.list?.reduce((srTotal, i) => {
         const srAmount = parseNumber(i.rate) * parseNumber(i.quantity) * gst;
@@ -1605,7 +1622,7 @@ const ProjectView = ({
 
     return totalAmount;
 
-  }, [serviceRequestsData])
+  }, [approvedServiceRequestsData])
 
   // console.log("seggregatedService", segregatedServiceOrderData);
 
@@ -2240,7 +2257,6 @@ const ProjectView = ({
               )}
               <div>
                 <ServiceRequestsAccordion
-                  projectEstimates={project_estimates}
                   segregatedData={segregatedServiceOrderData}
                 />
               </div>

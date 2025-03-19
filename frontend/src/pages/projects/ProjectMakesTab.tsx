@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import { Radio } from "antd";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import ReactSelect from "react-select";
 
@@ -16,7 +16,7 @@ interface ProjectMakesTabProps {
     value: string;
 }[];
   makesTab?: string;
-  setProjectMakesTab?: (tab: any) => void;
+  setProjectMakesTab: (tab: any) => void;
   project_mutate?: any;
 }
 
@@ -65,7 +65,7 @@ export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData, 
       const categoryMakes = categoryMakeList?.filter((i) => i?.category === editCategory?.name)?.map(j => ({ label: j?.make, value: j?.make })) || []
       setReactSelectOptions(categoryMakes)
     }
-  }, [editCategory])
+  }, [editCategory, categoryMakeList])
 
   const handleUpdateMakes = async () => {
     try {
