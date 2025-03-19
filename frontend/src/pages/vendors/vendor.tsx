@@ -6,6 +6,7 @@
 
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,8 +26,13 @@ import {
   TableSkeleton,
 } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import { ConfigProvider, Menu, MenuProps } from "antd";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -44,68 +50,7 @@ import { Link, useParams } from "react-router-dom";
 import { ApprovedSRList } from "../ServiceRequests/service-request/approved-sr-list";
 import { EditVendor } from "./edit-vendor";
 
-// const Vendor = () => {
-
-//     const { vendorId } = useParams<{ vendorId: string }>()
-
-//     return (
-//         <div>
-//             {vendorId && <VendorView vendorId={vendorId} />}
-//         </div>
-//     )
-// }
-
-// export const Component = Vendor
-
-// const VendorView = ({ vendorId }: { vendorId: string }) => {
-
-//     const navigate = useNavigate();
-
-//     const { data, error, isLoading } = useFrappeGetDoc<Vendors>(
-//         'Vendors',
-//         `${vendorId}`
-//     );
-
-//     if (isLoading) return <h1>Loading..</h1>
-//     if (error) return <h1 className="text-red-700">{error.message}</h1>
-//     return (
-//         <div className="flex-1 space-y-4 p-8 pt-4">
-//             {data &&
-//                 <>
-//                     <div className="flex items-center justify-between space-y-2">
-//                         <div className="flex">
-//                             <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/vendors")} />
-//                             <h2 className="pl-1 text-2xl font-bold tracking-tight">{data.vendor_name}</h2>
-//                         </div>
-//                         <div className="flex space-x-2">
-//                             {/* <Button onClick={handlePrint}>
-//                             Report
-//                         </Button>
-//                         <Button onClick={handlePrint2}>
-//                             Schedule
-//                         </Button>*/}
-//                             <Button asChild>
-//                                 <Link to={`/vendors/${vendorId}/edit`}> Edit Vendor</Link>
-//                             </Button>
-//                         </div>
-//                     </div>
-//                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-
-//                     </div>
-//                 </>
-//             }
-//         </div>
-//     )
-// }
-
-type PRTable = {
-  name: string;
-  project_name: string;
-  creation: string;
-  category: string;
-};
-
-const Vendor = () => {
+const Vendor : React.FC = () => {
   const { vendorId } = useParams<{ vendorId: string }>();
 
   return <div>{vendorId && <VendorView vendorId={vendorId} />}</div>;
@@ -132,9 +77,12 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     ifsc: "",
   });
 
-  const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+  const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
-  const handleFileChange = (event) => {
+  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+    if (!event.target?.files) {
+      return;
+    }
     setPaymentScreenshot(event.target.files[0]);
   };
 
@@ -175,6 +123,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
       );
 
   const [ifscError, setIfscError] = useState("");
+
   const debouncedIFSCChange = useCallback(
     debounce((value: string) => {
       if(!value) {
@@ -226,22 +175,13 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     }
   }
 
-  const {
-    data: vendorAddress,
-    isLoading: vendorAddressLoading,
-    error: vendorAddressError,
-  } = useFrappeGetDoc(
+  const { data: vendorAddress, isLoading: vendorAddressLoading, error: vendorAddressError } = useFrappeGetDoc(
     "Address",
     data?.vendor_address,
     data?.vendor_address ? `Address ${data?.vendor_address}` : null
   );
 
-  const {
-    data: procurementOrders,
-    isLoading: procurementOrdersLoading,
-    error: procurementOrdersError,
-  } = useFrappeGetDocList(
-    "Procurement Orders",
+  const { data: procurementOrders, isLoading: procurementOrdersLoading, error: procurementOrdersError } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders",
     {
       fields: ["*"],
       filters: [
@@ -253,10 +193,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     `Procurement Orders ${vendorId}`
   );
 
-  const {
-    data: Categories,
-  } = useFrappeGetDocList(
-    "Category",
+  const { data: Categories } = useFrappeGetDocList("Category",
     {
       fields: ["*"],
       limit: 10000,
@@ -264,12 +201,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     "Category"
   );
 
-  const {
-    data: procurementRequests,
-    isLoading: procurementRequestsLoading,
-    error: procurementRequestsError,
-  } = useFrappeGetDocList(
-    "Procurement Requests",
+  const { data: procurementRequests, isLoading: procurementRequestsLoading, error: procurementRequestsError } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
     {
       fields: ["*"],
       limit: 100000,
@@ -277,17 +209,17 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     `Procurement Requests`
   );
 
-  const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList("Projects", {
+  const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["name", "project_name"],
     limit: 1000,
   });
 
-const projectValues = projects?.map((item) => ({
+const projectValues = useMemo(() => projects?.map((item) => ({
   label: item.project_name,
   value: item.name,
-})) || [];
+})) || [], [projects]);
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList("Project Payments",
+  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments",
     {
       fields: ["*"],
       filters: [["vendor", "=", vendorId], ["status", "=", "Paid"]],
@@ -298,12 +230,12 @@ const projectValues = projects?.map((item) => ({
 
   type MenuItem = Required<MenuProps>["items"][number];
 
-  const items: MenuItem[] = [
+  const items: MenuItem[] = useMemo(() => [
     {
       label: "Overview",
       key: "overview",
     },
-    ["Material", "Material & Service"].includes(data?.vendor_type)
+    ["Material", "Material & Service"].includes(data?.vendor_type || "")
       ? {
         label: "Material Orders",
         key: "materialOrders",
@@ -321,7 +253,7 @@ const projectValues = projects?.map((item) => ({
     //     key: "openOrders",
     //   }
     //   : null,
-    ["Service", "Material & Service"].includes(data?.vendor_type)
+    ["Service", "Material & Service"].includes(data?.vendor_type || "")
       ? {
         label: "Service Orders",
         key: "serviceOrders",
@@ -331,7 +263,7 @@ const projectValues = projects?.map((item) => ({
         label: "Vendor Payments",
         key: "vendorPayments",
       },
-  ];
+  ], [data]);
 
   const [current, setCurrent] = useState("overview");
 
@@ -339,20 +271,23 @@ const projectValues = projects?.map((item) => ({
     setCurrent(e.key);
   };
 
-  const getWorkPackage = (pr: any, procRequests: any) => {
-    return procRequests?.find((proc) => proc.name === pr)?.work_package;
-  };
+  const getWorkPackage = (pr: string, procRequests: ProcurementRequest[]) => {
+    return useMemo(() =>
+      procRequests?.find((proc) => proc.name === pr)?.work_package || "",
+      [procRequests, pr]
+    );
+  }
 
   const getCategories = (ol: any) => {
-    return Array.from(new Set(ol?.list?.map((order: any) => order.category)));
-  };
+    return useMemo(() => Array.from(new Set(ol?.list?.map((order: any) => order.category))), [ol]);
+  }
 
 
-  const getTotal = (ol, id) => {
+  const getTotal = (ol : any, id : string) => {
     return useMemo(() => {
       // Calculate PO Amount without GST
       const poAmountWithoutGST = ol.list.reduce((total, item) => {
-        return total + item.quantity * item.quote;
+        return total + parseNumber(item.quantity * item.quote);
       }, 0);
 
       // Calculate PO Amount with GST
@@ -365,7 +300,7 @@ const projectValues = projects?.map((item) => ({
       // Calculate Total Amount Paid
       const payments = projectPayments?.filter((payment) => payment.document_name === id);
       const totalAmountPaid = payments?.reduce((acc, payment) => {
-        const amount = parseFloat(payment.amount || 0);
+        const amount = parseNumber(payment.amount);
         return acc + amount;
       }, 0) || 0;
 
@@ -391,8 +326,7 @@ const projectValues = projects?.map((item) => ({
     }));
   };
 
-  const vendorCategories =
-    (data && JSON.parse(data?.vendor_category)?.categories) || [];
+  const vendorCategories = useMemo(() => (data && data?.vendor_category && JSON.parse(data?.vendor_category)?.categories) || [], [data]);
 
   const groupedCategories: { [key: string]: string[] } = useMemo(() => {
     if (!Categories || !vendorCategories.length) return {};
@@ -418,7 +352,7 @@ const projectValues = projects?.map((item) => ({
 
   useEffect(() => {
     const initialExpandedState = Object.keys(groupedCategories).reduce(
-      (acc, work_package) => {
+      (acc : Record<string, boolean>, work_package) => {
         acc[work_package] = true;
         return acc;
       },
@@ -427,7 +361,7 @@ const projectValues = projects?.map((item) => ({
     setExpandedPackages(initialExpandedState);
   }, [groupedCategories]);
 
-  const columns: ColumnDef<PRTable>[] = useMemo(
+  const columns: ColumnDef<ProcurementOrder>[] = useMemo(
     () => [
       {
         accessorKey: "name",
@@ -441,14 +375,17 @@ const projectValues = projects?.map((item) => ({
           );
         },
         cell: ({ row }) => {
+          const data = row.original
+          const poId = data?.name
           return (
-            <div className="text-[#11050599]">
+            <div className="text-[#11050599] flex items-center gap-2">
               <Link
                 className="underline hover:underline-offset-2"
-                to={`${row.getValue("name").replaceAll("/", "&=")}`}
+                to={poId?.replaceAll("/", "&=")}
               >
-                {row.getValue("name").split("/")[1]}
+                {poId?.split("/")[1]}
               </Link>
+              <ItemsHoverCard  order_list={data.order_list?.list} />
             </div>
           );
         },
@@ -508,7 +445,7 @@ const projectValues = projects?.map((item) => ({
         );
           return (
             <div className="text-[#11050599] min-w-[100px]">
-              {project?.label}
+              {project?.label || "--"}
             </div>
           );
         },
@@ -606,7 +543,7 @@ const projectValues = projects?.map((item) => ({
 
   const siteUrl = `${window.location.protocol}//${window.location.host}`;
 
-  const paymentColumns = useMemo(
+  const paymentColumns : ColumnDef<ProjectPayments>[] = useMemo(
     () => [
       {
         accessorKey: "utr",
@@ -1053,16 +990,16 @@ const AddScreenShot = async () => {
             </AlertDialog>
 
 
-    {current === "materialOrders" &&
-        (procurementOrdersLoading || procurementRequestsLoading ? (
-          <TableSkeleton />
-        ) : (
-          <DataTable
-            columns={columns}
-            data={procurementOrders || []}
-            project_values={projectValues}
-          />
-        ))}
+                    {current === "materialOrders" &&
+                      (procurementOrdersLoading || procurementRequestsLoading ? (
+                        <TableSkeleton />
+                      ) : (
+                        <DataTable
+                          columns={columns}
+                          data={procurementOrders || []}
+                          project_values={projectValues}
+                        />
+                    ))}
 
                           <AlertDialog open={screenShotDialog} onOpenChange={toggleScreenShotDialog}>
                             <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
@@ -1115,36 +1052,6 @@ const AddScreenShot = async () => {
                                 </AlertDialogHeader>
                             </AlertDialogContent>
                         </AlertDialog>
-
-      {/* Previous Orders Section  */}
-
-      {/* {current === "previousOrders" &&
-        (procurementOrdersLoading || procurementRequestsLoading ? (
-          <TableSkeleton />
-        ) : (
-          <DataTable
-            columns={columns}
-            data={procurementOrders?.filter((po) =>
-              ["Dispatched", "Partially Delivered", "Delivered"].includes(
-                po.status
-              )
-            )}
-          />
-        ))} */}
-
-      {/* Open Orders Section  */}
-
-      {/* {current === "openOrders" &&
-        (procurementOrdersLoading || procurementRequestsLoading ? (
-          <TableSkeleton />
-        ) : (
-          <DataTable
-            columns={columns}
-            data={procurementOrders?.filter((po) =>
-              ["PO Approved", "PO Sent", "PO Amendment"].includes(po.status)
-            )}
-          />
-        ))} */}
 
       {/* Transactions Section  */}
 

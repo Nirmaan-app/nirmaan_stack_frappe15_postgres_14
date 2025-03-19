@@ -23,7 +23,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
 import { CheckCheck, Info, Share } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 export const AllPayments : React.FC = () => {
 
@@ -137,7 +137,17 @@ export const AllPayments : React.FC = () => {
                       const vendor = vendorValues.find(
                           (vendor) => vendor.value === row.getValue("vendor")
                       );
-                      return vendor ? <div className="font-medium text-blue-600 underline"><Link to={`/vendors/${vendor.value}`}>{vendor.label}</Link></div> : null;
+                      return <div className="font-medium items-baseline min-w-[170px]">
+                        {vendor?.label || ""}
+                        <HoverCard>
+                              <HoverCardTrigger>
+                                  <Info onClick={() => navigate(`/vendors/${vendor?.value}`)} className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1" />
+                              </HoverCardTrigger>
+                              <HoverCardContent>
+                                  Click on to navigate to the Vendor screen!
+                              </HoverCardContent>
+                          </HoverCard>
+                      </div>;
                   },
                   filterFn: (row, id, value) => {
                       return value.includes(row.getValue(id))

@@ -1,5 +1,6 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -306,19 +307,24 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
                 accessorKey: "name",
                 header: "ID",
                 cell: ({ row }) => {
-                    const id = row.getValue("name");
+                    const data = row.original
+                    const id = data?.name;
                     const poId = id?.replaceAll("/", "&=")
+                    const isPO = data?.type === "Purchase Order"
                     const isNew = notifications.find(
-                        (item) => item.docname === id && item.seen === "false" && item.event_id === (row.original.type === "Purchase Order" ? "po:new" : "sr:approved")
+                        (item) => item.docname === id && item.seen === "false" && item.event_id === (isPO ? "po:new" : "sr:approved")
                     )
                     return (
                         <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
+                            <div className="flex items-center gap-1">
                             <Link to={`${poId}`} className="underline hover:underline-offset-2">
                                 {id}
                             </Link>
+                            <ItemsHoverCard isSR={!isPO} order_list={isPO ?  data?.order_list.list : data?.service_order_list.list} />
+                            </div>
                         </div>
                     );
                 },

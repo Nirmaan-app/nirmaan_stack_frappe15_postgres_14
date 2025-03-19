@@ -29,9 +29,9 @@ export const ItemsHoverCard : React.FC<ItemsHoverCardProps> = ({order_list, isSB
                             <TableHead>Unit</TableHead>
                             <TableHead>Qty</TableHead>
                             <TableHead>Rate</TableHead>
-                            {!isSR && (
+                            {/* {!isSR && (
                               <TableHead>Make</TableHead>
-                            )}
+                            )} */}
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -42,7 +42,7 @@ export const ItemsHoverCard : React.FC<ItemsHoverCardProps> = ({order_list, isSB
                               <TableCell>{isSR ? item.uom : item.unit}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
                               <TableCell>{formatToIndianRupee(isSR ? item?.rate : item.quote)}</TableCell>
-                              {!isSR && (
+                              {/* {!isSR && (
                                 (isPR || isSB) ? (
                                   <TableCell>
                                   {item?.make || "--"}
@@ -52,7 +52,7 @@ export const ItemsHoverCard : React.FC<ItemsHoverCardProps> = ({order_list, isSB
                                   {item.makes?.list?.find((i) => i?.enabled === "true")?.make || "--"}
                                 </TableCell>
                                 )
-                              )}
+                              )} */}
                             </TableRow>
                           ))}
                         </TableBody>
