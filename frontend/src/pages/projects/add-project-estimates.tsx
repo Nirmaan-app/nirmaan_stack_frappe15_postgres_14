@@ -15,15 +15,15 @@ import { TailSpin } from "react-loader-spinner";
 import { useParams, useSearchParams } from "react-router-dom";
 import ReactSelect from 'react-select';
 import { Label, Pie, PieChart } from "recharts";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { Input } from "./ui/input";
-import { Skeleton } from "./ui/skeleton";
-import { Textarea } from "./ui/textarea";
-import { toast } from "./ui/use-toast";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../../components/ui/dialog";
+import { Input } from "../../components/ui/input";
+import { Skeleton } from "../../components/ui/skeleton";
+import { Textarea } from "../../components/ui/textarea";
+import { toast } from "../../components/ui/use-toast";
 
 const chartConfig = {
     visitors: {

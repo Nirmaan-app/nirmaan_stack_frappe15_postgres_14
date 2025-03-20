@@ -62,6 +62,7 @@ import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
@@ -84,7 +85,6 @@ import {
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import {
-  ArrowDown,
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -106,11 +106,12 @@ import {
 } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 import { v4 as uuidv4 } from "uuid";
-import { Component as ProjectEstimates } from '../../components/add-project-estimates';
+import { Component as ProjectEstimates } from './add-project-estimates';
 import { AllTab } from "./AllTab";
 import { CategoryAccordion } from "./CategoryAccordion";
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
+import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMakesTab } from "./ProjectMakesTab";
 import { ServiceRequestsAccordion } from "./ServiceRequestsAccordion";
 
@@ -294,7 +295,7 @@ const ProjectView = ({
     }
 
 
-  const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList(
+  const { data: mile_data } = useFrappeGetDocList(
     "Project Work Milestones",
     {
       fields: ["*"],
@@ -312,9 +313,7 @@ const ProjectView = ({
 
   const {
     data: project_estimates,
-    isLoading: project_estimates_loading,
-    error: project_estimates_error,
-  } = useFrappeGetDocList("Project Estimates", {
+  } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 10000,
@@ -408,9 +407,7 @@ const ProjectView = ({
     });
 
   const {
-    data: vendorsList,
-    isLoading: vendorsListLoading,
-    error: vendorsError,
+    data: vendorsList
   } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type"],
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
@@ -468,8 +465,6 @@ const ProjectView = ({
       setUserOptions(options);
     }
   }, [usersList, projectAssignees]);
-
-  // console.log("poData", po_data)
 
   const totalPosRaised = useMemo(() => {
     if (!po_data || po_data.length === 0) {
@@ -540,7 +535,7 @@ const ProjectView = ({
 
   type MenuItem = Required<MenuProps>["items"][number];
 
-  const items: MenuItem[] = [
+  const items: MenuItem[] = useMemo(() => [
     {
       label: "Overview",
       key: "overview",
@@ -571,6 +566,10 @@ const ProjectView = ({
         key: "projectspends",
       }
       : null,
+    role === "Nirmaan Admin Profile" ? {
+      label: "Financials",
+      key : "projectfinancials",
+    } : null,
     {
       label: "Project Estimates",
       key: "projectestimates"
@@ -579,7 +578,7 @@ const ProjectView = ({
       label: "Project Makes",
       key: "projectmakes"
     }
-  ];
+  ], [role]);
 
   const [areaNames, setAreaNames] = useState(null);
 
@@ -1115,9 +1114,6 @@ const ProjectView = ({
     }, [projectPayments, id]);
   }
 
-
-  // console.log("wpOtions", wpOptions)
-
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
       {
@@ -1161,11 +1157,11 @@ const ProjectView = ({
           return <DataTableColumnHeader column={column} title="Work Package" />;
         },
         cell: ({ row }) => {
-          const po = row.getValue("name");
+          const po : string = row.getValue("name");
           return <div className="font-medium">{getWorkPackageName(po)}</div>;
         },
         filterFn: (row, id, value) => {
-          const rowValue = row.getValue(id);
+          const rowValue : string = row.getValue(id);
           // console.log("rowvalue", rowValue)
           // console.log("value", value)
           const renderValue = getWorkPackageName(rowValue);
@@ -1384,17 +1380,17 @@ const ProjectView = ({
       return acc;
     }, {}) || {};
 
-    const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item))
+    const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item || ""))
 
     filteredProjectEstimates?.forEach((item) => {
-      if (!groupedData[item?.work_package]) {
-        groupedData[item?.work_package] = {};
+      if (!groupedData[item?.work_package || ""]) {
+        groupedData[item?.work_package || ""] = {};
       }
-      if (!groupedData[item?.work_package][item?.category]) {
-        groupedData[item?.work_package][item?.category] = [];
+      if (!groupedData[item?.work_package || ""][item?.category || ""]) {
+        groupedData[item?.work_package || ""][item?.category || ""] = [];
       }
 
-      groupedData[item.work_package][item.category].push({
+      groupedData[item.work_package || ""][item.category || ""].push({
         item_id: item.item,
         item_name: item.item_name,
         unit: item?.uom,
@@ -1450,12 +1446,6 @@ const ProjectView = ({
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
-
-  // console.log("categorizedData", categorizedData)
-
-  // console.log("workPackageTotals", workPackageTotalAmounts)
-
-  // console.log("groupeddata", categorizedData)
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -1514,10 +1504,6 @@ const ProjectView = ({
     setPopOverOpen((prevState) => !prevState);
   };
 
-  // const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
-
-  // workPackages.push({work_package_name : "Tool & Equipments"})
-
   useEffect(() => {
     if (data) {
       const workPackages =
@@ -1573,7 +1559,7 @@ const ProjectView = ({
         const estimate_total = estimateItem?.reduce(
           (acc, i) => acc + parseNumber(i?.quantity_estimate * i?.rate_estimate),
           0
-        );
+        ) || 0;
 
         if (existingCategory) {
           existingCategory[category].quantity += parseNumber(quantity);
@@ -1624,16 +1610,6 @@ const ProjectView = ({
 
   }, [approvedServiceRequestsData])
 
-  // console.log("seggregatedService", segregatedServiceOrderData);
-
-  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt)
-
-  // console.log("service requests", serviceRequestsData)
-
-  // console.log("segregatedServicedata", segregatedServiceOrderData);
-
-  // console.log("new status", newStatus)
-
   const handleConfirmStatus = async () => {
     try {
       await updateDoc("Projects", data?.name, { status: newStatus });
@@ -1663,22 +1639,6 @@ const ProjectView = ({
   const statusIcon = useMemo(() => projectStatuses.find(
     (s) => s.value === data?.status
   )?.icon, [data?.status]);
-
-  // console.log("options", options)
-
-  // console.log("selectedPackage", selectedPackage)
-
-  // console.log("categorizedData", categorizedData);
-
-  // console.log("projectEstimates", project_estimates);
-
-  // console.log("workPackageTotalAmounts", workPackageTotalAmounts);
-
-  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt);
-
-  // console.log("activePage", activePage)
-
-  // console.log("activeTab", activeTab)
 
   return (
     <div className="flex-1 space-y-4">
@@ -2245,24 +2205,16 @@ const ProjectView = ({
             <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} getTotalAmountPaid={getTotalAmountPaid} />
           )}
 
-          {["Services"].includes(activeTab) && (
-            <div>
-              {activeTab === "All" && (
-                <div className="flex gap-2 items-center mb-4">
-                  <h2 className="font-semibold text-gray-500">
-                    Service Requests
-                  </h2>
-                  <ArrowDown className="w-4 h-4" />
-                </div>
-              )}
-              <div>
+          {activeTab === "Services" && (
                 <ServiceRequestsAccordion
                   segregatedData={segregatedServiceOrderData}
                 />
-              </div>
-            </div>
           )}
         </>
+      )}
+
+      {activePage === "projectfinancials" && (
+        <ProjectFinancialsTab />
       )}
 
       {activePage === "projectestimates" && (

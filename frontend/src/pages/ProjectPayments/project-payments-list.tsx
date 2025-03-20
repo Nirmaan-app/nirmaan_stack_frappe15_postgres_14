@@ -164,7 +164,8 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
         return {total: 0, totalWithTax: 0};
     };
 
-    const getAmountPaid =  useCallback((id : string) => {
+    const getAmountPaid =  useMemo(
+        () => (id : string) => {
         const payments = projectPayments?.filter((payment) => payment.document_name === id) || [];
         return getTotalAmountPaid(payments);
     }, [projectPayments])
