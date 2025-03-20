@@ -380,7 +380,9 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
                     <CardHeader>
                         <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
                         {categories.map((cat) => (
-                            <div className="overflow-x-auto w-full" key={cat.name}>
+                            (categoryItems(cat)?.length > 0 || requestedItems(cat)?.length > 0) && (
+
+                                <div className="overflow-x-auto w-full" key={cat.name}>
                                 <Table>
                                     <TableHeader>
                                         <TableRow className="bg-red-100">
@@ -424,6 +426,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
                                     </TableBody>
                                 </Table>
                             </div>
+                            )
                         ))}
                     </CardHeader>
                 </Card>
