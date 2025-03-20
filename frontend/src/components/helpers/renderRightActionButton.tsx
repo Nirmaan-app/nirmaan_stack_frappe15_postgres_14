@@ -106,11 +106,11 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New SR</span>
       </Button>
     );
-  } else if (locationPath === "/items") {
+  } else if (locationPath === "/products") {
     return (
       <Button onClick={toggleNewItemDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">New Item</span>
+        Add <span className="hidden md:flex pl-1">New Product</span>
       </Button>
     );
   } else if (

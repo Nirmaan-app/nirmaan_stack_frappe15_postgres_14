@@ -382,9 +382,9 @@ const router = createBrowserRouter(
           </Route>
 
           {/* Item Paths  */}
-          <Route path="items">
+          <Route path="products">
             <Route index element={<Items />} />
-            <Route path=":itemId" lazy={() => import("@/pages/Items/item")} />
+            <Route path=":productId" lazy={() => import("@/pages/Items/item")} />
           </Route>
 
           {/* Vendor Paths  */}
@@ -438,7 +438,7 @@ const router = createBrowserRouter(
           {/* Other routes */}
           <Route path="wp" element={<WorkPackages />} />
           <Route
-            path="procurement-packages"
+            path="product-packages"
             element={<ProcurementPackages />}
           />
           <Route path="pdf" element={<PDF />} />

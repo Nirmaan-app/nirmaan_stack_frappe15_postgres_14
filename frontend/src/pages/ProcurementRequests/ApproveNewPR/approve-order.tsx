@@ -1,3 +1,4 @@
+import { SelectUnit } from "@/components/helpers/SelectUnit";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1475,62 +1476,10 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                                                         *
                                                       </sup>
                                                     </label>
-                                                    <Select
+                                                    <SelectUnit 
                                                       value={unit}
-                                                      onValueChange={(value) =>
-                                                        setUnit(value)
-                                                      }
-                                                    >
-                                                      <SelectTrigger>
-                                                        <SelectValue
-                                                          className="text-gray-200"
-                                                          placeholder="Select Unit"
-                                                        />
-                                                      </SelectTrigger>
-                                                      <SelectContent>
-                                                        {/* <SelectItem value="PCS">PCS</SelectItem> */}
-                                                        <SelectItem value="BOX">
-                                                          BOX
-                                                        </SelectItem>
-                                                        <SelectItem value="ROLL">
-                                                          ROLL
-                                                        </SelectItem>
-                                                        {/* <SelectItem value="PKT">PKT</SelectItem> */}
-                                                        <SelectItem value="LENGTH">
-                                                          LTH
-                                                        </SelectItem>
-                                                        <SelectItem value="MTR">
-                                                          MTR
-                                                        </SelectItem>
-                                                        <SelectItem value="NOS">
-                                                          NOS
-                                                        </SelectItem>
-                                                        <SelectItem value="KGS">
-                                                          KGS
-                                                        </SelectItem>
-                                                        <SelectItem value="PAIRS">
-                                                          PAIRS
-                                                        </SelectItem>
-                                                        <SelectItem value="PACKS">
-                                                          PACKS
-                                                        </SelectItem>
-                                                        <SelectItem value="DRUM">
-                                                          DRUM
-                                                        </SelectItem>
-                                                        <SelectItem value="SQMTR">
-                                                          SQMTR
-                                                        </SelectItem>
-                                                        <SelectItem value="LTR">
-                                                          LTR
-                                                        </SelectItem>
-                                                        <SelectItem value="BUNDLE">
-                                                          BUNDLE
-                                                        </SelectItem>
-                                                        <SelectItem value="FEET">
-                                                          FEET
-                                                        </SelectItem>
-                                                      </SelectContent>
-                                                    </Select>
+                                                      onValueChange={(value) => setUnit(value)}
+                                                    />
                                                   </div>
 
                                                   <div className="w-[40%]">
@@ -2026,40 +1975,14 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
                             Item Unit
                             <sup className="text-sm text-red-600">*</sup>
                           </label>
-                          <Select
-                            value={newItem?.unit_name}
+                          <SelectUnit
+                            value={newItem?.unit_name || ""}
                             disabled={!curCategory}
-                            onValueChange={(value) =>
-                              setNewItem((prevState) => ({
-                                ...prevState,
-                                unit_name: value,
-                              }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                className="text-gray-200"
-                                placeholder="Select Unit"
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {/* <SelectItem value="PCS">PCS</SelectItem> */}
-                              <SelectItem value="BOX">BOX</SelectItem>
-                              <SelectItem value="ROLL">ROLL</SelectItem>
-                              {/* <SelectItem value="PKT">PKT</SelectItem> */}
-                              <SelectItem value="LENGTH">LTH</SelectItem>
-                              <SelectItem value="MTR">MTR</SelectItem>
-                              <SelectItem value="NOS">NOS</SelectItem>
-                              <SelectItem value="KGS">KGS</SelectItem>
-                              <SelectItem value="PAIRS">PAIRS</SelectItem>
-                              <SelectItem value="PACKS">PACKS</SelectItem>
-                              <SelectItem value="DRUM">DRUM</SelectItem>
-                              <SelectItem value="SQMTR">SQMTR</SelectItem>
-                              <SelectItem value="LTR">LTR</SelectItem>
-                              <SelectItem value="BUNDLE">BUNDLE</SelectItem>
-                              <SelectItem value="FEET">FEET</SelectItem>
-                            </SelectContent>
-                          </Select>
+                            onChange={(value) => setNewItem((prevState) => ({
+                              ...prevState,
+                              unit_name: value,
+                            }))}
+                          />
                         </div>
                         <div className="flex flex-col gap-1 w-1/2 items-start">
                           <label
