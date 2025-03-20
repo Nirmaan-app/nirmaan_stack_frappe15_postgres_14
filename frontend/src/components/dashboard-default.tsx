@@ -1,8 +1,8 @@
-import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { HardHat, UsersRound, Package, ShoppingCart, SquareUserRound, Boxes } from "lucide-react";
+import { Boxes, HardHat, Package, ShoppingCart, SquareUserRound, UsersRound } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export const Default = () => {
 
@@ -138,10 +138,10 @@ export const Default = () => {
                         </Link>
                     </Card> */}
                     <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/items">
+                        <Link to="/products">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    Items
+                                    Products
                                 </CardTitle>
                                 <ShoppingCart className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
@@ -191,10 +191,10 @@ export const Default = () => {
                         </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/procurement-packages">
+                        <Link to="/product-packages">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    Procurement Packages
+                                    Product Packages
                                 </CardTitle>
                                 <Boxes className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>

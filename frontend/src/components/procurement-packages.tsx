@@ -1,16 +1,13 @@
 import { Button } from "@/components/ui/button";
-//import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-//import { HardHat } from "lucide-react";
-// import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-// import { ColumnDef } from "@tanstack/react-table";
-// import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-// import { DataTable } from "@/components/data-table/data-table";
 import { Input } from "@/components/ui/input";
 import { WPSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
-import { useFrappeCreateDoc } from "frappe-react-sdk";
+import { Category } from "@/types/NirmaanStack/Category";
+import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
+import { Items } from "@/types/NirmaanStack/Items";
+import { Makelist } from "@/types/NirmaanStack/Makelist";
+import { ProcurementPackages as ProcurementPackagesType } from "@/types/NirmaanStack/ProcurementPackages";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { debounce } from "lodash";
 import {
   CheckCheck,
@@ -18,8 +15,9 @@ import {
   Pencil,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
+import { useNavigate } from "react-router-dom";
 import ReactSelect from 'react-select';
 import {
   AlertDialog,
@@ -45,23 +43,7 @@ import {
   TableRow,
 } from "./ui/table";
 
-interface WorkPackage {
-  work_package_name: string;
-}
-
-// const SOWFormSchema = z.object({
-//     work_package_name: z
-//         .string({
-//             required_error: "Must provide type Name"
-//         })
-//         .min(3, {
-//             message: "Type Name must be at least 3 characters.",
-//         }),
-// })
-
-// type SOWFormValues = z.infer<typeof SOWFormSchema>
-
-export const ProcurementPackages = () => {
+export const ProcurementPackages : React.FC = () => {
   const navigate = useNavigate();
 
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
@@ -73,9 +55,7 @@ export const ProcurementPackages = () => {
   const {
     data: procurementPackages,
     isLoading: isLoading,
-    error: error,
-    mutate: mutate,
-  } = useFrappeGetDocList<WorkPackage>("Procurement Packages", {
+  } = useFrappeGetDocList<ProcurementPackagesType>("Procurement Packages", {
     fields: ["*"],
     limit: 1000,
   });
@@ -84,12 +64,12 @@ export const ProcurementPackages = () => {
     data: categoriesList,
     isLoading: categoriesListLoading,
     mutate: categoriesListMutate,
-  } = useFrappeGetDocList("Category", {
+  } = useFrappeGetDocList<Category>("Category", {
     fields: ["*"],
     limit: 10000,
   });
 
-  const { data: itemList, isLoading: itemListLoading } = useFrappeGetDocList(
+  const { data: itemList, isLoading: itemListLoading } = useFrappeGetDocList<Items>(
     "Items",
     {
       fields: ["*"],
@@ -97,27 +77,36 @@ export const ProcurementPackages = () => {
     }
   );
 
-  const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList("Category Makelist", {
+  const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
     fields: ["*"],
     limit: 100000,
   })
 
-  const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList("Makelist", {
+  const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList<Makelist>("Makelist", {
     fields: ["*"],
     limit: 100000,
   })
 
-  const [editCategory, setEditCategory] = useState({});
+  const [editCategory, setEditCategory] = useState<Category>({
+    category_name: "",
+    work_package: "",
+    new_items: "",
+    name: "",
+    creation: "",
+    modified: "",
+    owner: "",
+    modified_by: "",
+  });
 
-  const [newCategoryMakes, setNewCategoryMakes] = useState(null);
+  const [newCategoryMakes, setNewCategoryMakes] = useState<{label : string, value : string}[]>([]);
 
   const [loadingFunc, setLoadingFunc] = useState("")
 
-  const [makeOptions, setMakeOptions] = useState([])
+  const [makeOptions, setMakeOptions] = useState<{label : string, value : string}[]>([])
 
   const [showNewMakeInput, setShowNewMakeInput] = useState(false)
 
-  const [defaultOptions, setDefaultOptions] = useState([])
+  const [defaultOptions, setDefaultOptions] = useState<CategoryMakelist[]>([])
 
   // console.log("categories", categoriesList)
 
@@ -199,11 +188,11 @@ export const ProcurementPackages = () => {
 
       const currentCategory = categoriesList?.find((i) => i?.name === editCategory?.name)
 
-      const currentCategoryMakes = categoryMakeList?.filter((i) => i?.category === editCategory?.name)
+      const currentCategoryMakes = categoryMakeList?.filter((i) => i?.category === editCategory?.name) || []
 
       if (currentCategoryMakes?.length !== defaultOptions?.length) {
 
-        const toDeleteMakes = currentCategoryMakes?.filter((i) => !defaultOptions?.some((j) => j?.make === i?.make))
+        const toDeleteMakes = currentCategoryMakes?.filter((i) => !defaultOptions?.some((j) => j?.make === i?.make)) || [];
 
         await Promise.all(
           toDeleteMakes?.map(async (item) => {
@@ -224,7 +213,16 @@ export const ProcurementPackages = () => {
           new_items: editCategory?.new_items,
         });
 
-        setEditCategory({})
+        setEditCategory({
+          category_name: "",
+          work_package: "",
+          new_items: "",
+          name: "",
+          creation: "",
+          modified: "",
+          owner: "",
+          modified_by: "",
+        })
         await categoriesListMutate();
       }
 
@@ -268,10 +266,10 @@ export const ProcurementPackages = () => {
   };
 
   useEffect(() => {
-    if (makeList && editCategory && categoryMakeList) {
+    if (makeList && editCategory?.name && categoryMakeList) {
       const categoryMakes = categoryMakeList?.filter((catMake) => catMake?.category === editCategory?.name)
 
-      let makeOptionsList = []
+      let makeOptionsList : {label : string, value : string}[] = []
       if (categoryMakes?.length > 0) {
         makeOptionsList = makeList?.filter((i) => categoryMakes?.every((j) => j?.make !== i?.name))?.map((k) => ({ label: k?.name, value: k?.name })) || [];
       } else {
@@ -285,37 +283,8 @@ export const ProcurementPackages = () => {
     }
   }, [makeList, editCategory?.name, categoryMakeList])
 
-  const handleChange = (selectedOptions) => {
+  const handleChange = (selectedOptions : {label : string, value : string}[]) => {
     setNewCategoryMakes(selectedOptions)
-  }
-
-  const handleAddNewMake = async (newMake, setNewMake) => {
-    try {
-      setLoadingFunc("handleAddNewMake")
-      await createDoc("Makelist", {
-        make_name: newMake
-      })
-
-      await makeListMutate()
-
-      toast({
-        title: "Success",
-        description: `New make: ${newMake} created successfully!`,
-        variant: "success",
-      });
-
-      setNewMake("")
-
-    } catch (error) {
-      console.log("error while adding new make", error);
-      toast({
-        title: "Failed",
-        description: `unable to create new make!`,
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingFunc("")
-    }
   }
 
   // const handleCreateCategoryMakes = async () => {
@@ -352,12 +321,11 @@ export const ProcurementPackages = () => {
   //   }
   // }
 
-  const handleCategoryClick = (categoryName) => {
+  const handleCategoryClick = (categoryName : string) => {
     // Encode special characters in the category name
     const encodedCategoryName = encodeURIComponent(categoryName);
-
-    navigate(`/items?Category=${encodedCategoryName}`);
-};
+    navigate(`/products?Category=${encodedCategoryName}`);
+  };
 
   return (
     <div className="flex-1 space-y-4">
@@ -424,9 +392,9 @@ export const ProcurementPackages = () => {
               <WPSkeleton />
             </div>
           ))
-          : procurementPackages
-            ?.sort((a, b) =>
-              a?.work_package_name?.localeCompare(b?.work_package_name)
+          : procurementPackages &&
+            procurementPackages?.sort((a, b) =>
+              (a?.work_package_name || "")?.localeCompare(b?.work_package_name || "")
             )
             ?.map((d) => (
               <div key={d?.work_package_name}>
@@ -451,11 +419,11 @@ export const ProcurementPackages = () => {
                                 Make List
                               </TableHead>
                               <TableHead className="w-[10%]">
-                                Items count
+                                Products count
                               </TableHead>
                               <TableHead className="w-[5%]">Tax</TableHead>
                               <TableHead className="w-[10%]">
-                                New Items Addition
+                                New Products Addition
                               </TableHead>
                               <TableHead className="w-[5%]">Edit</TableHead>
                             </TableRow>
@@ -471,7 +439,7 @@ export const ProcurementPackages = () => {
                                   <TableCell>{cat?.name}</TableCell>
                                   <TableCell>
                                     <div className="flex gap-1 flex-wrap">
-                                      {categoryMakeList?.filter((i) => i?.category === cat?.name)?.length > 0 ?
+                                      {(categoryMakeList || [])?.filter((i) => i?.category === cat?.name)?.length > 0 ?
                                         categoryMakeList?.filter((i) => i?.category === cat?.name)?.map((i) => (
                                           <Badge>{i?.make}</Badge>
                                         )) : "--"
@@ -495,7 +463,7 @@ export const ProcurementPackages = () => {
                                       </HoverCardTrigger>
                                       <HoverCardContent className="max-w-[150px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                         <p className="text-sm">
-                                          Click to view items
+                                          Click to view Products
                                         </p>
                                       </HoverCardContent>
                                     </HoverCard>
@@ -592,7 +560,7 @@ export const ProcurementPackages = () => {
 
 
                                             {showNewMakeInput ? (
-                                              <AddMakeComponent makeList={makeList} loadingFunc={loadingFunc} handleAddNewMake={handleAddNewMake} />
+                                              <AddMakeComponent makeList={makeList} makeListMutate={makeListMutate} />
                                             ) : (
                                               <Button className="mt-4" onClick={() => setShowNewMakeInput(true)}>Create New Make</Button>
                                             )}
@@ -613,7 +581,7 @@ export const ProcurementPackages = () => {
                                                         editCategory?.tax &&
                                                         cat?.new_items ===
                                                         editCategory?.new_items &&
-                                                        !(newCategoryMakes?.length > 0) &&
+                                                        !newCategoryMakes.length &&
                                                         categoryMakeList?.filter((catMake) => catMake?.category === editCategory?.name)?.length === defaultOptions?.length) ||
                                                       loadingFunc !== ""
                                                     }
@@ -644,15 +612,48 @@ export const ProcurementPackages = () => {
   );
 };
 
+interface AddMakeComponentProps {
+  makeList? : Makelist[]
+  makeListMutate: any
+}
 
-const AddMakeComponent = ({ makeList, loadingFunc, handleAddNewMake }) => {
+
+const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeListMutate }) => {
   const [newMake, setNewMake] = useState("");
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [checking, setChecking] = useState(false); // To show loading state for the check
 
+  const { createDoc, loading: createDocLoading } = useFrappeCreateDoc()
+
+  const handleAddNewMake = async () => {
+    try {
+      await createDoc("Makelist", {
+        make_name: newMake
+      })
+
+      await makeListMutate()
+
+      toast({
+        title: "Success",
+        description: `New make: ${newMake} created successfully!`,
+        variant: "success",
+      });
+
+      setNewMake("")
+
+    } catch (error) {
+      console.log("error while adding new make", error);
+      toast({
+        title: "Failed",
+        description: `unable to create new make!`,
+        variant: "destructive",
+      });
+    }
+  }
+
   // Debounced function to check for duplicates
   const checkDuplicateMake = useCallback(
-    debounce((value) => {
+    debounce((value : string) => {
       if (!value) {
         setIsDuplicate(false);
         return;
@@ -661,7 +662,7 @@ const AddMakeComponent = ({ makeList, loadingFunc, handleAddNewMake }) => {
       setChecking(true);
 
       // Check if the entered name matches any in the makeList
-      const duplicate = makeList.some((make) => make.name.toLowerCase() === value.toLowerCase());
+      const duplicate = (makeList || []).some((make) => make.name.toLowerCase() === value.toLowerCase());
       setIsDuplicate(duplicate);
       setChecking(false);
     }, 500), // 500ms debounce delay
@@ -685,10 +686,10 @@ const AddMakeComponent = ({ makeList, loadingFunc, handleAddNewMake }) => {
           onChange={(e) => setNewMake(e.target.value)}
         />
         <div className="w-[80px]">
-          {loadingFunc === "handleAddNewMake" ? (
+          {createDocLoading ? (
             <TailSpin color={"red"} height={30} width={30} />
           ) : (
-            <Button disabled={!newMake || isDuplicate || checking} onClick={() => handleAddNewMake(newMake, setNewMake)}>
+            <Button disabled={!newMake || isDuplicate || checking} onClick={handleAddNewMake}>
               Submit
             </Button>
           )}
