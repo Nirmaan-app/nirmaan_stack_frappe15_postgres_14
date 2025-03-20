@@ -45,6 +45,7 @@ import Customers from "./pages/customers/customers";
 import EditCustomer from "./pages/customers/edit-customer";
 import Dashboard from "./pages/dashboard";
 import { PDF } from "./pages/pdf";
+import { InFlowPayments } from "./pages/projects/InFlowPayments";
 import { EditProjectForm } from "./pages/projects/edit-project-form";
 import { ProjectForm } from "./pages/projects/project-form";
 import Projects from "./pages/projects/projects";
@@ -371,6 +372,11 @@ const router = createBrowserRouter(
             path="project-payments">
             <Route index element={<ProjectPaymentsPaymentWise />} />
             <Route path=":id" element={<OrderPaymentSummary />} />
+          </Route>
+
+          <Route
+            path="in-flow-payments">
+            <Route index element={<InFlowPayments />} />
           </Route>
 
           {/* User Paths */}

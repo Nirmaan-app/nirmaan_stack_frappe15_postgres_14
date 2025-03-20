@@ -8,6 +8,9 @@ export type DialogStore = {
   shareDialog: boolean;
   setShareDialog: (open: boolean) => void;
   toggleShareDialog: () => void;
+  newInflowDialog: boolean;
+  setNewInflowDialog: (open: boolean) => void;
+  toggleNewInflowDialog: () => void;
 };
 
 export const useDialogStore = create<DialogStore>((set, get) => ({
@@ -17,4 +20,7 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   shareDialog: false,
   setShareDialog: (open: boolean) => set({ shareDialog: open }),
   toggleShareDialog: () => set({ shareDialog: !get().shareDialog }),
+  newInflowDialog: false,
+  setNewInflowDialog: (open: boolean) => set({ newInflowDialog: open }),
+  toggleNewInflowDialog: () => set({ newInflowDialog: !get().newInflowDialog }),
 }));

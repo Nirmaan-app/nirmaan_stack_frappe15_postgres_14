@@ -295,11 +295,11 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
       }, 300);
     
       // Handle input change
-      const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
-        const amount = e.target.value;
-        setNewPayment({ ...newPayment, amount });
-        validateAmount(amount);
-      };
+    const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
+      const amount = e.target.value;
+      setNewPayment({ ...newPayment, amount });
+      validateAmount(amount);
+    };
 
     const columns = useMemo(
         () => [

@@ -310,8 +310,6 @@ const ProjectView = ({
 
   const {data: projectType} = useFrappeGetDoc("Project Types", data?.project_type, data?.project_type ? undefined : null)
 
-  console.log("projectTpye",projectType )
-
   const {
     data: project_estimates,
     isLoading: project_estimates_loading,
