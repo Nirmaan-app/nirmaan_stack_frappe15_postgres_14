@@ -322,6 +322,7 @@ fixtures = [
     {"dt": "Role Profile", "filters": [["role_profile", "like", "Nirmaan %"]]},
     "Workflow",
     "Workflow State",
+    "Workflow Action Master",
     "Portal Menu Item",
     # "Pincodes"
 ]

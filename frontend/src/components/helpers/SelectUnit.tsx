@@ -1,13 +1,13 @@
+import * as SelectPrimitive from "@radix-ui/react-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
-interface SelectUnitProps {
+interface SelectUnitProps extends SelectPrimitive.SelectProps {
     value: string;
     onChange: (value: string) => void;
     className?: string;
-    disabled?: boolean;
 }
 
-export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, className, disabled = false }) => {
+export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, className, ...rest }) => {
 
   const options : {value: string, label: string}[] = [
     // { value: "PCS", label: "PCS" },
@@ -30,7 +30,7 @@ export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, classN
         <Select
             value={value}
             onValueChange={(e) => onChange(e)}
-            disabled={disabled}
+            {...rest}
         >
           <SelectTrigger>
             <SelectValue className={className} placeholder="Select Unit" />

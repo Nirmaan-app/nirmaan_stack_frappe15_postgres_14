@@ -562,10 +562,10 @@ export function NewSidebar() {
             children: [
               { key: "/projects", label: "Projects" },
               { key: "/users", label: "Users" },
-              { key: "/items", label: "Items" },
+              { key: "/products", label: "Products" },
               { key: "/vendors", label: "Vendors" },
               { key: "/customers", label: "Customers" },
-              { key: "/procurement-packages", label: "Procurement Packages" },
+              { key: "/product-packages", label: "Product Packages" },
               { key: "/approved-quotes", label: "Approved Quotations" },
             ],
           },
@@ -733,10 +733,10 @@ export function NewSidebar() {
   const allKeys = new Set([
     "projects",
     "users",
-    "items",
+    "products",
     "vendors",
     "customers",
-    "procurement-packages",
+    "product-packages",
     "approved-quotes",
     "prs&milestones",
     // "approve-new-pr",
@@ -763,7 +763,7 @@ export function NewSidebar() {
   }, [location.pathname]);
 
   const groupMappings = {
-    "admin-actions": ["users", "items", "vendors", "customers", "procurement-packages", "approved-quotes"],
+    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
     //   "approve-amended-po", "approve-payments"

@@ -1,8 +1,10 @@
-import {  Coins, HardHat, ShoppingCart } from "lucide-react";
-import { Link } from "react-router-dom";
-import { CardHeader, CardTitle, Card, CardContent } from "./ui/card";
-import { TailSpin } from "react-loader-spinner";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
+import { Coins, HardHat, ShoppingCart } from "lucide-react";
+import { TailSpin } from "react-loader-spinner";
+import { Link } from "react-router-dom";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export const EstimatesExecutive = () => {
 
@@ -18,8 +20,8 @@ export const EstimatesExecutive = () => {
 
     // const permissionsList = projectPermissions?.map((i) => i?.for_value)
 
-    const { data: projectsData, isLoading: projectsDataLoading } = useFrappeGetDocList("Projects", {
-        fields: ["*"],
+    const { data: projectsData, isLoading: projectsDataLoading } = useFrappeGetDocList<Projects>("Projects", {
+        fields: ["name"],
         // filters: [["name", "in", permissionsList || []]],
         limit: 10000
     },
@@ -28,7 +30,7 @@ export const EstimatesExecutive = () => {
 
     const { data: approved_quotes, isLoading: approved_quotes_loading } = useFrappeGetDocCount("Approved Quotations");
 
-    const { data: PO_COUNT, isLoading: PO_COUNT_LOADING } = useFrappeGetDocList("Procurement Orders", {
+    const { data: PO_COUNT, isLoading: PO_COUNT_LOADING } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["name"],
         filters: [["status", "not in", ["Merged", "PO Amendment"]]],
         limit: 100000

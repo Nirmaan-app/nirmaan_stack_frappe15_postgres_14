@@ -34,6 +34,7 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
 import { v4 as uuidv4 } from "uuid";
+import { SelectUnit } from "../helpers/SelectUnit";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Button } from "../ui/button";
@@ -1150,7 +1151,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                         Category
                                                       </h5>
                                                       <Select
-                                                        value={editItem?.category}
+                                                        value={editItem?.category || ""}
                                                         onValueChange={(
                                                           value
                                                         ) =>
@@ -1207,71 +1208,15 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                         <h5 className="text-base text-gray-400 text-left mb-1">
                                                           UOM
                                                         </h5>
-                                                        <Select
-                                                          value={
-                                                            editItem?.unit
-                                                          }
-                                                          onValueChange={(
-                                                            value
-                                                          ) =>
-                                                            setEditItem(
-                                                              (prev) => ({
-                                                                ...prev,
-                                                                unit: value,
-                                                              })
-                                                            )
-                                                          }
-                                                        >
-                                                          <SelectTrigger className="">
-                                                            <SelectValue
-                                                              className="text-gray-200"
-                                                              placeholder="Select Unit"
-                                                            />
-                                                          </SelectTrigger>
-                                                          <SelectContent>
-                                                            {/* <SelectItem value="PCS">PCS</SelectItem> */}
-                                                            <SelectItem value="BOX">
-                                                              BOX
-                                                            </SelectItem>
-                                                            <SelectItem value="ROLL">
-                                                              ROLL
-                                                            </SelectItem>
-                                                            {/* <SelectItem value="PKT">PKT</SelectItem> */}
-                                                            <SelectItem value="LENGTH">
-                                                              LTH
-                                                            </SelectItem>
-                                                            <SelectItem value="MTR">
-                                                              MTR
-                                                            </SelectItem>
-                                                            <SelectItem value="NOS">
-                                                              NOS
-                                                            </SelectItem>
-                                                            <SelectItem value="KGS">
-                                                              KGS
-                                                            </SelectItem>
-                                                            <SelectItem value="PAIRS">
-                                                              PAIRS
-                                                            </SelectItem>
-                                                            <SelectItem value="PACKS">
-                                                              PACKS
-                                                            </SelectItem>
-                                                            <SelectItem value="DRUM">
-                                                              DRUM
-                                                            </SelectItem>
-                                                            <SelectItem value="SQMTR">
-                                                              SQMTR
-                                                            </SelectItem>
-                                                            <SelectItem value="LTR">
-                                                              LTR
-                                                            </SelectItem>
-                                                            <SelectItem value="BUNDLE">
-                                                              BUNDLE
-                                                            </SelectItem>
-                                                            <SelectItem value="FEET">
-                                                              FEET
-                                                            </SelectItem>
-                                                          </SelectContent>
-                                                        </Select>
+                                                        <SelectUnit 
+                                                          value={editItem?.unit || ""}
+                                                          onChange={(value) => setEditItem(
+                                                            (prev) => ({
+                                                              ...prev,
+                                                              unit: value,
+                                                            })
+                                                          )}
+                                                        />
                                                       </div>
                                                       <div className="w-[25%]">
                                                         <h5 className="text-base text-gray-400 text-left mb-1">
@@ -1604,40 +1549,16 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             Item Unit
                             <sup className="text-sm text-red-600">*</sup>
                           </label>
-                          <Select
-                            value={newItem?.unit_name}
-                            disabled={!curCategory}
-                            onValueChange={(value) =>
+                          <SelectUnit 
+                          value={newItem?.unit_name || ""}
+                          disabled={!curCategory}
+                          onChange={(value) =>
                               setNewItem((prevState) => ({
                                 ...prevState,
                                 unit_name: value,
                               }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                className="text-gray-200"
-                                placeholder="Select Unit"
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {/* <SelectItem value="PCS">PCS</SelectItem> */}
-                              <SelectItem value="BOX">BOX</SelectItem>
-                              <SelectItem value="ROLL">ROLL</SelectItem>
-                              {/* <SelectItem value="PKT">PKT</SelectItem> */}
-                              <SelectItem value="LENGTH">LTH</SelectItem>
-                              <SelectItem value="MTR">MTR</SelectItem>
-                              <SelectItem value="NOS">NOS</SelectItem>
-                              <SelectItem value="KGS">KGS</SelectItem>
-                              <SelectItem value="PAIRS">PAIRS</SelectItem>
-                              <SelectItem value="PACKS">PACKS</SelectItem>
-                              <SelectItem value="DRUM">DRUM</SelectItem>
-                              <SelectItem value="SQMTR">SQMTR</SelectItem>
-                              <SelectItem value="LTR">LTR</SelectItem>
-                              <SelectItem value="BUNDLE">BUNDLE</SelectItem>
-                              <SelectItem value="FEET">FEET</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          }
+                          />
                         </div>
                         <div className="flex flex-col gap-1 w-1/2 items-start">
                           <label
@@ -1835,39 +1756,16 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             Item Unit
                             <sup className="text-sm text-red-600">*</sup>
                           </label>
-                          <Select
+
+                          <SelectUnit 
                             value={requestItem?.unit || ""}
-                            onValueChange={(value) =>
+                            onChange={(value) =>
                               setRequestItem((prevState) => ({
                                 ...prevState,
                                 unit: value,
                               }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                className="text-gray-200"
-                                placeholder="Select Unit"
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {/* <SelectItem value="PCS">PCS</SelectItem> */}
-                              <SelectItem value="BOX">BOX</SelectItem>
-                              <SelectItem value="ROLL">ROLL</SelectItem>
-                              {/* <SelectItem value="PKT">PKT</SelectItem> */}
-                              <SelectItem value="LENGTH">LTH</SelectItem>
-                              <SelectItem value="MTR">MTR</SelectItem>
-                              <SelectItem value="NOS">NOS</SelectItem>
-                              <SelectItem value="KGS">KGS</SelectItem>
-                              <SelectItem value="PAIRS">PAIRS</SelectItem>
-                              <SelectItem value="PACKS">PACKS</SelectItem>
-                              <SelectItem value="DRUM">DRUM</SelectItem>
-                              <SelectItem value="SQMTR">SQMTR</SelectItem>
-                              <SelectItem value="LTR">LTR</SelectItem>
-                              <SelectItem value="BUNDLE">BUNDLE</SelectItem>
-                              <SelectItem value="FEET">FEET</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          }
+                          />
                         </div>
                         <div className="flex flex-col gap-1 w-1/2 items-start">
                           <label
