@@ -4,11 +4,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 interface SelectUnitProps extends SelectPrimitive.SelectProps {
     value: string;
     onChange: (value: string) => void;
-    // className?: string;
-    disabled?: boolean;
+    className?: string;
 }
 
-export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, disabled = false }) => {
+export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, className, ...rest }) => {
 
   const options : {value: string, label: string}[] = [
     // { value: "PCS", label: "PCS" },
@@ -31,10 +30,10 @@ export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, disabl
         <Select
             value={value}
             onValueChange={(e) => onChange(e)}
-            disabled={disabled}
+            {...rest}
         >
           <SelectTrigger>
-            <SelectValue placeholder="Select Unit" />
+            <SelectValue className={className} placeholder="Select Unit" />
           </SelectTrigger>
           <SelectContent>
             {options.map((option) => (
