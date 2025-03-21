@@ -10,7 +10,12 @@ import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 
-export const InFlowPayments : React.FC = () => {
+
+interface InFlowPaymentsProps {
+    customerId? : string
+}
+
+export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => {
 
   const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
     fields: ["*"],
@@ -108,7 +113,7 @@ return (
         {projectsLoading || projectInflowsLoading ? (
             <TableSkeleton />
         ) : (
-            <DataTable columns={columns} data={projectInflows || []} project_values={projectValues} inFlowButton />
+            <DataTable columns={columns} data={(customerId ? projectInflows?.filter(i => i?.customer === customerId) : projectInflows) || []} project_values={projectValues} inFlowButton={customerId ? false : true} />
         )}
        </div>
 )

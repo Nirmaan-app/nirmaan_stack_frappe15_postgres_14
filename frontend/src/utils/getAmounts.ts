@@ -1,7 +1,7 @@
 import { PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests";
+import { ServiceItemType, ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import memoize from "lodash/memoize";
 import { parseNumber } from "./parseNumber";
 
@@ -45,6 +45,8 @@ export const getPOTotal = memoize(
   };
 }, (order : any, loadingCharges = 0, freightCharges = 0) => JSON.stringify(order) + loadingCharges + freightCharges);
 
+
+
 export const getSRTotal = memoize(
   (order: any) => {
   let orderData: ServiceItemType[] = [];
@@ -60,6 +62,46 @@ export const getSRTotal = memoize(
     return acc + price * quantity;
   }, 0);
 }, (order: any) => JSON.stringify(order));
+
+
+
+interface SRTotalResult {
+  withGST: number;
+  withoutGST: number;
+}
+
+export const getAllSRsTotal = memoize(
+  (orders: ServiceRequests[]): SRTotalResult => {
+    if (!orders?.length) return { withGST: 0, withoutGST: 0 };
+
+    return orders.reduce(
+      (totals: SRTotalResult, item: ServiceRequests) => {
+        const gstMultiplier = item?.gst === "true" ? 1.18 : 1;
+
+        const itemTotal = item?.service_order_list?.list?.reduce(
+          (srTotal, i) => {
+            const srAmount = parseNumber(i.rate) * parseNumber(i.quantity);
+            return srTotal + srAmount;
+          },
+          0
+        ) || 0; // Ensure itemTotal is a number, default to 0 if undefined
+
+        totals.withoutGST += itemTotal;
+
+        if (item?.gst === "true") {
+          totals.withGST += (itemTotal * gstMultiplier);
+        } else {
+          totals.withGST += itemTotal;
+        }
+
+        return totals;
+      },
+      { withGST: 0, withoutGST: 0 }
+    );
+  },
+  (orders: ServiceRequests[]) => JSON.stringify(orders)
+);
+
 
 
 export const getTotalAmountPaid = memoize(

@@ -30,8 +30,8 @@ import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
 import { NewCustomPR } from "./pages/ProcurementRequests/NewPR/NewCustomPR";
 import { ProcurementRequests } from "./pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";
 import { RenderProcurementRequest } from "./pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
+import { RenderProjectPaymentsComponent } from "./pages/ProjectPayments/RenderProjectPaymentsComponent";
 import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
-import { ProjectPaymentsPaymentWise } from "./pages/ProjectPayments/project-payments-payment-wise";
 import { RenderSentBackComponent } from "./pages/Sent Back Requests/RenderSentBackComponent";
 import { RenderSRComponent } from "./pages/ServiceRequests/RenderSRComponent";
 import { ServiceRequestsTabs } from "./pages/ServiceRequests/ServiceRequestsTabs";
@@ -370,7 +370,7 @@ const router = createBrowserRouter(
 
           <Route
             path="project-payments">
-            <Route index element={<ProjectPaymentsPaymentWise />} />
+            <Route index element={<RenderProjectPaymentsComponent />} />
             <Route path=":id" element={<OrderPaymentSummary />} />
           </Route>
 

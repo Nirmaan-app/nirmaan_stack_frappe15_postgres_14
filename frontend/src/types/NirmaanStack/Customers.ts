@@ -5,7 +5,7 @@ export interface Customers{
 	modified: string
 	owner: string
 	modified_by: string
-	docstatus: 0 | 1 | 2
+	docstatus?: 0 | 1 | 2
 	parent?: string
 	parentfield?: string
 	parenttype?: string
@@ -13,7 +13,7 @@ export interface Customers{
 	/**	Company Name : Data	*/
 	company_name: string
 	/**	Company Address : Link - Address	*/
-	company_address?: string
+	company_address: string
 	/**	Company Contact Person : Data	*/
 	company_contact_person?: string
 	/**	Company Phone : Data	*/

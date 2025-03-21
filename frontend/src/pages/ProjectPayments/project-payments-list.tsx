@@ -28,7 +28,7 @@ import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 import { AllPayments } from "./AllPayments";
 
-export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
+export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boolean}> = ({tab, projectsView = false}) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
@@ -348,19 +348,21 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
                     <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>
                 ),
             },
-            {
-                accessorKey: "project",
-                header: "Project",
-                cell: ({ row }) => {
-                    const project = projectValues.find(
-                        (project) => project.value === row.getValue("project")
-                    );
-                    return project ? <div className="font-medium">{project.label}</div> : null;
+            ...(!projectsView ? [
+                {
+                    accessorKey: "project",
+                    header: "Project",
+                    cell: ({ row }) => {
+                        const project = projectValues.find(
+                            (project) => project.value === row.getValue("project")
+                        );
+                        return project ? <div className="font-medium">{project.label}</div> : null;
+                    },
+                    filterFn: (row, id, value) => {
+                        return value.includes(row.getValue(id))
+                    },
                 },
-                filterFn: (row, id, value) => {
-                    return value.includes(row.getValue(id))
-                },
-            },
+            ] : []),
             {
                 accessorKey: "vendor",
                 header: "Vendor",
@@ -411,23 +413,40 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
                     </div>
                 },
             },
-            {
-                id: "Record_Payment",
-                header: "Record Payment",
-                cell: ({ row }) => {
-                    const data = row.original
-                    const { project, vendor, vendor_id, project_id } = getDataAttributes(data)
-                    return <div className="font-medium">
-                        <SquarePlus onClick={() => {
-                            setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
-                            setWarning("")
-                            toggleNewPaymentDialog()
-                        }} className="w-5 h-5 text-red-500 cursor-pointer" />
-                    </div>
+            ...(!projectsView ? [
+                {
+                    id: "Record_Payment",
+                    header: "Record Payment",
+                    cell: ({ row }) => {
+                        const data = row.original
+                        const { project, vendor, vendor_id, project_id } = getDataAttributes(data)
+                        return <div className="font-medium">
+                            <SquarePlus onClick={() => {
+                                setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
+                                setWarning("")
+                                toggleNewPaymentDialog()
+                            }} className="w-5 h-5 text-red-500 cursor-pointer" />
+                        </div>
+                    },
                 },
-            },
+            ] : [
+                {
+                    id: "due_amount",
+                    header: "Due Amount",
+                    cell: ({ row }) => {
+                        const data = row.original
+                        const totalAmount = getTotalAmount(row.original, row.original.type)?.totalWithTax
+                        const amountPaid = getAmountPaid(data?.name);
+                        return(
+                            <div className="font-medium">
+                                {formatToIndianRupee(totalAmount - amountPaid)}
+                            </div>
+                        )
+                    }
+                }
+            ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView, tab]
     );
 
     if (poError || srError || projectsError || vendorsError) {
@@ -443,6 +462,8 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
     if(tab === "All Payments") {
         return <AllPayments />
     }
+
+    const filteredCurrentPayments = useMemo(() => projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name) || [], [currentPayments, projectPayments])
 
     return (
         <div className="flex-1 space-y-4">
@@ -609,8 +630,8 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name)?.length > 0 ? (
-                                    projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name)?.map((payment) => {
+                                {filteredCurrentPayments.length > 0 ? (
+                                    filteredCurrentPayments.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
@@ -637,7 +658,11 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
                                         )
                                     })
                                 ) : (
-                                    <div className="text-center w-full py-2">No Payments Found</div>
+                                    <TableRow>
+                                      <TableCell colSpan={4} className="text-center py-2">
+                                        No Payments Found
+                                      </TableCell>
+                                    </TableRow>
                                 )}
                             </TableBody>
                         </Table>
@@ -649,7 +674,7 @@ export const ProjectPaymentsList : React.FC<{tab : string}> = ({tab}) => {
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={combinedData} project_values={projectValues} approvedQuotesVendors={vendorValues} />
+                    <DataTable columns={columns} data={combinedData} project_values={!projectsView ? projectValues : undefined} approvedQuotesVendors={vendorValues} />
                 )
             }
         </div>

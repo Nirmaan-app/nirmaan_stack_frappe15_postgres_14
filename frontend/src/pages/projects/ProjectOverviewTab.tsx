@@ -1,0 +1,464 @@
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { toast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
+import { Customers } from "@/types/NirmaanStack/Customers";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { getTotalInflowAmount } from "@/utils/getAmounts";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { useNavigate } from "react-router-dom";
+
+interface ProjectOverviewTabProps {
+  data: any;
+  projectCustomer?: Customers;
+  estimatesTotal: number
+  totalPosRaised: number
+  getAllSRsTotalWithGST: number
+  getTotalAmountPaid: {
+    poAmount: number;
+    srAmount: number;
+    totalAmount: number;
+};
+}
+
+{/* <OverviewSkeleton2 /> */}
+
+export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, projectCustomer, estimatesTotal, getAllSRsTotalWithGST, totalPosRaised, getTotalAmountPaid}) => {
+
+    const {role} = useUserData();
+    const navigate = useNavigate();
+    const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
+
+    const [selectedUser, setSelectedUser] = useState<string | undefined>();
+    const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
+
+    // Accordion state
+    const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
+
+    const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
+        fields: ["*"],
+        limit: 1000
+      })
+
+    const totalAmountReceived = getTotalInflowAmount(projectInflows || [])
+
+    const {data: projectType, isLoading: projectTypeLoading} = useFrappeGetDoc("Project Types", data?.project_type, data?.project_type ? undefined : null)
+    
+    const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions",
+        {
+          fields: ["*"],
+          limit: 1000,
+          filters: [
+            ["for_value", "=", `${data?.name}`],
+            ["allow", "=", "Projects"],
+          ],
+        },
+        data?.name ? `User Permission, filters(for_value),=,${data?.name}` : null
+      );
+
+    const {
+        data: usersList,
+        isLoading: usersListLoading,
+        mutate: usersListMutate,
+      } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+      });
+    
+      // Grouping functionality
+    const groupedAssignees : {[key: string]: string[]} = useMemo(() => {
+        if (!projectAssignees || !usersList) return {};
+    
+        const filteredAssignees = projectAssignees.filter((assignee) =>
+          usersList.some((user) => user.name === assignee.user)
+        );
+    
+        return filteredAssignees.reduce((acc, assignee) => {
+          const user = usersList.find((user) => user.name === assignee.user);
+          if (user) {
+            const { role_profile, full_name } = user;
+    
+            const formattedRoleProfile = role_profile?.replace(/Nirmaan\s|\sProfile/g, "") || "";
+    
+            if (!acc[formattedRoleProfile]) acc[formattedRoleProfile] = [];
+            acc[formattedRoleProfile].push(full_name);
+          }
+    
+          return acc;
+        }, {});
+      }, [projectAssignees, usersList]);
+
+    const getUserFullName = (id : string | undefined) => {
+          return useMemo(() => {
+            if (id === "Administrator") return id;
+            return usersList?.find((user) => user?.name === id)?.full_name || "";
+          }, [id, usersList]);
+        }
+    
+    useEffect(() => {
+        setExpandedRoles(Object.keys(groupedAssignees).reduce(
+          (acc : Record<string, boolean>, roleProfile) => {
+            acc[roleProfile] = true;
+            return acc;
+          },
+          {}));
+      }, [groupedAssignees]);
+
+      useEffect(() => {
+          if (usersList && projectAssignees) {
+            const options =
+              usersList
+                ?.filter(
+                  (user) =>
+                    !projectAssignees?.some((i) => i?.user === user?.name) &&
+                    !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(user?.role_profile)
+                )
+                ?.map((op) => ({
+                  label: (
+                    <div>
+                      {op?.full_name}
+                      <span className="text-red-700 font-light">
+                        ({op?.role_profile?.split(" ").slice(1, 3).join(" ")})
+                      </span>
+                    </div>
+                  ),
+                  value: op?.name,
+                })) || [];
+            setUserOptions(options);
+          }
+        }, [usersList, projectAssignees]);
+    
+      const toggleExpand = useCallback((roleProfile: string) => {
+        setExpandedRoles((prev) => ({ ...prev, [roleProfile]: !prev[roleProfile] }));
+      }, []);
+
+      const handleAssignUserSubmit = async () => {
+          try {
+            await createDoc("User Permission", {
+              user: selectedUser,
+              allow: "Projects",
+              for_value: data?.name,
+            });
+            await projectAssigneesMutate();
+            await usersListMutate();
+            document.getElementById("assignUserDialogClose")?.click();
+            toast({
+              title: "Success!",
+              description: `Successfully assigned ${getUserFullName(selectedUser)}.`,
+              variant: "success",
+            });
+          } catch (error) {
+            console.log("error", error);
+            toast({
+              title: "Failed!",
+              description: `Failed to assign ${getUserFullName(selectedUser)}.`,
+              variant: "destructive",
+            });
+          } finally {
+            setSelectedUser(undefined);
+          }
+        };
+
+        if(usersListLoading || projectAssigneesLoading || projectTypeLoading || projectInflowsLoading) {
+            return <div className="flex items-center h-[40vh] w-full justify-center">
+                    <TailSpin color={"red"} />{" "}
+                </div>
+        }
+
+    return (
+       <div className="flex flex-col gap-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>
+                        <div className="flex justify-between items-center">
+                          <p className="text-2xl">Project Details</p>
+                          <Button onClick={() => navigate("add-estimates")}>
+                            <CirclePlus className="h-4 w-4 mr-2" /> Add Project
+                            Estimates
+                          </Button>
+                        </div>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-3  max-md:grid-cols-2 gap-10 w-full">
+                          <CardDescription className="space-y-2">
+                            <span>Start Date</span>
+                            <p className="font-bold text-black">
+                              {formatDate(data?.project_start_date)}
+                            </p>
+                          </CardDescription>
+      
+                          <CardDescription className="space-y-2 text-center">
+                            <span>End Date</span>
+                            <p className="font-bold text-black">
+                              {formatDate(data?.project_end_date)}
+                            </p>
+                          </CardDescription>
+      
+                          <CardDescription className="space-y-2 md:text-end">
+                            <span>Estimated Completion Date</span>
+                            <p className="font-bold text-black">
+                              {formatDate(data?.project_end_date)}
+                            </p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2 max-md:text-end">
+                            <span>Customer</span>
+                            <p className="font-bold text-black">
+                              {projectCustomer?.company_name || "--"}
+                            </p>
+                          </CardDescription>
+                          <CardDescription className="space-y-2 md:text-center">
+                            <span>Location</span>
+                            <p className="font-bold text-black">
+                              {data?.project_city}, {data?.project_state}
+                            </p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2 text-end">
+                            <span>Project Type</span>
+                            <p className="font-bold text-black">
+                              {data?.project_type ? (
+                                `${data?.project_type} - ${projectType?.standard_project_duration} days`
+                              ) : "--"}
+                            </p>
+                          </CardDescription>
+      
+                          <CardDescription className="space-y-2">
+                            <span>Area (Sqft)</span>
+                            <p className="font-bold text-black">placeholder</p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2 text-end md:text-center">
+                            <span>Project Value</span>
+                            <p className="font-bold text-black">{formatToIndianRupee(data?.project_value)}</p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2 md:text-end">
+                            <span>Project GST(s)</span>
+                            <ul className="list-disc list-inside space-y-1">
+                              {JSON.parse(data?.project_gst_number || "{}")?.list?.map((item) => (
+                                <li key={item?.location}>
+                                  <span className="font-bold">{item?.location}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2 max-md:text-end">
+                            <span>Total Amount Received</span>
+                            <p className="font-bold text-black">{formatToIndianRupee(totalAmountReceived)}</p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2 md:text-center">
+                            <span>Total Amount Paid</span>
+                            <p className="font-bold text-black">{formatToIndianRupee(getTotalAmountPaid.totalAmount)}</p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2 text-end">
+                            <span>Total Amount Due</span>
+                            <p className="font-bold text-black">{formatToIndianRupee((totalPosRaised + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
+                          </CardDescription>
+                          
+                          <div className="col-span-3 max-md:col-span-2 flex justify-between">
+                          <CardDescription className="space-y-2">
+                            <span>Work Package</span>
+                            <div className="flex gap-1 flex-wrap">
+                              {JSON.parse(
+                                data?.project_work_packages
+                              ).work_packages?.map((item: any) => (
+                                <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
+                                  {item.work_package_name}
+                                </div>
+                              ))}
+                            </div>
+                          </CardDescription>
+      
+                          <CardDescription className="space-y-2">
+                            <span>No. of sections in layout</span>
+                            <p className="font-bold text-black text-end">
+                              {data?.subdivisions || 1}
+                            </p>
+                          </CardDescription>
+                          </div>
+                        {/* <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
+                          <CardDescription className="space-y-2">
+                            <span>PO Amount (ex. GST)</span>
+                            <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised + totalServiceOrdersAmt)}</p>
+                          </CardDescription>
+      
+                          <CardDescription className="space-y-2">
+                            <span>Totals Estimates</span>
+                            <p className="font-bold text-black">
+                              {formatToIndianRupee(estimatesTotal)}
+                            </p>
+                          </CardDescription>
+                      </div> */}
+                      {/* <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
+                          <CardDescription className="space-y-2 lg:w-[50%]">
+                            <span>Health Score</span>
+                            <StatusBar currentValue={6} totalValue={10} />
+                          </CardDescription>
+                          
+                      </div> */}
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between">
+                        Assignees
+                        {role === "Nirmaan Admin Profile" && (
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button asChild>
+                                <div className="cursor-pointer">
+                                  <CirclePlus className="w-5 h-5 mt- pr-1 " />
+                                  Assign User
+                                </div>
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                              <DialogHeader>
+                                <DialogTitle className="text-xl font-semibold mb-4">
+                                  Assign User:
+                                </DialogTitle>
+                              </DialogHeader>
+                              <div className="grid gap-4">
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                  <label
+                                    htmlFor="project"
+                                    className="text-right font-light"
+                                  >
+                                    Assign:
+                                  </label>
+                                  <Select
+                                    defaultValue={
+                                      selectedUser ? selectedUser : undefined
+                                    }
+                                    onValueChange={(item) => setSelectedUser(item)}
+                                  >
+                                    <SelectTrigger className="col-span-3">
+                                      <SelectValue placeholder="Select User" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {userOptions.length > 0
+                                        ? userOptions?.map((option) => (
+                                          <SelectItem value={option?.value}>
+                                            {option?.label}
+                                          </SelectItem>
+                                        ))
+                                        : "No more users available for assigning!"}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                  <span className="text-right font-light">To:</span>
+                                  <span className="col-span-3 font-semibold">
+                                    {data?.project_name}
+                                  </span>
+                                </div>
+                              </div>
+                              <Button
+                                disabled={!selectedUser}
+                                onClick={handleAssignUserSubmit}
+                                className="w-full"
+                              >
+                                <ListChecks className="mr-2 h-4 w-4" />
+                                {createDocLoading ? "Submitting..." : "Submit"}
+                              </Button>
+                              <DialogClose
+                                className="hidden"
+                                id="assignUserDialogClose"
+                              >
+                                close
+                              </DialogClose>
+                            </DialogContent>
+                          </Dialog>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="space-y-2">
+                        {Object.entries(groupedAssignees).length === 0 ? (
+                          <p>No one is assigned to this project</p>
+                        ) : (
+                          <ul className="flex gap-2 flex-wrap">
+                            {Object.entries(groupedAssignees).map(
+                              ([roleProfile, assigneeList], index) => (
+                                <li
+                                  key={index}
+                                  className="border p-1 bg-white rounded-lg max-sm:w-full"
+                                >
+                                  <div
+                                    className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
+                                    onClick={() => toggleExpand(roleProfile)}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {expandedRoles[roleProfile] ? (
+                                        <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                                      ) : (
+                                        <ChevronRightIcon className="w-5 h-5 text-gray-500" />
+                                      )}
+                                      <span className="text-md font-medium text-gray-800">
+                                        {roleProfile}
+                                      </span>
+                                    </div>
+                                    <span className="text-sm text-gray-500">
+                                      {assigneeList.length} users
+                                    </span>
+                                  </div>
+                                  {expandedRoles[roleProfile] && (
+                                    <ul className="pl-8 mt-2 space-y-2">
+                                      {assigneeList.map((fullName, index) => (
+                                        <li
+                                          key={index}
+                                          className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                                        >
+                                          <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                          <span className="text-sm font-medium text-gray-600">
+                                            {fullName}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </li>
+                              )
+                            )}
+                          </ul>
+                        )}
+                      </CardDescription>
+                    </CardContent>
+                  </Card>
+                </div>
+    )
+}
+
+
+export default ProjectOverviewTab;
