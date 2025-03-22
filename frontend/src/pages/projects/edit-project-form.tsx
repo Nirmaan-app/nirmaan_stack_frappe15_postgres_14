@@ -18,6 +18,7 @@ import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatToLocalDateTimeString } from "@/utils/FormatDate";
+import { parseNumber } from "@/utils/parseNumber";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
 import {
@@ -87,6 +88,7 @@ const projectFormSchema = z.object({
     required_error: "Please select associated customer",
   }),
   project_type: z.string().optional(),
+  project_value: z.string().optional(),
   address_line_1: z
     .string({
       required_error: "Address Line 1 Required",
@@ -229,6 +231,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
       project_name: data?.project_name || "",
       customer: data?.customer || "",
       project_type: data?.project_type || "",
+      project_value: data?.project_value || "",
       address_line_1: project_address?.address_line1 || "",
       address_line_2: project_address?.address_line2 || "",
       pin: project_address?.pincode || "",
@@ -285,6 +288,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         project_name: data?.project_name || "",
         customer: data?.customer || "",
         project_type: data?.project_type || "",
+        project_value: data?.project_value || "",
         address_line_1: project_address?.address_line1 || "",
         address_line_2: project_address?.address_line2 || "",
         pin: project_address?.pincode || "",
@@ -426,6 +430,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         project_name: values.project_name,
         customer: values.customer,
         project_type: values.project_type,
+        project_value: parseNumber(values.project_value),
         project_gst_number: values.project_gst_number,
         project_start_date: formatted_start_date,
         project_end_date: formatted_end_date,
@@ -565,6 +570,25 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                   </Sheet>
                 </FormItem>
               )}
+            />
+            <FormField
+              control={form.control}
+              name="project_value"
+              render={({ field }) => {
+                return (
+                  <FormItem className="lg:flex lg:items-center gap-4">
+                    <FormLabel className="md:basis-3/12">
+                      Project Value
+                    </FormLabel>
+                    <div className="flex flex-col items-start md:basis-2/4">
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </div>
+                  </FormItem>
+                );
+              }}
             />
 
             {/* // For `project_type` SelectField */}

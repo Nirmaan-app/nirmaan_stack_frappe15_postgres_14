@@ -21,7 +21,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { NewInflowPayment } from "@/pages/projects/NewInflowPayment";
 import { formatDateToDDMMYYYY } from "@/utils/FormatDate";
+import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
 import { debounce } from "lodash";
 import { FileUp } from "lucide-react";
@@ -62,6 +64,7 @@ interface DataTableProps<TData, TValue> {
   projectStatusOptions?: any;
   isExport?: boolean;
   vendorData?: any;
+  inFlowButton?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -81,6 +84,7 @@ export function DataTable<TData, TValue>({
   projectStatusOptions = undefined,
   isExport = false,
   vendorData = undefined,
+  inFlowButton = false,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([
 
@@ -128,6 +132,7 @@ export function DataTable<TData, TValue>({
 
   const [globalFilter, setGlobalFilter] = React.useState(searchParams.get("search") || "");
 
+  const { toggleNewInflowDialog } = useDialogStore();
   React.useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
 
@@ -142,8 +147,8 @@ export function DataTable<TData, TValue>({
     setGlobalFilter(initialSearch);
   }, []);
 
-  const updateURL = (key, value) => {
-    const url = new URL(window.location);
+  const updateURL = (key: string, value: string) => {
+    const url = new URL(window.location.href);
     if (value) {
       url.searchParams.set(key, value);
     } else {
@@ -298,6 +303,12 @@ export function DataTable<TData, TValue>({
             }}
             className="w-[50%] max-sm:w-[60%]"
           />
+
+          {inFlowButton && (
+            <Button onClick={toggleNewInflowDialog}>Add New Entry</Button>
+          )}
+
+          {inFlowButton && <NewInflowPayment />}
 
           {isExport && (
             <Button onClick={toggleDialog} disabled={!selectedData?.length} variant={"outline"} className="flex items-center gap-1 h-8 px-2 border-primary text-primary">

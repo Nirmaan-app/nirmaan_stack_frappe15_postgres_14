@@ -17,9 +17,7 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  CardDescription
 } from "@/components/ui/card";
 import {
   ChartConfig
@@ -31,88 +29,64 @@ import {
   CommandList
 } from "@/components/ui/command";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from "@/components/ui/dialog";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
-  OverviewSkeleton2,
   TableSkeleton
 } from "@/components/ui/skeleton";
-import StatusBar from "@/components/ui/status-bar";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { Customers } from "@/types/NirmaanStack/Customers";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getAllSRsTotal } from "@/utils/getAmounts";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import {
   ConfigProvider,
   Menu,
-  MenuProps,
-  Radio
+  MenuProps
 } from "antd";
 import {
-  useFrappeCreateDoc,
   useFrappeGetCall,
   useFrappeGetDoc,
   useFrappeGetDocList,
-  useFrappeUpdateDoc,
+  useFrappeUpdateDoc
 } from "frappe-react-sdk";
 import {
-  ArrowDown,
-  CheckCircleIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
   ChevronsUpDown,
   CircleCheckBig,
-  CirclePlus,
   FilePenLine,
   HardHat,
-  ListChecks,
   OctagonMinus
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
   Link,
-  useNavigate,
   useParams,
-  useSearchParams,
+  useSearchParams
 } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
-import { v4 as uuidv4 } from "uuid";
-import { Component as ProjectEstimates } from '../../components/add-project-estimates';
-import { AllTab } from "./AllTab";
-import { CategoryAccordion } from "./CategoryAccordion";
+import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
+import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMakesTab } from "./ProjectMakesTab";
-import { ServiceRequestsAccordion } from "./ServiceRequestsAccordion";
+import ProjectOverviewTab from "./ProjectOverviewTab";
+import ProjectSpendsTab from "./ProjectSpendsTab";
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -155,7 +129,7 @@ const Project : React.FC = () => {
   } = useFrappeGetDoc("Projects", projectId, projectId ? undefined : null);
 
   const { data: projectCustomer, isLoading: projectCustomerLoading } =
-    useFrappeGetDoc("Customers", data?.customer, data?.customer ? `Customers ${data?.customer}` : null);
+    useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? `Customers ${data?.customer}` : null);
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{ message : { po_items : po_item_data_item[] }}>(
     "nirmaan_stack.api.procurement_orders.generate_po_summary",
@@ -185,7 +159,7 @@ interface ProjectViewProps {
   projectId: string | undefined;
   data: any;
   project_mutate: any;
-  projectCustomer: any;
+  projectCustomer?: Customers;
   po_item_data?: po_item_data_item[];
 }
 
@@ -209,27 +183,12 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-const ProjectView = ({
-  projectId,
-  data,
-  project_mutate,
-  projectCustomer,
-  po_item_data,
-}: ProjectViewProps) => {
-  // const location = useLocation();
-  // const searchParams = new URLSearchParams(location.search);
-  // const page = searchParams.get("page");
+const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
-  // const tab = searchParams.get("tab");
   const { role } = useUserData();
-  const navigate = useNavigate();
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
 
   const [newStatus, setNewStatus] = useState<string>("");
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
-
-  const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
   const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
   const [editSheetOpen, setEditSheetOpen] = useState(false);
@@ -243,11 +202,11 @@ const ProjectView = ({
   };
 
   const [searchParams] = useSearchParams(); // Only for initialization
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "All");
   const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
   const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || makeOptions?.[0]?.value);
 
-  const updateURL = (params: Record<string, string>, removeParams: string[] = []) => {
+  const updateURL = useCallback(
+    (params: Record<string, string>, removeParams: string[] = []) => {
     const url = new URL(window.location.href);
     Object.entries(params).forEach(([key, value]) => {
       url.searchParams.set(key, value);
@@ -256,45 +215,40 @@ const ProjectView = ({
       url.searchParams.delete(key);
     });
     window.history.pushState({}, '', url);
-  };
+  }, []);
 
-  const setProjectSpendsTab = (tab: string) => {
-      if (activeTab !== tab) {
-        setActiveTab(tab);
-        updateURL({ tab });
-      }
-    }
-
-  const setProjectMakesTab = (tab: string) => {
+  const setProjectMakesTab = useCallback(
+    (tab: string) => {
       if (makesTab !== tab) {
         setMakesTab(tab);
         updateURL({ makesTab: tab });
       }
-    }
+    }, [makesTab, updateURL]);
 
-  const onClick: MenuProps['onClick'] = (e) => {
+  const onClick: MenuProps['onClick'] = useCallback(
+    (e) => {
       if (activePage === e.key) return;
 
       const newPage = e.key;
 
       if (newPage === 'projectspends') {
-        setActiveTab('All');
-        updateURL({ page: newPage, tab: 'All' }, ['eTab', 'makesTab']);
+        updateURL({ page: newPage, tab: 'All' }, ['eTab', 'makesTab', 'fTab']);
       } else if (newPage === 'projectmakes') {
         setMakesTab(makeOptions?.[0]?.value || '');
-        updateURL({ page: newPage, makesTab: makeOptions?.[0]?.value || '' }, ['eTab', 'tab']);
+        updateURL({ page: newPage, makesTab: makeOptions?.[0]?.value || '' }, ['eTab', 'tab', 'fTab']);
       } else if (newPage === 'projectestimates'){
-        updateURL({page: newPage, eTab: 'All'}, ['tab', 'makesTab'])
+        updateURL({page: newPage, eTab: 'All'}, ['tab', 'makesTab', 'fTab'])
+      } else if (newPage === "projectfinancials") {
+        updateURL({page: newPage, fTab: 'All Payments'}, ['tab', 'makesTab', 'eTab'])
       } else {
-        setActiveTab('');
         setMakesTab('');
         updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab']);
       }
       setActivePage(newPage);
-    }
+    }, [activePage, updateURL]);
 
 
-  const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList(
+  const { data: mile_data } = useFrappeGetDocList(
     "Project Work Milestones",
     {
       fields: ["*"],
@@ -308,36 +262,13 @@ const ProjectView = ({
     }
   );
 
-  const {data: projectType} = useFrappeGetDoc("Project Types", data?.project_type, data?.project_type ? undefined : null)
-
-  console.log("projectTpye",projectType )
-
   const {
     data: project_estimates,
-    isLoading: project_estimates_loading,
-    error: project_estimates_error,
-  } = useFrappeGetDocList("Project Estimates", {
+  } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 10000,
   });
-
-  const {
-    data: projectAssignees,
-    isLoading: projectAssigneesLoading,
-    mutate: projectAssigneesMutate,
-  } = useFrappeGetDocList(
-    "Nirmaan User Permissions",
-    {
-      fields: ["*"],
-      limit: 1000,
-      filters: [
-        ["for_value", "=", `${projectId}`],
-        ["allow", "=", "Projects"],
-      ],
-    },
-    `User Permission, filters(for_value),=,${projectId}`
-  );
 
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
@@ -345,11 +276,7 @@ const ProjectView = ({
     limit: 1000
   })
 
-  const {
-    data: usersList,
-    isLoading: usersListLoading,
-    mutate: usersListMutate,
-  } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+  const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
   });
@@ -390,17 +317,13 @@ const ProjectView = ({
     orderBy: { field: "creation", order: "desc" },
   });
 
-  const {
-    data: allServiceRequestsData,
-    isLoading: allServiceRequestsDataLoading,
-  } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
+  const { data: allServiceRequestsData, isLoading: allServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 1000,
   });
 
-  const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } =
-    useFrappeGetDocList<ServiceRequests>("Service Requests", {
+  const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
       fields: ["*"],
       filters: [
         ["status", "=", "Approved"],
@@ -409,11 +332,7 @@ const ProjectView = ({
       limit: 1000,
     });
 
-  const {
-    data: vendorsList,
-    isLoading: vendorsListLoading,
-    error: vendorsError,
-  } = useFrappeGetDocList<Vendors>("Vendors", {
+  const { data: vendorsList } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type"],
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
@@ -447,32 +366,6 @@ const ProjectView = ({
     }, [id, usersList]);
   }
 
-  useEffect(() => {
-    if (usersList && projectAssignees) {
-      const options =
-        usersList
-          ?.filter(
-            (user) =>
-              !projectAssignees?.some((i) => i?.user === user?.name) &&
-              !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(user?.role_profile)
-          )
-          ?.map((op) => ({
-            label: (
-              <div>
-                {op?.full_name}
-                <span className="text-red-700 font-light">
-                  ({op?.role_profile?.split(" ").slice(1, 3).join(" ")})
-                </span>
-              </div>
-            ),
-            value: op?.name,
-          })) || [];
-      setUserOptions(options);
-    }
-  }, [usersList, projectAssignees]);
-
-  // console.log("poData", po_data)
-
   const totalPosRaised = useMemo(() => {
     if (!po_data || po_data.length === 0) {
       return 0;
@@ -485,45 +378,6 @@ const ProjectView = ({
       return acc;
     }, 0);
   }, [po_data]);
-
-  // Accordion state
-  const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
-
-  // Grouping functionality
-  const groupedAssignees : {[key: string]: string[]} = useMemo(() => {
-    if (!projectAssignees || !usersList) return {};
-
-    const filteredAssignees = projectAssignees.filter((assignee) =>
-      usersList.some((user) => user.name === assignee.user)
-    );
-
-    return filteredAssignees.reduce((acc, assignee) => {
-      const user = usersList.find((user) => user.name === assignee.user);
-      if (user) {
-        const { role_profile, full_name } = user;
-
-        const formattedRoleProfile = role_profile?.replace(/Nirmaan\s|\sProfile/g, "") || "";
-
-        if (!acc[formattedRoleProfile]) acc[formattedRoleProfile] = [];
-        acc[formattedRoleProfile].push(full_name);
-      }
-
-      return acc;
-    }, {});
-  }, [projectAssignees, usersList]);
-
-  useEffect(() => {
-    setExpandedRoles(Object.keys(groupedAssignees).reduce(
-      (acc : Record<string, boolean>, roleProfile) => {
-        acc[roleProfile] = true;
-        return acc;
-      },
-      {}));
-  }, [groupedAssignees]);
-
-  const toggleExpand = useCallback((roleProfile: string) => {
-    setExpandedRoles((prev) => ({ ...prev, [roleProfile]: !prev[roleProfile] }));
-  }, []);
 
 
   // type ScopesMilestones = {
@@ -542,7 +396,7 @@ const ProjectView = ({
 
   type MenuItem = Required<MenuProps>["items"][number];
 
-  const items: MenuItem[] = [
+  const items: MenuItem[] = useMemo(() => [
     {
       label: "Overview",
       key: "overview",
@@ -573,6 +427,10 @@ const ProjectView = ({
         key: "projectspends",
       }
       : null,
+    role === "Nirmaan Admin Profile" ? {
+      label: "Financials",
+      key : "projectfinancials",
+    } : null,
     {
       label: "Project Estimates",
       key: "projectestimates"
@@ -581,7 +439,7 @@ const ProjectView = ({
       label: "Project Makes",
       key: "projectmakes"
     }
-  ];
+  ], [role]);
 
   const [areaNames, setAreaNames] = useState(null);
 
@@ -1087,7 +945,6 @@ const ProjectView = ({
     }, [po_data_for_posummary, order_id]);
   }
 
-
   const getWorkPackageName = (poId: string) => {
     return useMemo(() => {
     const po = po_data_for_posummary?.find((j) => j?.name === poId);
@@ -1116,9 +973,6 @@ const ProjectView = ({
     return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
     }, [projectPayments, id]);
   }
-
-
-  // console.log("wpOtions", wpOptions)
 
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
@@ -1163,11 +1017,11 @@ const ProjectView = ({
           return <DataTableColumnHeader column={column} title="Work Package" />;
         },
         cell: ({ row }) => {
-          const po = row.getValue("name");
+          const po : string = row.getValue("name");
           return <div className="font-medium">{getWorkPackageName(po)}</div>;
         },
         filterFn: (row, id, value) => {
-          const rowValue = row.getValue(id);
+          const rowValue : string = row.getValue(id);
           // console.log("rowvalue", rowValue)
           // console.log("value", value)
           const renderValue = getWorkPackageName(rowValue);
@@ -1305,33 +1159,6 @@ const ProjectView = ({
       }_${data?.owner}_${formatDate(new Date())}`,
   });
 
-  const handleAssignUserSubmit = async () => {
-    try {
-      await createDoc("User Permission", {
-        user: selectedUser,
-        allow: "Projects",
-        for_value: projectId,
-      });
-      await projectAssigneesMutate();
-      await usersListMutate();
-      document.getElementById("assignUserDialogClose")?.click();
-      toast({
-        title: "Success!",
-        description: `Successfully assigned ${getUserFullName(selectedUser)}.`,
-        variant: "success",
-      });
-    } catch (error) {
-      console.log("error", error);
-      toast({
-        title: "Failed!",
-        description: `Failed to assign ${getUserFullName(selectedUser)}.`,
-        variant: "destructive",
-      });
-    } finally {
-      setSelectedUser(null);
-    }
-  };
-
   const groupItemsByWorkPackageAndCategory = useMemo(() => (items : po_item_data_item[] | undefined) => {
     const totals: { [key: string]: { amountWithTax: number; amountWithoutTax: number } } = {};
 
@@ -1386,17 +1213,17 @@ const ProjectView = ({
       return acc;
     }, {}) || {};
 
-    const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item))
+    const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item || ""))
 
     filteredProjectEstimates?.forEach((item) => {
-      if (!groupedData[item?.work_package]) {
-        groupedData[item?.work_package] = {};
+      if (!groupedData[item?.work_package || ""]) {
+        groupedData[item?.work_package || ""] = {};
       }
-      if (!groupedData[item?.work_package][item?.category]) {
-        groupedData[item?.work_package][item?.category] = [];
+      if (!groupedData[item?.work_package || ""][item?.category || ""]) {
+        groupedData[item?.work_package || ""][item?.category || ""] = [];
       }
 
-      groupedData[item.work_package][item.category].push({
+      groupedData[item.work_package || ""][item.category || ""].push({
         item_id: item.item,
         item_name: item.item_name,
         unit: item?.uom,
@@ -1452,12 +1279,6 @@ const ProjectView = ({
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
-
-  // console.log("categorizedData", categorizedData)
-
-  // console.log("workPackageTotals", workPackageTotalAmounts)
-
-  // console.log("groupeddata", categorizedData)
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -1516,10 +1337,6 @@ const ProjectView = ({
     setPopOverOpen((prevState) => !prevState);
   };
 
-  // const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
-
-  // workPackages.push({work_package_name : "Tool & Equipments"})
-
   useEffect(() => {
     if (data) {
       const workPackages =
@@ -1554,87 +1371,9 @@ const ProjectView = ({
     }
   }, [data?.status, projectStatuses]);
 
-  const segregateServiceOrderData = (serviceRequestsData : ServiceRequests[] | undefined) => {
-    return useMemo(() => {
-    const result : { [category: string]: { key: string; unit: string; quantity: number; amount: number; children: any[]; estimate_total: number } }[] = [];
-    const servicesEstimates = project_estimates?.filter(
-      (p) => p?.work_package === "Services"
-    );
+  const totalServiceOrdersAmt = useMemo(() => getAllSRsTotal(approvedServiceRequestsData)?.withoutGST, [approvedServiceRequestsData])
 
-    serviceRequestsData?.forEach((serviceRequest) => {
-      serviceRequest.service_order_list.list?.forEach((item) => {
-        const { category, uom, quantity, rate } = item;
-        const amount = (parseNumber(quantity) || 1) * parseNumber(rate);
-
-        const existingCategory = result.find((entry) => entry[category]);
-
-        const estimateItem = servicesEstimates?.filter(
-          (i) => i?.category === category
-        );
-
-        const estimate_total = estimateItem?.reduce(
-          (acc, i) => acc + parseNumber(i?.quantity_estimate * i?.rate_estimate),
-          0
-        );
-
-        if (existingCategory) {
-          existingCategory[category].quantity += parseNumber(quantity);
-          existingCategory[category].amount += amount;
-          existingCategory[category].children.push({ ...item, amount: amount });
-        } else {
-          result.push({
-            [category]: {
-              key: uuidv4(),
-              unit: uom,
-              quantity: parseNumber(quantity),
-              amount: amount,
-              children: [{ ...item, amount: amount }],
-              estimate_total: estimate_total,
-            },
-          });
-        }
-      });
-    });
-
-    return result;
-    }, [project_estimates, serviceRequestsData]);
-  }
-
-  const segregatedServiceOrderData = segregateServiceOrderData(approvedServiceRequestsData)
-
-  const totalServiceOrdersAmt = useMemo(
-    () =>
-      segregatedServiceOrderData?.reduce((acc, item) => {
-        const category = Object.keys(item)[0];
-        const { amount } = item[category];
-        return acc + parseNumber(amount);
-      }, 0),
-    [segregatedServiceOrderData, approvedServiceRequestsData]
-  );
-
-  const getAllSRsTotal = useMemo(() => {
-    const totalAmount = approvedServiceRequestsData?.reduce((total, item) => {
-      const gst = item?.gst === "true" ? 1.18 : 1;
-      const amount = item?.service_order_list?.list?.reduce((srTotal, i) => {
-        const srAmount = parseNumber(i.rate) * parseNumber(i.quantity) * gst;
-        return srTotal + srAmount;
-      }, 0)
-      return total + amount;
-    }, 0);
-
-    return totalAmount;
-
-  }, [approvedServiceRequestsData])
-
-  // console.log("seggregatedService", segregatedServiceOrderData);
-
-  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt)
-
-  // console.log("service requests", serviceRequestsData)
-
-  // console.log("segregatedServicedata", segregatedServiceOrderData);
-
-  // console.log("new status", newStatus)
+  const getAllSRsTotalWithGST = useMemo(() => getAllSRsTotal(approvedServiceRequestsData)?.withGST, [approvedServiceRequestsData])
 
   const handleConfirmStatus = async () => {
     try {
@@ -1666,21 +1405,14 @@ const ProjectView = ({
     (s) => s.value === data?.status
   )?.icon, [data?.status]);
 
-  // console.log("options", options)
+  const estimatesTotal = useMemo(() => project_estimates?.reduce((acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)), 0) || 0, [project_estimates]);
 
-  // console.log("selectedPackage", selectedPackage)
+  if(po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || allServiceRequestsDataLoading) {
+          return <div className="flex items-center h-[90vh] w-full justify-center">
+              <TailSpin color={"red"} />
+          </div>
+      }
 
-  // console.log("categorizedData", categorizedData);
-
-  // console.log("projectEstimates", project_estimates);
-
-  // console.log("workPackageTotalAmounts", workPackageTotalAmounts);
-
-  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt);
-
-  // console.log("activePage", activePage)
-
-  // console.log("activeTab", activeTab)
 
   return (
     <div className="flex-1 space-y-4">
@@ -1783,10 +1515,7 @@ const ProjectView = ({
             <div>
               <span className="whitespace-nowrap">Total Estimates: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(project_estimates?.reduce((acc, i) => {
-                  const amount = parseNumber(i?.quantity_estimate * i?.rate_estimate);
-                  return acc + amount;
-                }, 0))}
+                {formatToIndianRupee(estimatesTotal)}
               </span>
             </div>
             <div>
@@ -1798,7 +1527,6 @@ const ProjectView = ({
           </div>
         </div>
       </div>
-      <div className="flex justify-between items-center">
         <div className="w-full">
           <ConfigProvider
             theme={{
@@ -1819,266 +1547,13 @@ const ProjectView = ({
             />
           </ConfigProvider>
         </div>
-      </div>
 
       {/* Overview Section */}
 
-      {usersListLoading || projectAssigneesLoading ? (
-        <OverviewSkeleton2 />
-      ) : (
-        activePage === "overview" && (
-          <div className="flex flex-col gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <div className="flex justify-between items-center">
-                    {/* {data?.project_name} */}
-                    <div />
-                    <Button onClick={() => navigate("add-estimates")}>
-                      <CirclePlus className="h-4 w-4 mr-2" /> Add Project
-                      Estimates
-                    </Button>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-10 w-full">
-                <div className="flex max-lg:flex-col max-lg:gap-10">
-                  <div className="space-y-4 lg:w-[50%]">
-                    <CardDescription className="space-y-2">
-                      <span>Start Date</span>
-                      <p className="font-bold text-black">
-                        {formatDate(data?.project_start_date)}
-                      </p>
-                    </CardDescription>
-
-                    <CardDescription className="space-y-2">
-                      <span>End Date</span>
-                      <p className="font-bold text-black">
-                        {formatDate(data?.project_end_date)}
-                      </p>
-                    </CardDescription>
-
-                    <CardDescription className="space-y-2">
-                      <span>Estimated Completion Date</span>
-                      <p className="font-bold text-black">
-                        {formatDate(data?.project_end_date)}
-                      </p>
-                    </CardDescription>
-                    <CardDescription className="space-y-2">
-                      <span>Project Type</span>
-                      <p className="font-bold text-black">
-                        {data?.project_type ? (
-                          `${data?.project_type} - ${projectType?.standard_project_duration} days`
-                        ) : "--"}
-                      </p>
-                    </CardDescription>
-                  </div>
-
-                  <div className="space-y-4">
-                    <CardDescription className="space-y-2">
-                      <span>Customer</span>
-                      <p className="font-bold text-black">
-                        {projectCustomer?.company_name || "--"}
-                      </p>
-                    </CardDescription>
-                    <CardDescription className="space-y-2">
-                      <span>Location</span>
-                      <p className="font-bold text-black">
-                        {data?.project_city}, {data?.project_state}
-                      </p>
-                    </CardDescription>
-
-                    <CardDescription className="space-y-2">
-                      <span>Area (Sqft)</span>
-                      <p className="font-bold text-black">placeholder</p>
-                    </CardDescription>
-
-                    <CardDescription className="space-y-2">
-                      <span>No. of sections in layout</span>
-                      <p className="font-bold text-black">
-                        {data?.subdivisions}
-                      </p>
-                    </CardDescription>
-                  </div>
-                </div>
-                  <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
-                    <CardDescription className="space-y-2 lg:w-[50%]">
-                      <span>Work Package</span>
-                      <div className="flex gap-1 flex-wrap">
-                        {JSON.parse(
-                          data?.project_work_packages
-                        ).work_packages?.map((item: any) => (
-                          <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
-                            {item.work_package_name}
-                          </div>
-                        ))}
-                      </div>
-                    </CardDescription>
-                    <div className="space-y-4">
-                    <CardDescription className="space-y-2">
-                      <span>PO Amount (ex. GST)</span>
-                      <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised + totalServiceOrdersAmt)}</p>
-                    </CardDescription>
-
-                    <CardDescription className="space-y-2">
-                      <span>Totals Estimates</span>
-                      <p className="font-bold text-black">
-                        {formatToIndianRupee(project_estimates?.reduce((acc, i) => {
-                          const amount = parseNumber(i?.quantity_estimate * i?.rate_estimate);
-                          return acc + amount;
-                        }, 0))}
-                      </p>
-                    </CardDescription>
-                  </div>
-                </div>
-                <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
-                    <CardDescription className="space-y-2 lg:w-[50%]">
-                      <span>Health Score</span>
-                      <StatusBar currentValue={6} totalValue={10} />
-                    </CardDescription>
-                    <CardDescription className="space-y-2 lg:w-[50%]">
-                      <span>Project GST(s)</span>
-                      <ul className="list-disc list-inside space-y-1">
-                        {JSON.parse(data?.project_gst_number || "{}")?.list?.map((item) => (
-                          <li key={item?.location}>
-                            <span className="font-bold">{item?.location}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </CardDescription>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  Assignees
-                  {role === "Nirmaan Admin Profile" && (
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button asChild>
-                          <div className="cursor-pointer">
-                            <CirclePlus className="w-5 h-5 mt- pr-1 " />
-                            Assign User
-                          </div>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                          <DialogTitle className="text-xl font-semibold mb-4">
-                            Assign User:
-                          </DialogTitle>
-                        </DialogHeader>
-                        <div className="grid gap-4">
-                          <div className="grid grid-cols-4 items-center gap-4">
-                            <label
-                              htmlFor="project"
-                              className="text-right font-light"
-                            >
-                              Assign:
-                            </label>
-                            <Select
-                              defaultValue={
-                                selectedUser ? selectedUser : undefined
-                              }
-                              onValueChange={(item) => setSelectedUser(item)}
-                            >
-                              <SelectTrigger className="col-span-3">
-                                <SelectValue placeholder="Select User" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {userOptions.length > 0
-                                  ? userOptions?.map((option) => (
-                                    <SelectItem value={option?.value}>
-                                      {option?.label}
-                                    </SelectItem>
-                                  ))
-                                  : "No more users available for assigning!"}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="grid grid-cols-4 items-center gap-4">
-                            <span className="text-right font-light">To:</span>
-                            <span className="col-span-3 font-semibold">
-                              {data?.project_name}
-                            </span>
-                          </div>
-                        </div>
-                        <Button
-                          disabled={!selectedUser}
-                          onClick={handleAssignUserSubmit}
-                          className="w-full"
-                        >
-                          <ListChecks className="mr-2 h-4 w-4" />
-                          {createDocLoading ? "Submitting..." : "Submit"}
-                        </Button>
-                        <DialogClose
-                          className="hidden"
-                          id="assignUserDialogClose"
-                        >
-                          close
-                        </DialogClose>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="space-y-2">
-                  {Object.entries(groupedAssignees).length === 0 ? (
-                    <p>No one is assigned to this project</p>
-                  ) : (
-                    <ul className="flex gap-2 flex-wrap">
-                      {Object.entries(groupedAssignees).map(
-                        ([roleProfile, assigneeList], index) => (
-                          <li
-                            key={index}
-                            className="border p-1 bg-white rounded-lg max-sm:w-full"
-                          >
-                            <div
-                              className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
-                              onClick={() => toggleExpand(roleProfile)}
-                            >
-                              <div className="flex items-center gap-2">
-                                {expandedRoles[roleProfile] ? (
-                                  <ChevronDownIcon className="w-5 h-5 text-gray-500" />
-                                ) : (
-                                  <ChevronRightIcon className="w-5 h-5 text-gray-500" />
-                                )}
-                                <span className="text-md font-medium text-gray-800">
-                                  {roleProfile}
-                                </span>
-                              </div>
-                              <span className="text-sm text-gray-500">
-                                {assigneeList.length} users
-                              </span>
-                            </div>
-                            {expandedRoles[roleProfile] && (
-                              <ul className="pl-8 mt-2 space-y-2">
-                                {assigneeList.map((fullName, index) => (
-                                  <li
-                                    key={index}
-                                    className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
-                                  >
-                                    <CheckCircleIcon className="w-5 h-5 text-green-500" />
-                                    <span className="text-sm font-medium text-gray-600">
-                                      {fullName}
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </li>
-                        )
-                      )}
-                    </ul>
-                  )}
-                </CardDescription>
-              </CardContent>
-            </Card>
-          </div>
+      {activePage === "overview" && (
+              <ProjectOverviewTab data={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPosRaised={totalPosRaised} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
         )
-      )}
+      }
 
       {/* {activePage === "projectTracking" && (
         <div className="pr-2">
@@ -2139,6 +1614,8 @@ const ProjectView = ({
           )}
         </div>
       )}
+
+
       {activePage === "posummary" && (
         <>
           {/* Card for Totals */}
@@ -2209,62 +1686,17 @@ const ProjectView = ({
                   }
                 />
               )
-              // <p>RESOLVE PO TABLE</p>
             }
           </div>
         </>
       )}
 
       {activePage === "projectspends" && (
-        <>
-          {options && (
-            <Radio.Group
-              block
-              options={options}
-              defaultValue="All"
-              optionType="button"
-              buttonStyle="solid"
-              value={activeTab}
-              onChange={(e) => setProjectSpendsTab(e.target.value)}
-            />
-          )}
+          <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options} updateURL={updateURL} categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
+      )}
 
-          {activeTab &&
-            !["All", "Services"].includes(activeTab) && (
-              <CategoryAccordion
-                categorizedData={categorizedData}
-                selectedPackage={activeTab}
-                projectEstimates={
-                  project_estimates?.filter(
-                    (i) => i?.work_package === activeTab
-                  ) || []
-                }
-                po_data={po_data}
-              />
-            )}
-
-          {activeTab === "All" && (
-            <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} getTotalAmountPaid={getTotalAmountPaid} />
-          )}
-
-          {["Services"].includes(activeTab) && (
-            <div>
-              {activeTab === "All" && (
-                <div className="flex gap-2 items-center mb-4">
-                  <h2 className="font-semibold text-gray-500">
-                    Service Requests
-                  </h2>
-                  <ArrowDown className="w-4 h-4" />
-                </div>
-              )}
-              <div>
-                <ServiceRequestsAccordion
-                  segregatedData={segregatedServiceOrderData}
-                />
-              </div>
-            </div>
-          )}
-        </>
+      {activePage === "projectfinancials" && (
+        <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} updateURL={updateURL} totalPosRaised={totalPosRaised} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />
       )}
 
       {activePage === "projectestimates" && (
@@ -2290,7 +1722,7 @@ const ProjectView = ({
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(getAllSRsTotal)}
+                          {formatToIndianRupee(getAllSRsTotalWithGST)}
                         </span>
                       </p>
                       {/* <p className="text-gray-700">

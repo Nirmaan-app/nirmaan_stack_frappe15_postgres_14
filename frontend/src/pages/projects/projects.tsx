@@ -393,35 +393,14 @@ const {
     [data, projectStatusCounts, project_estimates, projectPayments, po_item_data, serviceRequestsData]
   );
 
-  const statusOptions = [{value : "Created", label : "Created"},
+  const statusOptions = useMemo(() => [{value : "Created", label : "Created"},
     {value : "WIP", label : "WIP"},
     {value : "Completed", label : "Completed"},
     {value : "Halted", label : "Halted"},
-   ]
-
-  // console.log("projectStatusCounts", projectStatusCounts)
+   ], [])
 
   return (
     <div className="flex-1 space-y-4">
-      {/* <div className="flex items-center justify-between space-y-2">
-                    <Breadcrumb>
-                        <BreadcrumbItem>
-                            <Link to="/" className="md:text-base text-sm">Dashboard</Link>
-                        </BreadcrumbItem>
-                        <BreadcrumbItem isCurrentPage>
-                            <Link to="/projects" className="text-gray-400 md:text-base text-sm">
-                                Projects
-                            </Link>
-                        </BreadcrumbItem>
-                    </Breadcrumb>
-                </div> */}
-      {/* <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
-                </div>
-
-            </div> */}
         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">

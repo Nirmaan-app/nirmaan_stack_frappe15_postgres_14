@@ -17,7 +17,8 @@ import {
 import {
   BlendIcon,
   ChevronRight,
-  CircleDollarSign
+  CircleDollarSign,
+  HandCoins
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -551,7 +552,7 @@ export function NewSidebar() {
     requestNotificationPermission();
   }, [user_id, data]);
 
-  const items = [
+  const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
     ...(user_id == "Administrator" || role == "Nirmaan Admin Profile"
       ? [
@@ -727,10 +728,19 @@ export function NewSidebar() {
                 label: 'Project Payments',
             },
         ]
+        : []),
+        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+        ? [
+            {
+                key: '/in-flow-payments',
+                icon: HandCoins,
+                label: 'In-Flow Payments',
+            },
+        ]
         : [])
-  ];
+  ], [user_id, role]);
 
-  const allKeys = new Set([
+  const allKeys = useMemo(() => new Set([
     "projects",
     "users",
     "products",
@@ -755,15 +765,17 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
-  ])
+    "in-flow-payments"
+  ]), [])
 
   const selectedKeys = useMemo(() => {
     const pathKey = location.pathname.slice(1).split("/")[0];
     return allKeys.has(pathKey) ? pathKey : "";
   }, [location.pathname]);
 
-  const groupMappings = {
-    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes"],
+
+  const groupMappings = useMemo(() => ({
+    "admin-actions": ["users", "items", "vendors", "customers", "procurement-packages", "approved-quotes"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
     //   "approve-amended-po", "approve-payments"
@@ -773,7 +785,8 @@ export function NewSidebar() {
     "/purchase-orders": ["purchase-orders"],
     // "/sent-back-requests": ["sent-back-requests"],
     "/project-payments": ["project-payments"],
-  };
+    "/in-flow-payments": ["in-flow-payments"]
+  }), []);
 
   const openKey = useMemo(() => {
     for (const [group, keys] of Object.entries(groupMappings)) {
@@ -784,7 +797,7 @@ export function NewSidebar() {
         ? "/projects"
         : "admin-actions"
       : "";
-  }, [selectedKeys, role]);
+  }, [selectedKeys, role, groupMappings]);
   
 
   const isDefaultOpen = useMemo(() => {
@@ -840,7 +853,7 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
                         ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)

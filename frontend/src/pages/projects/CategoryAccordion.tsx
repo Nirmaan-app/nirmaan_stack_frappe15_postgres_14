@@ -305,3 +305,5 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
     </div>
   )
 }
+
+export default CategoryAccordion;

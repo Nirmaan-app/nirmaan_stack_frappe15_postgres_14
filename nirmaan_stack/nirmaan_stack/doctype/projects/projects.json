@@ -9,6 +9,7 @@
   "project_name",
   "customer",
   "project_type",
+  "project_value",
   "project_gst_number",
   "project_timeline_section",
   "project_start_date",
@@ -168,11 +169,16 @@
    "fieldname": "project_gst_number",
    "fieldtype": "JSON",
    "label": "Project GST"
+  },
+  {
+   "fieldname": "project_value",
+   "fieldtype": "Data",
+   "label": "Project Value"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-02-07 16:28:12.574379",
+ "modified": "2025-03-21 12:19:12.405049",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

@@ -108,3 +108,5 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
     </div>
   )
 }
+
+export default AllTab;

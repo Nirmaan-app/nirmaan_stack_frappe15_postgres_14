@@ -30,8 +30,8 @@ import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
 import { NewCustomPR } from "./pages/ProcurementRequests/NewPR/NewCustomPR";
 import { ProcurementRequests } from "./pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";
 import { RenderProcurementRequest } from "./pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
+import { RenderProjectPaymentsComponent } from "./pages/ProjectPayments/RenderProjectPaymentsComponent";
 import OrderPaymentSummary from "./pages/ProjectPayments/order-payment-summary";
-import { ProjectPaymentsPaymentWise } from "./pages/ProjectPayments/project-payments-payment-wise";
 import { RenderSentBackComponent } from "./pages/Sent Back Requests/RenderSentBackComponent";
 import { RenderSRComponent } from "./pages/ServiceRequests/RenderSRComponent";
 import { ServiceRequestsTabs } from "./pages/ServiceRequests/ServiceRequestsTabs";
@@ -45,6 +45,7 @@ import Customers from "./pages/customers/customers";
 import EditCustomer from "./pages/customers/edit-customer";
 import Dashboard from "./pages/dashboard";
 import { PDF } from "./pages/pdf";
+import { InFlowPayments } from "./pages/projects/InFlowPayments";
 import { EditProjectForm } from "./pages/projects/edit-project-form";
 import { ProjectForm } from "./pages/projects/project-form";
 import Projects from "./pages/projects/projects";
@@ -354,7 +355,7 @@ const router = createBrowserRouter(
             />
             <Route
               path=":projectId/add-estimates"
-              lazy={() => import("@/components/add-project-estimates")}
+              lazy={() => import("@/pages/projects/add-project-estimates")}
             />
             <Route path=":projectId/edit" element={<EditProjectForm />} />
             <Route path=":projectId/po/:poId" lazy={() => import("@/components/POSummary")} />
@@ -369,8 +370,13 @@ const router = createBrowserRouter(
 
           <Route
             path="project-payments">
-            <Route index element={<ProjectPaymentsPaymentWise />} />
+            <Route index element={<RenderProjectPaymentsComponent />} />
             <Route path=":id" element={<OrderPaymentSummary />} />
+          </Route>
+
+          <Route
+            path="in-flow-payments">
+            <Route index element={<InFlowPayments />} />
           </Route>
 
           {/* User Paths */}
