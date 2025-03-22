@@ -153,8 +153,8 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/items">
-                        <p className="text-center py-6 font-bold text-gray-500">Total Items</p>
+                    <Link to="/products">
+                        <p className="text-center py-6 font-bold text-gray-500">Total Products</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">{(item_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                             : (item_list)}
                             {item_list_error && <p>Error</p>}</p>

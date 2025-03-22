@@ -1,38 +1,36 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogClose, DialogHeader, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton"
-import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { ArrowLeft, FilePenLine, ListChecks } from "lucide-react"
-import { useNavigate, useParams } from "react-router-dom"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { SelectUnit } from "@/components/helpers/SelectUnit"
 import { Button } from "@/components/ui/button"
-import { useEffect, useState } from "react"
+import { Card, CardContent, CardDescription } from "@/components/ui/card"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
+import { Items } from "@/types/NirmaanStack/Items"
+import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { FilePenLine, ListChecks } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { useParams } from "react-router-dom"
 
 const Item = () => {
-    const { itemId } = useParams<{ itemId: string }>()
+    const { productId } = useParams<{ productId: string }>()
 
-    return (
-        <div>
-            {itemId && <ItemView itemId={itemId} />}
-        </div>
-    )
+    if(productId) {
+        return <ItemView productId={productId} />
+    }
 }
 
 export const Component = Item
 
-const ItemView = ({ itemId }: { itemId: string }) => {
-
-    const navigate = useNavigate();
+const ItemView = ({ productId }: { productId: string }) => {
 
     const userData = useUserData()
 
-    const { data, error, isLoading, mutate } = useFrappeGetDoc(
+    const { data, error, isLoading, mutate } = useFrappeGetDoc<Items>(
         'Items',
-        itemId,
-        `Items ${itemId}`,
+        productId,
+        `Items ${productId}`,
         {
             revalidateIfStale: false,
         }
@@ -49,18 +47,18 @@ const ItemView = ({ itemId }: { itemId: string }) => {
         value: string;
     }
 
-    const category_options: SelectOption[] = category_list
+    const category_options: SelectOption[] = useMemo(() => category_list
         ?.map(item => ({
             label: `${item.category_name}-(${item.work_package})`,
             value: item.category_name
-        })) || [];
+        })) || [], [category_list]);
 
 
     const [curItem, setCurItem] = useState('');
     const [unit, setUnit] = useState('');
     const [category, setCategory] = useState('');
 
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const { updateDoc: updateDoc, loading: update_loading, error: update_submit_error } = useFrappeUpdateDoc()
 
     useEffect(() => {
         if(data) {
@@ -71,16 +69,16 @@ const ItemView = ({ itemId }: { itemId: string }) => {
     }, [data])
 
     const handleEditItem = () => {
-        updateDoc('Items', itemId, {
-            category: category ? category : data?.category,
-            unit_name: unit ? unit : data.unit_name,
-            item_name: curItem ? curItem : data.item_name
+        updateDoc('Items', productId, {
+            category: category ? category : undefined,
+            unit_name: unit ? unit : undefined,
+            item_name: curItem ? curItem : undefined
         })
             .then(() => {
                 mutate()
                 toast({
                     title: "Success!",
-                    description: `Item ${data?.name} updated successfully!`,
+                    description: `Product ${data?.name} updated successfully!`,
                     variant: "success"
                 })
                 setUnit('')
@@ -89,7 +87,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
             }).catch(() => {
                 toast({
                     title: "Failed!",
-                    description: `Unable to update Item ${data?.name}.`,
+                    description: `Unable to update Product ${data?.name}.`,
                     variant: "destructive"
                 })
                 console.log("update_submit_error", update_submit_error)
@@ -101,22 +99,21 @@ const ItemView = ({ itemId }: { itemId: string }) => {
     return (
         <div className="flex-1 md:space-y-4">
             <div className="flex items-center max-md:mb-2">
-                {/* <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate(-1)} /> */}
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
                     <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.item_name}</h2>}
-                    {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && (
+                    {(userData.role === "Nirmaan Admin Profile") && (
                         <Dialog>
                         <DialogTrigger>
                             <FilePenLine className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
                         </DialogTrigger>
                         <DialogContent>
                             <DialogHeader>
-                                <DialogTitle className="mb-2">Edit Item</DialogTitle>
+                                <DialogTitle className="mb-2">Edit Product</DialogTitle>
                                 <DialogDescription className="flex flex-col gap-2">
                                     <div className="flex flex-col gap-4 ">
     
                                         <div className="flex flex-col items-start">
-                                            <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                            <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Product Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
                                             <Input
                                                 type="text"
                                                 id="itemName"
@@ -126,27 +123,8 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                             />
                                         </div>
                                         <div className="flex flex-col items-start">
-                                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                                            <Select onValueChange={(value) => setUnit(value)} defaultValue={unit}>
-                                                <SelectTrigger className="">
-                                                    <SelectValue className="text-gray-200" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="BOX">BOX</SelectItem>
-                                                    <SelectItem value="ROLL">ROLL</SelectItem>
-                                                    <SelectItem value="LENGTH">LTH</SelectItem>
-                                                    <SelectItem value="MTR">MTR</SelectItem>
-                                                    <SelectItem value="NOS">NOS</SelectItem>
-                                                    <SelectItem value="KGS">KGS</SelectItem>
-                                                    <SelectItem value="PAIRS">PAIRS</SelectItem>
-                                                    <SelectItem value="PACKS">PACKS</SelectItem>
-                                                    <SelectItem value="DRUM">DRUM</SelectItem>
-                                                    <SelectItem value="SQMTR">SQMTR</SelectItem>
-                                                    <SelectItem value="LTR">LTR</SelectItem>
-                                                    <SelectItem value="BUNDLE">BUNDLE</SelectItem>
-                                                    <SelectItem value="FEET">FEET</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Product Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                            <SelectUnit value={unit} onChange={(value) => setUnit(value)} />
                                         </div>
                                         <div className="flex flex-col items-start">
                                             <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
@@ -178,15 +156,10 @@ const ItemView = ({ itemId }: { itemId: string }) => {
             {isLoading ? <OverviewSkeleton /> : (
                 <div>
                     <Card>
-                        {/* <CardHeader>
-                            <CardTitle>
-                                {data?.item_name}
-                            </CardTitle>
-                        </CardHeader> */}
                         <CardContent className="flex items-start mt-6">
                             <div className="space-y-4">
                                 <CardDescription className="space-y-2">
-                                    <span>Item ID</span>
+                                    <span>Product ID</span>
                                     <p className="font-bold text-black">{data?.name}</p>
                                 </CardDescription>
 

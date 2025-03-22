@@ -4,7 +4,7 @@ from frappe import _
 from .procurement_requests import get_user_name
 
 def after_insert(doc, method):
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
+        lead_admin_users = get_admin_users()
 
         project = frappe.get_doc("Projects", doc.project)
         

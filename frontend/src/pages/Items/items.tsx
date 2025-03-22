@@ -1,20 +1,16 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { SelectUnit } from "@/components/helpers/SelectUnit";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  DialogTitle
 } from "@/components/ui/dialog";
-import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, CirclePlus, ListChecks, ShoppingCart } from "lucide-react";
-import { useMemo, useState, useEffect, useContext } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -22,23 +18,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { formatDate } from "@/utils/FormatDate";
 import { useToast } from "@/components/ui/use-toast";
-import { Badge } from "@/components/ui/badge";
-import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 import { useUserData } from "@/hooks/useUserData";
+import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 import { UserContext } from "@/utils/auth/UserProvider";
+import { formatDate } from "@/utils/FormatDate";
+import { ColumnDef } from "@tanstack/react-table";
+import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { ListChecks, ShoppingCart } from "lucide-react";
+import { useContext, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { Link } from "react-router-dom";
 
 export default function Items() {
   const [curItem, setCurItem] = useState("");
   const [unit, setUnit] = useState("");
   const [category, setCategory] = useState("");
-  const [categoryOptions, setCategoryOptions] = useState<
-    { label: string; value: string }[]
-  >([]);
 
   const userData = useUserData();
 
@@ -49,7 +45,7 @@ export default function Items() {
     isLoading: isLoading,
     error: error,
     mutate: mutate,
-  } = useFrappeGetDocList("Items", {
+  } = useFrappeGetDocList<ItemsType>("Items", {
     fields: [
       "name",
       "item_name",
@@ -79,30 +75,19 @@ export default function Items() {
   } = useFrappeCreateDoc();
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (category_list) {
-      const currOptions = category_list.map((item) => ({
-        value: item.name,
-        label:
-          item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")",
-      }));
-      setCategoryOptions(currOptions);
-    }
-  }, [category_list]);
-
   const columns: ColumnDef<ItemsType>[] = useMemo(
     () => [
       {
         accessorKey: "name",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Item ID" />;
+          return <DataTableColumnHeader column={column} title="Product ID" />;
         },
         cell: ({ row }) => {
           return (
             <div className="font-medium">
               <Link
                 className="underline hover:underline-offset-2 whitespace-nowrap"
-                to={`/items/${row.getValue("name")}`}
+                to={`${row.getValue("name")}`}
               >
                 {row.getValue("name").slice(-6)}
               </Link>
@@ -113,14 +98,14 @@ export default function Items() {
       {
         accessorKey: "item_name",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Item Name" />;
+          return <DataTableColumnHeader column={column} title="Product Name" />;
         },
         cell: ({ row }) => {
           return (
             <div className="font-medium">
               <Link
                 className="underline hover:underline-offset-2 whitespace-nowrap"
-                to={`/items/${row.getValue("name")}`}
+                to={`${row.getValue("name")}`}
               >
                 {row.getValue("item_name")}
               </Link>
@@ -217,21 +202,20 @@ export default function Items() {
       });
   };
 
-  // if (isLoading || category_loading) return <h1>Loading</h1>
+  const categoryOptions = useMemo(() => category_list?.map((item) => ({
+    value: item.name,
+    label:
+      item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")",
+  })) || [], [category_list]);
+
   if (error || category_error)
     return error ? <h1>error.message</h1> : <h1>category_error.message</h1>;
 
   return (
     <div className="flex-1 space-y-4">
-      {/* <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
-                </div>
-            </div> */}
         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-medium">Total Items</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Products</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -253,18 +237,11 @@ export default function Items() {
             </div>
           </CardContent>
         </Card>
-        {(userData.user_id === "Administrator" ||
-          userData.role === "Nirmaan Admin Profile") && (
+        {(userData.role === "Nirmaan Admin Profile") && (
             <Dialog open={newItemDialog} onOpenChange={toggleNewItemDialog}>
-              {/* <DialogTrigger asChild>
-                        <Button className="flex items-center gap-1">
-                            <CirclePlus className="w-5 h-5" />
-                            <span className="hidden md:flex">Add New Item</span>
-                        </Button>
-                    </DialogTrigger> */}
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle className="mb-2">Add New Item</DialogTitle>
+                  <DialogTitle className="mb-2 text-center">Add New Product</DialogTitle>
                   <div className="flex flex-col gap-4 ">
                     <div className="flex flex-col items-start">
                       <label
@@ -296,7 +273,7 @@ export default function Items() {
                         htmlFor="itemName"
                         className="block text-sm font-medium text-gray-700"
                       >
-                        Item Name
+                        Product Name
                         <sup className="pl-1 text-sm text-red-600">*</sup>
                       </label>
                       <Input
@@ -308,52 +285,15 @@ export default function Items() {
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                       />
                     </div>
-                    {/* <div className="flex flex-col items-start">
-                    <label
-                      htmlFor="makeName"
-                      className="block text-sm font-medium text-gray-700"
-                    >
-                      Make Name(optional)
-                    </label>
-                    <Input
-                      type="text"
-                      id="makeName"
-                      value={make}
-                      onChange={(e) => setMake(e.target.value)}
-                      className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    />
-                  </div> */}
                     <div className="flex flex-col items-start">
                       <label
                         htmlFor="itemUnit"
                         className="block text-sm font-medium text-gray-700"
                       >
-                        Item Unit
+                        Product Unit
                         <sup className="pl-1 text-sm text-red-600">*</sup>
                       </label>
-                      <Select onValueChange={(value) => setUnit(value)}>
-                        <SelectTrigger className="">
-                          <SelectValue
-                            className="text-gray-200"
-                            placeholder="Select Unit"
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="BOX">BOX</SelectItem>
-                          <SelectItem value="ROLL">ROLL</SelectItem>
-                          <SelectItem value="LENGTH">LTH</SelectItem>
-                          <SelectItem value="MTR">MTR</SelectItem>
-                          <SelectItem value="NOS">NOS</SelectItem>
-                          <SelectItem value="KGS">KGS</SelectItem>
-                          <SelectItem value="PAIRS">PAIRS</SelectItem>
-                          <SelectItem value="PACKS">PACKS</SelectItem>
-                          <SelectItem value="DRUM">DRUM</SelectItem>
-                          <SelectItem value="SQMTR">SQMTR</SelectItem>
-                          <SelectItem value="LTR">LTR</SelectItem>
-                          <SelectItem value="BUNDLE">BUNDLE</SelectItem>
-                          <SelectItem value="FEET">FEET</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <SelectUnit value={unit} onChange={(value) => setUnit(value)} />
                     </div>
                   </div>
                 </DialogHeader>

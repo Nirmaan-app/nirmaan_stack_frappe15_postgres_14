@@ -33,8 +33,7 @@ import { Label } from "./label";
 import { Separator } from "./separator";
 import {
   Sheet,
-  SheetContent,
-  SheetTrigger
+  SheetContent
 } from "./sheet";
 import { Textarea } from "./textarea";
 import { toast } from "./use-toast";
@@ -76,6 +75,11 @@ export const PODetails : React.FC<PODetailsProps> = (
     const [emailBody, setEmailBody] = useState("");
     const [phoneError, setPhoneError] = useState("");
     const [emailError, setEmailError] = useState("");
+
+    const [dispatchPODialog, setDispatchPODialog] = useState(false);
+    const toggleDispatchPODialog = () => {
+      setDispatchPODialog((prevState) => !prevState);
+    };
 
     const [revertDialog, setRevertDialog] = useState(false);
     const toggleRevertDialog = () => {
@@ -287,19 +291,36 @@ export const PODetails : React.FC<PODetailsProps> = (
                     </div>
                   </DialogContent>
                 </Dialog>
-
-
+                
                 {!summaryPage &&
                   !accountsPage &&
                   !estimatesViewing &&
                   po?.status === "PO Approved" && (
-                    <Sheet>
-                      <SheetTrigger asChild>
-                        <Button className="flex items-center gap-1 text-xs p-1 h-8 px-2">
-                          <Send className="h-4 w-4" />
-                          Dispatch PO
-                        </Button>
-                      </SheetTrigger>
+                    !po?.project_gst ? (
+                        <HoverCard>
+                            <HoverCardTrigger>
+                              <Button disabled className="flex items-center gap-1 text-xs p-1 h-8 px-2">
+                                <Send className="h-4 w-4" />
+                                Dispatch PO
+                              </Button>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-80 bg-gray-800 text-white p-2 text-base rounded-md shadow-lg">
+                              Please select and confirm <i>Project GST</i> from the{" "}
+                              <span className="text-primary">
+                                Edit Payment Terms Dialog
+                              </span>{" "}
+                              in order to enable Dispatch button!
+                            </HoverCardContent>
+                          </HoverCard>
+                    ) : (
+                      <Button onClick={toggleDispatchPODialog} className="flex items-center gap-1 text-xs p-1 h-8 px-2">
+                        <Send className="h-4 w-4" />
+                         Dispatch PO
+                      </Button>
+                    )
+                  )}
+
+                    <Sheet open={dispatchPODialog} onOpenChange={toggleDispatchPODialog}>
                       <SheetContent className="overflow-y-auto">
                         <Card className="border-yellow-500 shadow-lg overflow-auto my-4">
                           <CardHeader className="bg-yellow-50">
@@ -546,41 +567,6 @@ export const PODetails : React.FC<PODetailsProps> = (
                               Check all details before sending this PO.
                             </p>
                             <div className="space-x-2 space-y-2 max-md:text-end max-md:w-full">
-                              {po?.status === "PO Approved" && !po?.project_gst ? (
-                                <HoverCard>
-                                  <HoverCardTrigger>
-                                    <div className="space-x-2 space-y-2 max-md:text-end max-md:w-full">
-                                      <Button
-                                        variant="outline"
-                                        disabled={
-                                          po?.status === "PO Approved" &&
-                                          !po?.project_gst
-                                        }
-                                      >
-                                        <Printer className="h-4 w-4 mr-2" />
-                                        PO PDF
-                                      </Button>
-                                      <Button
-                                        disabled={!po?.project_gst}
-                                        variant="default"
-                                        className="bg-yellow-500 hover:bg-yellow-600"
-                                      >
-                                        <Send className="h-4 w-4 mr-2" />
-                                        Mark as Dispatched
-                                      </Button>
-                                    </div>
-                                  </HoverCardTrigger>
-                                  <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                    Please select and confirm <i>Project GST</i> for
-                                    this PO from the{" "}
-                                    <span className="text-primary">
-                                      Edit Payment Terms Dialog
-                                    </span>{" "}
-                                    in order to enable PDF and Dispatch buttons!
-                                  </HoverCardContent>
-                                </HoverCard>
-                              ) : (
-                                <>
                                   <Button
                                     variant="outline"
                                     onClick={togglePoPdfSheet}
@@ -687,14 +673,11 @@ export const PODetails : React.FC<PODetailsProps> = (
                                       )}
                                     </DialogContent>
                                   </Dialog>
-                                </>
-                              )}
                             </div>
                           </CardFooter>
                         </Card>
                       </SheetContent>
                     </Sheet>
-                  )}
                 </div>
                 <Dialog open={revertDialog} onOpenChange={toggleRevertDialog}>
                   <DialogContent>
