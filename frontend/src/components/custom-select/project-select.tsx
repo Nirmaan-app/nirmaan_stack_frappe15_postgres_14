@@ -1,5 +1,6 @@
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactSelect from "react-select";
 
 interface SelectOptions {
@@ -8,29 +9,26 @@ interface SelectOptions {
 }
 
 interface ProjectSelectProps {
-    //category: string,
     onChange: (selectedOption: SelectOptions | null) => void
+    universal?: boolean
 }
 
-export default function ProjectSelect({ onChange }: ProjectSelectProps) {
+export default function ProjectSelect({ onChange, universal = true }: ProjectSelectProps) {
 
-    const { data: data, isLoading: loading, error: error } = useFrappeGetDocList("Projects", {
+    const { data: data, isLoading: loading, error: error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager", "status"],
         filters: [["status", "not in", ["Completed", "Halted"]]],
         limit: 1000,
         orderBy: { field: 'creation', order: 'desc' },
     });
 
-    const [options, setOptions] = useState<SelectOptions[]>([]);
-
     const [selectedOption, setSelectedOption] = useState<SelectOptions | null>(null);
 
     useEffect(() => {
-        if (data) {
+        if (data && universal) {
             let currOptions = data.map((item) => {
                 return ({ value: item.name, label: item.project_name })
             })
-            setOptions(currOptions);
             // Set initial selected option from sessionStorage
             const savedProject = sessionStorage.getItem('selectedProject');
             if (savedProject) {
@@ -42,12 +40,17 @@ export default function ProjectSelect({ onChange }: ProjectSelectProps) {
                 }
             }
         }
-    }, [data]);
+    }, [data, universal]);
 
     const handleChange = (selectedOption: SelectOptions | null) => {
-        setSelectedOption(selectedOption || null);
+        setSelectedOption(selectedOption);
         onChange(selectedOption);
     };
+
+    const options = useMemo(() => data?.map((item) => ({
+        value: item.name,
+        label: item.project_name,
+    })) || [], [data]);
 
     if (error) return <h1>Error</h1>;
     return (

@@ -2,6 +2,7 @@ import { FormSkeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import NewCustomer from "@/pages/customers/add-new-customer"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
+import { parseNumber } from "@/utils/parseNumber"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Steps } from "antd"
 import { format } from "date-fns"
@@ -47,6 +48,9 @@ const projectFormSchema = z.object({
             required_error: "Please select associated customer"
         }),
     project_type: z
+        .string()
+        .optional(),
+    project_value: z
         .string()
         .optional(),
     subdivisions: z
@@ -192,6 +196,7 @@ export const ProjectForm = () => {
 
     const defaultValues: ProjectFormValues = {
         project_name: "",
+        project_value: "",
         project_start_date: new Date(),
         project_end_date: undefined,
         project_work_packages: {
@@ -366,6 +371,7 @@ export const ProjectForm = () => {
                     project_name: values.project_name,
                     customer: values.customer,
                     project_type: values.project_type,
+                    project_value: parseNumber(values.project_value),
                     project_gst_number: values.project_gst_number,
                     project_start_date: formatted_start_date,
                     project_end_date: formatted_end_date,
@@ -519,10 +525,10 @@ export const ProjectForm = () => {
         }
     };
 
-    const getFieldsForSection = (sectionName) => {
+    const getFieldsForSection = (sectionName : string) => {
         switch (sectionName) {
             case "projectDetails":
-                return ["project_name", "customer", "project_type", "subdivisions"];
+                return ["project_name", "customer", "project_type", "subdivisions", "project_value"];
             case "projectAddressDetails":
                 return ["address_line_1", "address_line_2", "project_city", "project_state", "pin", 'email', 'phone'];
             case "projectTimeline":
@@ -536,7 +542,7 @@ export const ProjectForm = () => {
         }
     };
 
-    const nextSection = (currentSection) => {
+    const nextSection = (currentSection : string) => {
         switch (currentSection) {
             case "projectDetails":
                 return "projectAddressDetails";
@@ -653,6 +659,21 @@ export const ProjectForm = () => {
                                                     </SheetHeader>
                                                 </SheetContent>
                                             </Sheet>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="project_value"
+                                    render={({ field }) => (
+                                        <FormItem className="lg:flex lg:items-center gap-4">
+                                            <FormLabel className="md:basis-2/12">Project Value</FormLabel>
+                                            <div className="flex flex-col items-start md:basis-2/4">
+                                                <FormControl className="">
+                                                    <Input placeholder="Project Value" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </div>
                                         </FormItem>
                                     )}
                                 />
@@ -1779,6 +1800,7 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
                     <Detail label="Project Name" value={form.getValues("project_name")} />
                     <Detail label="Project Type" value={form.getValues("project_type")} />
                     <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
+                    <Detail label="Project Value" value={form.getValues("project_value")} />
                 </Section>
 
                 <Section sectionKey="projectAddressDetails">

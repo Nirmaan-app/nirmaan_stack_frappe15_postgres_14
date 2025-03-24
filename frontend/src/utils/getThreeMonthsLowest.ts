@@ -1,4 +1,5 @@
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import memoize from 'lodash/memoize';
 import { parseNumber } from "./parseNumber";
 
 /**
@@ -9,7 +10,8 @@ import { parseNumber } from "./parseNumber";
  * @returns The lowest quote within the last three months.
  */
 
-const getThreeMonthsLowestFiltered = (quotes_data : ApprovedQuotations[] | undefined, itemId: string, threshold = 2) => {
+const getThreeMonthsLowestFiltered = memoize(
+  (quotes_data : ApprovedQuotations[] | undefined, itemId: string, threshold = 2) => {
     // 1. Extract and parse quotes for the item from quotes_data.
     const quotesForItem: number[] =
       quotes_data
@@ -48,6 +50,6 @@ const getThreeMonthsLowestFiltered = (quotes_data : ApprovedQuotations[] | undef
   
     // 7. Return the minimum value.
     return Math.min(...quotesToConsider);
-  }
+  }, (quotes_data : ApprovedQuotations[] | undefined, itemId: string, threshold = 2) => JSON.stringify(quotes_data) + itemId + threshold);
 
   export default getThreeMonthsLowestFiltered;

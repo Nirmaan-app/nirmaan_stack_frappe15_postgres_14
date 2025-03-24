@@ -372,7 +372,6 @@ export const ReleasePOSelect : React.FC = () => {
                         {
                             adminTabs && (
                                 <Radio.Group
-                                    block
                                     options={adminTabs}
                                     optionType="button"
                                     buttonStyle="solid"
@@ -384,7 +383,6 @@ export const ReleasePOSelect : React.FC = () => {
                         {
                             items && (
                                 <Radio.Group
-                                    block
                                     options={items}
                                     defaultValue="Approved PO"
                                     optionType="button"

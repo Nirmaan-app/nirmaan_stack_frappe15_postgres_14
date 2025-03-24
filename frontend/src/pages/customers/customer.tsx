@@ -1,21 +1,25 @@
+"use client";
+
 import {
   Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
   CardContent,
+  CardDescription
 } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 // import { fetchDoc } from "@/reactQuery/customFunctions";
 // import { useQuery } from "@tanstack/react-query";
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, FilePenLine, MapPin } from "lucide-react";
-import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Customers } from "@/types/NirmaanStack/Customers";
+import { Radio } from "antd";
+import { useFrappeGetDoc } from "frappe-react-sdk";
+import { FilePenLine } from "lucide-react";
+import React, { useCallback, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
+import { InFlowPayments } from "../projects/InFlowPayments";
+import Projects from "../projects/projects";
 import EditCustomer from "./edit-customer";
 
-const Customer = () => {
+const Customer : React.FC = () => {
   const { customerId } = useParams<{ customerId: string }>();
 
   return <div>{customerId && <CustomerView customerId={customerId} />}</div>;
@@ -23,14 +27,9 @@ const Customer = () => {
 
 export const Component = Customer;
 
-const CustomerView = ({ customerId }: { customerId: string }) => {
-  const navigate = useNavigate();
-
-  // const { data, isLoading, error } = useQuery({
-  //   queryKey: ["doc", "Customers", customerId],
-  //   queryFn: () => fetchDoc({doctype: "Customers", name: customerId}),
-  //   staleTime: 1000 * 60 * 5,
-  // });
+const CustomerView : React.FC<{ customerId: string }> = ({ customerId }) => {
+  const [searchParams] = useSearchParams(); 
+  const [tab, setTab] = useState<string>(searchParams.get("tab") || "Projects")
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
@@ -38,7 +37,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
     setEditSheetOpen((prevState) => !prevState);
   };
 
-  const { data, isLoading, error } = useFrappeGetDoc(
+  const { data, isLoading, error } = useFrappeGetDoc<Customers>(
     "Customers",
     customerId,
     `Customers ${customerId}`,
@@ -47,15 +46,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
     }
   );
 
-  const { data: associatedProjects } = useFrappeGetDocList("Projects", {
-    fields: ["*"],
-    filters: [["customer", "=", customerId]],
-    limit: 1000,
-  });
-
-  // console.log("asociated Projects", associatedProjects)
-
-  const customerAddressID = data?.company_address;
+  const customerAddressID = useMemo(() => data?.company_address, [data])
 
   const {
     data: customerAddress,
@@ -70,6 +61,35 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
     }
   );
 
+  const updateURL = useCallback(
+      (params: Record<string, string>) => {
+      const url = new URL(window.location.href);
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.set(key, value);
+      });
+      window.history.pushState({}, '', url);
+    }, []);
+
+  const tabs = useMemo(() => [
+        {
+          label: "Projects",
+          value: "Projects"
+        },
+        {
+          label: "Payments Inflow",
+          value: "Payments Inflow"
+        },
+      ], [])
+
+  const onClick = useCallback(
+      (value : string) => {
+        if (tab === value) return;
+        setTab(value);
+        updateURL({ tab: tab });
+      }
+      , [tab, updateURL]);
+
+
   if (error || customerAddressError)
     return (
       <h1 className="text-red-700">
@@ -80,7 +100,6 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
   return (
     <div className="flex-1 md:space-y-4">
       <div className="flex items-center gap-1 max-md:mb-2">
-        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} /> */}
         {isLoading ? (
           <Skeleton className="h-10 w-1/3 bg-gray-300" />
         ) : (
@@ -100,7 +119,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
       {isLoading || customerAddressLoading ? (
         <OverviewSkeleton />
       ) : (
-        <div>
+        <>
           <Card>
             <CardContent className="flex max-lg:flex-col max-lg:gap-10 mt-6">
               {/* <Card className="bg-[#F9FAFB]">
@@ -115,27 +134,25 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
                 <CardDescription className="space-y-2">
                   <span>Contact Person</span>
                   <p className="font-bold text-black">
-                    {!data.company_contact_person
-                      ? "N.A."
-                      : data.company_contact_person}
+                    {data?.company_contact_person || "N/A"}
                   </p>
                 </CardDescription>
 
                 <CardDescription className="space-y-2">
                   <span>Contact Number</span>
                   <p className="font-bold text-black">
-                    {!data.company_phone ? "N.A." : data.company_phone}
+                    {data?.company_phone || "N/A"}
                   </p>
                 </CardDescription>
                 <CardDescription className="space-y-2">
                   <span>Email Address</span>
                   <p className="font-bold text-black">
-                    {!data.company_email ? "N.A." : data.company_email}
+                    {data?.company_email || "N/A"}
                   </p>
                 </CardDescription>
                 <CardDescription className="space-y-2">
                   <span>GST Number</span>
-                  <p className="font-bold text-black">{data?.company_gst}</p>
+                  <p className="font-bold text-black">{data?.company_gst || "N/A"}</p>
                 </CardDescription>
               </div>
 
@@ -152,14 +169,14 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
                 <CardDescription className="space-y-2">
                   <span>City</span>
                   <p className="font-bold text-black">
-                    {customerAddress?.city}
+                    {customerAddress?.city || "N/A"}
                   </p>
                 </CardDescription>
 
                 <CardDescription className="space-y-2">
                   <span>State</span>
                   <p className="font-bold text-black">
-                    {customerAddress?.state}
+                    {customerAddress?.state || "N/A"}
                   </p>
                 </CardDescription>
 
@@ -170,47 +187,28 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
                   </p>
                 </CardDescription>
               </div>
-              {/* </CardContent>
-                  </CardHeader>
-                </Card> */}
             </CardContent>
           </Card>
-          <div className="mt-4">
-            <h2 className="text-2xl max-md:text-xl font-semibold font-bold pb-2 ml-2">
-              Associated Projects
-            </h2>
-            {associatedProjects?.length ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {associatedProjects?.map((project) => (
-                  <Link key={project.name} to={`/projects/${project?.name}`}>
-                    <Card className="flex flex-col">
-                      <CardHeader>
-                        <CardTitle className="flex justify-between items-start">
-                          <span className="text-lg">
-                            {project?.project_name}
-                          </span>
-                        </CardTitle>
-                        <CardDescription className="text-xs">
-                          {project?.name}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="flex-grow">
-                        <div className="flex items-center gap-2 mb-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm">
-                            {project?.project_city}, {project?.project_state}
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <p className="text-center bg-gray-50 py-2">Not Available</p>
+
+          {tabs && (
+                <Radio.Group
+                    options={tabs}
+                    defaultValue="Projects"
+                    optionType="button"
+                    buttonStyle="solid"
+                    value={tab}
+                    onChange={(e) => onClick(e.target.value)}
+                />
             )}
-          </div>
-        </div>
+
+            {tab === "Projects" && (
+              <Projects customersView customerId={customerId} />
+            )}
+
+            {tab === "Payments Inflow" && (
+              <InFlowPayments customerId={customerId} />
+            )}
+          </>
       )}
     </div>
   );

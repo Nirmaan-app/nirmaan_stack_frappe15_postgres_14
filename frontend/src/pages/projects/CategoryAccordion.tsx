@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { Table as AntTable, ConfigProvider } from "antd";
-import { useState } from "react";
+import { parseNumber } from "@/utils/parseNumber";
+import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 
@@ -16,6 +17,10 @@ interface CategoryAccordionProps {
   projectEstimates?: any[];
   po_data?: ProcurementOrder[];
 }
+
+const getExpandedRowKeysStorageKey = () => `expandedRowKeys_${window.location.href}`;
+const getExpandedPORowKeysStorageKey = () => `expandedPORowKeys_${window.location.href}`;
+
 export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
   categorizedData,
   selectedPackage,
@@ -23,23 +28,38 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
   po_data,
 }) => {
 
-  const selectedData = categorizedData?.[selectedPackage] || null;
+  const selectedData = useMemo(() => categorizedData?.[selectedPackage || ""], [categorizedData, selectedPackage])
 
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
-  const [expandedPORowKyes, setExpandedPORowKeys] = useState([]);
+  const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>(() => {
+    const storedKeys = localStorage.getItem(getExpandedRowKeysStorageKey());
+    return storedKeys ? JSON.parse(storedKeys) : [];
+  });
+
+  const [expandedPORowKyes, setExpandedPORowKeys] = useState<string[]>(() => {
+    const storedKeys = localStorage.getItem(getExpandedPORowKeysStorageKey());
+    return storedKeys ? JSON.parse(storedKeys) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(getExpandedRowKeysStorageKey(), JSON.stringify(expandedRowKeys));
+    // return () => localStorage.removeItem(getExpandedRowKeysStorageKey());
+  }, [expandedRowKeys]);
+
+  useEffect(() => {
+    localStorage.setItem(getExpandedPORowKeysStorageKey(), JSON.stringify(expandedPORowKyes));
+    // return () => localStorage.removeItem(getExpandedPORowKeysStorageKey());
+  }, [expandedPORowKyes]);
 
   const navigate = useNavigate();
 
-  // console.log("selectedData", selectedData)
-
-  const getItemAttributes = (item) => {
+  const getItemAttributes = useCallback((item : any) => {
     const estimateItem = projectEstimates?.find(
       (i) => i?.item === item?.item_id
     );
 
-    const quantityDif =
-      item?.quantity -
-      estimateItem?.quantity_estimate;
+    if(!estimateItem) return { dynamicQtyClass: null, updated_estd_amt: null, percentage_change: null, estimateItem: null }
+
+    const quantityDif = item?.quantity - estimateItem?.quantity_estimate;
 
     let dynamicQtyClass = null;
 
@@ -74,9 +94,9 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
     );
 
     return { dynamicQtyClass, updated_estd_amt, percentage_change, estimateItem }
-  }
+  }, [projectEstimates])
 
-  const columns = [
+  const columns : TableColumnsType<{key : string, total_amount : number, total_estimate_amount : number, category : string, items : any[]}> = useMemo(() => [
     {
       title: "Category",
       dataIndex: "category",
@@ -98,9 +118,9 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       width: "30%",
       render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
     },
-  ];
+  ], [])
 
-  const innerColumns = [
+  const innerColumns = useMemo(() => [
     // {
     //   title: "Item ID",
     //   dataIndex: "item_id",
@@ -112,7 +132,8 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       dataIndex: "item_name",
       key: "item_name",
       width: "30%",
-      render: (text) => <span className="italic">{text}</span>,
+      className: "min-w-[200px]",
+      render: (text) => <div className="italic">{text}</div>,
     },
     {
       title: "Unit",
@@ -128,6 +149,11 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
         const { dynamicQtyClass } = getItemAttributes(data)
         return <span className={`${text && dynamicQtyClass} italic`}>{text || "--"}</span>
       }
+    },
+    {
+      title: "Qty Received",
+      dataIndex: "received",
+      key: "qty_received"
     },
     {
       title: "Estd. Qty",
@@ -185,9 +211,9 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
         </span>
       },
     },
-  ];
+  ], [getItemAttributes, projectEstimates, selectedData])
 
-  const innerPOColumns = [
+  const innerPOColumns = useMemo(() => [
     {
       title: "PO ID",
       dataIndex: "name",
@@ -197,12 +223,18 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
           {text}
         </span>
       },
-      width: "42%",
+      // width: "35%",
+      className: "min-w-[230px]",
     },
     {
       title: "Quantity",
       dataIndex: "po_item_quantity",
       key: "po_item_quantity",
+    },
+    {
+      title: "Received",
+      dataIndex: "po_item_qty_received",
+      key: "po_item_qty_received",
     },
     {
       title: "Rate",
@@ -217,7 +249,24 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       dataIndex: "vendor_name",
       key: "vendor_name",
     },
-  ];
+  ], [])
+
+  const getTotalAmount = useCallback(
+    (key: string) : number => {
+      return selectedData?.[key]?.reduce((acc, item) => acc + parseNumber(item?.amount), 0) || 0
+    }
+  , [selectedData])
+
+  const getTotalCategoryEstdAmt = useCallback(
+    (key: string) : number => {
+      const categoryEstimates = projectEstimates?.filter(
+        (i) => i?.category === key
+      );
+      return categoryEstimates?.reduce((sum, item) => sum + parseNumber(item?.rate_estimate) * parseNumber(item?.quantity_estimate),
+        0
+      ) || 0
+    }
+  , [])
 
   return (
     <div className="w-full">
@@ -230,20 +279,8 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
                   a?.localeCompare(b)
                 )
                 ?.map((key) => {
-                  const totalAmount = selectedData[key]?.reduce(
-                    (sum, item) => sum + parseFloat(item?.amount),
-                    0
-                  );
-                  const categoryEstimates = projectEstimates?.filter(
-                    (i) => i?.category === key
-                  );
-                  const totalCategoryEstdAmt = categoryEstimates?.reduce(
-                    (sum, item) =>
-                      sum +
-                      parseFloat(item?.rate_estimate) *
-                      parseFloat(item?.quantity_estimate),
-                    0
-                  );
+                  const totalAmount = getTotalAmount(key);
+                  const totalCategoryEstdAmt = getTotalCategoryEstdAmt(key)
                   return {
                     key: key,
                     total_amount: totalAmount,
@@ -274,11 +311,15 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
                         });
 
                         // Add the `item_id` field to each data object
-                        const enrichedPOData = filteredPOData?.map((item) => ({
-                          ...item,
-                          po_item_quantity: item?.order_list?.list?.find((i) => i?.name === record?.item_id)?.quantity,
-                          po_item_quote: item?.order_list?.list?.find((i) => i?.name === record?.item_id)?.quote,
-                        }));
+                        const enrichedPOData = filteredPOData?.map((item) => {
+                          const po_item = item?.order_list?.list?.find((i) => i?.name === record?.item_id);
+                          return {
+                            ...item,
+                            po_item_quantity: po_item?.quantity,
+                            po_item_qty_received: po_item?.received || "--",
+                            po_item_quote: po_item?.quote,
+                          };
+                        });
                         return (
                           <AntTable
                             dataSource={enrichedPOData}
@@ -305,3 +346,5 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
     </div>
   )
 }
+
+export default CategoryAccordion;

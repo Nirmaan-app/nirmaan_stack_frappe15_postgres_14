@@ -128,3 +128,6 @@ export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> 
     </div>
   );
 };
+
+
+export default ServiceRequestsAccordion;

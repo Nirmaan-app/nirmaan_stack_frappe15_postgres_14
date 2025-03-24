@@ -111,7 +111,6 @@ export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData, 
     <>
       {options && (
         <Radio.Group
-          block
           options={options}
           defaultValue="All"
           optionType="button"

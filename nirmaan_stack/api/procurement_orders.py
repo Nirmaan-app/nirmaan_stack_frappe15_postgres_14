@@ -144,6 +144,7 @@ def generate_po_summary(project_id: str):
                 "item_id": item.get("name"),
                 "quote": item.get("quote"),
                 "quantity": item.get("quantity"),
+                "received": item.get("received"),
                 "category": item.get("category"),
                 "tax": item.get("tax"),
                 "unit": item.get("unit"),
