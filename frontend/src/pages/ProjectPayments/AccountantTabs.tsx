@@ -276,17 +276,23 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
             header: "PO/SR ID",
             cell: ({ row }) => {
                 const data = row.original;
-                let id;
-                if (data?.document_type === "Procurement Orders") {
-                    id = data?.document_name.replaceAll("/", "&=")
-                } else {
-                    id = data?.document_name
-                }
+                const id = data?.document_name?.replaceAll("/", "&=")
+                const isPO = data?.document_type === "Procurement Orders"
                 return <div className="font-medium flex items-center gap-1 min-w-[170px]">
                     {data?.document_name}
                     <HoverCard>
                         <HoverCardTrigger>
-                            <Info onClick={() => navigate(`/project-payments/${id}`)} className="w-4 h-4 text-blue-600 cursor-pointer" />
+                            <Info onClick={() => {
+                                if(projectsView) {
+                                    if(isPO) {
+                                        navigate(`po/${id}`)
+                                    } else {
+                                        navigate(`/service-requests-list/${id}`)
+                                    }
+                                } else {
+                                    navigate(`/project-payments/${id}`)
+                                }
+                            }} className="w-4 h-4 text-blue-600 cursor-pointer" />
                         </HoverCardTrigger>
                         <HoverCardContent>
                             Click on to navigate to the PO screen!

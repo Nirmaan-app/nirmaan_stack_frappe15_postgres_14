@@ -87,7 +87,6 @@ export const ServiceRequestsTabs : React.FC = () => {
         <div className="flex items-center max-sm:items-start gap-4 max-sm:flex-col">
             {adminTabs && (
                 <Radio.Group
-                    block
                     options={adminTabs}
                     optionType="button"
                     buttonStyle="solid"
@@ -97,7 +96,6 @@ export const ServiceRequestsTabs : React.FC = () => {
             )}
           {items && (
               <Radio.Group
-                  block
                   options={items}
                   optionType="button"
                   buttonStyle="solid"
