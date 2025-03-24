@@ -1,3 +1,4 @@
+import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -59,6 +60,8 @@ export const PODetails : React.FC<PODetailsProps> = (
   {po, summaryPage, accountsPage, estimatesViewing, poPayments, togglePoPdfSheet,
     getTotal, amountPaid, poMutate, pr
   }) => {
+
+    const {role} = useUserData();
 
     const { updateDoc, loading : update_loading } = useFrappeUpdateDoc();
     const {call : deleteCustomPOCall, loading : deleteCustomPOCallLoading} = useFrappePostCall("nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po");
@@ -235,10 +238,10 @@ export const PODetails : React.FC<PODetailsProps> = (
                         Revert
                       </Button>
                     )}
-                  {(po?.status !== "PO Approved" ||
+                  {((po?.status !== "PO Approved" ||
                     summaryPage ||
                     accountsPage ||
-                    estimatesViewing) && (
+                    estimatesViewing) || role != "Nirmaan Procurement Executive Profile") && (
                     <Button
                       variant="outline"
                       onClick={togglePoPdfSheet}

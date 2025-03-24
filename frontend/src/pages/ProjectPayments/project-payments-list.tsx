@@ -321,7 +321,7 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
                             <div className="flex items-center gap-1">
-                            <Link to={`${poId}`} className="underline hover:underline-offset-2">
+                            <Link to={projectsView ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
                                 {id}
                             </Link>
                             <ItemsHoverCard isSR={!isPO} order_list={isPO ?  data?.order_list.list : data?.service_order_list.list} />

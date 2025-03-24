@@ -385,7 +385,7 @@ const {
            <Badge
              className="flex justify-between"
            >
-             <span>Total inc. GST:</span> <span>{formatToIndianRupee(totalPOAmt)}</span>
+             <span>Total PO Amt inc. GST:</span> <span>{formatToIndianRupee(totalPOAmt)}</span>
            </Badge>
            {/* <Badge
              variant={"yellow"}

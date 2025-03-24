@@ -54,7 +54,7 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
       render: (text) => <strong onClick={() => setProjectSpendsTab(text)} className="text-primary underline cursor-pointer">{text}</strong>,
     },
     {
-      title: "Total Amount (exc. GST)",
+      title: "Total PO Amount (exc. GST)",
       dataIndex: "amountWithoutTax",
       key: "amountWithoutTax",
       width: "20%",

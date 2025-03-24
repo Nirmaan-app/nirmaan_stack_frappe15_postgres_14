@@ -92,9 +92,10 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
 
   const onClick = useCallback(
     (value : string) => {
-      if (tab === value) return;
-      setTab(value);
-      updateURL({ fTab: tab });
+      if (value !== tab){
+        setTab(value);
+        updateURL({ fTab: value });
+      }
     }
     , [tab, updateURL]);
 

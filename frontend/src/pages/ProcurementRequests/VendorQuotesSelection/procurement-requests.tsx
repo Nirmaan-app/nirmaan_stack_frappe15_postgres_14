@@ -346,7 +346,6 @@ export const ProcurementRequests : React.FC = () => {
             <div className="flex items-center max-md:items-start gap-4 max-md:flex-col"> 
             {adminTabs && (
                     <Radio.Group
-                        block
                         options={adminTabs}
                         optionType="button"
                         buttonStyle="solid"
@@ -357,7 +356,6 @@ export const ProcurementRequests : React.FC = () => {
 
                 {items && (
                     <Radio.Group
-                        block
                         options={items}
                         optionType="button"
                         buttonStyle="solid"
@@ -368,7 +366,6 @@ export const ProcurementRequests : React.FC = () => {
 
                 {sentBackTabs && (
                     <Radio.Group
-                        block
                         options={sentBackTabs}
                         optionType="button"
                         buttonStyle="solid"

@@ -101,7 +101,6 @@ export const RenderProjectPaymentsComponent = () => {
                     />
                 )}
                 <Radio.Group
-                    block
                     options={[...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []), "All Payments"]}
                     optionType="button"
                     buttonStyle="solid"
