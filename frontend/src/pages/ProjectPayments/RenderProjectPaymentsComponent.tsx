@@ -83,7 +83,6 @@ export const RenderProjectPaymentsComponent = () => {
             <div className="flex items-center max-sm:items-start gap-4 max-sm:flex-col">
                 {adminTabs && (
                     <Radio.Group
-                        block
                         options={adminTabs}
                         optionType="button"
                         buttonStyle="solid"
@@ -93,7 +92,6 @@ export const RenderProjectPaymentsComponent = () => {
                 )}
                 {items && (
                     <Radio.Group
-                        block
                         options={items}
                         defaultValue="New Payments"
                         optionType="button"

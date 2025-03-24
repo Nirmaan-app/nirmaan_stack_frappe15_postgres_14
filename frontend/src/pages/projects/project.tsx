@@ -4,13 +4,12 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,6 +111,7 @@ interface po_item_data_item {
   item_id : string
   quote : number
   quantity : number
+  received: number
   category: string
   tax: number
   unit: string
@@ -242,7 +242,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         updateURL({page: newPage, fTab: 'All Payments'}, ['tab', 'makesTab', 'eTab'])
       } else {
         setMakesTab('');
-        updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab']);
+        updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab', 'fTab']);
       }
       setActivePage(newPage);
     }, [activePage, updateURL]);
@@ -1160,7 +1160,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   });
 
   const groupItemsByWorkPackageAndCategory = useMemo(() => (items : po_item_data_item[] | undefined) => {
-    const totals: { [key: string]: { amountWithTax: number; amountWithoutTax: number } } = {};
+    const totals: { [key: string]: { amountWithTax: number; amountWithoutTax: number, total_estimated_amount? : number, total_amount_paid? : number } } = {};
 
     const allItemIds : string[] = [];
 
@@ -1193,8 +1193,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       );
 
       if (existingItem) {
-        existingItem.quantity =
-          existingItem.quantity + item.quantity;
+        existingItem.quantity = existingItem.quantity + item.quantity;
+        existingItem.received = existingItem.received + item.received;
         existingItem.amount += baseAmount;
         existingItem.amountWithTax += amountPlusTax;
         existingItem.averageRate = Math.floor(
@@ -1213,34 +1213,34 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       return acc;
     }, {}) || {};
 
-    const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item || ""))
+    // const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item || ""))
 
-    filteredProjectEstimates?.forEach((item) => {
-      if (!groupedData[item?.work_package || ""]) {
-        groupedData[item?.work_package || ""] = {};
-      }
-      if (!groupedData[item?.work_package || ""][item?.category || ""]) {
-        groupedData[item?.work_package || ""][item?.category || ""] = [];
-      }
+    // filteredProjectEstimates?.forEach((item) => {
+    //   if (!groupedData[item?.work_package || ""]) {
+    //     groupedData[item?.work_package || ""] = {};
+    //   }
+    //   if (!groupedData[item?.work_package || ""][item?.category || ""]) {
+    //     groupedData[item?.work_package || ""][item?.category || ""] = [];
+    //   }
 
-      groupedData[item.work_package || ""][item.category || ""].push({
-        item_id: item.item,
-        item_name: item.item_name,
-        unit: item?.uom,
-        amount: undefined,
-        amountWithTax: undefined,
-        averageRate: undefined,
-        category: item.category,
-        creation: item.creation,
-        po_number: undefined,
-        quantity: undefined,
-        quote: undefined,
-        tax: parseNumber(item?.item_tax),
-        vendor_id: undefined,
-        vendor_name: undefined,
-        work_package: item.work_package,
-      });
-    })
+    //   groupedData[item.work_package || ""][item.category || ""].push({
+    //     item_id: item.item,
+    //     item_name: item.item_name,
+    //     unit: item?.uom,
+    //     amount: undefined,
+    //     amountWithTax: undefined,
+    //     averageRate: undefined,
+    //     category: item.category,
+    //     creation: item.creation,
+    //     po_number: undefined,
+    //     quantity: undefined,
+    //     quote: undefined,
+    //     tax: parseNumber(item?.item_tax),
+    //     vendor_id: undefined,
+    //     vendor_name: undefined,
+    //     work_package: item.work_package,
+    //   });
+    // })
 
     return { groupedData, totals };
     }, [project_estimates, items]);
@@ -1271,14 +1271,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           parseNumber(i?.rate_estimate),
         0
       );
-      totals[key].total_estimated_amount = totalEstimatedAmount || 0;
-      totals[key].total_amount_paid = totalAmountPaidWPWise[key] || 0
+      totals[key]['total_estimated_amount'] = totalEstimatedAmount || 0;
+      totals[key]['total_amount_paid'] = totalAmountPaidWPWise[key] || 0
     });
     setWorkPackageTotalAmounts(totals);
   }, [po_item_data, project_estimates, po_data, projectPayments, pr_data]);
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
+  
+  const totalPOAmountWithGST = useMemo(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
+      const { amountWithTax } = workPackageTotalAmounts[key];
+      return acc + amountWithTax;
+    }, 0), [workPackageTotalAmounts])
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -1494,12 +1499,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel onClick={handleCancelStatus}>
+                    {updateDocLoading ? (
+                      <TailSpin color="red" width={26} height={26} />
+                    ) : (
+                      <>
+                      <AlertDialogCancel onClick={handleCancelStatus}>
                       Cancel
                     </AlertDialogCancel>
-                    <AlertDialogAction onClick={handleConfirmStatus}>
+                    <Button onClick={handleConfirmStatus}>
                       Continue
-                    </AlertDialogAction>
+                    </Button>
+                      </>
+                    )}
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -1551,7 +1562,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {/* Overview Section */}
 
       {activePage === "overview" && (
-              <ProjectOverviewTab data={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPosRaised={totalPosRaised} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
+              <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
         )
       }
 
@@ -1629,28 +1640,26 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </CardDescription>
               <CardDescription className="text-right">
                 {/* Calculating Totals */}
-                {(() => {
+                {/* {(() => {
                   let totalAmountWithTax = 0;
-                  let totalAmountWithoutTax = 0;
 
                   Object.keys(workPackageTotalAmounts || {}).forEach((key) => {
                     const wpTotal = workPackageTotalAmounts[key];
                     totalAmountWithTax += wpTotal.amountWithTax || 0;
-                    totalAmountWithoutTax += wpTotal.amountWithoutTax || 0;
                   });
 
-                  return (
+                  return ( */}
                     <div className="flex flex-col items-start">
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{totalAmountWithTax.toLocaleString()}
+                          ₹{totalPOAmountWithGST.toLocaleString()}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{totalAmountWithoutTax.toLocaleString()}
+                          ₹{totalPosRaised.toLocaleString()}
                         </span>
                       </p>
                       <p className="text-gray-700">
@@ -1660,8 +1669,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                         </span>
                       </p>
                     </div>
-                  );
-                })()}
+                  {/* );
+                })()} */}
               </CardDescription>
             </CardContent>
           </Card>
@@ -1696,7 +1705,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       )}
 
       {activePage === "projectfinancials" && (
-        <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} updateURL={updateURL} totalPosRaised={totalPosRaised} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />
+        <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} updateURL={updateURL} totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />
       )}
 
       {activePage === "projectestimates" && (

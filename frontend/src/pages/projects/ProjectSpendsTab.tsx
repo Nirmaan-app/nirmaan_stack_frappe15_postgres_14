@@ -38,7 +38,9 @@ export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, upd
         fields: ["*"],
         filters: [["project", "=", projectId]],
         limit: 10000,
-      });
+      },
+    projectId ? undefined : null
+    );
     
     const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
             fields: ["*"],
@@ -47,7 +49,9 @@ export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, upd
               ["project", "=", projectId],
             ],
             limit: 1000,
-          });
+          }, 
+        projectId ? undefined : null
+      );
 
     const segregateServiceOrderData = (serviceRequestsData : ServiceRequests[] | undefined) => {
           return useMemo(() => {
@@ -115,7 +119,7 @@ export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, upd
         </div>
     }
     return (
-        <div>
+        <>
             {options && (
                 <Radio.Group
                   options={options}
@@ -144,7 +148,7 @@ export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, upd
                             po_data={po_data}
                           />
                           </Suspense>
-                )}
+            )}
             
                 {activeTab === "All" && (
                      <Suspense fallback={
@@ -168,7 +172,7 @@ export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, upd
                         </Suspense>
                 )}
             
-        </div>
+        </>
     )
 }
 
