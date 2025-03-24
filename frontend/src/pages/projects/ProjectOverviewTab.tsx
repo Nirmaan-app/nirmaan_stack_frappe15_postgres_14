@@ -36,10 +36,10 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 
 interface ProjectOverviewTabProps {
-  data: any;
+  projectData: any;
   projectCustomer?: Customers;
   estimatesTotal: number
-  totalPosRaised: number
+  totalPOAmountWithGST: number
   getAllSRsTotalWithGST: number
   getTotalAmountPaid: {
     poAmount: number;
@@ -50,7 +50,7 @@ interface ProjectOverviewTabProps {
 
 {/* <OverviewSkeleton2 /> */}
 
-export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, projectCustomer, estimatesTotal, getAllSRsTotalWithGST, totalPosRaised, getTotalAmountPaid}) => {
+export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectData, projectCustomer, estimatesTotal, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid}) => {
 
     const {role} = useUserData();
     const navigate = useNavigate();
@@ -64,23 +64,24 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
 
     const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
         fields: ["*"],
+        filters: [['project', '=', projectData?.name]],
         limit: 1000
       })
 
     const totalAmountReceived = getTotalInflowAmount(projectInflows || [])
 
-    const {data: projectType, isLoading: projectTypeLoading} = useFrappeGetDoc("Project Types", data?.project_type, data?.project_type ? undefined : null)
+    const {data: projectType, isLoading: projectTypeLoading} = useFrappeGetDoc("Project Types", projectData?.project_type, projectData?.project_type ? undefined : null)
     
     const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions",
         {
           fields: ["*"],
           limit: 1000,
           filters: [
-            ["for_value", "=", `${data?.name}`],
+            ["for_value", "=", `${projectData?.name}`],
             ["allow", "=", "Projects"],
           ],
         },
-        data?.name ? `User Permission, filters(for_value),=,${data?.name}` : null
+        projectData?.name ? `User Permission, filters(for_value),=,${projectData?.name}` : null
       );
 
     const {
@@ -164,7 +165,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
             await createDoc("User Permission", {
               user: selectedUser,
               allow: "Projects",
-              for_value: data?.name,
+              for_value: projectData?.name,
             });
             await projectAssigneesMutate();
             await usersListMutate();
@@ -210,21 +211,21 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
                           <CardDescription className="space-y-2">
                             <span>Start Date</span>
                             <p className="font-bold text-black">
-                              {formatDate(data?.project_start_date)}
+                              {formatDate(projectData?.project_start_date)}
                             </p>
                           </CardDescription>
       
-                          <CardDescription className="space-y-2 text-center">
+                          <CardDescription className="space-y-2 max-md:text-end text-center">
                             <span>End Date</span>
                             <p className="font-bold text-black">
-                              {formatDate(data?.project_end_date)}
+                              {formatDate(projectData?.project_end_date)}
                             </p>
                           </CardDescription>
       
                           <CardDescription className="space-y-2 md:text-end">
                             <span>Estimated Completion Date</span>
                             <p className="font-bold text-black">
-                              {formatDate(data?.project_end_date)}
+                              {formatDate(projectData?.project_end_date)}
                             </p>
                           </CardDescription>
 
@@ -237,15 +238,15 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
                           <CardDescription className="space-y-2 md:text-center">
                             <span>Location</span>
                             <p className="font-bold text-black">
-                              {data?.project_city}, {data?.project_state}
+                              {projectData?.project_city}, {projectData?.project_state}
                             </p>
                           </CardDescription>
 
                           <CardDescription className="space-y-2 text-end">
                             <span>Project Type</span>
                             <p className="font-bold text-black">
-                              {data?.project_type ? (
-                                `${data?.project_type} - ${projectType?.standard_project_duration} days`
+                              {projectData?.project_type ? (
+                                `${projectData?.project_type} - ${projectType?.standard_project_duration} days`
                               ) : "--"}
                             </p>
                           </CardDescription>
@@ -257,13 +258,13 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
 
                           <CardDescription className="space-y-2 text-end md:text-center">
                             <span>Project Value</span>
-                            <p className="font-bold text-black">{formatToIndianRupee(data?.project_value)}</p>
+                            <p className="font-bold text-black">{formatToIndianRupee(projectData?.project_value)}</p>
                           </CardDescription>
 
                           <CardDescription className="space-y-2 md:text-end">
                             <span>Project GST(s)</span>
                             <ul className="list-disc list-inside space-y-1">
-                              {JSON.parse(data?.project_gst_number || "{}")?.list?.map((item) => (
+                              {JSON.parse(projectData?.project_gst_number || "{}")?.list?.map((item) => (
                                 <li key={item?.location}>
                                   <span className="font-bold">{item?.location}</span>
                                 </li>
@@ -283,7 +284,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
 
                           <CardDescription className="space-y-2 text-end">
                             <span>Total Amount Due</span>
-                            <p className="font-bold text-black">{formatToIndianRupee((totalPosRaised + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
+                            <p className="font-bold text-black">{formatToIndianRupee((totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
                           </CardDescription>
                           
                           <div className="col-span-3 max-md:col-span-2 flex justify-between">
@@ -291,7 +292,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
                             <span>Work Package</span>
                             <div className="flex gap-1 flex-wrap">
                               {JSON.parse(
-                                data?.project_work_packages
+                                projectData?.project_work_packages
                               ).work_packages?.map((item: any) => (
                                 <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
                                   {item.work_package_name}
@@ -303,14 +304,14 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
                           <CardDescription className="space-y-2">
                             <span>No. of sections in layout</span>
                             <p className="font-bold text-black text-end">
-                              {data?.subdivisions || 1}
+                              {projectData?.subdivisions || 1}
                             </p>
                           </CardDescription>
                           </div>
                         {/* <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
                           <CardDescription className="space-y-2">
                             <span>PO Amount (ex. GST)</span>
-                            <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised + totalServiceOrdersAmt)}</p>
+                            <p className="font-bold text-black">{formatToIndianRupee(totalPOAmountWithGST + totalServiceOrdersAmt)}</p>
                           </CardDescription>
       
                           <CardDescription className="space-y-2">
@@ -380,7 +381,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({data, pr
                                 <div className="grid grid-cols-4 items-center gap-4">
                                   <span className="text-right font-light">To:</span>
                                   <span className="col-span-3 font-semibold">
-                                    {data?.project_name}
+                                    {projectData?.project_name}
                                   </span>
                                 </div>
                               </div>

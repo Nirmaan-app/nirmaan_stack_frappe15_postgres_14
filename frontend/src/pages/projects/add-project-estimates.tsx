@@ -790,7 +790,6 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                     {
                         options && (
                             <Radio.Group
-                                block
                                 options={options}
                                 value={selectedPackage}
                                 defaultValue="All"

@@ -5,27 +5,36 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { Filter, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { HardHat } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
-export default function Projects() {
+interface ProjectsProps {
+  customersView?: boolean;
+  customerId?: string;
+}
 
-  const {
-    data: data,
-    isLoading: isLoading,
-  } = useFrappeGetDocList<ProjectsType>("Projects", {
+export const Projects : React.FC<ProjectsProps> = ({customersView = false, customerId = undefined}) => {
+  const project_filters: Filter<FrappeDoc<ServiceRequests>>[] | undefined = []
+      if (customerId) {
+        project_filters.push(["customer", "=", customerId])
+      }
+
+  const { data: data, isLoading: isLoading } = useFrappeGetDocList<ProjectsType>("Projects", {
     fields: [
       "name",
+      "customer",
       "project_name",
       "project_type",
       "project_city",
@@ -34,12 +43,11 @@ export default function Projects() {
       "status",
     ],
     limit: 1000,
+    filters: project_filters,
     orderBy: { field: "creation", order: "desc" },
   });
 
-  const { data: projectTypesList, isLoading: projectTypesListLoading } =
-    useFrappeGetDocList(
-      "Project Types",
+  const { data: projectTypesList, isLoading: projectTypesListLoading } = useFrappeGetDocList("Project Types",
       {
         fields: ["*"],
         limit: 1000,
@@ -75,6 +83,17 @@ export default function Projects() {
         ],
         limit: 10000,
       });
+  
+  const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
+      fields: ["*"],
+      limit: 1000
+    })
+  
+  const getProjectWiseInflowAmount = useCallback((projectId : string) : number => {
+    const filteredInflows = projectInflows?.filter(i => i?.project === projectId)
+    console.log("filteredInflows", filteredInflows)
+    return getTotalInflowAmount(filteredInflows || [])
+  }, [projectInflows])
 
     
 
@@ -141,37 +160,6 @@ const {
     limit: 100000,
   });
 
-  const getTotalEstimateAmt = useCallback((projectId : string) => {
-    return project_estimates
-      ?.filter((i) => i?.project === projectId)
-      ?.reduce((total, i) => total + parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate), 0) || 0;
-  }, [project_estimates]);
-
-  const projectTypeOptions = useMemo(
-    () =>
-      projectTypesList?.map((pt) => ({
-        label: pt.name,
-        value: pt.name,
-      })) || [],
-    [projectTypesList]
-  );
-
-  // console.log("projecttype", projectTypeOptions)
-
-  useEffect(() => {
-    if (!pr_data) return;
-
-    const groupedData = pr_data.reduce((acc : Record<string, ProcurementRequest[]>, pr) => {
-      if (pr?.project) {
-        acc[pr.project] = acc[pr.project] || [];
-        acc[pr.project].push(pr);
-      }
-      return acc;
-    }, {});
-  
-    setPrToProjectData(groupedData);
-  }, [pr_data]);
-
   const getItemStatus = useCallback((item: any, filteredPOs: ProcurementOrder[]) => {
     return filteredPOs.some((po) =>
       po?.order_list?.list.some((poItem) => poItem?.name === item.name)
@@ -185,10 +173,7 @@ const {
       return "New PR";
     }
 
-    const filteredPOs =
-      po_data?.filter(
-        (po) => po?.procurement_request === procurementRequest?.name
-      ) || [];
+    const filteredPOs = po_data?.filter((po) => po?.procurement_request === procurementRequest?.name) || [];
     const allItemsApproved = itemList.every((item) => {
       return getItemStatus(item, filteredPOs);
     });
@@ -212,6 +197,37 @@ const {
       setProjectStatusCounts(statusCounts);
     }
   }, [prToProjectData, po_data]);
+
+  useEffect(() => {
+    if (!pr_data) return;
+
+    const groupedData = pr_data.reduce((acc : Record<string, ProcurementRequest[]>, pr) => {
+      if (pr?.project) {
+        acc[pr.project] = acc[pr.project] || [];
+        acc[pr.project].push(pr);
+      }
+      return acc;
+    }, {});
+  
+    setPrToProjectData(groupedData);
+  }, [pr_data]);
+
+  // const getTotalEstimateAmt = useCallback((projectId : string) => {
+  //   return project_estimates
+  //     ?.filter((i) => i?.project === projectId)
+  //     ?.reduce((total, i) => total + parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate), 0) || 0;
+  // }, [project_estimates]);
+
+  const projectTypeOptions = useMemo(
+    () =>
+      projectTypesList?.map((pt) => ({
+        label: pt.name,
+        value: pt.name,
+      })) || [],
+    [projectTypesList]
+  );
+
+  // console.log("projecttype", projectTypeOptions)
 
   const columns: ColumnDef<ProjectsType>[] = useMemo(
     () => [
@@ -361,7 +377,8 @@ const {
 
           const totalPOAmt = getPOTotalWithGST(data?.name) + getSRTotal(data?.name)
           const amountPaid = getTotalAmountPaid(data?.name);
-          const totalEstimateAmt = getTotalEstimateAmt(data?.name)
+          // const totalEstimateAmt = getTotalEstimateAmt(data?.name)
+          const totalInflowAmt = getProjectWiseInflowAmount(data?.name)
 
        return (
          <div className="font-medium flex flex-col gap-1 min-w-[180px]">
@@ -370,19 +387,26 @@ const {
            >
              <span>Total inc. GST:</span> <span>{formatToIndianRupee(totalPOAmt)}</span>
            </Badge>
-           <Badge
+           {/* <Badge
              variant={"yellow"}
              className="flex justify-between"
            >
              <span>Total Estimates Amt:</span>{" "}
              <span>{formatToIndianRupee(totalEstimateAmt)}</span>
+           </Badge> */}
+           <Badge
+             variant={"yellow"}
+             className="flex justify-between"
+           >
+             <span>Total Amt Paid:</span>{" "}
+             <span>{formatToIndianRupee(amountPaid)}</span>
            </Badge>
            <Badge
              variant={"green"}
              className="flex justify-between"
            >
-             <span>Total Amt Paid:</span>{" "}
-             <span>{formatToIndianRupee(amountPaid)}</span>
+             <span>Total Inflow Amt:</span>{" "}
+             <span>{formatToIndianRupee(totalInflowAmt)}</span>
            </Badge>
          </div>
        );
@@ -401,46 +425,48 @@ const {
 
   return (
     <div className="flex-1 space-y-4">
-        <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-medium">
-              Total Projects
-            </CardTitle>
-            <HardHat className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="flex justify-between items-center">
-            <div className="text-2xl font-bold">
-              {isLoading ? (
-                <TailSpin
-                  visible={true}
-                  height="30"
-                  width="30"
-                  color="#D03B45"
-                  ariaLabel="tail-spin-loading"
-                  radius="1"
-                  wrapperStyle={{}}
-                  wrapperClass=""
-                />
-              ) : (
-                data?.length
-              )}
-            </div>
-            <div className="flex flex-col gap-1 text-xs font-semibold">
-              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-yellow-100 rounded-md">
-                <span className="">WIP</span>
-                <i>{data?.filter(i => i?.status === "WIP").length}</i>
-              </div>
-              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-green-100 rounded-md">
-                <span className="">Completed</span>
-                <i>{data?.filter(i => i?.status === "Completed").length}</i>
-              </div>
-              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-red-100 rounded-md">
-                <span className="">Halted</span>
-                <i>{data?.filter(i => i?.status === "Halted").length}</i>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {!customersView && (
+         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
+         <CardHeader className="flex flex-row items-center justify-between">
+           <CardTitle className="text-sm font-medium">
+             Total Projects
+           </CardTitle>
+           <HardHat className="h-4 w-4 text-muted-foreground" />
+         </CardHeader>
+         <CardContent className="flex justify-between items-center">
+           <div className="text-2xl font-bold">
+             {isLoading ? (
+               <TailSpin
+                 visible={true}
+                 height="30"
+                 width="30"
+                 color="#D03B45"
+                 ariaLabel="tail-spin-loading"
+                 radius="1"
+                 wrapperStyle={{}}
+                 wrapperClass=""
+               />
+             ) : (
+               data?.length
+             )}
+           </div>
+           <div className="flex flex-col gap-1 text-xs font-semibold">
+             <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-yellow-100 rounded-md">
+               <span className="">WIP</span>
+               <i>{data?.filter(i => i?.status === "WIP").length}</i>
+             </div>
+             <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-green-100 rounded-md">
+               <span className="">Completed</span>
+               <i>{data?.filter(i => i?.status === "Completed").length}</i>
+             </div>
+             <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-red-100 rounded-md">
+               <span className="">Halted</span>
+               <i>{data?.filter(i => i?.status === "Halted").length}</i>
+             </div>
+           </div>
+         </CardContent>
+       </Card>
+      )}
         {isLoading || projectTypesListLoading || project_estimates_loading || 
         projectPaymentsLoading || po_loading || sRloading || prData_loading ? (
           <TableSkeleton />
@@ -455,3 +481,5 @@ const {
     </div>
   );
 }
+
+export default Projects;

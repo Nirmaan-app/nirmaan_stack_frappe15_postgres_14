@@ -23,10 +23,10 @@ interface ProjectFinancialsTabProps {
     srAmount: number;
     totalAmount: number;
     }
-  totalPosRaised : number;
+  totalPOAmountWithGST : number;
   getAllSRsTotalWithGST: number;
 }
-export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({projectData, projectCustomer, updateURL, getTotalAmountPaid, totalPosRaised, getAllSRsTotalWithGST}) => {
+export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({projectData, projectCustomer, updateURL, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST}) => {
 
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<string>(searchParams.get("fTab") || "All Payments")
@@ -38,6 +38,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
 
   const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
     fields: ["*"],
+    filters: [["project", "=", projectData?.name]],
     limit: 1000
   })
 
@@ -57,12 +58,12 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
     },
     {
       label: "Total Amount Due",
-      value: (totalPosRaised + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
+      value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
       style: "text-red-600"
     },
     {
       label: "Total PO Amount",
-      value: totalPosRaised,
+      value: totalPOAmountWithGST,
       style: ""
     },
     {
