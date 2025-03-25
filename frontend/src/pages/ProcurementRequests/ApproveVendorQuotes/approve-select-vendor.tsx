@@ -51,11 +51,11 @@ export const ApproveSelectVendor : React.FC = () => {
     const {notifications, mark_seen_notification} = useNotificationStore()
 
     const {db} = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if(notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const columns: ColumnDef<ProcurementRequest>[] = useMemo(
         () => [
@@ -199,3 +199,5 @@ export const ApproveSelectVendor : React.FC = () => {
         </div>
     )
 }
+
+export default ApproveSelectVendor;

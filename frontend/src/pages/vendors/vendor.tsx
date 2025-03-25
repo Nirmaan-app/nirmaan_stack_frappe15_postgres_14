@@ -26,6 +26,7 @@ import {
   TableSkeleton,
 } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
+import SITEURL from "@/constants/siteURL";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -541,8 +542,6 @@ const projectValues = useMemo(() => projects?.map((item) => ({
     [procurementOrders, procurementRequests, projectPayments]
   );
 
-  const siteUrl = `${window.location.protocol}//${window.location.host}`;
-
   const paymentColumns : ColumnDef<ProjectPayments>[] = useMemo(
     () => [
       {
@@ -553,23 +552,13 @@ const projectValues = useMemo(() => projects?.map((item) => ({
             return <div  className="font-medium min-w-[130px]">
               {(data?.utr && data?.payment_attachment) ? (
                 <div className="text-blue-500 underline">
-                    {import.meta.env.MODE === "development" ? (
                       <a
-                        href={`http://localhost:8000${data?.payment_attachment}`}
+                        href={`${import.meta.env.MODE === "development" ? `http://localhost:8000` : SITEURL}${data?.payment_attachment}`}
                         target="_blank"
                         rel="noreferrer"
                       >
                         {data?.utr}
                       </a>
-                    ) : (
-                      <a
-                        href={`${siteUrl}${data?.payment_attachment}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {data?.utr}
-                      </a>
-                    )}
                   </div>
                   ) : data?.utr ? (
                     <div className="flex items-center gap-1">

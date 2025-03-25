@@ -1,7 +1,7 @@
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { useCallback } from "react";
+import { useMemo } from "react";
 import { useLocation } from "react-router-dom";
 
 export const EstimatedPriceOverview : React.FC = () => {
@@ -19,7 +19,7 @@ export const EstimatedPriceOverview : React.FC = () => {
 
     // console.log("quote_data", quote_data);
 
-    const calculateTotals = useCallback((item : ApprovedQuotations) => {
+    const calculateTotals = useMemo(() => (item : ApprovedQuotations) => {
         const totalWithoutGST = parseNumber(item?.quote) * parseNumber(item?.quantity)
         const tax = parseNumber(item?.tax);
         const gst = totalWithoutGST * (tax / 100);

@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import SITEURL from '@/constants/siteURL';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { Vendors } from '@/types/NirmaanStack/Vendors'; // Assuming you have a Vendor type
 import { useDialogStore } from '@/zustand/useDialogStore'; // Assuming you have a dialog store
@@ -37,8 +38,6 @@ const SharePaymentCell: React.FC<SharePaymentCellProps> = ({ data, vendors }) =>
     }
   };
 
-  const siteUrl = `${window.location.protocol}//${window.location.host}`;
-
   return (
     <div>
       {
@@ -56,7 +55,7 @@ const SharePaymentCell: React.FC<SharePaymentCellProps> = ({ data, vendors }) =>
                     {screenshotUrl && (
                       <div className="flex justify-center mb-4">
                         <img
-                          src={import.meta.env.MODE === "development" ? `http://localhost:8000${screenshotUrl}` : `${siteUrl}${screenshotUrl}`}
+                          src={`${SITEURL}${screenshotUrl}`}
                           alt="Payment Screenshot"
                           className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
                         />

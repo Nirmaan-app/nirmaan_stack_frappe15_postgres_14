@@ -7,7 +7,7 @@ import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from "lucide-react";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
@@ -46,9 +46,9 @@ export const SentBackSummary = () => {
         limit: 1000,
     })
 
-    const getFullName = (id : string | undefined) => {
+    const getFullName = useMemo(() => (id : string | undefined) => {
         return usersList?.find((user) => user.name == id)?.full_name || ""
-    }
+    }, [usersList])
 
     const [orderData, setOrderData] = useState<SentBackCategory | undefined>()
 
@@ -186,3 +186,5 @@ export const SentBackSummary = () => {
             </div>
     )
 }
+
+export default SentBackSummary;

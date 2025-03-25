@@ -103,9 +103,9 @@ export const ProcurementProgress : React.FC = () => {
 
   const [revertDialog, setRevertDialog] = useState(false);
 
-  const toggleRevertDialog = () => {
+  const toggleRevertDialog = useCallback(() => {
     setRevertDialog(!revertDialog);
-  };
+  }, [revertDialog]);
 
   const {data: vendors, isLoading: vendors_loading} = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
@@ -119,7 +119,7 @@ export const ProcurementProgress : React.FC = () => {
       limit: 1000,
     })
   
-  const getFullName = useCallback((id : string | undefined) => {
+  const getFullName = useMemo(() => (id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 
@@ -177,11 +177,11 @@ export const ProcurementProgress : React.FC = () => {
 
 const vendorOptions = useVendorOptions(vendors, formData.selectedVendors);
 
-const updateURL = (key : string, value : string) => {
+const updateURL = useCallback((key : string, value : string) => {
     const url = new URL(window.location.href);
     url.searchParams.set(key, value);
     window.history.pushState({}, "", url);
-};
+}, []);
 
 
 const onClick = async (value : string) => {
@@ -214,11 +214,11 @@ const onClick = async (value : string) => {
     updateURL("mode", value);
 };
 
-  const handleVendorSelection = () => {
+  const handleVendorSelection = useCallback(() => {
     setFormData((prev) => ({ ...prev, selectedVendors: [...prev.selectedVendors, ...selectedVendors] }));
     setSelectedVendors([]);
     setAddVendorsDialog(false);
-  };
+  }, [formData, selectedVendors, setFormData, setSelectedVendors, setAddVendorsDialog]);
 
 
 const handleReviewChanges = async () => {
@@ -432,3 +432,5 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
     </>
   )
 }
+
+export default ProcurementProgress;

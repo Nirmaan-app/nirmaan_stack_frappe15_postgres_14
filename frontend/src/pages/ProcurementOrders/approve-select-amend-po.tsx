@@ -12,7 +12,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useCallback, useContext, useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 export const ApproveSelectAmendPO : React.FC = () => {
@@ -45,7 +45,7 @@ export const ApproveSelectAmendPO : React.FC = () => {
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getTotal = useCallback((order_id: string) => {
+    const getTotal = useMemo(() => (order_id: string) => {
         let total: number = 0;
         const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
         orderData?.list.map((item) => {
@@ -209,3 +209,5 @@ export const ApproveSelectAmendPO : React.FC = () => {
             </div>
     )
 }
+
+export default ApproveSelectAmendPO;

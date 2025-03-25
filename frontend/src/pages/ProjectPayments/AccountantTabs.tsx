@@ -225,7 +225,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
@@ -273,7 +273,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
         // ] : []),
         {
             accessorKey: "document_name",
-            header: "PO/SR ID",
+            header: "#PO",
             cell: ({ row }) => {
                 const data = row.original;
                 const id = data?.document_name?.replaceAll("/", "&=")
@@ -343,7 +343,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
             accessorKey: "amount",
             header: ({ column }) => {
                 return (
-                    <DataTableColumnHeader column={column} title="Amount Requested" />
+                    <DataTableColumnHeader column={column} title="Amt Requested" />
                 )
             },
             cell: ({ row }) => {
@@ -550,3 +550,5 @@ if (projectsError || vendorsError || projectPaymentsError) {
     </div>
   )
 }
+
+export default AccountantTabs;

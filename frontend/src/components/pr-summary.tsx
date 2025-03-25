@@ -7,7 +7,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { Timeline } from "antd";
 import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
@@ -76,7 +76,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
     const { mutate } = useSWRConfig()
 
-    const getFullName = useCallback((id: string) => usersList?.find(user => user.name === id)?.full_name, [usersList]);
+    const getFullName = useMemo(() => (id: string) => usersList?.find(user => user.name === id)?.full_name || '', [usersList]);
 
     useEffect(() => {
         if(po_data) {
@@ -91,7 +91,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
 
     }, [po_data])
 
-    const statusRender = useCallback((status: string) => {
+    const statusRender = useMemo(() => (status: string) => {
         if (["Approved", "In Progress", "Vendor Selected"].includes(status)) return "Open PR";
         const itemList = pr_data?.procurement_list?.list || [];
         // if (itemList?.some(i => i?.status === "Deleted")) return "Open PR";
@@ -125,7 +125,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
         }
     }
 
-    const getItemStatus = useCallback((itemJson: ProcurementItem) => poItemList.has(itemJson.name) ? "Ordered" : "In Progress", [poItemList]);
+    const getItemStatus = useMemo(() => (itemJson: ProcurementItem) => poItemList.has(itemJson.name) ? "Ordered" : "In Progress", [poItemList]);
 
     const handleMarkDraftPR = async () => {
         try {
@@ -188,7 +188,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
         }
     }, [pr_data]);
 
-    const requestedItems = useCallback((cat: Category) => {
+    const requestedItems = useMemo(() => (cat: Category) => {
         try {
             return JSON.parse(pr_data?.procurement_list)?.list?.filter((item: ProcurementItem) => item.category === cat.name && item.status === "Request") || [];
         } catch (e) {
@@ -196,8 +196,8 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
             return [];
         }
     }, [pr_data]);
-    
-    const categoryItems = useCallback((cat: Category) => {
+
+    const categoryItems = useMemo(() => (cat: Category) => {
         try {
             return JSON.parse(pr_data?.procurement_list)?.list?.filter((item: ProcurementItem) => item.category === cat.name && !["Request", "Deleted"].includes(item?.status)) || [];
         } catch (e) {

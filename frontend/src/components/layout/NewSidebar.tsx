@@ -775,7 +775,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "items", "vendors", "customers", "procurement-packages", "approved-quotes"],
+    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
     //   "approve-amended-po", "approve-payments"

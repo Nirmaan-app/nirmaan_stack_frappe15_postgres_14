@@ -6,7 +6,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, Undo2 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "./badge";
@@ -80,34 +80,34 @@ export const PODetails : React.FC<PODetailsProps> = (
     const [emailError, setEmailError] = useState("");
 
     const [dispatchPODialog, setDispatchPODialog] = useState(false);
-    const toggleDispatchPODialog = () => {
+    const toggleDispatchPODialog = useCallback(() => {
       setDispatchPODialog((prevState) => !prevState);
-    };
+    }, [dispatchPODialog]);
 
     const [revertDialog, setRevertDialog] = useState(false);
-    const toggleRevertDialog = () => {
+    const toggleRevertDialog = useCallback(() => {
       setRevertDialog((prevState) => !prevState);
-    };
+    }, [revertDialog]);
 
     const [deleteDialog, setDeleteDialog] = useState(false);
-    const toggleDeleteDialog = () => {
+    const toggleDeleteDialog = useCallback(() => {
       setDeleteDialog((prevState) => !prevState);
-    };
+    }, [deleteDialog]);
 
-    const handlePhoneChange = (e: any) => {
+    const handlePhoneChange = useCallback((e: any) => {
        const value = e.target.value.replace(/\D/g, "").slice(0, 10);
        setPhoneNumber(value);
        if (value.length === 10) {
          setPhoneError("");
        }
-    };
+    }, [phoneNumber, setPhoneNumber]);
     
-    const handleEmailChange = (e: any) => {
+    const handleEmailChange = useCallback((e: any) => {
       setEmail(e.target.value);
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value)) {
         setEmailError("");
       }
-    };
+    }, [email, setEmail]);
 
     const handleDispatchPO = async () => {
         try {
@@ -241,7 +241,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                   {((po?.status !== "PO Approved" ||
                     summaryPage ||
                     accountsPage ||
-                    estimatesViewing) || role != "Nirmaan Procurement Executive Profile") && (
+                    estimatesViewing) || (role != "Nirmaan Procurement Executive Profile" && po?.project_gst)) && (
                     <Button
                       variant="outline"
                       onClick={togglePoPdfSheet}

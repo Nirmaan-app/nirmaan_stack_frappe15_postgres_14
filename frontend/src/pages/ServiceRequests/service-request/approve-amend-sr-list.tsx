@@ -198,3 +198,5 @@ export const ApproveSelectAmendSR : React.FC = () => {
         </div>
     )
 }
+
+export default ApproveSelectAmendSR;
