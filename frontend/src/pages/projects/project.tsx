@@ -197,9 +197,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const [makeOptions, setMakeOptions] = useState<{ label: string; value: string }[]>([]);
 
-  const toggleEditSheet = () => {
+  const toggleEditSheet = useCallback(() => {
     setEditSheetOpen((prevState) => !prevState);
-  };
+  }, [editSheetOpen]);
 
   const [searchParams] = useSearchParams(); // Only for initialization
   const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
@@ -359,12 +359,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     return { poAmount, srAmount, totalAmount: poAmount + srAmount };
   }, [projectPayments]);
 
-  const getUserFullName = (id : string | undefined) => {
-    return useMemo(() => {
-      if (id === "Administrator") return id;
-      return usersList?.find((user) => user?.name === id)?.full_name || "";
-    }, [id, usersList]);
-  }
+
+  const getUserFullName = useMemo(() => (id: string | undefined) => {
+    if (id === "Administrator") return id;
+    return usersList?.find((user) => user.name === id)?.full_name || "";
+  }, [usersList]);
 
   const totalPosRaised = useMemo(() => {
     if (!po_data || po_data.length === 0) {

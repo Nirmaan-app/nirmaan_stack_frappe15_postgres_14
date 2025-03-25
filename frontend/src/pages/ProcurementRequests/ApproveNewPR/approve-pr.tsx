@@ -68,11 +68,11 @@ export const ApprovePR : React.FC = () => {
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const { db } = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const columns: ColumnDef<ProcurementRequest>[] = useMemo(
         () => [
@@ -97,7 +97,7 @@ export const ApprovePR : React.FC = () => {
                             <div className="flex items-center gap-1">
                                 <Link
                                     className="underline hover:underline-offset-2"
-                                    to={`/procurement-requests/${prId}?tab=Approve PR`}
+                                    to={`${prId}?tab=Approve PR`}
                                 >
                                     {prId?.slice(-4)}
                                 </Link>
@@ -203,7 +203,7 @@ export const ApprovePR : React.FC = () => {
             }
 
         ],
-        [project_values, notifications, procurement_request_list]
+        [project_values, notifications, procurement_request_list, notifications]
     )
 
     if (procurement_request_list_error || projects_error) {
@@ -222,3 +222,5 @@ export const ApprovePR : React.FC = () => {
         </div>
     )
 }
+
+export default ApprovePR;

@@ -1,7 +1,7 @@
 import { CategoryData, DataItem } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import { columns, innerColumns } from "@/pages/Sent Back Requests/SBQuotesSelectionReview";
 import { ConfigProvider, Table, TableProps } from "antd";
-import React from "react";
+import React, { useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 interface ApproveVendorQuotesPRorSBAntDTableProps {
@@ -67,7 +67,8 @@ export const ApproveVendorQuotesPRorSBAntDTable : React.FC<ApproveVendorQuotesPR
     }),
 };
 
-const getChildRowSelection = (category: CategoryData): TableProps<DataItem>['rowSelection'] => ({
+const getChildRowSelection = useCallback(
+  (category: CategoryData): TableProps<DataItem>['rowSelection'] => ({
   selectedRowKeys: Array.from(selectionMap.get(category.key)?.items || new Set()),
   onChange: (selectedItemKeys) => {
       setSelectionMap(prevMap => {
@@ -90,7 +91,7 @@ const getChildRowSelection = (category: CategoryData): TableProps<DataItem>['row
       });
   },
   hideSelectAll: true,
-});
+}), [selectionMap, setSelectionMap]);
   return (
            <div className="overflow-x-auto">
               <ConfigProvider

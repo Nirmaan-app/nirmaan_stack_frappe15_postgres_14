@@ -1,38 +1,32 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { TableSkeleton } from "@/components/ui/skeleton";
+import SITEURL from "@/constants/siteURL";
+import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useDialogStore } from "@/zustand/useDialogStore";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
-import { CheckCheck, Info, Share } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
+import { Download, Info } from "lucide-react";
+import { useContext, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
-export const AllPayments : React.FC = () => {
+export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"}) => {
 
   const navigate = useNavigate()
 
   const {data : projectPayments, isLoading: projectPaymentsLoading} = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
+    filters: [["status", "=", tab === "Payments Done" ? "Paid" : "Requested"]],
     limit: 100000,
-  });
+  },
+  tab ? undefined : null
+  );
 
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
           fields: ["name", "project_name"],
@@ -54,25 +48,25 @@ export const AllPayments : React.FC = () => {
     value: item.name,
   })) || [], [vendors])
 
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const {getTotalAmount} = useOrderTotals()
 
-  const { toggleShareDialog, shareDialog } = useDialogStore();
+  // const [phoneNumber, setPhoneNumber] = useState("");
+  // const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
 
-  const handleOpenWhatsApp = () => {
-    if (phoneNumber) {
-      window.open(`https://wa.me/${phoneNumber}`, '_blank');
-    }
-  };
+  // const { toggleShareDialog, shareDialog } = useDialogStore();
 
-  const siteUrl = `${window.location.protocol}//${window.location.host}`;
+  // const handleOpenWhatsApp = () => {
+  //   if (phoneNumber) {
+  //     window.open(`https://wa.me/${phoneNumber}`, '_blank');
+  //   }
+  // };
 
-  const handleShareClick = (data : ProjectPayments) => {
-    const vendorNumber = vendors?.find((i) => i?.name === data?.vendor)?.vendor_mobile || '';
-    setPhoneNumber(vendorNumber);
-    setScreenshotUrl(data?.payment_attachment || null); // Set screenshot URL
-    toggleShareDialog();
-  };
+  // const handleShareClick = (data : ProjectPayments) => {
+  //   const vendorNumber = vendors?.find((i) => i?.name === data?.vendor)?.vendor_mobile || '';
+  //   setPhoneNumber(vendorNumber);
+  //   setScreenshotUrl(data?.payment_attachment || null); // Set screenshot URL
+  //   toggleShareDialog();
+  // };
 
   const { notifications, mark_seen_notification } = useNotificationStore();
   
@@ -90,7 +84,7 @@ export const AllPayments : React.FC = () => {
                       accessorKey: "creation",
                       header: ({ column }) => {
                           return (
-                              <DataTableColumnHeader column={column} title="Date" />
+                              <DataTableColumnHeader column={column} title="Payment Date" />
                           )
                       },
                       cell: ({ row }) => {
@@ -108,7 +102,7 @@ export const AllPayments : React.FC = () => {
                   },
               {
                   accessorKey: "document_name",
-                  header: "PO/SR ID",
+                  header: "#PO",
                   cell: ({ row }) => {
                       const data : ProjectPayments = row.original;
                       let id;
@@ -167,10 +161,23 @@ export const AllPayments : React.FC = () => {
                   },
               },
               {
+                id: "po_amount_including_gst",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="PO Amt" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return <div className="font-medium">
+                        {formatToIndianRupee(getTotalAmount(row.original.document_name, row.original.document_type)?.totalWithTax)}
+                    </div>
+                },
+              },
+              {
                   accessorKey: "amount",
                   header: ({ column }) => {
                       return (
-                          <DataTableColumnHeader column={column} title="Associated Amt" />
+                          <DataTableColumnHeader column={column} title={tab === "Payments Done" ? "Amount Paid" : "Amount To Pay"} />
                       )
                   },
                   cell: ({ row }) => {
@@ -179,27 +186,34 @@ export const AllPayments : React.FC = () => {
                       </div>
                   },
               },
-              {
-                accessorKey: "status",
-                header: "Status",
-                cell: ({ row }) => {
-                    return <div className="font-medium">{row.original?.status}</div>;
-                }
-              },
-              {
-                id: "share",
-                header: "Share",
-                cell: ({ row }) => {
-                  const data = row.original
-                    return (
-                      data?.status === "Paid" && <button onClick={() => handleShareClick(data)} className="text-blue-500 cursor-pointer">
-                            <Share className="text-blue-500" />
-                      </button>
-                    )
-                }
-              },
+              // {
+              //   accessorKey: "status",
+              //   header: "Status",
+              //   cell: ({ row }) => {
+              //       return <div className="font-medium">{row.original?.status}</div>;
+              //   }
+              // },
+              ...(tab === "Payments Done" ? [
+                {
+                  id: "download",
+                  header: "Download",
+                  cell: ({ row }) => {
+                    const data = row.original
+                      return (
+                        <a
+                          href={`${SITEURL}${data?.payment_attachment}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Download className="text-blue-500" />
+                        </a>
+                      )
+                  }
+                },
+
+              ] : []),
           ],
-          [projectValues, vendorValues, projectPayments]
+          [projectValues, vendorValues, projectPayments, tab, getTotalAmount]
       );
 
 
@@ -211,7 +225,7 @@ export const AllPayments : React.FC = () => {
               <DataTable columns={columns} data={projectPayments || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} />
           )}
 
-                    <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
+                    {/* <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
                         <DialogContent>
                           <DialogHeader>
                             <DialogTitle className="text-center">Share Payment Screenshot via WhatsApp</DialogTitle>
@@ -219,7 +233,7 @@ export const AllPayments : React.FC = () => {
                               {screenshotUrl && (
                                 <div className="flex items-center flex-col mb-4">
                                   <img
-                                    src={import.meta.env.MODE === "development" ? `http://localhost:8000${screenshotUrl}` : `${siteUrl}${screenshotUrl}`}
+                                    src={import.meta.env.MODE === "development" ? `http://localhost:8000${screenshotUrl}` : `${SITEURL}${screenshotUrl}`}
                                     alt="Payment Screenshot"
                                     className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
                                   />
@@ -252,8 +266,10 @@ export const AllPayments : React.FC = () => {
                             </Button>
                           </div>
                         </DialogContent>
-                    </Dialog>
+                    </Dialog> */}
       </div>
 
       );
 }
+
+export default AllPayments;

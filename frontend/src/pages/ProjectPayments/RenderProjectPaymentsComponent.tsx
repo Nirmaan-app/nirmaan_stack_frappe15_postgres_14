@@ -1,13 +1,16 @@
 import { useUserData } from "@/hooks/useUserData";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
-import { useCallback, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { useSearchParams } from "react-router-dom";
-import { AccountantTabs } from "./AccountantTabs";
-import { ApprovePayments } from "./approve-payments";
-import { ProjectPaymentsList } from "./project-payments-list";
 
-export const RenderProjectPaymentsComponent = () => {
+const ApprovePayments = React.lazy(() => import("./approve-payments"));
+const AccountantTabs = React.lazy(() => import("./AccountantTabs"));
+const ProjectPaymentsList = React.lazy(() => import("./project-payments-list"));
+const AllPayments = React.lazy(() => import("./AllPayments"));
+
+export const RenderProjectPaymentsComponent: React.FC = () => {
 
     const [searchParams] = useSearchParams();
 
@@ -17,7 +20,21 @@ export const RenderProjectPaymentsComponent = () => {
 
     const [tab, setTab] = useState<string>(searchParams.get("tab") || (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : "All Payments"));
 
-    
+    const updateURL = useCallback((params: Record<string, string>) => {
+        const url = new URL(window.location.href);
+        Object.entries(params).forEach(([key, value]) => {
+          url.searchParams.set(key, value);
+        });
+        window.history.pushState({}, '', url);
+    }, []);
+
+    const onClick = useCallback(
+        (value : string) => {
+        if (tab === value) return; // Prevent redundant updates
+
+        setTab(value);
+        updateURL({ tab: value });
+    }, [tab, updateURL]);
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Admin Profile"].includes(role) ? [
@@ -48,35 +65,49 @@ export const RenderProjectPaymentsComponent = () => {
                 ),
                 value: "New Payments",
             },
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Fulfilled Payments</span>
-                        <span className="ml-2 rounded text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.paid : paymentsCount?.paid}
-                        </span>
-                    </div>
-                ),
-                value: "Fulfilled Payments",
-            },
+            // {
+            //     label: (
+            //         <div className="flex items-center">
+            //             <span>Fulfilled Payments</span>
+            //             <span className="ml-2 rounded text-xs font-bold">
+            //                 {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.paid : paymentsCount?.paid}
+            //             </span>
+            //         </div>
+            //     ),
+            //     value: "Fulfilled Payments",
+            // },
         ] : [])
     ], [role, adminPaymentsCount, paymentsCount])
 
-    const updateURL = useCallback((params: Record<string, string>) => {
-        const url = new URL(window.location.href);
-        Object.entries(params).forEach(([key, value]) => {
-          url.searchParams.set(key, value);
-        });
-        window.history.pushState({}, '', url);
-    }, []);
+    const remTabs = useMemo(() => [
+        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []),
+        // "All Payments"
+    ], [role])
 
-    const onClick = useCallback(
-        (value : string) => {
-        if (tab === value) return; // Prevent redundant updates
-
-        setTab(value);
-        updateURL({ tab: value });
-    }, [tab, updateURL]);
+    const paymentTypeBasedTabs = useMemo(() => [
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Payments Done</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.paid : paymentsCount?.paid}
+                    </span>
+                </div>
+            ),
+            value: "Payments Done",
+        },
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Payments Pending</span>
+                    <span className="ml-2 text-xs font-bold">
+                        {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
+                    </span>
+                </div>
+            ),
+            value: "Payments Pending",
+        },
+    ], [adminPaymentsCount, paymentsCount, role])
 
     return (
         <div className="flex-1 space-y-4">
@@ -101,24 +132,44 @@ export const RenderProjectPaymentsComponent = () => {
                     />
                 )}
                 <Radio.Group
-                    options={[...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []), "All Payments"]}
+                    options={remTabs}
                     optionType="button"
                     buttonStyle="solid"
                     value={tab}
                     onChange={(e) => onClick(e.target.value)}
                 />
+
+                {paymentTypeBasedTabs && (
+                    <Radio.Group
+                        options={paymentTypeBasedTabs}
+                        defaultValue="Pending Payments"
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
             </div>
-            {tab === "Approve Payments" ? (
+
+            <Suspense fallback={
+                <div className="flex items-center h-[90vh] w-full justify-center">
+                    <TailSpin color={"red"} />{" "}
+                </div>
+            }>
+                {tab === "Approve Payments" ? (
                 <ApprovePayments />
-            ) :
-            
-            ["New Payments", "Fulfilled Payments"].includes(tab) ? 
-            (
-                <AccountantTabs tab={tab} />
-            )
-             : (
-                <ProjectPaymentsList tab={tab} />
-            )}
+                ) :
+                
+                ["New Payments"].includes(tab) ? 
+                (
+                    <AccountantTabs tab={tab} />
+                ) : ["Payments Pending", "Payments Done"].includes(tab) ? (
+                    <AllPayments tab={tab} />
+                )
+                 : (
+                    <ProjectPaymentsList />
+                )}
+            </Suspense>
         </div>
     );
 };

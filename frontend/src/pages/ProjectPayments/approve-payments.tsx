@@ -160,7 +160,7 @@ export const ApprovePayments = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Requested" />
                     )
                 },
                 cell: ({ row }) => {
@@ -220,7 +220,7 @@ export const ApprovePayments = () => {
                 accessorKey: "amount",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Requested Amount" />
+                        <DataTableColumnHeader column={column} title="Requested Amt" />
                     )
                 },
                 cell: ({ row }) => {
@@ -344,3 +344,5 @@ export const ApprovePayments = () => {
         </div>
     );
 };
+
+export default ApprovePayments;

@@ -145,3 +145,5 @@ export const SelectServiceVendorList : React.FC = () => {
         </div>
     )
 }
+
+export default SelectServiceVendorList;

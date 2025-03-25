@@ -78,7 +78,7 @@ import {
   Undo2,
   X
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect from "react-select";
@@ -181,7 +181,9 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations", {
     fields: ["item_id", "quote"],
     limit: 100000,
-  });
+  },
+  `Approved Quotations`
+);
 
   const { data: universalComments } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
     fields: ["*"],
@@ -209,9 +211,9 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
 
   const [showNewItemsCard, setShowNewItemsCard] = useState(false)
 
-  const toggleNewItemsCard = () => {
+  const toggleNewItemsCard = useCallback(() => {
     setShowNewItemsCard((prevState) => !prevState);
-  };
+  }, [showNewItemsCard]);
 
   interface ItemOptionsType {
     label: string;
@@ -231,7 +233,6 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   const [universalComment, setUniversalComment] = useState<string | null>(null);
   const [stack, setStack] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
-  const [managersIdList, setManagersIdList] = useState<string[] | null>(null);
   const [requestCategory, setRequestCategory] = useState("");
   const [newItem, setNewItem] = useState({})
 
@@ -245,40 +246,35 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
 
   const [newItemDialog, setNewItemDialog] = useState(false);
 
-  const toggleNewItemDialog = () => {
+  const toggleNewItemDialog = useCallback(() => {
     setNewItemDialog((prevState) => !prevState);
-  };
+  }, [newItemDialog]);
 
   const [editItem, setEditItem] = useState({})
 
   const [editItemDialog, setEditItemDialog] = useState(false);
 
-  const toggleEditItemDialog = () => {
+  const toggleEditItemDialog = useCallback(() => {
     setEditItemDialog((prevState) => !prevState);
-  };
+  }, [editItemDialog]);
 
   const [fuzzyMatches, setFuzzyMatches] = useState([]);
 
-  useEffect(() => {
-    if (usersList) {
-      let ids = usersList.map((user) => user?.name);
-      setManagersIdList(ids);
-    }
+  const managersIdList = useMemo(() => usersList?.map((user) => user?.name) || [], [usersList])
+
+  const getFullName = useMemo(() => (id: string | undefined) => {
+    return usersList?.find((user) => user.name === id)?.full_name || "";
   }, [usersList]);
 
-  const getFullName = (id : string | undefined) => {
-    return usersList?.find((user) => user.name == id)?.full_name || ""
-  };
-
-  const handleUniversalCommentChange = (e : React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleUniversalCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setUniversalComment(e.target.value === "" ? null : e.target.value);
-  };
+  }, [setUniversalComment]);
 
-  const triggerFileInput = (name: string) => {
+  const triggerFileInput = useCallback((name: string) => {
     document.getElementById(`file-upload-${name}`)?.click();
-  };
+  }, []);
 
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>, catName : string) => {
+  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>, catName: string) => {
     const file = event.target.files?.[0];
     if (file && file.type !== "application/pdf") {
       alert("Please upload a valid PDF file.");
@@ -290,15 +286,15 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
         [catName]: file,
       }));
     }
-  };
+  }, [setUploadedFiles]);
 
-  const removeFile = (catName : string) => {
+  const removeFile = useCallback((catName: string) => {
     setUploadedFiles((prev) => {
       const newFiles = { ...prev };
       delete newFiles[catName];
       return newFiles;
     });
-  };
+  }, [setUploadedFiles]);
 
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null);
 
@@ -511,11 +507,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   };
 
   const { toast } = useToast();
-  const {
-    updateDoc: updateDoc,
-    loading: updateLoading,
-    error: submit_error,
-  } = useFrappeUpdateDoc();
+  const { updateDoc: updateDoc, loading: updateLoading, error: submit_error,} = useFrappeUpdateDoc();
   const { upload } = useFrappeFileUpload();
   const { call, loading: callLoading } = useFrappePostCall(
     "frappe.client.set_value"
@@ -2046,4 +2038,4 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
   );
 };
 
-export const Component = ApprovePRList;
+export default ApprovePRList;

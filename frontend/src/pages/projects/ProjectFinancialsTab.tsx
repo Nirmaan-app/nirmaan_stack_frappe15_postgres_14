@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import SITEURL from "@/constants/siteURL"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
 import { formatDate } from "@/utils/FormatDate"
@@ -99,8 +100,6 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
     }
     , [tab, updateURL]);
 
-    const siteUrl = `${window.location.protocol}//${window.location.host}`;
-
   return (
         <div className="flex-1 space-y-4">
           <Card>
@@ -171,15 +170,9 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                                               <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                               {payment?.inflow_attachment ? (
                                                                 <TableCell className="font-semibold text-blue-500 underline">
-                                                                  {import.meta.env.MODE === "development" ? (
-                                                                      <a href={`http://localhost:8000${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
+                                                                      <a href={`${SITEURL}${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
                                                                           {payment?.utr}
-                                                                      </a>
-                                                                  ) : (
-                                                                      <a href={`${siteUrl}${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
-                                                                          {payment?.utr}
-                                                                      </a>
-                                                                  )}
+                                                                    </a>
                                                               </TableCell>
                                                               ) : (
                                                                   <TableCell className="font-semibold">{payment?.utr}</TableCell>

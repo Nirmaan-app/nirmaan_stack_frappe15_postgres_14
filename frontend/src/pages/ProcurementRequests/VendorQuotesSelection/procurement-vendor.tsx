@@ -11,7 +11,7 @@ import { UserContext } from "@/utils/auth/UserProvider";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
@@ -25,8 +25,6 @@ export const ProcurementOrder : React.FC = () => {
   const navigate = useNavigate();
 
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null)
-
-  const [comments, setComments] = useState<NirmaanComments[]>([])
 
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: prMutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
     {
@@ -45,7 +43,7 @@ export const ProcurementOrder : React.FC = () => {
   const { data: quote_data, isLoading : quote_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
     {
       fields: ["*"],
-      limit: 10000
+      limit: 100000
     },
     `Approved Quotations`
   );
@@ -62,7 +60,9 @@ export const ProcurementOrder : React.FC = () => {
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
-  })
+  },
+  `Nirmaan Users`
+)
 
   const getFullName = useCallback((id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
@@ -77,12 +77,7 @@ export const ProcurementOrder : React.FC = () => {
     }
   }, [procurement_request_list])
 
-  useEffect(() => {
-    if (universalComments) {
-      const comments = universalComments?.filter((cmt) => ["approving pr", "creating pr"].includes(cmt.subject || ""))
-      setComments(comments)
-    }
-  }, [universalComments])
+  const comments = useMemo(() => universalComments?.filter((cmt) => ["approving pr", "creating pr"].includes(cmt.subject || "")) || [], [universalComments])
 
 
   const handleStartProcuring = async () => {
@@ -250,3 +245,5 @@ export const ProcurementOrder : React.FC = () => {
     </>
   )
 }
+
+export default ProcurementOrder;

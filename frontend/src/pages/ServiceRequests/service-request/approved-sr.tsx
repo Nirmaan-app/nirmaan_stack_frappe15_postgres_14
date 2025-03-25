@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
 import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
+import SITEURL from "@/constants/siteURL";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -362,8 +363,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         } 
       }
 
-    const siteUrl = `${window.location.protocol}//${window.location.host}`;
-
 
     if (
         service_request_loading ||
@@ -624,15 +623,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                  )} */}
                                                  {(payment?.utr && payment?.payment_attachment) ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
-                                                        {import.meta.env.MODE === "development" ? (
-                                                    <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                    <a href={`${import.meta.env.MODE === "development" ? `http://localhost:8000` : SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
                                                         {payment?.utr}
                                                     </a>
-                                                ) : (
-                                                    <a href={`${siteUrl}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                        {payment?.utr}
-                                                    </a>
-                                                )}
                                                     </TableCell>
                                                  ) : (
                                                     <TableCell className="font-semibold">

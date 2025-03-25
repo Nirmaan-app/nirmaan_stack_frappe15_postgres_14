@@ -3,7 +3,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 
@@ -52,7 +52,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
 
   const navigate = useNavigate();
 
-  const getItemAttributes = useCallback((item : any) => {
+  const getItemAttributes = useMemo(() => (item : any) => {
     const estimateItem = projectEstimates?.find(
       (i) => i?.item === item?.item_id
     );
@@ -105,7 +105,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       render: (text) => <span className="text-primary font-extrabold">{text}</span>,
     },
     {
-      title: "Total Amount (exc. GST)",
+      title: "Total PO Amount (exc. GST)",
       dataIndex: "total_amount",
       key: "total_amount",
       width: "30%",
@@ -251,14 +251,14 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
     },
   ], [])
 
-  const getTotalAmount = useCallback(
-    (key: string) : number => {
+  const getTotalAmount = useMemo(
+    () => (key: string) : number => {
       return selectedData?.[key]?.reduce((acc, item) => acc + parseNumber(item?.amount), 0) || 0
     }
   , [selectedData])
 
-  const getTotalCategoryEstdAmt = useCallback(
-    (key: string) : number => {
+  const getTotalCategoryEstdAmt = useMemo(
+    () => (key: string) : number => {
       const categoryEstimates = projectEstimates?.filter(
         (i) => i?.category === key
       );
@@ -266,7 +266,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
         0
       ) || 0
     }
-  , [])
+  , [projectEstimates])
 
   return (
     <div className="w-full">

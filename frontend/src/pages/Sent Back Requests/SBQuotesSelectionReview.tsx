@@ -238,15 +238,15 @@ export const SBQuotesSelectionReview : React.FC = () => {
   //   useMemo(() => (vendor_list || [])?.find(v => v?.name === vendorId)?.vendor_name
   //   , [vendorId, vendor_list])
 
-  const getVendorName = useCallback((vendorId: string | undefined) => {
+  const getVendorName = useMemo(() => (vendorId: string | undefined) => {
         return vendor_list?.find(vendor => vendor?.name === vendorId)?.vendor_name || "";
   }, [vendor_list]);
 
-  const getLowest = useCallback((itemId: string) => {
+  const getLowest = useMemo(() => (itemId: string) => {
         return getLowestQuoteFilled(orderData, itemId)
     }, [orderData]);
 
-  const getThreeMonthsLowest = useCallback((itemId : string) => {
+  const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
       return getThreeMonthsLowestFiltered(quotes_data, itemId)
   }, [quotes_data]);
 
@@ -492,3 +492,5 @@ if (sent_back_list_loading || quotes_data_loading || vendor_list_loading) return
           </div>
   )
 }
+
+export default SBQuotesSelectionReview;

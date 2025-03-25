@@ -358,7 +358,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
     } else {
       setPincode("");
     }
-  }, []);
+  }, [pincode, setPincode]);
 
   useEffect(() => {
     if (pincode.length >= 6 && !pincode_data) {

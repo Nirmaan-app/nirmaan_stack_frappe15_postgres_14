@@ -21,13 +21,13 @@ import { Button } from "../ui/button";
 import { TableSkeleton } from "../ui/skeleton";
 import { useToast } from "../ui/use-toast";
 
-export const SentBackRequest : React.FC = () => {
+export const SentBackRequest : React.FC<{tab? : string}> = ({tab = undefined}) => {
 
     const [searchParams] = useSearchParams();
 
     const {role} = useUserData()
 
-    const type = searchParams.get("tab") || "Rejected"
+    const type = tab || (searchParams.get("tab") || "Rejected")
 
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate : sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
@@ -46,7 +46,7 @@ export const SentBackRequest : React.FC = () => {
 
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects]);
 
-    const getTotal = useCallback((order_id: string) => {
+    const getTotal = useMemo(() => (order_id: string) => {
         let total: number = 0;
         const orderData = sent_back_list?.find(item => item.name === order_id)?.item_list;
         orderData?.list.map((item) => {
@@ -63,11 +63,11 @@ export const SentBackRequest : React.FC = () => {
     const { mark_seen_notification, notifications } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const [deleteFlagged, setDeleteFlagged] = useState<SentBackCategory | null>(null);
 
@@ -243,7 +243,7 @@ export const SentBackRequest : React.FC = () => {
                             }
                         ] : []),
         ],
-        [project_values, sent_back_list]
+        [project_values, sent_back_list, notifications, tab, type]
     )
 
     const { toast } = useToast()
@@ -290,3 +290,5 @@ export const SentBackRequest : React.FC = () => {
         </div>
     )
 }
+
+export default SentBackRequest;

@@ -55,7 +55,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
       return updated;
     });
   }
-  }, []);
+  }, [setFormData, setSelectedVendorQuotes]);
 
   const removeVendor = useCallback((vendorId: string) => {
         setFormData((prev) => {
@@ -113,7 +113,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
               }
             }))
         }
-      }, []);
+      }, [setOrderData, setSelectedVendorQuotes, setFormData]);
     
 
   return (

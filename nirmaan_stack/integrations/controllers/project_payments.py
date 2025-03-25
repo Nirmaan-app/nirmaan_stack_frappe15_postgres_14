@@ -4,12 +4,12 @@ from frappe import _
 from .procurement_requests import get_user_name
 
 def after_insert(doc, method):
-        lead_admin_users = get_admin_users()
+        admin_users = get_admin_users()
 
         project = frappe.get_doc("Projects", doc.project)
         
-        if lead_admin_users:
-            for user in lead_admin_users:
+        if admin_users:
+            for user in admin_users:
                 if user["push_notification"] == "true":
                     # Dynamically generate notification title/body for each lead
                     notification_title = f"New Payment Request for Project {project.project_name}"
@@ -34,7 +34,7 @@ def after_insert(doc, method):
             "docname": doc.name
         }
         # Emit the event to the allowed users
-        for user in lead_admin_users:
+        for user in admin_users:
             new_notification_doc = frappe.new_doc('Nirmaan Notifications')
             new_notification_doc.recipient = user['name']
             new_notification_doc.recipient_role = user['role_profile']
@@ -127,7 +127,7 @@ def on_update(doc, method):
                     notification_body = (
                             f"Hi {user['full_name']}, the payment: {doc.name} associated with PO: {doc.document_name} has been fulfilled."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=All%20Payments"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=Payments%20Done"
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
                     print(f"push notifications were not enabled for user: {user['full_name']}")
@@ -152,7 +152,7 @@ def on_update(doc, method):
                 new_notification_doc.seen = "false"
                 new_notification_doc.type = "info"
                 new_notification_doc.event_id = "payment:fulfilled"
-                new_notification_doc.action_url = f"project-payments?tab=All%20Payments"
+                new_notification_doc.action_url = f"project-payments?tab=Payments%20Done"
                 new_notification_doc.insert()
                 frappe.db.commit()
 
