@@ -1,6 +1,6 @@
 import { RocketIcon } from "@radix-ui/react-icons";
 
-// import { Default } from "@/components/dashboard-default";
+import { Default } from "@/components/dashboard-default";
 import { ProjectLead } from "@/components/dashboard-pl";
 import { ProjectManager } from "@/components/dashboard-pm";
 import { EstimatesExecutive } from "@/components/estimates-executive-dashboard";
@@ -25,7 +25,7 @@ export default function Dashboard() {
     return (
         <>
 
-            {(role === 'Nirmaan Admin Profile') && <ProcurementDashboard />}
+            {(role === 'Nirmaan Admin Profile') && <Default />}
             {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role)) ?
                 <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
                     <div className="flex gap-2 items-center">

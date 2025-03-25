@@ -101,7 +101,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <div className="flex items-center">
                     <span>Payments Pending</span>
                     <span className="ml-2 text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.approved}
+                        {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
                     </span>
                 </div>
             ),

@@ -426,7 +426,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
                 }
             ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView, getTotalAmount]
     );
 
     if (poError || srError || projectsError || vendorsError) {
