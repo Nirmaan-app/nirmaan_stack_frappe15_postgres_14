@@ -158,7 +158,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
     
       const toggleExpand = useCallback((roleProfile: string) => {
         setExpandedRoles((prev) => ({ ...prev, [roleProfile]: !prev[roleProfile] }));
-      }, []);
+      }, [expandedRoles, setExpandedRoles]);
 
       const handleAssignUserSubmit = async () => {
           try {

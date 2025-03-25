@@ -16,7 +16,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import { Filter, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { HardHat } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
@@ -89,15 +89,14 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
       limit: 1000
     })
   
-  const getProjectWiseInflowAmount = useCallback((projectId : string) : number => {
+  const getProjectWiseInflowAmount = useMemo(() => (projectId : string) : number => {
     const filteredInflows = projectInflows?.filter(i => i?.project === projectId)
-    console.log("filteredInflows", filteredInflows)
     return getTotalInflowAmount(filteredInflows || [])
   }, [projectInflows])
 
     
 
-  const getSRTotal = useCallback((project : string) => {
+  const getSRTotal = useMemo(() => (project : string) => {
     return serviceRequestsData
       ?.filter((item) => item.project === project)
       ?.reduce((total, item) => {
@@ -112,7 +111,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
       }, 0) || 0;
   }, [serviceRequestsData]);
 
-  const getPOTotalWithGST = useCallback((projectId : string) => {
+  const getPOTotalWithGST = useMemo(() => (projectId : string) => {
     if (!po_item_data?.length) return 0;
   
     return po_item_data
@@ -146,7 +145,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
           limit: 100000
   })
 
-  const getTotalAmountPaid = useCallback((projectId : string) => {
+  const getTotalAmountPaid = useMemo(() => (projectId : string) => {
     return projectPayments
       ?.filter((payment) => payment.project === projectId)
       ?.reduce((total, payment) => total + parseNumber(payment.amount), 0) || 0;
@@ -160,13 +159,13 @@ const {
     limit: 100000,
   });
 
-  const getItemStatus = useCallback((item: any, filteredPOs: ProcurementOrder[]) => {
+  const getItemStatus = useMemo(() => (item: any, filteredPOs: ProcurementOrder[]) => {
     return filteredPOs.some((po) =>
       po?.order_list?.list.some((poItem) => poItem?.name === item.name)
     );
   }, []);
 
-  const statusRender = useCallback((status: string, procurementRequest: ProcurementRequest) => {
+  const statusRender = useMemo(() => (status: string, procurementRequest: ProcurementRequest) => {
     const itemList = procurementRequest?.procurement_list?.list || [];
 
     if (["Pending", "Approved", "Rejected"].includes(status)) {
@@ -468,7 +467,7 @@ const {
        </Card>
       )}
         {isLoading || projectTypesListLoading || project_estimates_loading || 
-        projectPaymentsLoading || po_loading || sRloading || prData_loading ? (
+        projectPaymentsLoading || po_loading || sRloading || prData_loading || projectInflowsLoading ? (
           <TableSkeleton />
         ) : (
           <DataTable

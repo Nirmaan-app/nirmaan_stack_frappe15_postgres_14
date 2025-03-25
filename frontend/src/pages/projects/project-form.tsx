@@ -302,7 +302,7 @@ export const ProjectForm = () => {
             } else {
                 setPincode("")
             }
-        }, []
+        }, [pincode, setPincode]
     )
 
     useEffect(() => {
