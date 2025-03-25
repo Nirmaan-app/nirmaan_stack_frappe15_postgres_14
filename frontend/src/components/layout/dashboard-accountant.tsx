@@ -40,6 +40,12 @@ export const Accountant = () => {
                         onClick={() => navigate("/vendors")}
                         className="bg-red-600"
                     />
+                    <DashboardCard
+                        title="In-Flow Payments"
+                        icon={<UsersRound className="h-8 w-8 text-white" />}
+                        onClick={() => navigate("/in-flow-payments")}
+                        className="bg-red-600"
+                    />
                 </div>
             </div>
         </>

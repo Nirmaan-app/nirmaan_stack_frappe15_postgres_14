@@ -213,7 +213,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
 
               ] : []),
           ],
-          [projectValues, vendorValues, projectPayments, tab]
+          [projectValues, vendorValues, projectPayments, tab, getTotalAmount]
       );
 
 
