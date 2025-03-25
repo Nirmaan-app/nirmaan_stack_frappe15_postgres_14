@@ -1,12 +1,14 @@
 import { useUserData } from "@/hooks/useUserData";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
-import React, { useMemo, useState } from "react";
+import React, { Suspense, useCallback, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { useSearchParams } from "react-router-dom";
-import { ApproveSelectAmendSR } from "./service-request/approve-amend-sr-list";
-import { ApproveSelectSR } from "./service-request/approve-service-request-list";
-import { ApprovedSRList } from "./service-request/approved-sr-list";
-import { SelectServiceVendorList } from "./service-request/select-service-vendor-list";
+
+const SelectServiceVendorList = React.lazy(() => import("./service-request/select-service-vendor-list"));
+const ApproveSelectSR = React.lazy(() => import("./service-request/approve-service-request-list"));
+const ApproveSelectAmendSR = React.lazy(() => import("./service-request/approve-amend-sr-list"));
+const ApprovedSRList = React.lazy(() => import("./service-request/approved-sr-list"));
 
 export const ServiceRequestsTabs : React.FC = () => {
     const [searchParams] = useSearchParams();
@@ -70,17 +72,17 @@ export const ServiceRequestsTabs : React.FC = () => {
       },
   ], [role, adminPendingSRCount, pendingSRCount, adminApprovedSRCount, approvedSRCount]);
 
-  const updateURL = (key : string, value : string) => {
+  const updateURL = useCallback((key : string, value : string) => {
       const url = new URL(window.location.href);
       url.searchParams.set(key, value);
       window.history.pushState({}, "", url);
-  };
+  }, []);
 
-  const onClick = (value : string) => {
+  const onClick = useCallback((value : string) => {
       if (tab === value) return;
       setTab(value);
       updateURL("tab", value);
-  };
+  }, [tab, updateURL]);
 
   return (
     <div className="flex-1 space-y-4">
@@ -104,15 +106,22 @@ export const ServiceRequestsTabs : React.FC = () => {
               />
           )}
         </div>
-          {tab === "choose-vendor" ? (
+
+         <Suspense fallback={
+            <div className="flex items-center h-[90vh] w-full justify-center">
+                <TailSpin color={"red"} />{" "}
+            </div>
+        }>
+            {tab === "choose-vendor" ? (
             <SelectServiceVendorList />
-          ) : tab === "approve-service-order" ? (
-            <ApproveSelectSR />
-          ) : tab === "approve-amended-so" ? (
-            <ApproveSelectAmendSR /> 
-          ) : (
-            <ApprovedSRList />
-          )}
+            ) : tab === "approve-service-order" ? (
+              <ApproveSelectSR />
+            ) : tab === "approve-amended-so" ? (
+              <ApproveSelectAmendSR /> 
+            ) : (
+              <ApprovedSRList />
+            )}
+        </Suspense>
       </div>
   )
 }
