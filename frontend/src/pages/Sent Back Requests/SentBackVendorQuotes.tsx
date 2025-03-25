@@ -11,7 +11,7 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { CirclePlus, Info } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import GenerateRFQDialog from "../ProcurementRequests/VendorQuotesSelection/GenerateRFQDialog";
@@ -152,11 +152,11 @@ export const SentBackVendorQuotes : React.FC = () => {
   
   const vendorOptions = useVendorOptions(vendors, formData.selectedVendors);
 
-  const updateURL = (key : string, value : string) => {
+  const updateURL = useCallback((key : string, value : string) => {
       const url = new URL(window.location.href);
       url.searchParams.set(key, value);
       window.history.pushState({}, "", url);
-  };
+  }, []);
   
   
   const onClick = async (value : string) => {
@@ -189,11 +189,11 @@ export const SentBackVendorQuotes : React.FC = () => {
       updateURL("mode", value);
   };
 
-    const handleVendorSelection = () => {
+  const handleVendorSelection = useCallback(() => {
       setFormData((prev) => ({ ...prev, selectedVendors: [...prev.selectedVendors, ...selectedVendors] }));
       setSelectedVendors([]);
       setAddVendorsDialog(false);
-    };
+    }, [formData, selectedVendors, updateProcurementData, setFormData, setSelectedVendors, setAddVendorsDialog]);
   
   const handleReviewChanges = async () => {
     const updatedOrderList = orderData?.item_list?.list?.map((item) => {
@@ -336,3 +336,5 @@ export const SentBackVendorQuotes : React.FC = () => {
   </>
   )
 }
+
+export default SentBackVendorQuotes;

@@ -1,14 +1,12 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-import { SentBackRequest } from "@/components/procurement/sent-back-request";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { useUserData } from "@/hooks/useUserData";
-import { ApprovePR } from "@/pages/ProcurementRequests/ApproveNewPR/approve-pr";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -22,18 +20,20 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
-import React, { useCallback, useContext, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { EstimatedPriceHoverCard } from "../../../components/procurement/EstimatedPriceHoverCard";
 import { TableSkeleton } from "../../../components/ui/skeleton";
+
+const ApprovePR = React.lazy(() => import("../ApproveNewPR/approve-pr"));
+
+const SentBackRequest = React.lazy(() => import("@/components/procurement/sent-back-request"));
 
 export const ProcurementRequests : React.FC = () => {
 
     const [searchParams] = useSearchParams();
-
     const { role, user_id } = useUserData()
-    const navigate = useNavigate()
 
     const [tab, setTab] = useState<string>(searchParams.get("tab") || (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PR" : "New PR Request"));
 
@@ -50,19 +50,23 @@ export const ProcurementRequests : React.FC = () => {
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
-    })
+    },
+    `Projects`
+    )
 
     const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
         {
             fields: ["*"],
             limit: 100000
-        });
+        },
+        `Approved Quotations`
+    );
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
         await prListMutate()
     })
 
-    const getTotal = useCallback((order_id: string) => {
+    const getTotal = useMemo(() => (order_id: string) => {
         let total: number = 0;
         let usedQuotes = {}
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
@@ -86,24 +90,23 @@ export const ProcurementRequests : React.FC = () => {
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification]);
 
-    // const updateURL = (key, value) => {
-    //     const url = new URL(window.location);
-    //     url.searchParams.set(key, value);
-    //     window.history.pushState({}, "", url);
-    // };
+    const updateURL = useCallback((key : string, value : string) => {
+            const url = new URL(window.location.href);
+            url.searchParams.set(key, value);
+            window.history.pushState({}, "", url);
+    }, []);
 
-    const onClick = (value : string) => {
+    const onClick = useCallback((value : string) => {
         if (tab === value) return;
         setTab(value);
-        navigate(`/procurement-requests?tab=${value}`)
-        // updateURL("tab", newTab);
-    };
+        updateURL("tab", value);
+    }, [tab, updateURL]);
 
     const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
 
@@ -328,7 +331,7 @@ export const ProcurementRequests : React.FC = () => {
                 }
             ] : []),
         ],
-        [project_values, procurement_request_list]
+        [project_values, procurement_request_list, tab, notifications, quote_data]
     )
 
     if (procurement_request_list_error || projects_error) {
@@ -400,18 +403,50 @@ export const ProcurementRequests : React.FC = () => {
                     </AlertDialogHeader>
                 </AlertDialogContent>
             </AlertDialog>
+
+                <Suspense fallback={
+                    <div className="flex items-center h-[90vh] w-full justify-center">
+                        <TailSpin color={"red"} />{" "}
+                    </div>
+                }>
+                    {
+                        tab === "Approve PR" ? (
+                            <ApprovePR />
+                        ) :
+                        ["Rejected", "Delayed", "Cancelled"].includes(tab) ? (
+                            <SentBackRequest tab={tab} />
+                        ) :
+                        (
+                            (projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+                                <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+                            )
+                        )
+                    }
+                </Suspense>
                             
-            {tab === "Approve PR" ? (
-                <ApprovePR />
+            {/* {tab === "Approve PR" ? (
+                <Suspense fallback={
+                    <div className="flex items-center h-[90vh] w-full justify-center">
+                        <TailSpin color={"red"} />{" "}
+                    </div>
+                }>
+                    <ApprovePR />
+                </Suspense>
             ) :
             ["Rejected", "Delayed", "Cancelled"].includes(tab) ? (
-                <SentBackRequest />
+                <Suspense fallback={
+                    <div className="flex items-center h-[90vh] w-full justify-center">
+                        <TailSpin color={"red"} />{" "}
+                    </div>
+                }>
+                    <SentBackRequest />
+                </Suspense>
             ) :
              (
                 (projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
                 )
-            )}
+            )} */}
             </div>
         </>
     )

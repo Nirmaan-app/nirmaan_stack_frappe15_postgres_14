@@ -1,26 +1,32 @@
-import { SentBackSummary } from "@/pages/Sent Back Requests/sent-back-summary";
-import React from "react";
+import React, { Suspense } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { useSearchParams } from "react-router-dom";
-import { SBQuotesSelectionReview } from "./SBQuotesSelectionReview";
-import { SentBackVendorQuotes } from "./SentBackVendorQuotes";
+
+
+const SentBackSummary = React.lazy(() => import("./sent-back-summary"));
+const SentBackVendorQuotes = React.lazy(() => import("./SentBackVendorQuotes"));
+const SBQuotesSelectionReview = React.lazy(() => import("./SBQuotesSelectionReview"));
 
 export const RenderSentBackComponent : React.FC = () => {
     const [searchParams] = useSearchParams();
 
     const mode = searchParams.get("mode") || "summary";
 
-    if (mode === "summary") {
-        return <SentBackSummary />
-    }
-
-    if(["edit", "view"].includes(mode)) {
-      return <SentBackVendorQuotes />
-    }
-
-    if(mode === "review") {
-        return <SBQuotesSelectionReview />
-    }
     return (
-        <div>Hello</div>
+        <Suspense fallback={
+               <div className="flex items-center h-[90vh] w-full justify-center">
+                    <TailSpin color={"red"} />{" "}
+                </div>
+            }>
+                {mode === "summary" ? (
+                    <SentBackSummary />
+                  ) : ["edit", "view"].includes(mode) ? (
+                    <SentBackVendorQuotes />
+                  ) : mode === "review" ? (
+                    <SBQuotesSelectionReview /> 
+                  ) : (
+                    <div>Invalid mode</div>
+                  )}
+        </Suspense>
     )
 }

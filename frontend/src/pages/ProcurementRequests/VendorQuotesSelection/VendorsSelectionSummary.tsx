@@ -241,9 +241,10 @@ export const VendorsSelectionSummary : React.FC = () => {
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
-      })
+      }, "Nirmaan Users"
+  )
       
-  const getFullName = useCallback((id : string | undefined) => {
+  const getFullName = useMemo(() => (id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 
@@ -271,15 +272,15 @@ export const VendorsSelectionSummary : React.FC = () => {
     return totals
   }, [orderData])
 
-  const getVendorName = useCallback((vendorId : string | undefined) : string => {
+  const getVendorName = useMemo(() => (vendorId : string | undefined) : string => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
   }, [vendor_list])
 
-  const getLowest = useCallback((itemId: string) => {
+  const getLowest = useMemo(() => (itemId: string) => {
         return getLowestQuoteFilled(orderData, itemId)
     }, [orderData]);
 
-  const getThreeMonthsLowest = useCallback((itemId : string) => {
+  const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
       return getThreeMonthsLowestFiltered(quotes_data, itemId)
     }, [quotes_data]);
 
@@ -593,3 +594,5 @@ if (procurement_request_list_loading || quotes_data_loading || vendor_list_loadi
           </div>
   )
 }
+
+export default VendorsSelectionSummary;

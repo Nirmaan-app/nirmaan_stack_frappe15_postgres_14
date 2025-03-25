@@ -1,10 +1,8 @@
-import { ApprovePRList } from "@/pages/ProcurementRequests/ApproveNewPR/approve-order";
+import React, { Suspense } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { useSearchParams } from "react-router-dom";
-import { ProcurementOrder } from "./procurement-vendor";
-import { ProcurementProgress } from "./ProcurementProgress";
-import { VendorsSelectionSummary } from "./VendorsSelectionSummary";
 
-export const RenderProcurementRequest = () => {
+export const RenderProcurementRequest: React.FC = () => {
 
     const [searchParams] = useSearchParams();
 
@@ -12,19 +10,21 @@ export const RenderProcurementRequest = () => {
 
    const mode = searchParams.get("mode") || "edit"
 
-   if(tab === "Approve PR") {
-        return <ApprovePRList />
-    } else if(tab === "New PR Request") {
-        return <ProcurementOrder />
-    } 
-    // else if(tab === "Update Quote") {
-    //     return <UpdateQuote />
-    // } else if(tab === "Choose Vendor") {
-    //     return <SelectVendors />
-    // }
-    else if(tab === "In Progress"  && mode === "review") {
-        return <VendorsSelectionSummary />
-    } else {
-        return <ProcurementProgress />
-    }
+   const ApprovePRList = React.lazy(() => import("../ApproveNewPR/approve-order"));
+
+   const ProcurementOrder = React.lazy(() => import("./procurement-vendor"));
+
+   const VendorsSelectionSummary = React.lazy(() => import("./VendorsSelectionSummary"));
+
+   const ProcurementProgress = React.lazy(() => import("./ProcurementProgress"));
+
+   return (
+             <Suspense fallback={
+                <div className="flex items-center h-[90vh] w-full justify-center">
+                     <TailSpin color={"red"} />{" "}
+                 </div>
+             }>
+                 {tab === "Approve PR" ? <ApprovePRList /> : tab === "New PR Request" ? <ProcurementOrder /> : tab === "In Progress"  && mode === "review" ? <VendorsSelectionSummary /> : <ProcurementProgress />}
+             </Suspense>
+        )
 }
