@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
+import SITEURL from "@/constants/siteURL";
+import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -26,9 +28,8 @@ import { Paperclip, SquarePlus } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-import { AllPayments } from "./AllPayments";
 
-export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boolean}> = ({tab, projectsView = false}) => {
+export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ projectsView = false}) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
@@ -68,7 +69,6 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
         limit: 100000
     })
 
-
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
         await poMutate();
     });
@@ -79,17 +79,25 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
 
     const [newPaymentDialog, setNewPaymentDialog] = useState(false);
 
-    const toggleNewPaymentDialog = () => {
+    const toggleNewPaymentDialog = useCallback(() => {
         setNewPaymentDialog((prevState) => !prevState);
-    };
+    }, [newPaymentDialog])
 
     const [currentPaymentsDialogOpen, setCurrentPaymentsDialogOpen] = useState(false)
 
-    const toggleCurrentPaymentsDialog = () => {
+    const toggleCurrentPaymentsDialog = useCallback(() => {
         setCurrentPaymentsDialogOpen((prevState) => !prevState);
-    };
+    }, [currentPaymentsDialogOpen])
 
-    const [currentPayments, setCurrentPayments] = useState({})
+    const [currentPayments, setCurrentPayments] = useState({ 
+        project : "", 
+        vendor : "", 
+        vendor_id : "", 
+        project_id : "", 
+        document_type : "", 
+        document_name : "", 
+        gst : ""
+    })
 
     const [newPayment, setNewPayment] = useState({
         docname: "",
@@ -106,63 +114,35 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
 
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
-    const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = useCallback((event : React.ChangeEvent<HTMLInputElement>) => {
         if(event.target.files && event.target.files.length > 0) {
             setPaymentScreenshot(event.target.files[0]);
         }
-    };
+    }, [paymentScreenshot])
 
     const { notifications, mark_seen_notification } = useNotificationStore();
 
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const projectValues = useMemo(() => projects?.map((item) => ({
-        label: item.project_name,
-        value: item.name,
+        label: item?.project_name,
+        value: item?.name,
     })) || [], [projects])
 
     const vendorValues = useMemo(() => vendors?.map((item) => ({
-        label: item.vendor_name,
-        value: item.name,
+        label: item?.vendor_name,
+        value: item?.name,
     })) || [], [vendors])
 
-    const getTotalAmount = (order : any, type: "Purchase Order" | "Service Order") => {
-        if (type === "Purchase Order") {
-            let total = 0;
-            let totalWithTax = 0;
-            const loading_charges = order?.loading_charges || 0;
-            const freight_charges = order?.freight_charges || 0
-            const orderData = order.order_list;
-            orderData?.list.forEach((item) => {
-                const price = parseNumber(item?.quote);
-                const quantity = parseNumber(item?.quantity) || 1;
-                const tax = parseNumber(item?.tax)
-                totalWithTax += price * quantity * (1 + tax / 100);
-                total += price * quantity;
-            });
+    const filteredCurrentPayments = useMemo(() => projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name) || [], [currentPayments, projectPayments])
 
-            total += parseNumber(loading_charges) + parseNumber(freight_charges)
-            totalWithTax += parseNumber(loading_charges) * 1.18 + parseNumber(freight_charges) * 1.18
-            return {total, totalWithTax};
-        }
-        if (type === "Service Order") {
-            let total = 0;
-            const orderData = order.service_order_list;
-            orderData?.list.forEach((item) => {
-                const price = parseNumber(item?.rate);
-                const quantity = parseNumber(item?.quantity) || 1;
-                total += price * quantity;
-            });
-            return {total, totalWithTax : total * 1.18};
-        }
-        return {total: 0, totalWithTax: 0};
-    };
+    const {getTotalAmount} = useOrderTotals()
 
     const getAmountPaid =  useMemo(
         () => (id : string) => {
@@ -175,7 +155,7 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
         ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
     ], [purchaseOrders, serviceOrders])
 
-    const getDataAttributes = useCallback((data : any) => {
+    const getDataAttributes = useMemo(() => (data : any) => {
         let project = ""
         let vendor = ""
         let gst = ""
@@ -259,7 +239,8 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
         }
     }
 
-    const validateAmount = debounce((amount : string) => {
+    const validateAmount = useCallback(
+        debounce((amount : string) => {
         const order =
           newPayment?.doctype === "Procurement Orders"
             ? purchaseOrders?.find((i) => i?.name === newPayment?.docname)
@@ -270,9 +251,8 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
           return;
         }
     
-        const { total, totalWithTax } = getTotalAmount(
-          order,
-          newPayment?.doctype === "Procurement Orders" ? "Purchase Order" : "Service Order"
+        const { total, totalWithTax } = getTotalAmount(order?.name,
+          newPayment.doctype
         );
 
         const totalAmountPaid = getAmountPaid(order?.name)
@@ -280,7 +260,7 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
         const compareAmount =
           newPayment?.doctype === "Procurement Orders"
             ? (totalWithTax - totalAmountPaid) // Always compare with totalWithTax for Purchase Orders
-            : order.gst === "true" // Check GST field for Service Orders
+            : order?.gst === "true" // Check GST field for Service Orders
             ? (totalWithTax - totalAmountPaid)
             : (total - totalAmountPaid);
     
@@ -293,20 +273,20 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
         } else {
           setWarning(""); // Clear warning if within the limit
         }
-      }, 300);
+      }, 300), [newPayment, purchaseOrders, serviceOrders, getAmountPaid, setWarning])
     
       // Handle input change
-    const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
+    const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
       const amount = e.target.value;
       setNewPayment({ ...newPayment, amount });
       validateAmount(amount);
-    };
+    }, [newPayment, validateAmount, setNewPayment])
 
     const columns = useMemo(
         () => [
             {
                 accessorKey: "name",
-                header: "ID",
+                header: "#PO",
                 cell: ({ row }) => {
                     const data = row.original
                     const id = data?.name;
@@ -341,7 +321,7 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => (
@@ -381,7 +361,7 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                 header: "PO Amt excl. Tax",
                 cell: ({ row }) => (
                     <div className="font-medium">
-                        {formatToIndianRupee(getTotalAmount(row.original, row.original.type)?.total)}
+                        {formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.total)}
                     </div>
                 ),
             },
@@ -391,9 +371,9 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                 cell: ({ row }) => (
                     <div className="font-medium">
                         {row.original.type === "Service Order" ? (
-                            row.original.gst === "true" ? formatToIndianRupee(getTotalAmount(row.original, row.original.type)?.totalWithTax)
+                            row.original.gst === "true" ? formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.totalWithTax)
                             : "--"
-                        ) : formatToIndianRupee(getTotalAmount(row.original, row.original.type)?.totalWithTax)
+                        ) : formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.totalWithTax)
                         }
                     </div>
                 ),
@@ -435,7 +415,7 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                     header: "Due Amount",
                     cell: ({ row }) => {
                         const data = row.original
-                        const totalAmount = getTotalAmount(row.original, row.original.type)?.totalWithTax
+                        const totalAmount = getTotalAmount(row.original.name, row.original.type)?.totalWithTax
                         const amountPaid = getAmountPaid(data?.name);
                         return(
                             <div className="font-medium">
@@ -446,7 +426,7 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                 }
             ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView, tab]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView]
     );
 
     if (poError || srError || projectsError || vendorsError) {
@@ -456,14 +436,6 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
             variant: "destructive",
         });
     }
-
-    const siteUrl = `${window.location.protocol}//${window.location.host}`;
-
-    if(tab === "All Payments") {
-        return <AllPayments />
-    }
-
-    const filteredCurrentPayments = useMemo(() => projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name) || [], [currentPayments, projectPayments])
 
     return (
         <div className="flex-1 space-y-4">
@@ -480,21 +452,14 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                         </div>
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                            <span className="">{newPayment?.doctype === "Procurement Orders" ? (
-                                formatToIndianRupee(getTotalAmount(purchaseOrders?.find(i => i?.name === newPayment?.docname), "Purchase Order")?.total)
-                            ) : newPayment?.doctype === "Service Requests" ? (
-                                formatToIndianRupee(getTotalAmount(serviceOrders?.find(i => i?.name === newPayment?.docname), "Service Order")?.total)
-                            ) : ""}
+                            <span className="">
+                                {formatToIndianRupee(getTotalAmount(newPayment.docname, newPayment.doctype)?.total)}
                             </span>
                         </div>
-                        {(newPayment?.doctype === "Procurement Orders" || (newPayment?.doctype === "Service Order" && serviceOrders?.find(i => i?.name === newPayment?.docname)?.gst !== "true")) && (
+                        {(newPayment?.doctype === "Procurement Orders" || (newPayment?.doctype === "Service Requests" && serviceOrders?.find(i => i?.name === newPayment?.docname)?.gst === "true")) && (
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                            <span className="">{newPayment?.doctype === "Procurement Orders" ? (
-                                formatToIndianRupee(getTotalAmount(purchaseOrders?.find(i => i?.name === newPayment?.docname), "Purchase Order")?.totalWithTax)
-                            ) : newPayment?.doctype === "Service Requests" ? (
-                                formatToIndianRupee(getTotalAmount(serviceOrders?.find(i => i?.name === newPayment?.docname), "Service Order")?.totalWithTax)
-                            ) : ""}
+                            <span className="">{formatToIndianRupee(getTotalAmount(newPayment?.docname, newPayment.doctype)?.totalWithTax)}
                             </span>
                         </div>
                         )}
@@ -641,15 +606,9 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
                                                 {/* )} */}
                                                 {payment?.payment_attachment ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
-                                                    {import.meta.env.MODE === "development" ? (
-                                                        <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                        <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
                                                             {payment?.utr}
                                                         </a>
-                                                    ) : (
-                                                        <a href={`${siteUrl}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                            {payment?.utr}
-                                                        </a>
-                                                    )}
                                                 </TableCell>
                                                 ) : (
                                                     <TableCell className="font-semibold">{payment?.utr}</TableCell>
@@ -680,3 +639,6 @@ export const ProjectPaymentsList : React.FC<{tab : string, projectsView? : boole
         </div>
     );
 };
+
+
+export default ProjectPaymentsList;
