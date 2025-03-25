@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import SITEURL from "@/constants/siteURL";
 import { useUserData } from "@/hooks/useUserData";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
@@ -964,14 +965,9 @@ const handleUnmergePOs = async () => {
     validateAmount(amount);
   };
 
-  const getUserName = (id : string | undefined) => {
-    if (usersList) {
-      return usersList.find((user) => user?.name === id)?.full_name
-    }
-    return "";
-  };
-
-  const siteUrl = `${window.location.protocol}//${window.location.host}`;
+  const getUserName = useMemo(() => (id : string | undefined) => {
+    return usersList?.find((user) => user?.name === id)?.full_name || ""
+  }, [usersList]);
 
   if (isRedirecting) {
     return (
@@ -1509,23 +1505,13 @@ const handleUnmergePOs = async () => {
                           </TableCell>
                             {(payment?.utr && payment?.payment_attachment) ? (
                               <TableCell className="text-blue-500 underline">
-                              {import.meta.env.MODE === "development" ? (
-                                <a
-                                  href={`http://localhost:8000${payment?.payment_attachment}`}
+                              {<a
+                                  href={`${SITEURL}${payment?.payment_attachment}`}
                                   target="_blank"
                                   rel="noreferrer"
                                 >
                                   {payment?.utr}
-                                </a>
-                              ) : (
-                                <a
-                                  href={`${siteUrl}${payment?.payment_attachment}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  {payment?.utr}
-                                </a>
-                              )}
+                                </a>}
                               </TableCell>
                             ) : (
                               <TableCell>

@@ -15,14 +15,16 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useCallback, useContext, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useContext, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
 import { useToast } from "../../components/ui/use-toast";
-import { ApproveSelectVendor } from "../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor";
-import { ApproveSelectSentBack } from "../Sent Back Requests/approve-select-sent-back";
-import { ApproveSelectAmendPO } from "./approve-select-amend-po";
+
+const ApproveSelectVendor = React.lazy(() => import("../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
+const ApproveSelectSentBack = React.lazy(() => import("../Sent Back Requests/approve-select-sent-back"));
+const ApproveSelectAmendPO = React.lazy(() => import("./approve-select-amend-po"));
 
 export const ReleasePOSelect : React.FC = () => {
 
@@ -66,7 +68,7 @@ export const ReleasePOSelect : React.FC = () => {
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getAmountPaid = useCallback((id : string) => {
+    const getAmountPaid = useMemo(() => (id : string) => {
         const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
         return getTotalAmountPaid(payments);
     }, [projectPayments])
@@ -76,25 +78,23 @@ export const ReleasePOSelect : React.FC = () => {
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
-    const updateURL = (key : string, value : string) => {
+    const updateURL = useCallback((key : string, value : string) => {
         const url = new URL(window.location.href);
         url.searchParams.set(key, value);
         window.history.pushState({}, "", url);
-    };
+    }, []);
 
-    const onClick = (value : string) => {
-
+    const onClick = useCallback((value : string) => {
         if (tab === value) return; // Prevent redundant updates
         setTab(value);
         updateURL("tab", value);
-
-    };
+    }, [tab, updateURL]);
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
@@ -350,7 +350,7 @@ export const ReleasePOSelect : React.FC = () => {
                 cell: ({ row }) => <span className="hidden">hh</span>
             }
         ],
-        [project_values, procurement_order_list, projectPayments]
+        [project_values, procurement_order_list, projectPayments, tab, notifications]
     )
 
     const { toast } = useToast()
@@ -363,6 +363,8 @@ export const ReleasePOSelect : React.FC = () => {
             variant: "destructive"
         })
     }
+
+    const filtered_po_list = useMemo(() => procurement_order_list?.filter((po) => po?.status !== "Cancelled") || [], [procurement_order_list])
 
     return (
         <>
@@ -395,7 +397,27 @@ export const ReleasePOSelect : React.FC = () => {
 
                     </div>
                 )}
-                {["Approve PO", "Approve Amended PO", "Approve Sent Back PO"].includes(tab) ? (
+
+                <Suspense fallback={
+                    <div className="flex items-center h-[90vh] w-full justify-center">
+                        <TailSpin color={"red"} />{" "}
+                    </div>
+                }>
+                    {tab === "Approve PO" ? (
+                        <ApproveSelectVendor />
+                    ) : tab === "Approve Amended PO" ? (
+                        <ApproveSelectAmendPO />
+                    ) : 
+                    tab === "Approve Sent Back PO" ? (
+                        <ApproveSelectSentBack />
+                    ) :
+                    (procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
+                        <DataTable columns={columns} data={filtered_po_list} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
+                    )}
+                </Suspense>
+
+                
+                {/* {["Approve PO", "Approve Amended PO", "Approve Sent Back PO"].includes(tab) ? (
                     tab === "Approve PO" ? (
                         <ApproveSelectVendor />
                     ) : tab === "Approve Amended PO" ? (
@@ -405,9 +427,9 @@ export const ReleasePOSelect : React.FC = () => {
                     )
                 ) : (
                     (procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
-                        <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
+                        <DataTable columns={columns} data={filtered_po_list} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                     )
-                )}
+                )} */}
 
             </div>
 

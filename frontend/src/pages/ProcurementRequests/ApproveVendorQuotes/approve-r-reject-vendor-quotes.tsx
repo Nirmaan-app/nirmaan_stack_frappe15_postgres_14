@@ -6,6 +6,7 @@ import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActions
 import { Table as ReactTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/components/ui/use-toast";
+import SITEURL from '@/constants/siteURL';
 import { useUserData } from '@/hooks/useUserData';
 import { CategoryWithChildren, DataItem } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
@@ -58,7 +59,7 @@ const ApproveRejectVendorQuotes : React.FC = () => {
 
     const navigate = useNavigate()
 
-    const getUserName = useCallback((id : string | undefined) => {
+    const getUserName = useMemo(() => (id : string | undefined) => {
         return usersList?.find((user) => user?.name === id)?.full_name || ""
     }, [usersList]);
 
@@ -120,11 +121,7 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
     )   
 
     const handleAttachmentClick = (attachmentUrl: string) => {
-        const siteUrl = `${window.location.protocol}//${window.location.host}`;
-        const fullAttachmentUrl = import.meta.env.MODE === "development"
-            ? `http://localhost:8000${attachmentUrl}`
-            : `${siteUrl}${attachmentUrl}`;
-    
+        const fullAttachmentUrl = `${SITEURL}${attachmentUrl}`
         window.open(fullAttachmentUrl, '_blank');
     };
 
@@ -185,24 +182,15 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
      }));
   }, [pr_data])
 
-  const getVendorName = useCallback((vendorId: string | undefined) => {
+  const getVendorName = useMemo(() => (vendorId: string | undefined) => {
       return vendor_list?.find(vendor => vendor?.name === vendorId)?.vendor_name || "";
   }, [vendor_list]);
 
-  const getLowest = useCallback((itemId: string) => {
+  const getLowest = useMemo(() => (itemId: string) => {
       return getLowestQuoteFilled(orderData, itemId)
   }, [orderData]);
 
-//   const getThreeMonthsLowest = useCallback((itemId : string) => {
-//       const quotesForItem = quotes_data
-//         ?.filter(value => value?.item_id === itemId && ![null, "0", 0, undefined].includes(value?.quote))
-//         ?.map(value => parseNumber(value?.quote)) || [];
-//       let minQuote = 0;
-//       if (quotesForItem.length) minQuote = Math.min(...quotesForItem);
-//       return minQuote;
-//   }, [quotes_data]);
-
-  const getThreeMonthsLowest = useCallback((itemId : string) => {
+  const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
     return getThreeMonthsLowestFiltered(quotes_data, itemId)
   }, [quotes_data]);
 

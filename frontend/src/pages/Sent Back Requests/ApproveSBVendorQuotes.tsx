@@ -29,7 +29,9 @@ const ApproveSBVendorQuotes : React.FC = () => {
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
-    })
+    },
+    "Nirmaan Users"
+)
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList<Vendors>("Vendors",
       {
@@ -45,7 +47,7 @@ const ApproveSBVendorQuotes : React.FC = () => {
     sb ? undefined : null
   )
 
-  const { data: quotes_data, isLoading: quotesLoading, error: quotesError } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
+    const { data: quotes_data, isLoading: quotesLoading, error: quotesError } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
         {
             fields: ['*'],
             limit: 100000
@@ -53,12 +55,9 @@ const ApproveSBVendorQuotes : React.FC = () => {
 
     const navigate = useNavigate()
 
-    const getUserName = (id : string | undefined) => {
-        if (usersList) {
-            return usersList.find((user) => user?.name === id)?.full_name || ""
-        }
-        return ""
-    }
+    const getUserName = useMemo(() => (id : string | undefined) => {
+        return usersList?.find((user) => user?.name === id)?.full_name || ""
+    }, [usersList]);
 
     // console.log("within 1st component", owner_data)
     if (sb_loading || usersListLoading || vendor_list_loading || universalCommentLoading || quotesLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
@@ -155,7 +154,7 @@ export const ApproveSBVendorQuotesPage : React.FC<ApproveSBVendorQuotesPageProps
      }));
   }, [sb_data])
 
-  const getVendorName = useCallback((vendorId: string | undefined) => {
+  const getVendorName = useMemo(() => (vendorId: string | undefined) => {
       return vendor_list?.find(vendor => vendor?.name === vendorId)?.vendor_name || "";
   }, [vendor_list])
 
@@ -172,7 +171,7 @@ export const ApproveSBVendorQuotesPage : React.FC<ApproveSBVendorQuotesPageProps
 //     return minQuote || 0;
 //   }
 
-    const getLowest = useCallback((itemId: string) => {
+    const getLowest = useMemo(() => (itemId: string) => {
           return getLowestQuoteFilled(orderData, itemId)
     }, [orderData]);
 
@@ -185,7 +184,7 @@ export const ApproveSBVendorQuotesPage : React.FC<ApproveSBVendorQuotesPageProps
 //       return minQuote || 0;
 //   }
 
-const getThreeMonthsLowest = useCallback((itemId : string) => {
+const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
     return getThreeMonthsLowestFiltered(quotes_data, itemId)
   }, [quotes_data]);
 
@@ -243,7 +242,7 @@ const getThreeMonthsLowest = useCallback((itemId : string) => {
     }, [orderData, vendor_list])
   
 
-  const dataSource = getFinalVendorQuotesData
+  const dataSource = useMemo(() => getFinalVendorQuotesData
   ?.sort((a, b) =>
     Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
   )
@@ -252,7 +251,7 @@ const getThreeMonthsLowest = useCallback((itemId : string) => {
     totalAmount: Object.values(key)[0]?.totalAmount,
     category: Object.keys(key)[0],
     items: Object.values(key)[0]?.items,
-  }))
+  })), [getFinalVendorQuotesData])
 
   const [selectionMap, setSelectionMap] = useState(new Map());
 

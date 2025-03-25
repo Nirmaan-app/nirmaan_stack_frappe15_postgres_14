@@ -241,3 +241,5 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
         </div>
     )
 }
+
+export default ApprovedSRList;
