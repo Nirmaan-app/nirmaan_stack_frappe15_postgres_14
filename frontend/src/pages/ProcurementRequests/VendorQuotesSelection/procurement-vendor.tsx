@@ -1,16 +1,17 @@
 import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { UserContext } from "@/utils/auth/UserProvider";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
@@ -24,8 +25,6 @@ export const ProcurementOrder : React.FC = () => {
   const navigate = useNavigate();
 
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null)
-
-  const { getItemEstimate } = useItemEstimate()
 
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: prMutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
     {
@@ -41,9 +40,17 @@ export const ProcurementOrder : React.FC = () => {
   
   const {handleDeletePR, deleteLoading} = usePRorSBDelete(prMutate);
 
+  const { data: quote_data, isLoading : quote_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
+    {
+      fields: ["*"],
+      limit: 100000
+    },
+    `Approved Quotations`
+  );
+
   const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
     fields: ["*"],
-    filters: [["reference_name", "=", orderId], ['subject', 'in', ['approving pr', 'creating pr']]],
+    filters: [["reference_name", "=", orderId]],
     orderBy: { field: "creation", order: "desc" },
     limit: 1000,
   },
@@ -57,8 +64,7 @@ export const ProcurementOrder : React.FC = () => {
   `Nirmaan Users`
 )
 
-  const getFullName = useMemo(() => (id : string | undefined) => {
-    console.log("running getFullName for", id)
+  const getFullName = useCallback((id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 
@@ -70,6 +76,8 @@ export const ProcurementOrder : React.FC = () => {
       setOrderData(procurement_request_list[0])
     }
   }, [procurement_request_list])
+
+  const comments = useMemo(() => universalComments?.filter((cmt) => ["approving pr", "creating pr"].includes(cmt.subject || "")) || [], [universalComments])
 
 
   const handleStartProcuring = async () => {
@@ -93,7 +101,7 @@ export const ProcurementOrder : React.FC = () => {
     }
   }
 
-  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+  if (procurement_request_list_loading || usersListLoading || quote_data_loading || universalCommentsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   if (orderData?.workflow_state !== "Approved") {
     return (
@@ -149,15 +157,15 @@ export const ProcurementOrder : React.FC = () => {
                             ) : "--"}
                           </div>
                         </TableHead>
-                        <TableHead className="w-[10%] text-red-700">UOM</TableHead>
+                        <TableHead className="w-[20%] text-red-700">UOM</TableHead>
                         <TableHead className="w-[10%] text-red-700">Qty</TableHead>
-                        <TableHead className="w-[20%] text-red-700">Target Rate</TableHead>
+                        <TableHead className="w-[10%] text-red-700">Est. Amt</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {orderData?.procurement_list.list.map((item: any) => {
                         if (item.category === cat.name) {
-                          const minQuote = getItemEstimate(item.name)
+                          const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
                           return (
                             <TableRow key={item.item}>
                               <TableCell>
@@ -179,7 +187,7 @@ export const ProcurementOrder : React.FC = () => {
                               </TableCell>
                               <TableCell>{item.unit}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
-                              <TableCell>{minQuote ? formatToIndianRupee(minQuote * 0.98) : "N/A"}</TableCell>
+                              <TableCell>{minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}</TableCell>
                             </TableRow>
                           )
                         }
@@ -192,7 +200,7 @@ export const ProcurementOrder : React.FC = () => {
 
           <div className="space-y-2">
             <h2 className="text-base pl-2 font-bold tracking-tight">PR Comments</h2>
-            <RenderPRorSBComments  universalComment={universalComments} getUserName={getFullName} />
+            <RenderPRorSBComments  universalComment={comments} getUserName={getFullName} />
           </div>
           <div className="flex justify-between items-end">
             <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
