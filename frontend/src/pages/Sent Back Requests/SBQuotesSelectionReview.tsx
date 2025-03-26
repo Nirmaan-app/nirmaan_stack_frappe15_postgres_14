@@ -12,18 +12,18 @@ import {
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ProcurementHeaderCard } from "@/components/ui/ProcurementHeaderCard";
 import { toast } from "@/components/ui/use-toast";
+import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { useUserData } from '@/hooks/useUserData';
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
-import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import memoize from 'lodash/memoize';
 import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -155,7 +155,7 @@ export const innerColumns: TableColumnsType<DataItem> = [
       render: (text) => <span className="italic">{text ? formatToIndianRupee(text) : "--"}</span>,
   },
   {
-      title: "3 Months Lowest Amount",
+      title: "Target Amount",
       dataIndex: "threeMonthsLowestAmount",
       key: "threeMonthsLowestAmount",
       width: COLUMN_WIDTHS.threeMonthsLowestAmount,
@@ -188,9 +188,11 @@ export const SBQuotesSelectionReview : React.FC = () => {
 
   const {mutate} = useSWRConfig()
 
+  const {getItemEstimate} = useItemEstimate()
+
   const [orderData, setOrderData] = useState<SentBackCategory | undefined>();
 
-  const { data: sent_back_list, isLoading: sent_back_list_loading, mutate: sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category", {
+  const { data: sent_back_list, isLoading: sent_back_list_loading } = useFrappeGetDocList<SentBackCategory>("Sent Back Category", {
         fields: ["*"],
         filters: [["name", "=", sbId]]
       },
@@ -203,12 +205,6 @@ export const SBQuotesSelectionReview : React.FC = () => {
         filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
         limit: 10000
   });
-
-  const { data: quotes_data, isLoading : quotes_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
-    {
-        fields: ["*"],
-        limit: 100000
-    });
 
   useEffect(() => {
     if(sent_back_list) {
@@ -242,13 +238,9 @@ export const SBQuotesSelectionReview : React.FC = () => {
         return vendor_list?.find(vendor => vendor?.name === vendorId)?.vendor_name || "";
   }, [vendor_list]);
 
-  const getLowest = useMemo(() => (itemId: string) => {
+  const getLowest = useMemo(() => memoize((itemId: string) => {
         return getLowestQuoteFilled(orderData, itemId)
-    }, [orderData]);
-
-  const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
-      return getThreeMonthsLowestFiltered(quotes_data, itemId)
-  }, [quotes_data]);
+    }, (itemId: string) => itemId),[orderData]);
 
   const getFinalVendorQuotesData = useMemo(() => {
     const data : CategoryWithChildren[] = []
@@ -262,7 +254,7 @@ export const SBQuotesSelectionReview : React.FC = () => {
             ...item,
             vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
             amount: (item.quote || 0) * item.quantity,
-            threeMonthsLowestAmount: getThreeMonthsLowest(item.name) * item.quantity,
+            threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
             lowestQuotedAmount: getLowest(item.name) * item.quantity,
           })
         } else {
@@ -274,7 +266,7 @@ export const SBQuotesSelectionReview : React.FC = () => {
                 ...item,
                 vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
                 amount: (item.quote || 0) * item.quantity,
-                threeMonthsLowestAmount: getThreeMonthsLowest(item.name) * item.quantity,
+                threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
                 lowestQuotedAmount: getLowest(item.name) * item.quantity,
               }]
             }
@@ -360,7 +352,7 @@ const {
 } = generateActionSummary();
 
 
-if (sent_back_list_loading || quotes_data_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+if (sent_back_list_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     
   return (
           <div className="flex-1 space-y-4">

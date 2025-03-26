@@ -8,18 +8,18 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { COLUMN_WIDTHS } from "@/pages/Sent Back Requests/SBQuotesSelectionReview";
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
-import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import memoize from 'lodash/memoize';
 import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -186,7 +186,7 @@ export const innerColumns : TableColumnsType<DataItem> = [
     ),
   },
   {
-    title: "3 Months Lowest Amount",
+    title: "Target Amount",
     dataIndex: "threeMonthsLowestAmount",
     key: "threeMonthsLowestAmount",
     className: COLUMN_WIDTHS.threeMonthsLowestAmount,
@@ -217,6 +217,8 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>();
 
+  const {getItemEstimate} = useItemEstimate()
+
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: pr_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
       {
           fields: ["*"],
@@ -231,12 +233,6 @@ export const VendorsSelectionSummary : React.FC = () => {
         filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
         limit: 10000
   });
-
-  const { data: quotes_data, isLoading : quotes_data_loading } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
-    {
-        fields: ["*"],
-        limit: 100000
-    });
   
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["*"],
@@ -276,13 +272,9 @@ export const VendorsSelectionSummary : React.FC = () => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
   }, [vendor_list])
 
-  const getLowest = useMemo(() => (itemId: string) => {
+  const getLowest = useMemo(() => memoize((itemId: string) => {
         return getLowestQuoteFilled(orderData, itemId)
-    }, [orderData]);
-
-  const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
-      return getThreeMonthsLowestFiltered(quotes_data, itemId)
-    }, [quotes_data]);
+    }, (itemId: string) => itemId),[orderData]);
 
   const getFinalVendorQuotesData = useMemo(() => {
     const data : CategoryWithChildren[] = []
@@ -296,7 +288,7 @@ export const VendorsSelectionSummary : React.FC = () => {
             ...item,
             vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
             amount: (item.quote || 0) * item.quantity,
-            threeMonthsLowestAmount: getThreeMonthsLowest(item.name) * item.quantity,
+            threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
             lowestQuotedAmount: getLowest(item.name) * item.quantity,
           })
         } else {
@@ -308,7 +300,7 @@ export const VendorsSelectionSummary : React.FC = () => {
                 ...item,
                 vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
                 amount: (item.quote || 0) * item.quantity,
-                threeMonthsLowestAmount: getThreeMonthsLowest(item.name) * item.quantity,
+                threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
                 lowestQuotedAmount: getLowest(item.name) * item.quantity,
               }]
             }
@@ -400,7 +392,7 @@ const {
     approvalOverallTotal,
 } = generateActionSummary();
 
-if (procurement_request_list_loading || quotes_data_loading || vendor_list_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+if (procurement_request_list_loading || vendor_list_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   if (orderData?.workflow_state !== "In Progress") {
     return (

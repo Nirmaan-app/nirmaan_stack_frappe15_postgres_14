@@ -13,7 +13,7 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
 import { Download, Info } from "lucide-react";
-import { useContext, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"}) => {
@@ -31,7 +31,9 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
           fields: ["name", "project_name"],
           limit: 1000,
-      });
+      },
+      'Projects'
+    );
   
   const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", {
       fields: ["name", "vendor_name", "vendor_mobile"],
@@ -72,11 +74,11 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
   
   const { db } = useContext(FrappeContext) as FrappeConfig;
 
-  const handleSeenNotification = (notification : NotificationType | undefined) => {
+  const handleSeenNotification = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
   const columns : ColumnDef<ProjectPayments>[] = useMemo(
           () => [
@@ -200,6 +202,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
                   cell: ({ row }) => {
                     const data = row.original
                       return (
+                        data?.payment_attachment && (
                         <a
                           href={`${SITEURL}${data?.payment_attachment}`}
                           target="_blank"
@@ -207,6 +210,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
                         >
                           <Download className="text-blue-500" />
                         </a>
+                        )
                       )
                   }
                 },
