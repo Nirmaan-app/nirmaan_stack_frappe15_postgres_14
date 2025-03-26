@@ -2,6 +2,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from "lodash/memoize";
 import { useMemo } from "react";
 
 export const useOrderTotals = () => {
@@ -26,7 +27,7 @@ export const useOrderTotals = () => {
   );
 
   const getTotalAmount = useMemo(
-    () => (orderId: string, type: string) => {
+    () => memoize((orderId: string, type: string) => {
       if (['Procurement Orders', 'Purchase Order'].includes(type)) {
         const order = purchaseOrders?.find(i => i?.name === orderId);
         const { total, totalGst } = getPOTotal(order, order?.loading_charges, order?.freight_charges);
@@ -40,7 +41,7 @@ export const useOrderTotals = () => {
       }
       return { total: 0, totalWithTax: 0, totalGst: 0  };
     },
-    [purchaseOrders, serviceOrders]
+    (orderId: string, type: string) => orderId + type),[purchaseOrders, serviceOrders]
   );
 
   return {

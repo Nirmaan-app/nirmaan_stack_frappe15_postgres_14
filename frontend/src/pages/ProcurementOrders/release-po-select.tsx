@@ -15,6 +15,7 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from 'lodash/memoize';
 import React, { Suspense, useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useSearchParams } from "react-router-dom";
@@ -68,10 +69,10 @@ export const ReleasePOSelect : React.FC = () => {
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getAmountPaid = useMemo(() => (id : string) => {
+    const getAmountPaid = useMemo(() => memoize((id : string) => {
         const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
         return getTotalAmountPaid(payments);
-    }, [projectPayments])
+    }, (id: string) => id),[projectPayments])
 
     const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount } = useDocCountStore()
 
@@ -364,8 +365,6 @@ export const ReleasePOSelect : React.FC = () => {
         })
     }
 
-    const filtered_po_list = useMemo(() => procurement_order_list?.filter((po) => po?.status !== "Cancelled") || [], [procurement_order_list])
-
     return (
         <>
             <div className="flex-1 space-y-4">
@@ -412,7 +411,7 @@ export const ReleasePOSelect : React.FC = () => {
                         <ApproveSelectSentBack />
                     ) :
                     (procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
-                        <DataTable columns={columns} data={filtered_po_list} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
+                        <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                     )}
                 </Suspense>
 

@@ -24,6 +24,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { debounce } from "lodash";
+import memoize from "lodash/memoize";
 import { Paperclip, SquarePlus } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -56,12 +57,12 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
-    });
+    }, 'Projects');
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["name", "vendor_name"],
         limit: 10000,
-    });
+    }, 'Vendors');
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
@@ -145,10 +146,10 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
     const {getTotalAmount} = useOrderTotals()
 
     const getAmountPaid =  useMemo(
-        () => (id : string) => {
+        () => memoize((id : string) => {
         const payments = projectPayments?.filter((payment) => payment.document_name === id) || [];
         return getTotalAmountPaid(payments);
-    }, [projectPayments])
+    }, (id: string) => id),[projectPayments])
 
     const combinedData = useMemo(() => [
         ...(purchaseOrders?.map((order) => ({ ...order, type: "Purchase Order" })) || []),

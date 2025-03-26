@@ -54,12 +54,12 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
       const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
           fields: ["name", "project_name"],
           limit: 1000,
-      });
+      }, 'Projects');
   
       const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
           fields: ["*"],
           limit: 10000,
-      });
+      }, 'Vendors');
   
       const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
           fields: ["*"],
@@ -169,11 +169,11 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const columns : ColumnDef<ProjectPayments>[] = useMemo(
       () => [

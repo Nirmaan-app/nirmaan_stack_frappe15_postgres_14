@@ -313,7 +313,7 @@ export const ProcurementRequests : React.FC = () => {
             //         )
             //     }
             // },
-            ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [
+            ...((tab === "New PR Request"  && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [
                 {
                     id: "deleteOption",
                     cell: ({row}) => {

@@ -18,7 +18,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CircleCheck, CircleX, Info, SquarePen } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 
@@ -42,12 +42,12 @@ export const ApprovePayments = () => {
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000,
-    });
+    }, 'Projects');
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["name", "vendor_name"],
         limit: 10000,
-    });
+    }, 'Vendors');
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
@@ -115,11 +115,11 @@ export const ApprovePayments = () => {
 
   const { db } = useContext(FrappeContext) as FrappeConfig
   
-  const handleNewPRSeen = (notification : NotificationType | undefined) => {
+  const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
       if (notification) {
           mark_seen_notification(db, notification)
       }
-  }
+  }, [db, mark_seen_notification])
 
     const columns = useMemo(
         () => [
