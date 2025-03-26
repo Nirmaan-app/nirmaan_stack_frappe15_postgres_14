@@ -11,6 +11,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from 'lodash/memoize';
 import { Trash2 } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -42,11 +43,13 @@ export const SentBackRequest : React.FC<{tab? : string}> = ({tab = undefined}) =
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
-    })
+    },
+    `Projects`
+    )
 
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects]);
 
-    const getTotal = useMemo(() => (order_id: string) => {
+    const getTotal = useMemo(() => memoize((order_id: string) => {
         let total: number = 0;
         const orderData = sent_back_list?.find(item => item.name === order_id)?.item_list;
         orderData?.list.map((item) => {
@@ -54,7 +57,7 @@ export const SentBackRequest : React.FC<{tab? : string}> = ({tab = undefined}) =
             total += parseNumber(price * item.quantity);
         })
         return total;
-    }, [sent_back_list]);
+    }, (order_id: string) => order_id), [sent_back_list]);
 
     // const { role, user_id } = useUserData()
 
