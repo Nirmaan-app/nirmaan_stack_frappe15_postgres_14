@@ -966,5 +966,16 @@
   "new_items": "true",
   "tax": "18",
   "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Miscellaneous Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20Services/misc_services%20(1).png",
+  "modified": "2025-03-26 23:36:53.473120",
+  "name": "Miscellaneous Services",
+  "new_items": "true",
+  "tax": "18",
+  "work_package": "Services"
  }
 ]
