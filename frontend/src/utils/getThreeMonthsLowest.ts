@@ -50,6 +50,6 @@ const getThreeMonthsLowestFiltered = memoize(
   
     // 7. Return the minimum value.
     return Math.min(...quotesToConsider);
-  }, (quotes_data : ApprovedQuotations[] | undefined, itemId: string, threshold = 2) => itemId + threshold + JSON.stringify(quotes_data));
+  }, (quotes_data : ApprovedQuotations[] | undefined, itemId: string, threshold = 2) => JSON.stringify(quotes_data) + itemId + threshold);
 
   export default getThreeMonthsLowestFiltered;

@@ -1,72 +1,77 @@
-import imageUrl from "@/assets/user-icon.jpeg";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
-} from "@/components/ui/alert-dialog";
-import { useUserData } from "@/hooks/useUserData";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { formatDate } from "@/utils/FormatDate";
-import {
-  useFrappeCreateDoc,
-  useFrappeGetDoc,
   useFrappeGetDocList,
+  useFrappeGetDoc,
+  useFrappeCreateDoc,
   useFrappeUpdateDoc,
   useSWRConfig,
 } from "frappe-react-sdk";
-import Fuse from "fuse.js";
 import {
-  ArrowLeft,
   CheckCheck,
-  CirclePlus,
   CircleX,
   ListChecks,
   MessageCircleMore,
   MessageCircleWarning,
-  Pencil,
+  PackagePlus,
   Replace,
   Settings2,
+  Sparkles,
   Trash2,
-  Undo
+  Undo,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { ArrowLeft } from "lucide-react";
 import ReactSelect from "react-select";
-import { v4 as uuidv4 } from "uuid"; // Import uuid for unique IDs
-import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "../../components/ui/avatar";
-import { Button } from "../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger
-} from "../../components/ui/dialog";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "../../components/ui/hover-card";
-import { Input } from "../../components/ui/input";
+  DialogTrigger,
+  DialogClose,
+  DialogFooter,
+} from "../ui/dialog";
+import { Button } from "../ui/button";
+import { CirclePlus } from "lucide-react";
+import { Pencil } from "lucide-react";
+import imageUrl from "@/assets/user-icon.jpeg";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../components/ui/select";
-import { NewPRSkeleton } from "../../components/ui/skeleton";
-import { useToast } from "../../components/ui/use-toast";
+} from "../ui/select";
+import { Input } from "../ui/input";
+import { useUserData } from "@/hooks/useUserData";
+import { useToast } from "../ui/use-toast";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { NewPRSkeleton } from "../ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "../ui/hover-card";
+import { formatDate } from "@/utils/FormatDate";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { TailSpin } from "react-loader-spinner";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { v4 as uuidv4 } from "uuid"; // Import uuid for unique IDs
+import Fuse from "fuse.js";
+import { Badge } from "../ui/badge";
 
 const NewPR = () => {
   const { id } = useParams<{ id: string }>();

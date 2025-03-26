@@ -5,7 +5,6 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
-import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -26,8 +25,6 @@ interface SelectVendorQuotesTableProps {
 }
 
 export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = ({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}) => {
-
-  const { getItemEstimate } = useItemEstimate()
 
   const handleQuoteChange = useCallback((
     itemId: string,
@@ -133,9 +130,9 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                         <TableHead className="min-w-[80px] w-[10%] text-red-700 font-bold">QTY</TableHead>
                         <TableHead className="min-w-[80px] w-[10%] text-red-700 font-bold">UOM</TableHead>
                         {formData?.selectedVendors?.length === 0 ? (
-                          <TableHead className="min-w-[300px] w-[40%] text-red-700">
-                            <p className="border text-center border-gray-400 rounded-md py-1 font-medium">No Vendors Selected</p>
-                          </TableHead>
+                          <TableHead className="min-w-[300px] w-[50%] text-red-700">
+                          <p className="border text-center border-gray-400 rounded-md py-1 font-medium">No Vendors Selected</p>
+                        </TableHead>
                         ) : (
                           formData?.selectedVendors?.map((v, _) => <TableHead key={v?.value} className={`text-center w-[15%] text-red-700 text-xs font-medium`}>
                             <p className="min-w-[150px] max-w-[150px] border border-gray-400 rounded-md py-1 flex gap-1 items-center justify-center">
@@ -168,7 +165,6 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                             </p>
                             </TableHead>)
                         )}
-                        <TableHead className="min-w-[80px] w-[10%] text-red-700 font-bold">Target Rate</TableHead>
                       </TableRow>
                       )}
                       <TableRow className="bg-red-50">
@@ -178,17 +174,15 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                         <TableHead className="min-w-[80px] w-[10%]" />
                         <TableHead className="min-w-[80px] w-[10%]" />
                         {formData?.selectedVendors?.length === 0 ? (
-                          <TableHead className="min-w-[300px] w-[40%]" />
+                          <TableHead className="min-w-[300px] w-[50%]" />
                         ) : (
                           formData?.selectedVendors?.map((v, _, arr) => <TableHead className={`min-w-[150px] w-[15%] max-w-[150px]`} />)
                         )}
-                        <TableHead className="min-w-[80px] w-[10%]" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {(sentBack ? (orderData as SentBackCategory)?.item_list : (orderData as ProcurementRequest)?.procurement_list)?.list.map((item: any) => {
                         if (item.category === cat.name) {
-                          const minQuote = getItemEstimate(item.name)
                           return (
                             <TableRow key={`${cat.name}-${item.name}`}>
                               <TableCell className="py-8">
@@ -264,8 +258,6 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                   </TableCell>
                                 )
                               })}
-                              {!formData?.selectedVendors?.length && <TableCell />}
-                              <TableCell>{minQuote ? formatToIndianRupee(minQuote * 0.98) : "N/A"}</TableCell>
                             </TableRow>
                           )
                         }

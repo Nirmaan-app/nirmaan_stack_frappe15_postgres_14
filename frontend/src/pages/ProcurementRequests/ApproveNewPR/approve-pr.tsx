@@ -1,12 +1,16 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import { EstimatedPriceHoverCard } from "@/components/procurement/EstimatedPriceHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
+import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
+import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
@@ -27,18 +31,12 @@ export const ApprovePR : React.FC = () => {
         {
             fields: ["name", "project_name"],
             limit: 1000
-        },
-        `Projects`,
-    )
-
-    
-    // const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
-    //     {
-    //         fields: ["*"],
-    //         limit: 100000
-    //     },
-    //     `Approved Quotations`
-    // );
+        })
+    const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
+        {
+            fields: ["*"],
+            limit: 100000
+        });
 
     useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
         await pr_list_mutate()
@@ -50,25 +48,24 @@ export const ApprovePR : React.FC = () => {
 
     // console.log('quotes', quote_data)
 
-    // const getTotal = useMemo(() => memoize((order_id: string) => {
-    //     console.log("running getTotal, for", order_id)
-    //     let total: number = 0;
-    //     let usedQuotes = {}
-    //     const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-    //     orderData?.list?.filter((i) => i.status !== "Request")?.map((item: any) => {
-    //         const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
-    //         if (minQuote) {
-    //             const estimateQuotes = quote_data
-    //                 ?.filter(value => value.item_id === item.name && parseNumber(value.quote) === minQuote)?.sort((a, b) => new Date(b.modified) - new Date(a.modified)) || [];
-    //             const latestQuote = estimateQuotes?.length ? estimateQuotes[0] : null;
-    //             usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity } }
-    //         }
-    //         total += minQuote * item.quantity;
-    //     })
-    //     return { total: total || "N/A", usedQuotes: usedQuotes }
-    // }, (order_id: string) => order_id), [procurement_request_list, quote_data])
+    const getTotal = useCallback((order_id: string) => {
+        let total: number = 0;
+        let usedQuotes = {}
+        const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
+        orderData?.list?.filter((i) => i.status !== "Request")?.map((item: any) => {
+            const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
+            if (minQuote) {
+                const estimateQuotes = quote_data
+                    ?.filter(value => value.item_id === item.name && parseNumber(value.quote) === minQuote)?.sort((a, b) => new Date(b.modified) - new Date(a.modified)) || [];
+                const latestQuote = estimateQuotes?.length ? estimateQuotes[0] : null;
+                usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity } }
+            }
+            total += minQuote * item.quantity;
+        })
+        return { total: total || "N/A", usedQuotes: usedQuotes }
+    }, [procurement_request_list, quote_data])
 
-    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
+    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const { db } = useContext(FrappeContext) as FrappeConfig
     const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
@@ -183,29 +180,30 @@ export const ApprovePR : React.FC = () => {
                     )
                 }
             },
-            // {
-            //     accessorKey: "total",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="Estimated Price" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         const total = getTotal(row.getValue("name")).total
-            //         const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
-            //         return (
-            //             total === "N/A" ? (
-            //                 <div className="font-medium">
-            //                     N/A
-            //                 </div>
-            //             ) : (
-            //                 <EstimatedPriceHoverCard total={total} prUsedQuotes={prUsedQuotes} />
-            //             )
-            //         )
-            //     }
-            // }
+            {
+                accessorKey: "total",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Estimated Price" />
+                    )
+                },
+                cell: ({ row }) => {
+                    const total = getTotal(row.getValue("name")).total
+                    const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
+                    return (
+                        total === "N/A" ? (
+                            <div className="font-medium">
+                                N/A
+                            </div>
+                        ) : (
+                            <EstimatedPriceHoverCard total={total} prUsedQuotes={prUsedQuotes} />
+                        )
+                    )
+                }
+            }
+
         ],
-        [project_values, notifications, procurement_request_list]
+        [project_values, notifications, procurement_request_list, notifications]
     )
 
     if (procurement_request_list_error || projects_error) {
