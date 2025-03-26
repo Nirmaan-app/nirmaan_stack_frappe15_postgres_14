@@ -7,13 +7,10 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { useUserData } from "@/hooks/useUserData";
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
-import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
-import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
@@ -23,7 +20,6 @@ import { Trash2 } from "lucide-react";
 import React, { Suspense, useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useSearchParams } from "react-router-dom";
-import { EstimatedPriceHoverCard } from "../../../components/procurement/EstimatedPriceHoverCard";
 import { TableSkeleton } from "../../../components/ui/skeleton";
 
 const ApprovePR = React.lazy(() => import("../ApproveNewPR/approve-pr"));
@@ -33,7 +29,7 @@ const SentBackRequest = React.lazy(() => import("@/components/procurement/sent-b
 export const ProcurementRequests : React.FC = () => {
 
     const [searchParams] = useSearchParams();
-    const { role, user_id } = useUserData()
+    const { role } = useUserData()
 
     const [tab, setTab] = useState<string>(searchParams.get("tab") || (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PR" : "New PR Request"));
 
@@ -43,8 +39,7 @@ export const ProcurementRequests : React.FC = () => {
             filters: [["workflow_state", "=", tab === "New PR Request" ? "Approved" : "In Progress"]],
             limit: 10000,
             orderBy: { field: "modified", order: "desc" }
-        },
-        tab ? undefined :  null
+        }
     );
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -54,35 +49,36 @@ export const ProcurementRequests : React.FC = () => {
     `Projects`
     )
 
-    const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
-        {
-            fields: ["*"],
-            limit: 100000
-        },
-        `Approved Quotations`
-    );
+    // const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations",
+    //     {
+    //         fields: ["*"],
+    //         limit: 100000
+    //     },
+    //     `Approved Quotations`
+    // );
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
         await prListMutate()
     })
 
-    const getTotal = useMemo(() => (order_id: string) => {
-        let total: number = 0;
-        let usedQuotes = {}
-        const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        // console.log("orderData", orderData)
-        orderData?.list.map((item) => {
-            const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
-            if (minQuote) {
-                const estimateQuotes = quote_data
-                    ?.filter(value => value.item_id === item.name && parseNumber(value.quote) === minQuote)?.sort((a, b) => new Date(b.modified) - new Date(a.modified)) || [];
-                const latestQuote = estimateQuotes.length ? estimateQuotes[0] : null;
-                usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity }}
-            }
-            total += minQuote * item.quantity;
-        })
-        return { total: total || "N/A", usedQuotes: usedQuotes }
-    }, [quote_data, procurement_request_list])
+    // const getTotal = useMemo(() => memoize((order_id: string) => {
+    //     console.log("running getTotal for", order_id)
+    //     let total: number = 0;
+    //     let usedQuotes = {}
+    //     const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
+    //     // console.log("orderData", orderData)
+    //     orderData?.list.map((item) => {
+    //         const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
+    //         if (minQuote) {
+    //             const estimateQuotes = quote_data
+    //                 ?.filter(value => value.item_id === item.name && parseNumber(value.quote) === minQuote)?.sort((a, b) => new Date(b.modified) - new Date(a.modified)) || [];
+    //             const latestQuote = estimateQuotes.length ? estimateQuotes[0] : null;
+    //             usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity }}
+    //         }
+    //         total += minQuote * item.quantity;
+    //     })
+    //     return { total: total || "N/A", usedQuotes: usedQuotes }
+    // }, (order_id: string) => order_id),[quote_data, procurement_request_list])
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
@@ -123,7 +119,7 @@ export const ProcurementRequests : React.FC = () => {
                         <div className="flex items-center">
                             <span>Sent Back</span>
                             <span className="ml-2 text-xs font-bold">
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.rejected : newSBCounts.rejected}
+                                {(role === "Nirmaan Admin Profile") ? adminNewSBCounts.rejected : newSBCounts.rejected}
                             </span>
                         </div>
                     ),
@@ -134,7 +130,7 @@ export const ProcurementRequests : React.FC = () => {
                         <div className="flex items-center">
                             <span>Skipped PR</span>
                             <span className="ml-2 rounded text-xs font-bold">
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.delayed : newSBCounts.delayed}
+                                {(role === "Nirmaan Admin Profile") ? adminNewSBCounts.delayed : newSBCounts.delayed}
                             </span>
                         </div>
                     ),
@@ -145,14 +141,14 @@ export const ProcurementRequests : React.FC = () => {
                         <div className="flex items-center">
                             <span>Rejected PO</span>
                             <span className="ml-2 rounded text-xs font-bold">
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}
+                                {(role === "Nirmaan Admin Profile") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}
                             </span>
                         </div>
                     ),
                     value: "Cancelled",
                 },
             ] : [])
-    ], [role, prCounts, adminPrCounts, newSBCounts, adminNewSBCounts])
+    ], [role, newSBCounts, adminNewSBCounts])
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
@@ -296,27 +292,27 @@ export const ProcurementRequests : React.FC = () => {
                     )
                 }
             },
-            {
-                accessorKey: "total",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Estimated Price" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const total = getTotal(row.getValue("name")).total
-                    const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
-                    return (
-                        total === "N/A" ? (
-                            <div className="font-medium">
-                                N/A
-                            </div>
-                        ) : (
-                            <EstimatedPriceHoverCard total={total} prUsedQuotes={prUsedQuotes} />
-                        )
-                    )
-                }
-            },
+            // {
+            //     accessorKey: "total",
+            //     header: ({ column }) => {
+            //         return (
+            //             <DataTableColumnHeader column={column} title="Estimated Price" />
+            //         )
+            //     },
+            //     cell: ({ row }) => {
+            //         const total = getTotal(row.getValue("name")).total
+            //         const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
+            //         return (
+            //             total === "N/A" ? (
+            //                 <div className="font-medium">
+            //                     N/A
+            //                 </div>
+            //             ) : (
+            //                 <EstimatedPriceHoverCard total={total} prUsedQuotes={prUsedQuotes} />
+            //             )
+            //         )
+            //     }
+            // },
             ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [
                 {
                     id: "deleteOption",
@@ -331,7 +327,7 @@ export const ProcurementRequests : React.FC = () => {
                 }
             ] : []),
         ],
-        [project_values, procurement_request_list, tab, notifications, quote_data]
+        [project_values, procurement_request_list, tab, notifications]
     )
 
     if (procurement_request_list_error || projects_error) {
