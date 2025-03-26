@@ -15,7 +15,7 @@ import {
 } from "./sheet";
 
 interface POPdfProps {
-  po: ProcurementOrder
+  po: ProcurementOrder | null
   orderData: {
     list: PurchaseOrderItem[]
   }

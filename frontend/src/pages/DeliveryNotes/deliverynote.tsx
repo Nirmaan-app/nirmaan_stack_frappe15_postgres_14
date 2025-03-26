@@ -1,207 +1,30 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
-import { ArrowDown, ArrowUp, Check, CheckCheck, ListChecks, MessageCircleMore, Paperclip, Pencil, Printer, Undo2 } from "lucide-react";
-import React, { useEffect, useRef, useState } from 'react';
+import { useFrappeGetDoc } from 'frappe-react-sdk';
+import { MessageCircleMore, Printer } from "lucide-react";
+import { useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 // import { z } from "zod";
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from '@/components/address-view';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { useToast } from '@/components/ui/use-toast';
-import { useUserData } from '@/hooks/useUserData';
-import { parseNumber } from '@/utils/parseNumber';
+import { TailSpin } from 'react-loader-spinner';
 import { useReactToPrint } from 'react-to-print';
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
+import { DeliveryNoteItemsDisplay } from './deliveryNoteItemsDisplay';
 
 
 export default function DeliveryNote() {
 
   const location = useLocation()
   const { dnId: id } = useParams<{ dnId: string }>();
-  const userData = useUserData();
+  
   const deliveryNoteId = id?.replaceAll("&=", "/");
   const poId = deliveryNoteId?.replace("DN", "PO")
+
   const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
-  const [order, setOrder] = useState(null);
-  const [modifiedOrder, setModifiedOrder] = useState(null);
-  // const [showAlert, setShowAlert] = useState(false);
-  const { updateDoc } = useFrappeUpdateDoc();
-  const { toast } = useToast();
+  
   const navigate = useNavigate();
-  // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-  //   {
-  //     fields: ["*"],
-  //     limit: 10000
-  //   },
-  //   "Address"
-  // );
-
-  // const [projectAddress, setProjectAddress] = useState()
-  // const [vendorAddress, setVendorAddress] = useState()
-  const [show, setShow] = useState(false)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-
-  const { call } = useFrappePostCall('frappe.client.set_value');
-  const { createDoc } = useFrappeCreateDoc()
-  const { upload } = useFrappeFileUpload()
-
-  useEffect(() => {
-    if (data) {
-      const parsedOrder = JSON.parse(data.order_list);
-      setOrder(parsedOrder);
-      setModifiedOrder(parsedOrder);
-    }
-  }, [data]);
-
-  // useEffect(() => {
-  //   if (data?.project_address) {
-  //     const doc = address_list?.find(item => item.name == data?.project_address);
-  //     const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
-  //     setProjectAddress(address)
-  //     const doc2 = address_list?.find(item => item.name == data?.vendor_address);
-  //     const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
-  //     setVendorAddress(address2)
-  //   }
-
-  // }, [data, address_list]);
-
-  // Handle change in received quantity
-  const handleReceivedChange = (itemName: string, value: string) => {
-    const parsedValue = parseNumber(value);
-    setModifiedOrder(prevState => ({
-      ...prevState,
-      list: prevState.list.map(item =>
-        item.item === itemName ? { ...item, received: parsedValue } : item
-      )
-    }));
-  };
-
-  // Handle save
-  const handleSave = async () => {
-    try {
-      const allDelivered = modifiedOrder?.list?.every(item => item.received === item.quantity);
-
-      const noValueItems = modifiedOrder?.list?.filter(item => !item.received || item.received === 0);
-
-      if (noValueItems.length > 0) {
-        document.getElementById("alertDialogOpen")?.click()
-      } else {
-        await updateDoc("Procurement Orders", poId, {
-          order_list: JSON.stringify(modifiedOrder),
-          status: allDelivered ? "Delivered" : "Partially Delivered",
-        });
-
-        if (selectedFile) {
-          const doc = await createDoc("Delivery Note Attachments", {
-            delivery_note: data?.name,
-            project: data?.project,
-          });
-
-          const fileArgs = {
-            doctype: "Delivery Note Attachments",
-            docname: doc.name,
-            fieldname: "image",
-            isPrivate: true
-          };
-
-          const uploadResult = await upload(selectedFile, fileArgs);
-          await call({
-            doctype: "Delivery Note Attachments",
-            name: doc.name,
-            fieldname: "image",
-            value: uploadResult.file_url
-          });
-          setSelectedFile(null)
-        }
-
-        await poMutate()
-        setShow(false)
-        toast({
-          title: "Success!",
-          description: `Delivery Note: ${poId.split('/')[1]} updated successfully`,
-          variant: "success",
-        });
-      }
-
-    } catch (error) {
-      console.log("error while updating delivery note", error)
-      toast({
-        title: "Failed!",
-        description: `Error while updating Delivery Note: ${poId.split('/')[1]}`,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleProceed = async () => {
-    try {
-      const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
-      const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
-      const updatedOrder = {
-        ...modifiedOrder,
-        list: modifiedOrder.list.map(item =>
-          noValueItems.includes(item) ? { ...item, received: 0 } : item
-        ),
-      };
-
-      await updateDoc("Procurement Orders", poId, {
-        order_list: JSON.stringify(updatedOrder),
-        status: allDelivered ? "Delivered" : "Partially Delivered",
-      });
-
-      if (selectedFile) {
-        const doc = await createDoc("Delivery Note Attachments", {
-          delivery_note: data?.name,
-          project: data?.project,
-        });
-
-        const fileArgs = {
-          doctype: "Delivery Note Attachments",
-          docname: doc.name,
-          fieldname: "image",
-          isPrivate: true
-        };
-
-        const uploadResult = await upload(selectedFile, fileArgs);
-        await call({
-          doctype: "Delivery Note Attachments",
-          name: doc.name,
-          fieldname: "image",
-          value: uploadResult.file_url
-        });
-        setSelectedFile(null)
-      }
-      await poMutate()
-      setShow(false)
-      toast({
-        title: "Success!",
-        description: `Delivery Note: ${poId.split('/')[1]} updated successfully`,
-        variant: "success",
-      });
-    } catch (error) {
-      console.log("error while updating delivery note", error)
-      toast({
-        title: "Failed!",
-        description: `Error while updating Delivery Note: ${poId.split('/')[1]}`,
-        variant: "destructive",
-      });
-    }
-  }
 
   const componentRef = useRef<HTMLDivElement>(null);
 
@@ -210,13 +33,7 @@ export default function DeliveryNote() {
     documentTitle: `${(data?.name)?.toUpperCase().replace("PO", "DN")}_${data?.vendor_name}`
   });
 
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
-    if(event.target.files && event.target.files.length > 0) {
-      setSelectedFile(event.target.files[0]);
-    }
-  };
-
-  if (isLoading) return <div>...loading</div>;
+  if (isLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   return (
     <div className="container mx-auto px-0 max-w-3xl">
@@ -245,13 +62,10 @@ export default function DeliveryNote() {
           </div>
         </CardHeader>
         <CardContent>
-          {/* <p>
-            <strong>Project:</strong> {data?.project_name}
-          </p> */}
-          <p className="flex flex-row gap-2">
+          <div className="flex flex-row gap-2">
             <strong>Addr:</strong> <AddressView id={data?.project_address} />
-          </p>
-          <p className="flex flex-row gap-2">
+          </div>
+          <div className="flex flex-row gap-2">
             <strong>@PR:</strong>
             <span
               className="underline cursor-pointer"
@@ -263,8 +77,8 @@ export default function DeliveryNote() {
             >
               {data?.procurement_request}
             </span>
-          </p>
-          <p className="flex flex-row gap-2">
+          </div>
+          <div className="flex flex-row gap-2">
             <strong>@PO:</strong>
             <span
               className="underline cursor-pointer"
@@ -279,7 +93,7 @@ export default function DeliveryNote() {
             >
               {data?.name.replaceAll("&=", "/")}
             </span>
-          </p>
+          </div>
         </CardContent>
         <CardHeader className="pb-2">
           <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">
@@ -306,163 +120,7 @@ export default function DeliveryNote() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">
-            Item List
-          </CardTitle>
-          {[
-            "Nirmaan Project Manager Profile",
-            "Nirmaan Admin Profile",
-            "Nirmaan Project Lead Profile"
-          ].includes(userData?.role) &&
-            !show &&
-            data?.status !== "Delivered" && (
-              <Button
-                onClick={() => setShow(true)}
-                className="flex items-center gap-1"
-              >
-                <Pencil className="h-4 w-4" />
-                Edit
-              </Button>
-            )}
-          {show && data?.status !== "Delivered" && (
-            <div className="flex flex-col gap-2">
-              <div
-                className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-1 ${selectedFile && "opacity-50 cursor-not-allowed"
-                  }`}
-                onClick={() =>
-                  document.getElementById("file-upload")?.click()
-                }
-              >
-                <Paperclip size="15px" />
-                <span className="p-0 text-sm">Attach</span>
-                <input
-                  type="file"
-                  id={`file-upload`}
-                  className="hidden"
-                  onChange={handleFileChange}
-                  disabled={!!selectedFile}
-                />
-              </div>
-              {selectedFile && (
-                <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                  <span className="text-sm">
-                    {typeof selectedFile === "object"
-                      ? selectedFile.name
-                      : selectedFile}
-                  </span>
-                  <button
-                    className="ml-1 text-red-500"
-                    onClick={() => setSelectedFile(null)}
-                  >
-                    ✖
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </CardHeader>
-        <CardContent>
-          {show && (
-            <div className="pl-2 transition-all duration-500 ease-in-out">
-              <i className="text-sm text-gray-600">
-                "Please Update the quantity received for delivered items"
-              </i>
-            </div>
-          )}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="font-bold">Item Name</TableHead>
-                <TableHead className="font-bold">Unit</TableHead>
-                <TableHead className="font-bold">Received</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data &&
-                order?.list.map((item) => (
-                  <TableRow key={item.name}>
-                    <TableCell>
-                      <div className="inline items-baseline">
-                        <span>{item.item}{item?.makes?.list?.length > 0 && (
-  <span className="text-xs italic font-semibold text-gray-500">
-    - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
-  </span>
-)}</span>
-                        {item.comment && (
-                          <HoverCard>
-                            <HoverCardTrigger>
-                              <MessageCircleMore className="text-blue-400 w-4 h-4 inline-block ml-1" />
-                            </HoverCardTrigger>
-                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                              <div className="relative pb-4">
-                                <span className="block">{item.comment}</span>
-                                <span className="text-xs absolute right-0 italic text-gray-200">
-                                  -Comment by PL
-                                </span>
-                              </div>
-                            </HoverCardContent>
-                          </HoverCard>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>{item.unit}</TableCell>
-                    <TableCell>
-                      {!show ? (
-                        item.received === item.quantity ? (
-                          <div className="flex gap-2">
-                            <Check className="h-5 w-5 text-green-500" />
-                            <span>{item.received}</span>
-                          </div>
-                        ) : (
-                          <div className="flex gap-2">
-                            {(item.received || 0) > item.quantity ? (
-                              <ArrowUp className="text-primary" />
-                            ) : (
-                              <ArrowDown className="text-primary" />
-                            )}
-                            <span className="text-sm text-gray-600">
-                              {item.received || 0}
-                            </span>
-                          </div>
-                        )
-                      ) : item.received !== item.quantity ? (
-                        <div>
-                          <Input
-                            type="number"
-                            value={
-                              modifiedOrder?.list.find(
-                                (mod) => mod.name === item.name
-                              ).received || ""
-                            }
-                            onChange={(e) =>
-                              handleReceivedChange(item.item, e.target.value)
-                            }
-                            placeholder={item?.quantity}
-                          />
-                          {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
-                        </div>
-                      ) : (
-                        <Check className="h-5 w-5 text-green-500" />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-          {data?.status !== "Delivered" && show && (
-            <Button
-              onClick={handleSave}
-              variant={"default"}
-              className="w-full mt-6 flex items-center gap-1"
-            >
-              <ListChecks className="h-4 w-4" />
-              Update
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+      <DeliveryNoteItemsDisplay data={data} poMutate={poMutate} />
 
       <div className="hidden">
         <div ref={componentRef} className=" w-full p-4">
@@ -583,7 +241,7 @@ export default function DeliveryNote() {
                 </tr>
               </thead>
               <tbody className={`bg-white`}>
-                {order &&
+                {data &&
                   JSON.parse(data.order_list)?.list?.map(
                     (item: any, index: number) => {
                       return (
@@ -650,36 +308,6 @@ export default function DeliveryNote() {
           </div>
         </div>
       </div>
-
-      <AlertDialog>
-        <AlertDialogTrigger>
-          <Button className="hidden" id="alertDialogOpen">
-            open
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You have provided some items with 0 or no value, they will be
-              marked as <span className="underline">'0 items received'</span>.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="flex items-center gap-1">
-              <Undo2 className="h-4 w-4" />
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => handleProceed()}
-              className="flex items-center gap-1"
-            >
-              <CheckCheck className="h-4 w-4" />
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

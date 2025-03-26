@@ -52,9 +52,6 @@ def new_custom_pr(project_id: str, order: list, categories: list, comment: str =
         frappe.log_error(frappe.get_traceback(), "submit_procurement_request")
         return {"error": f"Unable to send Custom PR for approval: {str(e)}", "status": 400}
 
-import frappe
-import json
-
 @frappe.whitelist()
 def resolve_custom_pr(project_id: str, pr_id: str, order: list, categories: list, comment: str = None, attachment: dict = None):
     """

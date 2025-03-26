@@ -1,4 +1,5 @@
 import { useUserData } from "@/hooks/useUserData";
+import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/deliveryNoteItemsDisplay";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -34,7 +35,9 @@ import { Label } from "./label";
 import { Separator } from "./separator";
 import {
   Sheet,
-  SheetContent
+  SheetContent,
+  SheetHeader,
+  SheetTitle
 } from "./sheet";
 import { Textarea } from "./textarea";
 import { toast } from "./use-toast";
@@ -78,6 +81,11 @@ export const PODetails : React.FC<PODetailsProps> = (
     const [emailBody, setEmailBody] = useState("");
     const [phoneError, setPhoneError] = useState("");
     const [emailError, setEmailError] = useState("");
+
+    const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false)
+    const toggleDeliveryNoteSheet = useCallback(() => {
+      setDeliveryNoteSheet((prevState) => !prevState);
+    }, [deliveryNoteSheet]);
 
     const [dispatchPODialog, setDispatchPODialog] = useState(false);
     const toggleDispatchPODialog = useCallback(() => {
@@ -218,12 +226,30 @@ export const PODetails : React.FC<PODetailsProps> = (
                         : "green"
                     }
                   >
-                    {po?.status === "Partially Delivered"
-                      ? "Delivered"
-                      : po?.status}
+                    {po?.status}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2">
+                  {
+                    ["Dispatched", "Partially Delivered"].includes(po?.status) && (
+                      <Button
+                      onClick={toggleDeliveryNoteSheet}
+                      className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
+                      >
+                        Update Delivery Status
+                      </Button>
+                    )
+                  }
+
+                  <Sheet open={deliveryNoteSheet} onOpenChange={toggleDeliveryNoteSheet}>
+                    <SheetContent className="overflow-auto">
+                        <SheetHeader className="text-start mb-4">
+                          <SheetTitle className="text-primary">Update Delivery Note</SheetTitle>
+                        </SheetHeader>
+                        <DeliveryNoteItemsDisplay data={po} poMutate={poMutate}
+                        toggleDeliveryNoteSheet={toggleDeliveryNoteSheet} />
+                    </SheetContent>
+                  </Sheet>
                   {!summaryPage &&
                     !accountsPage &&
                     !estimatesViewing &&
@@ -746,6 +772,6 @@ export const PODetails : React.FC<PODetailsProps> = (
                 </div>
               </div>
             </CardContent>
-          </Card>
+    </Card>
   )
 }
