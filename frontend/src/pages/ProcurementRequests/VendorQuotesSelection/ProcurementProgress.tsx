@@ -117,7 +117,9 @@ export const ProcurementProgress : React.FC = () => {
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
       fields: ["*"],
       limit: 1000,
-    })
+    },
+    `Nirmaan Users`
+  )
   
   const getFullName = useMemo(() => (id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
