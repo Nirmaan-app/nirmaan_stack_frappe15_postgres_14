@@ -34,7 +34,7 @@ def update_delivery_note(po_id: str, order: list, delivery_challan_attachment: d
             delivery_challan_doc.attachment_link_docname = po_doc.vendor
             delivery_challan_doc.attachment_type = "po delivery challan"
             delivery_challan_doc.attachment = delivery_challan_attachment["file_url"]
-            delivery_challan_doc.insert()
+            delivery_challan_doc.insert(ignore_permissions=True)
 
         # Handle PO invoice attachment
         if po_invoice_attachment:
@@ -46,7 +46,7 @@ def update_delivery_note(po_id: str, order: list, delivery_challan_attachment: d
             po_invoice_doc.attachment_link_docname = po_doc.vendor
             po_invoice_doc.attachment_type = "po invoice"
             po_invoice_doc.attachment = po_invoice_attachment["file_url"]
-            po_invoice_doc.insert()
+            po_invoice_doc.insert(ignore_permissions=True)
 
         frappe.db.commit()
 
