@@ -338,7 +338,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                               <span className="text-primary">
                                 Edit Payment Terms Dialog
                               </span>{" "}
-                              in order to enable Dispatch button!
+                              in order to enable the button!
                             </HoverCardContent>
                           </HoverCard>
                     ) : (

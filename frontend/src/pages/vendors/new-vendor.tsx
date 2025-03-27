@@ -107,6 +107,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
         //     }),
         vendor_gst: finalVendorGstSchema,
         account_number: z.string().optional(),
+        confirm_account_number: z.string().optional(),
         account_name: z.string().optional(),
         bank_name: z.string().optional(),
         bank_branch: z.string().optional(),
@@ -116,7 +117,23 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
           message: "Invalid IFSC code. Example: SBIN0005943"
         })
         .optional(),
-    })
+    }).superRefine((data, ctx) => {
+        if (data.account_number) {
+          if (!data.confirm_account_number) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Confirm account number is required when account number is provided.",
+              path: ["confirm_account_number"],
+            });
+          } else if (data.account_number !== data.confirm_account_number) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Account numbers do not match.",
+              path: ["confirm_account_number"],
+            });
+          }
+        }
+      });
 };
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
@@ -142,7 +159,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         defaultValues: {},
-        mode: "onBlur",
+        mode: "all",
     })
 
     const { data: category_list } = useFrappeGetDocList("Category",
@@ -192,6 +209,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
             vendor_mobile: undefined,
             vendor_gst: undefined,
             account_number: undefined,
+            confirm_account_number: undefined,
             account_name: undefined,
             bank_name: undefined,
             bank_branch: undefined,
@@ -740,6 +758,19 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                             <FormMessage />
                                         </FormItem>
                                     )}
+                                />
+                                <FormField
+                                  control={form.control}
+                                  name="confirm_account_number"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Confirm Account Number</FormLabel>
+                                      <FormControl>
+                                        <Input placeholder="Confirm Account Number" {...field} />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
                                 />
                                 <FormField
                                   control={form.control}

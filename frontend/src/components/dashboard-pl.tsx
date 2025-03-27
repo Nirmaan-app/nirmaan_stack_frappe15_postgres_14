@@ -8,7 +8,7 @@ export const ProjectLead = () => {
     const { prCounts, amendPOCount, newSBApproveCount } = useDocCountStore()
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocCount("Items");
-    const { data: projects_data, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList("Projects")
+    const { data: projects_data, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList("Projects", {limit: 1000})
     
     const { data: approved_quotes, isLoading: approved_quotes_loading, error: approved_quotes_error } = useFrappeGetDocCount("Approved Quotations");
 
