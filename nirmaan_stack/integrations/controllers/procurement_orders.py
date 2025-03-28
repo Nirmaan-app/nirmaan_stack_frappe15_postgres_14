@@ -81,8 +81,8 @@ def on_update(doc, method):
     """
     Manage Approved Quotations and Deletion of PO
     """
-    doc = frappe.get_doc("Procurement Orders", doc.name)
     old_doc = doc.get_doc_before_save()
+    doc = frappe.get_doc("Procurement Orders", doc.name)
     custom = doc.custom == "true"
 
     if(doc.status=="PO Approved"):
@@ -101,7 +101,7 @@ def on_update(doc, method):
             for order in orders['list']:
                 aq = frappe.new_doc('Approved Quotations')
                 try:
-                    if not doc.custom:
+                    if not custom:
                         aq.item_id=order['name']
                     aq.vendor=doc.vendor
                     aq.procurement_order=doc.name
