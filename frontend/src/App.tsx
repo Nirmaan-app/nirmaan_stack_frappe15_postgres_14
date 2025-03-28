@@ -41,12 +41,11 @@ import SelectServiceVendor from "./pages/ServiceRequests/service-request/select-
 import ForgotPassword from "./pages/auth/forgot-password";
 import Login from "./pages/auth/old-login";
 import NewCustomer from "./pages/customers/add-new-customer";
+import Customer from "./pages/customers/customer";
 import Customers from "./pages/customers/customers";
-import EditCustomer from "./pages/customers/edit-customer";
 import Dashboard from "./pages/dashboard";
 import { PDF } from "./pages/pdf";
 import { InFlowPayments } from "./pages/projects/InFlowPayments";
-import { EditProjectForm } from "./pages/projects/edit-project-form";
 import { ProjectForm } from "./pages/projects/project-form";
 import Projects from "./pages/projects/projects";
 import Roles from "./pages/roles";
@@ -54,7 +53,6 @@ import EditUserForm from "./pages/users/EditUserForm";
 import { UserForm } from "./pages/users/user-form";
 import Profile from "./pages/users/user-profile";
 import Users from "./pages/users/users";
-import { EditVendor } from "./pages/vendors/edit-vendor";
 import { NewVendor } from "./pages/vendors/new-vendor";
 import Vendors from "./pages/vendors/vendors";
 import WorkPackages from "./pages/work-packages";
@@ -357,7 +355,6 @@ const router = createBrowserRouter(
               path=":projectId/add-estimates"
               lazy={() => import("@/pages/projects/add-project-estimates")}
             />
-            <Route path=":projectId/edit" element={<EditProjectForm />} />
             <Route path=":projectId/po/:poId" lazy={() => import("@/components/POSummary")} />
             <Route path=":projectId/:prId">
               <Route index lazy={() => import("@/components/pr-summary")} />
@@ -400,7 +397,6 @@ const router = createBrowserRouter(
             <Route path=":vendorId">
               <Route index lazy={() => import("@/pages/vendors/vendor")} />
               <Route path=":poId" lazy={() => import("@/components/POSummary")} />
-              <Route path="edit" element={<EditVendor />} />
             </Route>
           </Route>
 
@@ -410,9 +406,8 @@ const router = createBrowserRouter(
             <Route path="new-customer" element={<NewCustomer />} />
             <Route
               path=":customerId"
-              lazy={() => import("@/pages/customers/customer")}
+              element={<Customer />}
             />
-            <Route path=":customerId/edit" element={<EditCustomer />} />
           </Route>
 
           <Route path="notifications">

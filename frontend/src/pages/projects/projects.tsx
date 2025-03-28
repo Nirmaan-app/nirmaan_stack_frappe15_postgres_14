@@ -15,6 +15,7 @@ import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import { Filter, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from 'lodash/memoize';
 import { HardHat } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -55,7 +56,6 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
       "Project Types"
     );
 
-  const [prToProjectData, setPrToProjectData] = useState<Record<string, ProcurementRequest[]>>({});
   const [projectStatusCounts, setProjectStatusCounts] = useState({});
 
   const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
@@ -75,8 +75,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
     }
   );
 
-  const { data: serviceRequestsData, isLoading: sRloading } =
-      useFrappeGetDocList<ServiceRequests>("Service Requests", {
+  const { data: serviceRequestsData, isLoading: sRloading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
         filters: [
           ["status", "=", "Approved"],
@@ -89,16 +88,16 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
       limit: 1000
     })
   
-  const getProjectWiseInflowAmount = useMemo(() => (projectId : string) : number => {
+  const getProjectWiseInflowAmount = useMemo(() => memoize((projectId : string) : number => {
     const filteredInflows = projectInflows?.filter(i => i?.project === projectId)
     return getTotalInflowAmount(filteredInflows || [])
-  }, [projectInflows])
+  }, (projectId : string) => projectId),[projectInflows])
 
     
 
-  const getSRTotal = useMemo(() => (project : string) => {
+  const getSRTotal = useMemo(() => memoize((projectId : string) => {
     return serviceRequestsData
-      ?.filter((item) => item.project === project)
+      ?.filter((item) => item.project === projectId)
       ?.reduce((total, item) => {
         const gstMultiplier = item.gst === "true" ? 1.18 : 1;
         return (
@@ -109,9 +108,9 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
           ) || 0)
         );
       }, 0) || 0;
-  }, [serviceRequestsData]);
+  }, (projectId: string) => projectId), [serviceRequestsData]);
 
-  const getPOTotalWithGST = useMemo(() => (projectId : string) => {
+  const getPOTotalWithGST = useMemo(() => memoize((projectId : string) => {
     if (!po_item_data?.length) return 0;
   
     return po_item_data
@@ -126,11 +125,10 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
           }, 0) || 0)
         );
       }, 0);
-  }, [po_item_data]);
+  }, (projectId: string) => projectId), [po_item_data]);
   
 
-  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
+  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders",
     {
       fields: ["*"],
       filters: [["status", "!=", "PO Approved"]],
@@ -145,27 +143,24 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
           limit: 100000
   })
 
-  const getTotalAmountPaid = useMemo(() => (projectId : string) => {
+  const getTotalAmountPaid = useMemo(() => memoize((projectId : string) => {
     return projectPayments
       ?.filter((payment) => payment.project === projectId)
       ?.reduce((total, payment) => total + parseNumber(payment.amount), 0) || 0;
-  }, [projectPayments]);
+  }, (projectId : string) => projectId), [projectPayments]);
 
-const {
-    data: project_estimates,
-    isLoading: project_estimates_loading,
-  } = useFrappeGetDocList("Project Estimates", {
+  const { data: project_estimates, isLoading: project_estimates_loading } = useFrappeGetDocList("Project Estimates", {
     fields: ["*"],
     limit: 100000,
   });
 
-  const getItemStatus = useMemo(() => (item: any, filteredPOs: ProcurementOrder[]) => {
+  const getItemStatus = useMemo(() => memoize((item: any, filteredPOs: ProcurementOrder[]) => {
     return filteredPOs.some((po) =>
       po?.order_list?.list.some((poItem) => poItem?.name === item.name)
     );
-  }, []);
+  }, (item: any, filteredPOs: ProcurementOrder[]) => JSON.stringify(item) + JSON.stringify(filteredPOs)), []);
 
-  const statusRender = useMemo(() => (status: string, procurementRequest: ProcurementRequest) => {
+  const statusRender = useMemo(() => memoize((status: string, procurementRequest: ProcurementRequest) => {
     const itemList = procurementRequest?.procurement_list?.list || [];
 
     if (["Pending", "Approved", "Rejected"].includes(status)) {
@@ -178,7 +173,15 @@ const {
     });
 
     return allItemsApproved ? "Approved PO" : "Open PR";
-  }, [getItemStatus, po_data]);
+  }, (status: string, procurementRequest: ProcurementRequest) => status + JSON.stringify(procurementRequest)), [getItemStatus, po_data]);
+
+  const prToProjectData = useMemo(() => pr_data?.reduce((acc : Record<string, ProcurementRequest[]>, pr) => {
+    if (pr?.project) {
+      acc[pr.project] = acc[pr.project] || [];
+      acc[pr.project].push(pr);
+    }
+    return acc;
+  }, {}), [pr_data]);
 
   useEffect(() => {
     if (prToProjectData && po_data) {
@@ -196,26 +199,6 @@ const {
       setProjectStatusCounts(statusCounts);
     }
   }, [prToProjectData, po_data]);
-
-  useEffect(() => {
-    if (!pr_data) return;
-
-    const groupedData = pr_data.reduce((acc : Record<string, ProcurementRequest[]>, pr) => {
-      if (pr?.project) {
-        acc[pr.project] = acc[pr.project] || [];
-        acc[pr.project].push(pr);
-      }
-      return acc;
-    }, {});
-  
-    setPrToProjectData(groupedData);
-  }, [pr_data]);
-
-  // const getTotalEstimateAmt = useCallback((projectId : string) => {
-  //   return project_estimates
-  //     ?.filter((i) => i?.project === projectId)
-  //     ?.reduce((total, i) => total + parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate), 0) || 0;
-  // }, [project_estimates]);
 
   const projectTypeOptions = useMemo(
     () =>

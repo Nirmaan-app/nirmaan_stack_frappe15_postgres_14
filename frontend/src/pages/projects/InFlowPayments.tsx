@@ -117,3 +117,5 @@ return (
        </div>
 )
 }
+
+export default InFlowPayments;

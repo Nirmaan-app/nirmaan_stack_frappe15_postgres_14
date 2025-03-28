@@ -1,7 +1,3 @@
-import { useState, useEffect, useCallback } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -12,14 +8,18 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "frappe-react-sdk";
-import { Separator } from "@/components/ui/separator"
-import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/ui/use-toast";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "frappe-react-sdk";
+import { ListChecks, ListRestart } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
+import * as z from "zod";
 // import { useQueryClient } from "@tanstack/react-query";
-import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { SheetClose } from "@/components/ui/sheet";
+import useCustomFetchHook from "@/reactQuery/customFunctions";
 // import { exampleFunction } from "@/reactQuery/customFunctions";
 
 const customerFormSchema = z.object({
@@ -95,7 +95,7 @@ const customerFormSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
-export default function NewCustomer({ company_mutate, navigation = true }) {
+export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}> = ({ company_mutate, navigation = true }) => {
 
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(customerFormSchema),
@@ -103,7 +103,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
         mode: "onBlur",
     });
 
-    const { createDoc, loading, error: submitError } = useFrappeCreateDoc();
+    const { createDoc, loading } = useFrappeCreateDoc();
     const { deleteDoc } = useFrappeDeleteDoc()
     const { toast } = useToast()
     const navigate = useNavigate()
@@ -553,3 +553,6 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
         </div>
     );
 }
+
+
+export default NewCustomer;
