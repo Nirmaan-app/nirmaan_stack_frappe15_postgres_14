@@ -19,6 +19,33 @@ export interface PurchaseOrderItem {
 	}
 }
 
+export interface DeliveryItem {
+	item_id: string;
+	item_name: string;
+	unit: string;
+	from: number;
+	to: number;
+}
+
+export interface DeliveryDataType {
+	[date: string]: {
+		items: DeliveryItem[];
+		updated_by: string;
+		dc_attachment_id?: string;
+	};
+}
+
+export interface InvoiceItem {
+	invoice_no: string;
+	amount: string;
+	invoice_attachment_id?: string;
+	updated_by: string;
+}
+
+export interface InvoiceDataType {
+	[date: string]: InvoiceItem
+}
+
 
 export interface ProcurementOrder {
 	name: string
@@ -74,4 +101,6 @@ export interface ProcurementOrder {
 	/**	Delivery Contact : Data	*/
 	delivery_contact?: string
 	custom? : string
+	delivery_data?: {data : DeliveryDataType}
+	invoice_data?: {data : InvoiceDataType}
 }

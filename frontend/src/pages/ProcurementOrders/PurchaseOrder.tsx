@@ -1318,7 +1318,7 @@ export const PurchaseOrder = ({
           </>
         )}
 
-          <PODetails po={PO} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
+          <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
             getTotal={getTotal} amountPaid={amountPaid} pr={pr} poMutate={poMutate} />
 
       <Accordion type="multiple" 
@@ -1416,7 +1416,7 @@ export const PurchaseOrder = ({
                                                             <div className="flex gap-4 w-full">
                                                                 <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                                                 <Input
-                                                                    type="text"
+                                                                    type="number"
                                                                     placeholder="Enter UTR"
                                                                     value={newPayment.utr}
                                                                     onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}

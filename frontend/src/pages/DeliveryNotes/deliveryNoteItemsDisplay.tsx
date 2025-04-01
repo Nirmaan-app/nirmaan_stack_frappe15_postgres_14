@@ -1,11 +1,3 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useFrappeFileUpload, useFrappePostCall } from 'frappe-react-sdk';
-import { ArrowDown, ArrowUp, Check, CheckCheck, ListChecks, MessageCircleMore, Paperclip, Pencil, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from 'react';
-// import { z } from "zod";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -13,365 +5,362 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
+  AlertDialogTitle
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
-import { PurchaseOrderItem } from '@/types/NirmaanStack/ProcurementOrders';
+import { DeliveryDataType, PurchaseOrderItem } from '@/types/NirmaanStack/ProcurementOrders';
 import { parseNumber } from '@/utils/parseNumber';
-import { TailSpin } from 'react-loader-spinner';
+import { useFrappeFileUpload, useFrappePostCall } from 'frappe-react-sdk';
+import { ArrowDown, ArrowUp, Check, ListChecks, MessageCircleMore, Pencil, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { TailSpin } from "react-loader-spinner";
+import { CustomAttachment } from "../../components/helpers/CustomAttachment";
 
 interface DeliveryNoteItemsDisplayProps {
-  poMutate: any
-  data?: any
-  toggleDeliveryNoteSheet?: () => void 
+  poMutate: () => Promise<void>;
+  data?: any;
+  toggleDeliveryNoteSheet?: () => void;
 }
 
-export const DeliveryNoteItemsDisplay : React.FC<DeliveryNoteItemsDisplayProps> = ({data, poMutate, toggleDeliveryNoteSheet}) => {
+interface ModifiedItems {
+  [itemId: string]: {
+    previousReceived: number;
+    newReceived: number;
+  };
+}
 
+export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> = ({
+  data, poMutate, toggleDeliveryNoteSheet
+}) => {
   const userData = useUserData();
   const { toast } = useToast();
 
-  const [order, setOrder] = useState<{list : PurchaseOrderItem[]} | null>(null);
-  const [modifiedOrder, setModifiedOrder] = useState<{list : PurchaseOrderItem[]} | null>(null);
+  // State management
+  const [originalOrder, setOriginalOrder] = useState<PurchaseOrderItem[]>([]);
+  const [modifiedItems, setModifiedItems] = useState<ModifiedItems>({});
+  const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
+  const [proceedDialog, setProceedDialog] = useState(false);
 
-  const [show, setShow] = useState(false)
-  const [selectedDeliveryChallan, setSelectedDeliveryChallan] = useState<File | null>(null);
-  const [selectedPoInvoice, setSelectedPoInvoice] = useState<File | null>(null);
-  
-  const {call : DNUpdateCall, loading: DnUpdateCallLoading} = useFrappePostCall("nirmaan_stack.api.delivery_notes.update_delivery_note.update_delivery_note");
-  
-  const {upload, loading: uploadLoading} = useFrappeFileUpload()
-  
-  const [proceedDialog, setProceedDialog] = useState(false)
-  
-  const toggleProceedDialog = useCallback(() => {
-      setProceedDialog(!proceedDialog)
-    }, [proceedDialog])
+  // API hooks
+  const { call: DNUpdateCall, loading: DnUpdateCallLoading } = useFrappePostCall(
+    "nirmaan_stack.api.delivery_notes.update_delivery_note.update_delivery_note"
+  );
+  const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
-    useEffect(() => {
-      if (data) {
-        const parsedOrder = typeof data.order_list === "string" ? JSON.parse(data.order_list) : data.order_list;
-        setOrder(parsedOrder);
-        setModifiedOrder(parsedOrder);
-      }
-    }, [data]);
+  // Derived state
+  const hasChanges = useMemo(
+    () => Object.keys(modifiedItems).length > 0 || selectedAttachment !== null,
+    [modifiedItems, selectedAttachment]
+  );
 
-  const handleReceivedChange = useCallback((itemName: string, value: string) => {
+  // Initialize original order
+  useEffect(() => {
+    if (data?.order_list) {
+      const parsedOrder = typeof data.order_list === "string" 
+        ? JSON.parse(data.order_list) 
+        : data.order_list;
+      setOriginalOrder(parsedOrder.list);
+    }
+  }, [data]);
+
+  // Handle quantity changes
+  const handleReceivedChange = useCallback(
+    (item: PurchaseOrderItem, value: string) => {
       const parsedValue = parseNumber(value);
-      setModifiedOrder(prevState => ({
-        ...prevState,
-        list: prevState.list.map(item =>
-          item.item === itemName ? { ...item, received: parsedValue } : item
-        )
-      }));
-    }, [modifiedOrder, setModifiedOrder]);
-  
+      const originalReceived = item.received ?? 0;
 
-  const checkIfNoValueItems = useMemo(() => {
-      return (modifiedOrder?.list?.filter(item => !item.received || item.received === 0) || []).length > 0;
-    }, [proceedDialog]);
-  
-  const handleUpdateDeliveryNote = async () => {
-      try {
-        let orderToUpdate = modifiedOrder;
-  
-        if (checkIfNoValueItems) {
-          const noValueItems = modifiedOrder?.list?.filter(item => !item.received || item.received === 0) || [];
-          orderToUpdate = {
-            ...modifiedOrder,
-            list: modifiedOrder?.list.map(item =>
-              noValueItems?.includes(item) ? { ...item, received: 0 } : item
-            ),
-          };
-        }
-  
-        let deliveryChallanUrl = null;
-        let poInvoiceUrl = null;
-  
-        // Upload delivery challan if selected
-        if (selectedDeliveryChallan) {
-          const deliveryChallanArgs = {
-            doctype: "Procurement Orders",
-            docname: data?.name,
-            fieldname: "attachment", // Assuming this is the fieldname
-            isPrivate: true,
-          };
-          const deliveryChallanUploadResult = await upload(selectedDeliveryChallan, deliveryChallanArgs);
-          deliveryChallanUrl = deliveryChallanUploadResult.file_url;
-        }
-  
-        // Upload PO invoice if selected
-        if (selectedPoInvoice) {
-          const poInvoiceArgs = {
-            doctype: "Procurement Orders",
-            docname: data?.name,
-            fieldname: "attachment", // Assuming this is the fieldname
-            isPrivate: true,
-          };
-          const poInvoiceUploadResult = await upload(selectedPoInvoice, poInvoiceArgs);
-          poInvoiceUrl = poInvoiceUploadResult.file_url;
-        }
-  
-        // Call the backend API
-        const response = await DNUpdateCall({
-            po_id: data?.name,
-            order: orderToUpdate?.list,
-            delivery_challan_attachment: deliveryChallanUrl ? { file_url: deliveryChallanUrl } : null,
-            po_invoice_attachment: poInvoiceUrl ? { file_url: poInvoiceUrl } : null,
-          },
-        );
-  
-        if(response.message.status === 200) {
-          await poMutate();
-          setShow(false);
-          toggleProceedDialog();
-          setSelectedDeliveryChallan(null);
-          setSelectedPoInvoice(null);
-          if(toggleDeliveryNoteSheet){
-            toggleDeliveryNoteSheet()
+      setModifiedItems((prevModifiedItems) => {
+        const updatedItems = { ...prevModifiedItems };
+
+        if (updatedItems[item.name]) {
+          if (parsedValue === originalReceived) {
+            delete updatedItems[item.name];
+          } else {
+            updatedItems[item.name].newReceived = parsedValue;
           }
-          toast({
-            title: "Success!",
-            description: response.message.message,
-            variant: "success",
-          });
-        } else if(response.message.status === 400) {
-          toast({
-            title: "Failed!",
-            description: response.message.error,
-            variant: "destructive",
-          });
+        } else {
+          updatedItems[item.name] = {
+            previousReceived: originalReceived || item.quantity,
+            newReceived: parsedValue,
+          };
         }
-  
-      } catch (error) {
-        console.error("Error updating delivery note", error);
-        toast({
-          title: "Failed!",
-          description: `Error while updating Delivery Note: ${data?.name?.split('/')[1]}`,
-          variant: "destructive",
-        });
+
+        return updatedItems;
+      });
+    },
+    []
+  );
+
+  // Transform changes to delivery data format
+  const transformChangesToDeliveryData = useCallback(() => {
+    const now = new Date();
+    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padEnd(6, '0')}`;
+
+    const deliveryData: DeliveryDataType = {
+      [formattedDate]: {
+        items: [],
+        updated_by: userData?.user_id,
       }
     };
 
-  return (
-        <>
-        <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">
-                Item List
-              </CardTitle>
-              {[
-                "Nirmaan Project Manager Profile",
-                "Nirmaan Admin Profile",
-                "Nirmaan Project Lead Profile"
-              ].includes(userData?.role) &&
-                !show &&
-                data?.status !== "Delivered" && (
-                  <Button
-                    onClick={() => setShow(true)}
-                    className="flex items-center gap-1"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    Edit
-                  </Button>
-                )}
-              {show && data?.status !== "Delivered" && (
-                <div className="flex gap-4">
-            <div className="flex flex-col gap-2">
-              <div
-                className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-1 ${selectedDeliveryChallan && "opacity-50 cursor-not-allowed"}`}
-                onClick={() => document.getElementById("delivery-challan-upload")?.click()}
-              >
-                <Paperclip size="15px" />
-                <span className="p-0 text-sm">Delivery Challan</span>
-                <input
-                  type="file"
-                  id="delivery-challan-upload"
-                  className="hidden"
-                  onChange={(e) => setSelectedDeliveryChallan(e.target.files?.[0] || null)}
-                  disabled={!!selectedDeliveryChallan}
-                />
-              </div>
-              {selectedDeliveryChallan && (
-                <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                  <span className="text-sm">
-                    {typeof selectedDeliveryChallan === "object" ? selectedDeliveryChallan.name : selectedDeliveryChallan}
-                  </span>
-                  <button className="ml-1 text-red-500" onClick={() => setSelectedDeliveryChallan(null)}>
-                    ✖
-                  </button>
-                </div>
-              )}
-            </div>
     
-            <div className="flex flex-col gap-2">
-              <div
-                className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-1 ${selectedPoInvoice && "opacity-50 cursor-not-allowed"}`}
-                onClick={() => document.getElementById("po-invoice-upload")?.click()}
+    Object.entries(modifiedItems).forEach(([itemId, { previousReceived, newReceived }]) => {
+      const originalItem = originalOrder.find(item => item.name === itemId);
+      if (!originalItem) return;
+
+      deliveryData[formattedDate].items.push({
+        item_id: itemId,
+        item_name: originalItem.item,
+        unit: originalItem.unit,
+        from: previousReceived,
+        to: newReceived,
+      });
+    });
+
+    return deliveryData;
+  }, [modifiedItems, originalOrder, userData, selectedAttachment]);
+
+  // Handle file upload
+  const uploadAttachment = useCallback(async () => {
+    if (!selectedAttachment) return null;
+
+    try {
+      const result = await upload(selectedAttachment, {
+        doctype: "Procurement Orders",
+        docname: data?.name,
+        fieldname: "attachment",
+        isPrivate: true
+      });
+      return result.file_url;
+    } catch (error) {
+      toast({
+        title: "Upload Failed",
+        description: "Failed to upload delivery challan",
+        variant: "destructive"
+      });
+      return null;
+    }
+  }, [selectedAttachment, data, upload, toast]);
+
+  // Submit handler
+  const handleUpdateDeliveryNote = useCallback(async () => {
+    try {
+      const attachmentId = await uploadAttachment();
+      const deliveryData = transformChangesToDeliveryData();
+
+      // Update delivery data with actual attachment ID
+      if (attachmentId) {
+        Object.values(deliveryData).forEach(entry => {
+          entry.dc_attachment_id = attachmentId;
+        });
+      }
+      const modifiedItemsPayload: { [itemId: string]: number } = {};
+      Object.entries(modifiedItems).forEach(([itemId, receivedObject]) => {
+        modifiedItemsPayload[itemId] = receivedObject.newReceived;
+      });
+
+
+      const payload = {
+        po_id: data.name,
+        modified_items: modifiedItemsPayload,
+        delivery_data: deliveryData,
+        delivery_challan_attachment: attachmentId
+      };
+
+      const response = await DNUpdateCall(payload);
+
+      if (response.message.status === 200) {
+        await poMutate();
+        setShowEdit(false);
+        setProceedDialog(false);
+        setModifiedItems({});
+        setSelectedAttachment(null);
+
+        toast({
+          title: "Success!",
+          description: response.message.message,
+          variant: "success"
+        });
+
+        toggleDeliveryNoteSheet?.();
+      } else if (response.message.status === 400) {
+        toast({
+          title: "Failed!",
+          description: response.message.error,
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error("Error updating delivery note:", error);
+      toast({
+        title: "Update Failed",
+        description: "Failed to update delivery note",
+        variant: "destructive"
+      });
+    }
+  }, [data, userData, DNUpdateCall, poMutate, toggleDeliveryNoteSheet, toast, transformChangesToDeliveryData, uploadAttachment]);
+
+  // Render helpers
+  const renderReceivedCell = (item: PurchaseOrderItem) => {
+    const originallyAllReceived = item.received === item.quantity;
+    const modifiedValue = modifiedItems[item.name]?.newReceived;
+
+    if (!showEdit) {
+      return (
+        <div className="flex items-center gap-1">
+          {originallyAllReceived ? (
+            <Check className="h-5 w-5 text-green-500" />
+          ) : item.received && (item.received > item.quantity) ? (
+            <ArrowUp className="text-primary" />
+          ) : item.received && (item.received < item.quantity) ? (
+            <ArrowDown className="text-primary" />
+          ) : null}
+          {!originallyAllReceived && item.received ? (
+            <span className="">{item.received}<span> (original : {item.quantity})</span></span>
+          ) : (<span>{item.quantity}</span>)}
+        </div>
+      );
+    }
+
+    if (originallyAllReceived) {
+      return <Check className="h-5 w-5 text-green-500" />;
+    }
+
+    return (
+      <>
+      <Input
+        type="number"
+        value={modifiedValue ?? ""}
+        onChange={(e) => handleReceivedChange(item, e.target.value)}
+        // min={0}
+        // max={item.quantity * 2} // Allow reasonable over-delivery
+        placeholder={`${String(item.received || item.quantity)}`}
+        className="w-24"
+      />
+      {item.received ? (
+        <span className="text-xs text-gray-400">
+          (Original: {item.quantity})
+        </span>
+      ) : (
+        <span />
+      )}  
+      </>
+    );
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between border-b">
+          <CardTitle className="text-xl font-semibold text-red-600">
+            Item List
+          </CardTitle>
+          {showEdit ? (
+            <div className="flex gap-4 items-start">
+              <CustomAttachment
+                maxFileSize={20 * 1024 * 1024} // 20MB
+                selectedFile={selectedAttachment}
+                onFileSelect={setSelectedAttachment}
+                label="Attach DC"
+                className="w-full"
+              />
+              <Button
+                onClick={() => setProceedDialog(true)}
+                disabled={!hasChanges}
+                className="gap-1"
               >
-                <Paperclip size="15px" />
-                <span className="p-0 text-sm">PO Invoice</span>
-                <input
-                  type="file"
-                  id="po-invoice-upload"
-                  className="hidden"
-                  onChange={(e) => setSelectedPoInvoice(e.target.files?.[0] || null)}
-                  disabled={!!selectedPoInvoice}
-                />
-              </div>
-              {selectedPoInvoice && (
-                <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                  <span className="text-sm">
-                    {typeof selectedPoInvoice === "object" ? selectedPoInvoice.name : selectedPoInvoice}
-                  </span>
-                  <button className="ml-1 text-red-500" onClick={() => setSelectedPoInvoice(null)}>
-                    ✖
-                  </button>
-                </div>
-              )}
+                <ListChecks className="h-4 w-4" />
+                Update
+              </Button>
+              <Button
+                onClick={() => setShowEdit(false)}
+                className="gap-1"
+              >
+                <X className="h-4 w-4" />
+                Cancel
+              </Button>
             </div>
-          </div>
-              )}
-            </CardHeader>
-            <CardContent>
-              {show && (
-                <div className="pl-2 transition-all duration-500 ease-in-out">
-                  <i className="text-sm text-gray-600">
-                    "Please Update the quantity received for delivered items"
-                  </i>
-                </div>
-              )}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="font-bold">Item Name</TableHead>
-                    <TableHead className="font-bold">Unit</TableHead>
-                    <TableHead className="font-bold">Received</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data &&
-                    order?.list.map((item) => (
-                      <TableRow key={item.name}>
-                        <TableCell>
-                          <div className="inline items-baseline">
-                            <p>{item.item}{item?.makes?.list?.length > 0 && (
-                                <span className="text-xs italic font-semibold text-gray-500">
-                                  - {item.makes.list.find((i) => i?.enabled === "true")?.make || "no make specified"}
-                                </span>
-                              )}
-                            </p>
-                            {item.comment && (
-                              <HoverCard>
-                                <HoverCardTrigger>
-                                  <MessageCircleMore className="text-blue-400 w-4 h-4 inline-block ml-1" />
-                                </HoverCardTrigger>
-                                <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                  <div className="relative pb-4">
-                                    <span className="block">{item.comment}</span>
-                                    <span className="text-xs absolute right-0 italic text-gray-200">
-                                      -Comment by PL
-                                    </span>
-                                  </div>
-                                </HoverCardContent>
-                              </HoverCard>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>{item.unit}</TableCell>
-                        <TableCell>
-                          {!show ? (
-                            item.received === item.quantity ? (
-                              <div className="flex gap-2">
-                                <Check className="h-5 w-5 text-green-500" />
-                                <span>{item.received}</span>
-                              </div>
-                            ) : (
-                              <div className="flex gap-2">
-                                {(item.received || 0) > item.quantity ? (
-                                  <ArrowUp className="text-primary" />
-                                ) : (
-                                  <ArrowDown className="text-primary" />
-                                )}
-                                <span className="text-sm text-gray-600">
-                                  {item.received || 0}
-                                </span>
-                              </div>
-                            )
-                          ) : item.received !== item.quantity ? (
-                            <div>
-                              <Input
-                                type="number"
-                                value={
-                                  modifiedOrder?.list?.find(
-                                    (mod) => mod?.name === item.name
-                                  )?.received || ""
-                                }
-                                onChange={(e) =>
-                                  handleReceivedChange(item.item, e.target.value)
-                                }
-                                placeholder={item?.quantity.toString()}
-                              />
-                              {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
+          ) : (
+            <Button onClick={() => setShowEdit(true)} className="gap-1">
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Button>
+          )}
+        </CardHeader>
+
+        <CardContent>
+          <Table>
+            <TableHeader className="bg-gray-100">
+              <TableRow>
+                <TableHead>Item Name</TableHead>
+                <TableHead>Unit</TableHead>
+                <TableHead>Received</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {originalOrder.map((item) => (
+                <TableRow key={item.name}>
+                  <TableCell>
+                    <div className="inline items-baseline">
+                      <p>{item.item}</p>
+                      {item.comment && (
+                        <HoverCard>
+                          <HoverCardTrigger>
+                            <MessageCircleMore className="text-blue-400 w-4 h-4 inline-block ml-1" />
+                          </HoverCardTrigger>
+                          <HoverCardContent>
+                            <div className="pb-4">
+                              <span className="block">{item.comment}</span>
+                              <span className="text-xs italic text-gray-600">
+                                - Comment by PL
+                              </span>
                             </div>
-                          ) : (
-                            <Check className="h-5 w-5 text-green-500" />
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-              {data?.status !== "Delivered" && show && (
-                <Button
-                  onClick={toggleProceedDialog}
-                  variant={"default"}
-                  className="w-full mt-6 flex items-center gap-1"
-                >
-                  <ListChecks className="h-4 w-4" />
-                  Update
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-      
-       <AlertDialog open={proceedDialog} onOpenChange={toggleProceedDialog}>
-              <AlertDialogTrigger>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  {checkIfNoValueItems && (
-                    <AlertDialogDescription>
-                    You have provided some items with 0 or no value, they will be
-                    marked as <span className="underline">'0 items received'</span>.
-                  </AlertDialogDescription>
-                  )}
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                {DnUpdateCallLoading || uploadLoading ? (
-                  <TailSpin width={40} height={40} color={"red"} />
-                ) : (
-                    <>
-                    <AlertDialogCancel className="flex items-center gap-1">
-                    <Undo2 className="h-4 w-4" />
-                    Cancel
-                  </AlertDialogCancel>
-                  <Button
-                    onClick={handleUpdateDeliveryNote}
-                    className="flex items-center gap-1"
-                  >
-                    <CheckCheck className="h-4 w-4" />
-                    Confirm
-                  </Button>
-                    </>
-                  )}
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-        </>
-  )
-}
+                          </HoverCardContent>
+                        </HoverCard>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>{item.unit}</TableCell>
+                  <TableCell>
+                    {renderReceivedCell(item)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={proceedDialog} onOpenChange={setProceedDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Delivery Update</AlertDialogTitle>
+            <AlertDialogDescription>
+              {Object.keys(modifiedItems).length} item changes detected
+              {selectedAttachment && " with attached delivery challan"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {uploadLoading || DnUpdateCallLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                                                  <>
+                                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button 
+              onClick={handleUpdateDeliveryNote}
+              disabled={DnUpdateCallLoading || uploadLoading}
+            >
+              Confirm Update
+            </Button>
+            </>)}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+};

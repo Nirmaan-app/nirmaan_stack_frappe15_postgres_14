@@ -1,5 +1,7 @@
 import { useUserData } from "@/hooks/useUserData";
+import DeliveryHistoryTable from '@/pages/DeliveryNotes/DeliveryHistory';
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/deliveryNoteItemsDisplay";
+import { InvoiceDialog } from "@/pages/ProcurementOrders/InvoiceDialog";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -57,11 +59,12 @@ interface PODetailsProps {
   amountPaid: number
   pr: ProcurementRequest
   poMutate: any
+  toggleRequestPaymentDialog: () => void
 }
 
 export const PODetails : React.FC<PODetailsProps> = (
   {po, summaryPage, accountsPage, estimatesViewing, poPayments, togglePoPdfSheet,
-    getTotal, amountPaid, poMutate, pr
+    getTotal, amountPaid, poMutate, pr, toggleRequestPaymentDialog
   }) => {
 
     const {role} = useUserData();
@@ -101,6 +104,11 @@ export const PODetails : React.FC<PODetailsProps> = (
     const toggleDeleteDialog = useCallback(() => {
       setDeleteDialog((prevState) => !prevState);
     }, [deleteDialog]);
+
+    const [invoiceDialog, setInvoiceDialog] = useState(false);
+    const toggleInvoiceDialog = useCallback(() => {
+      setInvoiceDialog((prevState) => !prevState);
+    }, [invoiceDialog]);
 
     const handlePhoneChange = useCallback((e: any) => {
        const value = e.target.value.replace(/\D/g, "").slice(0, 10);
@@ -236,7 +244,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                       onClick={toggleDeliveryNoteSheet}
                       className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                       >
-                        Update Delivery Status
+                        Update DN
                       </Button>
                     )
                   }
@@ -248,8 +256,34 @@ export const PODetails : React.FC<PODetailsProps> = (
                         </SheetHeader>
                         <DeliveryNoteItemsDisplay data={po} poMutate={poMutate}
                         toggleDeliveryNoteSheet={toggleDeliveryNoteSheet} />
+
+                        <DeliveryHistoryTable deliveryData={po?.delivery_data?.data || null} />
                     </SheetContent>
                   </Sheet>
+
+                    {!accountsPage && !estimatesViewing && !summaryPage && (
+                        <Button
+                        variant="outline"
+                        className="text-primary border-primary text-xs px-2"
+                        onClick={toggleRequestPaymentDialog}
+                      >
+                        Request Payment
+                      </Button>
+                    )}
+
+                  {!accountsPage && !estimatesViewing && !summaryPage && (
+                      <>
+                        <Button
+                        variant="outline"
+                        className="text-primary border-primary text-xs px-2"
+                        onClick={toggleInvoiceDialog}
+                      >
+                        Add Invoice
+                      </Button>
+                      <InvoiceDialog po={po} poMutate={poMutate} invoiceDialog={invoiceDialog} toggleInvoiceDialog={toggleInvoiceDialog} />
+                      </>
+                    )}
+
                   {!summaryPage &&
                     !accountsPage &&
                     !estimatesViewing &&
@@ -290,7 +324,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                         <Trash2Icon className="w-4 h-4" />
                         Delete
                       </Button>
-                    )}
+                )}
 
                 <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
                   <DialogContent>

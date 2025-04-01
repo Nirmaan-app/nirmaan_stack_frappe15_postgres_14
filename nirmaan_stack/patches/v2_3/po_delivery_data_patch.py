@@ -75,9 +75,11 @@ def execute():
                             old_item = old_items.get(item_name)
                             if old_item and new_item.get('received', 0) != old_item.get('received', 0):
                                 item_changes.append({
-                                    "item_name": item_name,
+                                    "item_id": item_name,
+                                    "item_name": new_item.get('item'),
+                                    "unit": new_item.get('unit'),
                                     "from": old_item.get('received', 0),
-                                    "to": new_item.get('received', 0)
+                                    "to": new_item.get('received', 0),
                                 })
                         if item_changes:
                             creation_str = str(version["creation"]) # Convert datetime to string

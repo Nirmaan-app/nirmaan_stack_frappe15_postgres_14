@@ -11,6 +11,7 @@ import { AddressView } from '@/components/address-view';
 import { TailSpin } from 'react-loader-spinner';
 import { useReactToPrint } from 'react-to-print';
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
+import DeliveryHistoryTable from './DeliveryHistory';
 import { DeliveryNoteItemsDisplay } from './deliveryNoteItemsDisplay';
 
 
@@ -36,8 +37,8 @@ export default function DeliveryNote() {
   if (isLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   return (
-    <div className="container mx-auto px-0 max-w-3xl">
-      <div className="flex items-center justify-between mb-4">
+    <div className="container mx-auto px-0 max-w-3xl space-y-4">
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl max-md:text-xl font-bold ml-2">
           DN-{poId.split("/")[1]}
         </h1>
@@ -46,7 +47,7 @@ export default function DeliveryNote() {
           Print
         </Button>
       </div>
-      <Card className="mb-6">
+      <Card>
         <CardHeader className="pb-2">
           <div className="flex justify-between items-center">
             <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">
@@ -121,6 +122,8 @@ export default function DeliveryNote() {
       </Card>
 
       <DeliveryNoteItemsDisplay data={data} poMutate={poMutate} />
+
+      <DeliveryHistoryTable deliveryData={data?.delivery_data ? JSON.parse(data?.delivery_data)?.data : null} />
 
       <div className="hidden">
         <div ref={componentRef} className=" w-full p-4">
