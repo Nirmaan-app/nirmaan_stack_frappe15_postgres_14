@@ -21,7 +21,7 @@ const InFlowPayments = React.lazy(() => import("../projects/InFlowPayments"));
 
 export const CustomerOverview : React.FC<CustomerOverviewProps> = ({data, customerId, tab, onClick}) => {
 
-  const { data: customerAddress, isLoading: customerAddressLoading, error: customerAddressError } = useFrappeGetDoc("Address",
+  const { data: customerAddress } = useFrappeGetDoc("Address",
       data?.company_address,
       data?.company_address ? `Address ${data?.company_address}` : null,
       {
@@ -39,6 +39,7 @@ export const CustomerOverview : React.FC<CustomerOverviewProps> = ({data, custom
           value: "payments-inflow"
         },
       ], [])
+
   return (
     <>
         <Card>

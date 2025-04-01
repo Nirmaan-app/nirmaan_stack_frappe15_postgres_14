@@ -10,10 +10,14 @@ import formatToIndianRupee from "@/utils/FormatPrice"
 import { getTotalInflowAmount } from "@/utils/getAmounts"
 import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
-import { useCallback, useMemo, useState } from "react"
+import React, { Suspense, useCallback, useMemo, useState } from "react"
+import { TailSpin } from "react-loader-spinner"
 import { useSearchParams } from "react-router-dom"
-import { AccountantTabs } from "../ProjectPayments/AccountantTabs"
-import { ProjectPaymentsList } from "../ProjectPayments/project-payments-list"
+
+
+const AccountantTabs = React.lazy(() => import("../ProjectPayments/AccountantTabs"));
+const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
+
 
 interface ProjectFinancialsTabProps {
   projectData?: any
@@ -33,9 +37,10 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
   const [tab, setTab] = useState<string>(searchParams.get("fTab") || "All Payments")
   const [inflowPaymentsDialog, setInflowPaymentsDialog] = useState(false)
   
-  const toggleInflowPaymentsDialog = () => {
+  const toggleInflowPaymentsDialog = useCallback(() => {
       setInflowPaymentsDialog((prevState) => !prevState);
-  };
+  }, [setInflowPaymentsDialog]);
+
 
   const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
     fields: ["*"],
@@ -43,7 +48,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
     limit: 1000
   })
 
-  const totalInflowAmount = getTotalInflowAmount(projectInflows || [])
+  const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
 
   const amountsSummaryItems = useMemo(() => [
     {
@@ -131,12 +136,14 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                   />
               )}
 
-              {tab === "All Payments" ? (
-                <AccountantTabs tab="Fulfilled Payments" projectsView />
-              ) : (
-
-                <ProjectPaymentsList tab="All Orders" projectsView />
-              )}
+                <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
+                  {tab === "All Payments" ? (
+                    <AccountantTabs tab="Fulfilled Payments" projectsView />
+                  ) : (
+                  
+                    <ProjectPaymentsList projectsView />
+                  )}
+                </Suspense>
 
                       <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>
                               <DialogContent className="text-start">
@@ -191,7 +198,9 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                           </TableBody>
                                       </Table>
                               </DialogContent>
-                          </Dialog>
+                    </Dialog>
         </div>
   )
 }
+
+export default ProjectFinancialsTab;

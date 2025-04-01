@@ -16,7 +16,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Info, Paperclip, Trash2 } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -25,11 +25,17 @@ import { useNavigate } from "react-router-dom";
 interface AccountantTabsProps {
   tab : string
   projectsView?: boolean
+  customerId?: string
 }
 
-export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsView = false}) => {
+export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsView = false, customerId}) => {
 
       const navigate = useNavigate()
+      const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
+
+      if (customerId) {
+          projectFilters.push(["customer", "=", customerId])
+      }
 
       const [dialogType, setDialogType] = useState<"fulfill" | "delete">("fulfill");
   
@@ -45,16 +51,17 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
   
       const [paymentScreenshot, setPaymentScreenshot] = useState<File  | null>(null);
   
-      const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+      const handleFileChange = useCallback((event : React.ChangeEvent<HTMLInputElement>) => {
           if(event.target.files && event.target.files.length > 0) {
               setPaymentScreenshot(event.target.files[0]);
           }
-      };
+      }, [paymentScreenshot])
   
       const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
-          fields: ["name", "project_name"],
+          fields: ["name", "project_name", 'customer'],
+          filters: projectFilters,
           limit: 1000,
-      }, 'Projects');
+      }, customerId ? `Projects ${customerId}` : "Projects");
   
       const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
           fields: ["*"],
@@ -63,9 +70,12 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
   
       const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
           fields: ["*"],
+          filters: [["project", "in", projects?.map(i => i?.name)]],
           limit: 100000,
           orderBy: { field: "payment_date", order: "desc" }
-      })
+      },
+      projects ? undefined : null
+    )
   
       useFrappeDocTypeEventListener("Project Payments", async () => {
           await projectPaymentsMutate();
@@ -73,9 +83,9 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
   
       const [fulFillPaymentDialog, setFulFillPaymentDialog] = useState(false);
   
-      const toggleFulFillPaymentDialog = () => {
+      const toggleFulFillPaymentDialog = useCallback(() => {
           setFulFillPaymentDialog((prevState) => !prevState);
-      };
+      }, [fulFillPaymentDialog]);
 
       const FulfillPayment = async () => {
         try {
@@ -410,7 +420,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
             }
         ] : [])
     ],
-    [projectValues, vendorValues, projectPayments, tab, notifications, projectsView]
+    [projectValues, vendorValues, projectPayments, tab, notifications, projectsView, customerId]
 );
 
 if (projectsError || vendorsError || projectPaymentsError) {
@@ -456,7 +466,7 @@ if (projectsError || vendorsError || projectPaymentsError) {
                                     <div className="flex gap-4 w-full">
                                         <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                         <Input
-                                            type="text"
+                                            type="number"
                                             placeholder="Enter UTR"
                                             value={paymentData?.utr || ""}
                                             onChange={(e) => setPaymentData({ ...paymentData, utr: e.target.value })}

@@ -7,9 +7,11 @@ import { toast } from "@/components/ui/use-toast";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from "lodash/memoize";
 import { Paperclip } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -36,36 +38,33 @@ export const NewInflowPayment : React.FC = () => {
   const {data : projects, isLoading: projectsLoading} = useFrappeGetDocList<Projects>("Projects", {
     fields: ["name", "project_name", "customer"],
     limit: 1000,
-  })
+  }, "Projects")
 
   const {data : customers, isLoading: customersLoading} = useFrappeGetDocList("Customers", {
     fields: ["company_name", 'name'],
     limit: 1000,
-  })
+  }, "Customers")
 
   const validateProject = useMemo(
-    () => (projectId : string) => {
+    () => memoize((projectId : string) => {
       const project = projects?.find((i) => i?.name === projectId);
       if(!project?.customer) return false;
       return true;
-  }, [projects])
+  }, (projectId : string) => projectId), [projects])
 
   const getAmountReceived = useMemo(
-    () => (projectId : string) => {
+    () => memoize((projectId : string) => {
       let total = 0;
-      const filteredPayments = projectInflows?.filter((i) => i?.project === projectId);
-      filteredPayments?.forEach((i) => {
-        total += parseNumber(i?.amount);
-      });
-      return total;
+      const filteredPayments = projectInflows?.filter((i) => i?.project === projectId) || [];
+      return getTotalInflowAmount(filteredPayments);
   }
-, [projectInflows])
+,  (projectId : string) => projectId), [projectInflows])
 
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((event : React.ChangeEvent<HTMLInputElement>) => {
       if(event.target.files && event.target.files.length > 0) {
           setPaymentScreenshot(event.target.files[0]);
       }
-  };
+  }, [paymentScreenshot])
 
   const AddPayment = useCallback(async () => {
     try {
@@ -115,7 +114,7 @@ export const NewInflowPayment : React.FC = () => {
     <AlertDialog open={newInflowDialog} onOpenChange={toggleNewInflowDialog}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-center">Add New Project Inflow Payment!</AlertDialogTitle>
+          <AlertDialogTitle className="text-center">Add New Inflow Payment!</AlertDialogTitle>
                                   <div className="flex items-center justify-between">
                                       <Label className=" text-red-700">Project:</Label>
                                       <div className="w-[50%]">
@@ -157,7 +156,7 @@ export const NewInflowPayment : React.FC = () => {
                                           <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                           <Input
                                               disabled={!isValid}
-                                              type="text"
+                                              type="number"
                                               placeholder="Enter UTR"
                                               value={newPayment?.utr || ""}
                                               onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}

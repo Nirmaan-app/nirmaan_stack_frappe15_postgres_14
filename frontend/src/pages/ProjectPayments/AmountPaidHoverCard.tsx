@@ -2,14 +2,14 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import React from "react";
+import React, { useMemo } from "react";
 
 export const AmountPaidHoverCard: React.FC<{ paymentInfo: ProjectPayments }> = React.memo(({
   paymentInfo,
 }) => {
-  const amountPaid = parseNumber(paymentInfo.amount) - parseNumber(paymentInfo.tds);
-  const tdsAmount = parseNumber(paymentInfo.tds);
-  const TotalAmount = parseNumber(paymentInfo.amount);
+  const amountPaid = useMemo(() => parseNumber(paymentInfo.amount) - parseNumber(paymentInfo.tds), [paymentInfo]);
+  const tdsAmount = useMemo(() => parseNumber(paymentInfo.tds), [paymentInfo]);
+  const TotalAmount = useMemo(() => parseNumber(paymentInfo.amount), [paymentInfo]);
 
   return (
       <HoverCard>

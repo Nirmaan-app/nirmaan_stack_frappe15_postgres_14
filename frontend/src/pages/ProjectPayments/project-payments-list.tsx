@@ -22,7 +22,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { debounce } from "lodash";
 import memoize from "lodash/memoize";
 import { Paperclip, SquarePlus } from "lucide-react";
@@ -30,9 +30,14 @@ import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
-export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ projectsView = false}) => {
+export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerId?: string}> = ({ projectsView = false, customerId}) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
+    const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
+    
+    if (customerId) {
+              projectFilters.push(["customer", "=", customerId])
+    }
 
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
 
@@ -40,24 +45,29 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
 
     const [warning, setWarning] = useState("");
 
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
+        fields: ["name", "project_name"],
+        filters: projectFilters,
+        limit: 1000,
+    }, customerId ? `Projects ${customerId}` : "Projects");
+
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
-        filters: [["status", "not in", ["Cancelled", "Merged"]]],
+        filters: [["status", "not in", ["Cancelled", "Merged"]], ["project", "in", projects?.map(i => i?.name)]],
         limit: 100000,
         orderBy: { field: "modified", order: "desc" },
-    });
+    },
+    projects ? undefined : null
+);
 
     const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
-        filters: [["status", "=", "Approved"]],
+        filters: [["status", "=", "Approved"], ["project", "in", projects?.map(i => i?.name)]],
         limit: 10000,
         orderBy: { field: "modified", order: "desc" },
-    });
-
-    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
-        fields: ["name", "project_name"],
-        limit: 1000,
-    }, 'Projects');
+    },
+    projects ? undefined : null
+);
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["name", "vendor_name"],
@@ -156,7 +166,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
         ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
     ], [purchaseOrders, serviceOrders])
 
-    const getDataAttributes = useMemo(() => (data : any) => {
+    const getDataAttributes = useMemo(() => memoize((data : any) => {
         let project = ""
         let vendor = ""
         let gst = ""
@@ -170,7 +180,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
             gst = data?.gst
         }
         return { project, vendor, vendor_id: data?.vendor, project_id: data?.project, document_type: data?.type, document_name: data?.name, gst }
-    }, [projects, vendors])
+    }, (data: any) => JSON.stringify(data)), [projects, vendors])
 
     const AddPayment = async () => {
         try {
@@ -274,14 +284,14 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
         } else {
           setWarning(""); // Clear warning if within the limit
         }
-      }, 300), [newPayment, purchaseOrders, serviceOrders, getAmountPaid, setWarning])
+      }, 300), [newPayment])
     
       // Handle input change
     const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
       const amount = e.target.value;
       setNewPayment({ ...newPayment, amount });
       validateAmount(amount);
-    }, [newPayment, validateAmount, setNewPayment])
+    }, [newPayment, validateAmount])
 
     const columns = useMemo(
         () => [
@@ -394,7 +404,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
                     </div>
                 },
             },
-            ...(!projectsView ? [
+            ...(!projectsView && !customerId ? [
                 {
                     id: "Record_Payment",
                     header: "Record Payment",
@@ -427,7 +437,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
                 }
             ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView, getTotalAmount]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView, getTotalAmount, customerId]
     );
 
     if (poError || srError || projectsError || vendorsError) {
@@ -500,7 +510,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean}> = ({ pro
                             <div className="flex gap-4 w-full">
                                 <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                 <Input
-                                    type="text"
+                                    type="number"
                                     placeholder="Enter UTR"
                                     value={newPayment.utr}
                                     onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}

@@ -16,8 +16,8 @@ export const Customer : React.FC = () => {
 
   const { customerId } = useParams<{ customerId: string }>();
   const [searchParams] = useSearchParams(); 
-  const [tab, setTab] = useState<string>(searchParams.get("tab") || "projects")
   const [mainTab, setMainTab] = useState<string>(searchParams.get("main") || "overview")
+  const [tab, setTab] = useState<string>(searchParams.get("tab") || mainTab === "financials" ? "All Payments" : "projects")
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
@@ -59,18 +59,21 @@ export const Customer : React.FC = () => {
     const mainTabClick: MenuProps['onClick'] = useCallback(
         (e) => {
           if (mainTab === e.key) return;
-    
+          
           const newTab = e.key;
+          console.log("newTab", newTab)
           let subTab = newTab === "financials" ? "All Payments" : "projects"
-          updateURL({ main: mainTab, tab: subTab });
+          console.log("subTab", subTab)
           setMainTab(newTab);
+          setTab(subTab);
+          updateURL({ main: newTab, tab: subTab });
         }, [mainTab, updateURL]);
 
   const onClick = useCallback(
       (value : string) => {
         if (tab === value) return;
         setTab(value);
-        updateURL({ tab: tab });
+        updateURL({ tab: value });
       }
       , [tab, updateURL]);
 
@@ -133,7 +136,7 @@ export const Customer : React.FC = () => {
                 )}
     
                 {mainTab === "financials" && (
-                  <CustomerFinancials />
+                  <CustomerFinancials tab={tab} customerId={customerId} onClick={onClick} />
                 )}
           </Suspense>
 

@@ -8,8 +8,9 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { Filter, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
+import { NewInflowPayment } from "./NewInflowPayment";
 
 
 interface InFlowPaymentsProps {
@@ -18,16 +19,23 @@ interface InFlowPaymentsProps {
 
 export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => {
 
+    const paymentFilters : Filter<FrappeDoc<ProjectInflows>>[] | undefined = []
+        
+        if (customerId) {
+            paymentFilters.push(["customer", "=", customerId])
+        }
+
   const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
     fields: ["*"],
+    filters: paymentFilters,
     limit: 1000,
     orderBy: { field: "creation", order: "desc" },
-  }, "Project Inflows")
+  }, customerId ? `Project Inflows ${customerId}` : "Project Inflows")
 
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
           fields: ["name", "project_name"],
           limit: 1000,
-      });
+      }, "Projects");
 
   const projectValues = useMemo(() => projects?.map((item) => ({
           label: item.project_name,
@@ -46,7 +54,9 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
               cell: ({ row }) => {
                   const data = row.original
                   const screenshotUrl = data?.inflow_attachment;
-                  return <div className="font-medium text-blue-500">
+                  return (
+                    screenshotUrl ? (
+                        <div className="font-medium text-blue-500">
                            <HoverCard>
                                 <HoverCardTrigger>
                                     {data?.utr}
@@ -59,7 +69,13 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
                                   />
                                 </HoverCardContent>
                            </HoverCard>
-                        </div>;
+                        </div>
+                    ) : (
+                        <div className="font-medium">
+                            {data?.utr}
+                        </div>
+                    )
+                  );
               },
           },
           {
@@ -104,7 +120,7 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
                   },
               },
           ],
-          [projectValues, projectInflows]
+          [projectValues, projectInflows, customerId]
       );
 
 return (
@@ -112,8 +128,9 @@ return (
         {projectsLoading || projectInflowsLoading ? (
             <TableSkeleton />
         ) : (
-            <DataTable columns={columns} data={(customerId ? projectInflows?.filter(i => i?.customer === customerId) : projectInflows) || []} project_values={projectValues} inFlowButton={customerId ? false : true} />
+            <DataTable columns={columns} data={projectInflows || []} project_values={projectValues} inFlowButton={customerId ? false : true} />
         )}
+        <NewInflowPayment />
        </div>
 )
 }
