@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_import": 1,
  "allow_rename": 1,
  "creation": "2024-12-31 14:31:44.154768",
  "doctype": "DocType",
@@ -84,9 +85,10 @@
    "label": "Status"
   }
  ],
+ "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-02-17 17:10:32.577583",
+ "modified": "2025-04-02 14:48:45.793506",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",
@@ -176,5 +178,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

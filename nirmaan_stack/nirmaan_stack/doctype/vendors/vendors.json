@@ -136,9 +136,10 @@
    "label": "Bank Branch"
   }
  ],
+ "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-02-18 19:42:59.115060",
+ "modified": "2025-04-02 14:49:27.955832",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",
@@ -231,5 +232,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }
