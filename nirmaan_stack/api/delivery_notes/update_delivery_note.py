@@ -1,6 +1,7 @@
 import frappe
 import json
 from datetime import datetime
+from frappe.model.document import Document
 
 @frappe.whitelist()
 def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict = None, 
@@ -27,6 +28,18 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
         # Update order list and status
         po.order_list = {"list": updated_order}
         po.status = calculate_order_status(updated_order)
+
+        # Handle delivery challan attachment
+        if delivery_challan_attachment:
+            attachment = create_attachment_doc(
+                po, 
+                delivery_challan_attachment, 
+                "po delivery challan"
+            )
+
+            if attachment and delivery_data:
+                for date_key in delivery_data:
+                    delivery_data[date_key]["attachment_id"] = attachment.name
         
         # Add delivery data history
         if delivery_data:
@@ -34,14 +47,6 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
 
         # Save procurement order updates
         po.save()
-
-        # Handle delivery challan attachment
-        if delivery_challan_attachment:
-            create_attachment_doc(
-                po, 
-                delivery_challan_attachment, 
-                "po delivery challan"
-            )
 
         frappe.db.commit()
 
@@ -79,17 +84,24 @@ def calculate_order_status(order: list) -> str:
         return "Delivered"
     return "Partially Delivered"
 
-def add_delivery_history(po, new_data: dict):
-    """Append new delivery data to existing history"""
-    existing_data = po.get("delivery_data") or {"data": {}}  # Ensure existing_data has a "data" key
+def add_delivery_history(po, new_data: dict) -> None:
+    """Append delivery data with unique timestamps for duplicate dates."""
+    existing_data = po.get("delivery_data") or {"data": {}}
 
     if "data" not in existing_data:
         existing_data["data"] = {}
 
-    existing_data["data"].update(new_data)  # Merge new_data into existing_data["data"]
+    for date, update_info in new_data.items():
+        if date not in existing_data["data"]:
+            existing_data["data"][date] = update_info # directly assign the update info if the date is new
+        else:
+            time_stamp = datetime.now().strftime("%H:%M:%S.%f") # use microseconds to prevent collision.
+            unique_date = f"{date} {time_stamp}" #combine date and timestamp
+            existing_data["data"][unique_date] = update_info # assign update info with unique date.
+
     po.delivery_data = existing_data
 
-def create_attachment_doc(po, file_url: str, attachment_type: str):
+def create_attachment_doc(po, file_url: str, attachment_type: str) -> Document:
     """Create standardized attachment document"""
     attachment = frappe.new_doc("Nirmaan Attachments")
     attachment.update({
@@ -102,3 +114,4 @@ def create_attachment_doc(po, file_url: str, attachment_type: str):
         "attachment_link_docname": po.vendor
     })
     attachment.insert(ignore_permissions=True)
+    return attachment

@@ -1,3 +1,4 @@
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
 import { VendorsReactSelect } from "@/components/helpers/VendorsReactSelect";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import { NewVendor } from "@/pages/vendors/new-vendor";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { Table as AntTable, ConfigProvider } from "antd";
 import {
   useFrappeFileUpload,
@@ -46,12 +48,11 @@ import {
   ArrowLeft,
   CheckCheck,
   CirclePlus,
-  Paperclip,
   Settings2,
   Trash2,
   Undo2
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
@@ -90,7 +91,6 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
 
   const [comment, setComment] = useState<any>(null);
   const [section, setSection] = useState("choose-vendor");
-  const [vendorOptions, setVendorOptions] = useState<Vendor[]>([]);
   const [selectedVendor, setSelectedvendor] = useState<Vendor | null>(null);
   const [amounts, setAmounts] = useState<{ [key: string]: number }>({}); // New state for amounts
   const [order, setOrder] = useState<CustomPRItem[]>([]);
@@ -138,7 +138,7 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
   }, [resolve, prId, prList, vendor_list])
 
   // Main table columns
-  const columns = [
+  const columns = useMemo(() => [
     {
       title: "Category",
       dataIndex: "category",
@@ -156,10 +156,10 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
         </span>
       ),
     },
-  ];
+  ], [selectedVendor]);
 
   // Inner table columns
-  const innerColumns = [
+  const innerColumns = useMemo(() => [
     {
       title: "Item",
       dataIndex: "item",
@@ -210,52 +210,39 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
         </span>
       ),
     },
-    // {
-    //     title: "Amt inc. tax",
-    //     dataIndex: "amount",
-    //     key: "amountinctax",
-    //     width: "20%",
-    //     render: (text) => <span className="italic">{formatToIndianRupee(parseFloat(text) * 1.18)}</span>,
-    // },
-  ];
+  ], []);
 
   const {data : procurement_packages, isLoading: procurementPackagesLoading} = useFrappeGetDocList("Procurement Packages", {
     fields: ["*"],
     filters: [["name", "!=", "Services"]],
     orderBy: { field: 'name', order: 'asc' },
     limit: 100
-  })
+  }, "Procurement Packages-Services")
 
   const { data: category_data, isLoading: categoryDataLoading } = useFrappeGetDocList("Category", {
     fields: ["*"],
     filters: [['work_package', '!=', 'Services']],
     orderBy: { field: 'category_name', order: 'asc' },
     limit: 10000
-  })
+  }, "Categories-Services")
 
-
-  useEffect(() => {
-    if (vendor_list) {
-      const currOptions = vendor_list?.map((item) => ({
-        value: item.name,
-        label: item.vendor_name,
-        city: item?.vendor_city || "",
-        state: item?.vendor_state || "",
-      }));
-      setVendorOptions(currOptions);
-    }
-  }, [vendor_list]);
+  const vendorOptions : Vendor[] = useMemo(() => vendor_list?.map((item) => ({
+    value: item.name,
+    label: item.vendor_name,
+    city: item?.vendor_city || "",
+    state: item?.vendor_state || "",
+  })) || [], [vendor_list]);
 
   const {call : newCustomPRCall, loading: newCustomPRLoading} = useFrappePostCall("nirmaan_stack.api.custom_pr_api.new_custom_pr");
   const {call : resolveCustomPRCall, loading : resolveCustomPRCallLoading} = useFrappePostCall("nirmaan_stack.api.custom_pr_api.resolve_custom_pr");
   const {upload} = useFrappeFileUpload()
 
-  const handleAmountChange = (id: string, value: string) => {
-    const numericValue = parseFloat(value);
+  const handleAmountChange = useCallback((id: string, value: string) => {
+    const numericValue = parseNumber(value);
     setAmounts((prev) => ({ ...prev, [id]: numericValue }));
-  };
+  }, []);
 
-  const handleSaveAmounts = () => {
+  const handleSaveAmounts = useCallback(() => {
     let newOrderData = [];
     for (let item of order) {
       newOrderData.push({...item, quote : amounts[item.name], vendor: selectedVendor?.value});
@@ -270,9 +257,9 @@ const { data: vendor_list, isLoading : vendorListLoading } = useFrappeGetDocList
         }
     });
     setCategories({ list: newCategories });
-  };
+  }, [order, amounts, section]);
 
-  const checkNextButtonStatus = useMemo(() => {
+  const checkNextButtonStatus = useCallback(() => {
     const allAmountsFilled = Object.values(amounts).every(
       (amount) => amount && amount > 0
     );
@@ -348,7 +335,7 @@ const handleResolvePR = async () => {
           file_url = uploadedFile.file_url;
         }
           const response = await resolveCustomPRCall({
-            project_id: prList[0]?.project,
+            project_id: prList?.[0]?.project,
             pr_id: prId,
             order: order,
             categories: categories.list,
@@ -382,7 +369,7 @@ const handleResolvePR = async () => {
 };
 
 
-  const handleInputChange = (id: string, field: string, value: string | number) => {
+  const handleInputChange = useCallback((id: string, field: string, value: string | number) => {
     if (field) {
       let updatedOrder : CustomPRItem[];
       if(field === "procurement_package"){
@@ -396,7 +383,7 @@ const handleResolvePR = async () => {
       }
       setOrder(updatedOrder);
     }
-  };
+  }, [order]);
 
   console.log("order", order)
 
@@ -454,7 +441,13 @@ const handleResolvePR = async () => {
               <div className="w-2/3">
                 <VendorsReactSelect selectedVendor={selectedVendor} vendorOptions={vendorOptions} setSelectedvendor={setSelectedvendor} />
               </div>
-               <FileUpload attachment={attachment} setAttachment={setAttachment} />
+                <CustomAttachment
+                  maxFileSize={20 * 1024 * 1024} // 20MB
+                  selectedFile={attachment}
+                  onFileSelect={setAttachment}
+                  label="Attach"
+                  className="w-1/3"
+                 />
             </div>
             <div className="overflow-x-auto">
               <div className="min-w-full inline-block align-middle">
@@ -530,13 +523,6 @@ const handleResolvePR = async () => {
 
                         {/* Unit Field */}
                         <TableCell>
-                          {/* <Input
-                            type="text"
-                            value={item?.unit || ""}
-                            onChange={(e) =>
-                              handleInputChange(item.name, "unit", e.target.value)
-                            }
-                          /> */}
                           <SelectUnit value={item?.unit || ""} onChange={(value) => handleInputChange(item.name, "unit", value)} />
                         </TableCell>
 
@@ -564,6 +550,7 @@ const handleResolvePR = async () => {
                               <SelectValue className="text-gray-200" placeholder="Select Tax %" />
                             </SelectTrigger>
                             <SelectContent>
+                                <SelectItem key={5} value={5}>5 %</SelectItem>
                                 <SelectItem key={12} value={12}>12 %</SelectItem>
                                 <SelectItem key={18} value={18}>18 %</SelectItem>
                                 <SelectItem key={28} value={28}>28 %</SelectItem>
@@ -573,7 +560,7 @@ const handleResolvePR = async () => {
                         <TableCell>
                           <Input
                             type="number"
-                            value={amounts[item.name]}
+                            value={amounts[item.name] || ""}
                             onChange={(e) =>
                               handleAmountChange(item.name, e.target.value)
                             }
@@ -609,7 +596,7 @@ const handleResolvePR = async () => {
               <div className="flex items-center gap-2">
 
               <Button
-                disabled={!checkNextButtonStatus}
+                disabled={!checkNextButtonStatus()}
                 onClick={handleSaveAmounts}
               >
                 Next
@@ -705,64 +692,6 @@ const handleResolvePR = async () => {
             </Dialog>
           </div>
         </>
-      )}
-    </div>
-  );
-};
-
-
-interface FileUploadProps {
-  attachment : File | null
-  setAttachment: React.Dispatch<React.SetStateAction<File | null>>
-}
-
-
-const FileUpload : React.FC<FileUploadProps> = ({ attachment, setAttachment }) => {
-
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    // const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
-    // if (!allowedTypes.includes(file.type)) {
-    //   alert("Invalid file type! Please upload a JPG, PNG, or PDF.");
-    //   return;
-    // }
-
-    // if (file.size > 5 * 1024 * 1024) {
-    //   alert("File size exceeds 5MB limit!");
-    //   return;
-    // }
-
-    setAttachment(file);
-  };
-
-  return (
-    <div className="flex flex-col gap-2 w-1/3">
-      <div
-        className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 ${
-          attachment ? "opacity-50 cursor-not-allowed" : "hover:bg-blue-100"
-        }`}
-        onClick={() => !attachment && document.getElementById("file-upload")?.click()}
-      >
-        <Paperclip size="15px" />
-        <span className="p-0 text-sm">Attach</span>
-        <input
-          type="file"
-          id="file-upload"
-          className="hidden"
-          onChange={handleFileChange}
-          disabled={!!attachment}
-        />
-      </div>
-
-      {attachment && (
-        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-          <span className="text-sm">{attachment.name}</span>
-          <button className="ml-1 text-red-500" onClick={() => setAttachment(null)}>
-            ✖
-          </button>
-        </div>
       )}
     </div>
   );

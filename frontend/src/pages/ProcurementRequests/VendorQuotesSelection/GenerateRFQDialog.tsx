@@ -7,8 +7,9 @@ import { Category, ProcurementItem, ProcurementRequest } from '@/types/NirmaanSt
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { formatDate } from '@/utils/FormatDate';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
+import memoize from 'lodash/memoize';
 import { FolderPlus, MessageCircleMore } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
 
 interface GenerateRFQDialogProps {
@@ -27,7 +28,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
         documentTitle: `RFQ_Preview`,
     });
 
-    const handleItemSelection = (categoryName: string, itemName: string) => {
+    const handleItemSelection = useCallback((categoryName: string, itemName: string) => {
         setSelectedItems((prevSelected) => {
             const categoryItems = prevSelected[categoryName] || [];
             if (categoryItems.includes(itemName)) {
@@ -42,9 +43,9 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                 };
             }
         });
-    };
+    }, []);
 
-    const handleCategorySelection = (categoryName: string, items: ProcurementItem[]) => {
+    const handleCategorySelection = useCallback((categoryName: string, items: ProcurementItem[]) => {
         setSelectedItems((prevSelected) => {
             const categoryItemNames = items.map((item) => item.name);
             const categoryItems = prevSelected[categoryName] || [];
@@ -62,9 +63,9 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                 };
             }
         });
-    };
+    }, []);
 
-    const handleSelectAll = () => {
+    const handleSelectAll = useCallback(() => {
         setSelectedItems((prevSelected) => {
             if (orderData?.category_list?.list) {
                 const allSelected: { [category: string]: string[] } = {};
@@ -82,19 +83,19 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
             }
             return {};
         });
-    };
+    }, []);
 
-    const isItemSelected = (categoryName: string, itemName: string) => {
+    const isItemSelected = useMemo(() => memoize((categoryName: string, itemName: string) => {
         return selectedItems[categoryName]?.includes(itemName) || false;
-    };
+    }, (categoryName: string, itemName: string) => categoryName +  itemName), [selectedItems]);
 
-    const isCategorySelected = (categoryName: string, items: ProcurementItem[]) => {
+    const isCategorySelected = useMemo(() => memoize((categoryName: string, items: ProcurementItem[]) => {
         return items.every((item) => isItemSelected(categoryName, item.name));
-    };
+    }, (categoryName: string, items: ProcurementItem[]) => categoryName +  JSON.stringify(items)), [selectedItems]);
 
-    const getSelectedItemsArray = () => {
+    const getSelectedItemsArray = useMemo(() => memoize(() => {
         return Object.values(selectedItems).flat();
-    };
+    }), [selectedItems]);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -104,7 +105,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                     Generate RFQ
                 </Button>
             </DialogTrigger>
-            <DialogContent className="overflow-auto">
+            <DialogContent className="overflow-auto max-h-[80vh]">
                 <DialogHeader>
                     <DialogTitle className='text-center text-primary'>Generate RFQ</DialogTitle>
                 </DialogHeader>

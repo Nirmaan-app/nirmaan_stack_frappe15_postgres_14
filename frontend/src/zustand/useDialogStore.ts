@@ -11,6 +11,9 @@ export type DialogStore = {
   newInflowDialog: boolean;
   setNewInflowDialog: (open: boolean) => void;
   toggleNewInflowDialog: () => void;
+  newInvoiceDialog: boolean;
+  setNewInvoiceDialog: (open: boolean) => void;
+  toggleNewInvoiceDialog: () => void;
 };
 
 export const useDialogStore = create<DialogStore>((set, get) => ({
@@ -23,4 +26,7 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   newInflowDialog: false,
   setNewInflowDialog: (open: boolean) => set({ newInflowDialog: open }),
   toggleNewInflowDialog: () => set({ newInflowDialog: !get().newInflowDialog }),
+  newInvoiceDialog: false,
+  setNewInvoiceDialog: (open: boolean) => set({ newInvoiceDialog: open }),
+  toggleNewInvoiceDialog: () => set({ newInvoiceDialog: !get().newInvoiceDialog }),
 }));
