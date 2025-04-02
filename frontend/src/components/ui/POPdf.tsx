@@ -19,11 +19,8 @@ interface POPdfProps {
   orderData: {
     list: PurchaseOrderItem[]
   }
-  loadingCharges: number
-  freightCharges: number
-  notes: string
   includeComments: boolean
-  getTotal?: {
+  getTotal: {
     total: number
     totalAmt: number
     totalGst: number
@@ -40,7 +37,7 @@ interface POPdfProps {
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
 export const POPdf : React.FC<POPdfProps> = ({
-  po, orderData, loadingCharges, freightCharges, notes,
+  po, orderData,
   includeComments, getTotal, advance, materialReadiness, afterDelivery, xDaysAfterDelivery, xDays,
   poPdfSheet, togglePoPdfSheet
 }) => {
@@ -222,7 +219,7 @@ export const POPdf : React.FC<POPdfProps> = ({
                               {po?.vendor_name}
                             </div>
                             <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">
-                              <AddressView id={po?.vendor_address} />
+                              <AddressView id={po?.vendor_address || ""} />
                             </div>
                             <div className="text-sm font-medium text-gray-900 text-left">
                               GSTIN: {po?.vendor_gst}
@@ -343,8 +340,8 @@ export const POPdf : React.FC<POPdfProps> = ({
                         <tr
                           key={index}
                           className={`${
-                            !loadingCharges &&
-                            !freightCharges &&
+                            !po?.loading_charges &&
+                            !po?.freight_charges &&
                             index === length - 1 &&
                             "border-b border-black"
                           } page-break-inside-avoid ${
@@ -394,10 +391,10 @@ export const POPdf : React.FC<POPdfProps> = ({
                         </tr>
                       );
                     })}
-                    {loadingCharges ? (
+                    {po?.loading_charges ? (
                       <tr
                         className={`${
-                          !freightCharges && "border-b border-black"
+                          !po?.freight_charges && "border-b border-black"
                         }`}
                       >
                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">
@@ -413,19 +410,19 @@ export const POPdf : React.FC<POPdfProps> = ({
                           1
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
-                          {formatToIndianRupee(loadingCharges)}
+                          {formatToIndianRupee(po?.loading_charges)}
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
                           18%
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
-                          {formatToIndianRupee(loadingCharges)}
+                          {formatToIndianRupee(po?.loading_charges)}
                         </td>
                       </tr>
                     ) : (
                       <></>
                     )}
-                    {freightCharges ? (
+                    {po?.freight_charges ? (
                       <tr className={`border-b border-black`}>
                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">
                           -
@@ -440,13 +437,13 @@ export const POPdf : React.FC<POPdfProps> = ({
                           1
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
-                          {formatToIndianRupee(freightCharges)}
+                          {formatToIndianRupee(po?.freight_charges)}
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
                           18%
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
-                          {formatToIndianRupee(freightCharges)}
+                          {formatToIndianRupee(po?.freight_charges)}
                         </td>
                       </tr>
                     ) : (
@@ -495,12 +492,12 @@ export const POPdf : React.FC<POPdfProps> = ({
                     </tr>
                     <tr className="end-of-page page-break-inside-avoid">
                       <td colSpan={6}>
-                        {notes !== "" && (
+                        {po?.notes !== "" && (
                           <>
                             <div className="text-gray-600 font-bold text-sm py-2">
                               Note
                             </div>
-                            <div className="text-sm text-gray-900">{notes}</div>
+                            <div className="text-sm text-gray-900">{po?.notes}</div>
                           </>
                         )}
                         {advance ||
