@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useFrappeGetCall,
@@ -21,7 +22,7 @@ import {
   useFrappeGetDocList,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
-import { ListChecks, ListRestart } from "lucide-react";
+import { ListChecks, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
@@ -32,7 +33,7 @@ const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
-const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
+const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
     const vendorGstSchema = isTaxGSTType
         ? z
             .string({
@@ -40,6 +41,13 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
             })
             .regex(GST_REGEX, {
               message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
+            }).refine((value) => {
+              if (value && existingVendors?.some((vendor) => vendor.vendor_gst === value)) {
+                return false;
+              }
+              return true;
+            }, {
+              message: "Vendor with this GST already exists.",
             })
         : z
             .string({
@@ -47,9 +55,27 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
             })
             .regex(PAN_REGEX, {
               message: "Invalid PAN format. Example: ABCDE1234F",
+            }).refine((value) => {
+              if (value && existingVendors?.some((vendor) => vendor.vendor_gst === value)) {
+                return false;
+              }
+              return true;
+            }, {
+              message: "Vendor with this PAN already exists.",
             });
   
     const finalVendorGstSchema = service ? vendorGstSchema.optional() : vendorGstSchema;
+
+    let accountNumberSchema = z.string().optional();
+      let confirmAccountNumberSchema = accountNumber ? (confirmAccountNumber !== accountNumber ? z.string(
+          {
+              required_error: "Confirm account number is required",
+          }
+      ).refine((value) => value === accountNumber, {
+          message: "Account numbers do not match.",
+          // path: ["confirm_account_number"],
+      }) : z.string().optional()) : z.string().optional();
+
     return z.object({
         vendor_contact_person_name: z
             .string()
@@ -92,7 +118,17 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
                 required_error: "Must provide pincode"
             })
             .max(6, { message: "Pincode must be of 6 digits" })
-            .min(6, { message: "Pincode must be of 6 digits" }),
+            .min(6, { message: "Pincode must be of 6 digits" }).refine((pin) => {
+              if (!pin || pin.length !== 6) {
+                return true;
+              }
+              if (pincode_data) {
+                return true;
+              }
+              return false;
+            }, {
+              message: "Invalid Pincode",
+            }),
         vendor_email: z
             .string()
             .email()
@@ -115,14 +151,26 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean) => {
         //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
         //     }),
         vendor_gst: finalVendorGstSchema,
-        account_number: z.string().optional(),
+        account_number: accountNumberSchema,
+        confirm_account_number:confirmAccountNumberSchema,
         account_name: z.string().optional(),
         ifsc: z
                 .string()
                 .regex(IFSC_REGEX, {
                   message: "Invalid IFSC code. Example: SBIN0005943"
                 })
-                .optional(),
+                .optional().refine((ifsc) => {
+                  if (!ifsc || ifsc.length !== 11) {
+                    return true;
+                  }
+            
+                  if (bank_details && !bank_details.message.error) {
+                    return true;
+                  }
+                  return false;
+                }, {
+                  message: "IFSC Code Not Found",
+                }),
     })
 };
 
@@ -133,21 +181,14 @@ interface SelectOption {
   value: string;
 }
 
-export const EditVendor = ({ toggleEditSheet }) => {
+export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEditSheet }) => {
 
   const { vendorId: id } = useParams<{ vendorId: string }>();
-  const { data, mutate: vendorMutate } = useFrappeGetDoc(
-    "Vendors",
-    `${id}`,
-    `Vendors ${id}`
-  );
+  const { data, mutate: vendorMutate } = useFrappeGetDoc("Vendors",id,`Vendors ${id}`);
+  const { updateDoc, loading } = useFrappeUpdateDoc();
+  const { toast } = useToast();
 
-  const {
-    data: vendorAddress,
-    mutate: addressMutate,
-  } = useFrappeGetDoc(
-    "Address",
-    data?.vendor_address,
+  const { data: vendorAddress, mutate: addressMutate } = useFrappeGetDoc("Address", data?.vendor_address,
     `Address ${data?.vendor_address}`,
     {
       revalidateIfStale: false,
@@ -156,30 +197,53 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const [vendorChange, setVendorChange] = useState(false)
   const [taxationType, setTaxationType] = useState<string | null>("GST")
-
-  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, taxationType === "GST");
-
-  const form = useForm<VendorFormValues>({
-    resolver: zodResolver(VendorFormSchema),
-    defaultValues: {
-      vendor_contact_person_name: data?.vendor_contact_person_name,
-      vendor_name: data?.vendor_name,
-      address_line_1: vendorAddress?.address_line1,
-      address_line_2: vendorAddress?.address_line2,
-      pin: vendorAddress?.pincode,
-      vendor_email: data?.vendor_email,
-      vendor_mobile: data?.vendor_mobile,
-      vendor_gst: data?.vendor_gst,
-      account_number: data?.account_number,
-      account_name: data?.account_name,
-      ifsc: data?.ifsc,
-    },
-    mode: "onBlur",
-  });
-
   const [bankAndBranch, setBankAndBranch] = useState({
     bank: "",
     branch: "",
+  });
+
+  const [city, setCity] = useState(vendorAddress?.city || "");
+  const [state, setState] = useState(vendorAddress?.state || "");
+
+  const [accountNumber, setAccountNumber] = useState<string>("");
+  const [confirmAccountNumber, setConfirmAccountNumber] = useState<string>("");
+
+  const [pincode, setPincode] = useState("");
+
+  const { data: pincode_data } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`);
+  const[IFSC, setIFSC] = useState(data?.ifsc || "");
+  
+  const { data: bank_details } = useFrappeGetCall("nirmaan_stack.api.bank_details.generate_bank_details",
+      { ifsc_code:  IFSC},
+      IFSC && IFSC?.length === 11 ? undefined : null
+    );
+  
+  const { data: existingVendors } = useFrappeGetDocList<Vendors>("Vendors", { 
+    fields: ["vendor_gst"], 
+    filters: [["name", "!=", id]],
+    limit: 10000 }, "Vendors");
+
+  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, taxationType === "GST", accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data);
+
+  const form = useForm<VendorFormValues>({
+    resolver: zodResolver(VendorFormSchema),
+    // defaultValues: {
+    //   vendor_contact_person_name: data?.vendor_contact_person_name,
+    //   vendor_name: data?.vendor_name,
+    //   address_line_1: vendorAddress?.address_line1,
+    //   address_line_2: vendorAddress?.address_line2,
+    //   pin: vendorAddress?.pincode,
+    //   vendor_email: data?.vendor_email,
+    //   vendor_mobile: data?.vendor_mobile,
+    //   vendor_gst: data?.vendor_gst,
+    //   account_number: data?.account_number,
+    //   confirm_account_number: data?.confirm_account_number,
+    //   account_name: data?.account_name,
+    //   ifsc: data?.ifsc,
+    // },
+    defaultValues: {},
+    mode: 'all',
+    reValidateMode: 'onChange',
   });
 
   useEffect(() => {
@@ -194,6 +258,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
         vendor_mobile: data?.vendor_mobile,
         vendor_gst: data?.vendor_gst,
         account_number: data?.account_number,
+        confirm_account_number: data?.account_number,
         account_name: data?.account_name,
         ifsc: data?.ifsc,
       });
@@ -202,6 +267,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
         bank: data?.bank_name,
         branch: data?.bank_branch,
       });
+
+      setAccountNumber(data?.account_number);
+      setConfirmAccountNumber(data?.account_number);
 
       setPincode(vendorAddress?.pincode);
       if(data?.vendor_gst) {
@@ -214,13 +282,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
     fields: ["*"],
     filters: [["work_package", "!=", "Services"]],
     limit: 10000,
-  });
-
-  const [city, setCity] = useState(vendorAddress?.city || "");
-  const [state, setState] = useState(vendorAddress?.state || "");
-
-  const { updateDoc, loading } = useFrappeUpdateDoc();
-  const { toast } = useToast();
+  }, "Service Categories");
 
   const category_options: SelectOption[] = useMemo(
     () => category_list?.map((item) => ({
@@ -238,15 +300,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   const [categories, setCategories] = useState(default_options || []);
 
-  const handleChange = (selectedOptions: SelectOption[]) => {
+  const handleChange = useCallback((selectedOptions: SelectOption[]) => {
     setCategories(selectedOptions);
-  };
-
-  const [pincode, setPincode] = useState("");
-
-  const {
-    data: pincode_data,
-  } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`);
+  }, [setCategories]);
 
   const debouncedFetch = useCallback((value: string) => {
     if (value.length >= 6) {
@@ -258,26 +314,18 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   useEffect(() => {
     if (pincode.length >= 6 && !pincode_data) {
-      setCity("Not Found");
-      setState("Not Found");
+      setCity("");
+      setState("");
     } else {
       setCity(pincode_data?.city || "");
       setState(pincode_data?.state || "");
     }
   }, [pincode_data]);
 
-  const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePincodeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
     debouncedFetch(value);
-  };
-
-  const IFSC = form.watch("ifsc")
-  
-  const { data: bank_details } = useFrappeGetCall(
-      "nirmaan_stack.api.bank_details.generate_bank_details",
-      { ifsc_code:  IFSC},
-      IFSC && IFSC?.length === 11 ? undefined : null
-    );
+  }, [debouncedFetch]);
 
   useEffect(() => {
       if (bank_details && !bank_details.message.error) {
@@ -287,13 +335,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
           });
           return;
           }
-      if (bank_details && bank_details.message.error) {
-          form.setError("ifsc", 
-              {
-              type: "manual",
-              message: "IFSC Code Not Found"
-          }); 
-      }
       setBankAndBranch({
         bank: "",
         branch: "",
@@ -311,12 +352,6 @@ export const EditVendor = ({ toggleEditSheet }) => {
     }
 
     try {
-      if (city === "Not Found" || state === "Not Found") {
-        throw new Error(
-          'City and State are "Note Found", Please Enter a Valid Pincode'
-        );
-      }
-
       await updateDoc("Address", `${data?.vendor_address}`, {
         email_id: values.vendor_email,
         phone: values.vendor_mobile,
@@ -341,7 +376,7 @@ export const EditVendor = ({ toggleEditSheet }) => {
         account_name: values.account_name,
         bank_name: bankAndBranch.bank,
         bank_branch: bankAndBranch.branch,
-        ifsc: values.ifsc && bank_details && bank_details.message.error ? null : values.ifsc,
+        ifsc: values.ifsc,
       });
 
       await vendorMutate();
@@ -367,20 +402,16 @@ export const EditVendor = ({ toggleEditSheet }) => {
 
   return (
     <div className="flex-1 space-y-4">
-      {/* <div className="space-y-0.5">
-                <div className="flex space-x-2 items-center ml-6">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} />
-                    <h2 className="text-2xl font-bold tracking-tight">Edit: <span className="text-red-700">{id}</span></h2>
-                </div>
-            </div>
-            <Separator className="my-6 max-md:my-2" /> */}
             {data?.vendor_type !== "Material & Service" && (
               <>
             <div className="flex flex-col mt-2 px-6 max-md:px-2 space-y-2">
               <label className="block text-sm font-medium text-gray-700">Vendor_Type<sup className="text-sm text-red-600">*</sup></label>
               <div className="flex items-center space-x-2">
                 <Label htmlFor="vendorType">Change to <span className="text-primary italic text-lg">Material & Service</span> type?</Label>
-                <Switch value={vendorChange} onCheckedChange={(e) => setVendorChange(e)} id="vendorType" />
+                <Switch value={vendorChange} onCheckedChange={(e) => {
+                  setVendorChange(e)
+                  form.trigger("vendor_gst")
+                }} id="vendorType" />
               </div>
             </div>
             <Separator className="my-6 max-md:my-2" />
@@ -403,7 +434,10 @@ export const EditVendor = ({ toggleEditSheet }) => {
                   Vendor Name<sup className="text-sm text-red-600">*</sup>
                 </FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input id="vendorShopName" placeholder="enter shop name..." {...field}
+                      value={field.value || ""}
+                      onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                    />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -447,7 +481,10 @@ export const EditVendor = ({ toggleEditSheet }) => {
               <FormItem>
                 <FormLabel>Vendor {taxationType === "GST" ? "GST" : "PAN"} {vendorChange ? <sup className="text-sm text-red-600">*</sup> : ["Material", "Material & Service"].includes(data?.vendor_type) && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                 <FormControl>
-                  <Input {...field} value={field.value || ""} />
+                  <Input placeholder={taxationType === "GST" ? "enter gst..." : "enter pan..."}
+                   {...field}
+                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                   />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -462,7 +499,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
                   Address Line 1<sup className="text-sm text-red-600">*</sup>
                 </FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input placeholder="Building name, floor" {...field}
+                       onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                    />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -477,7 +516,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
                   Address Line 2<sup className="text-sm text-red-600">*</sup>
                 </FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input placeholder="Street name, area, landmark" {...field}
+                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                     />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -510,10 +551,11 @@ export const EditVendor = ({ toggleEditSheet }) => {
                 <FormControl>
                   <Input
                     type="number"
+                    placeholder="6 digit PIN"
                     {...field}
                     onChange={(e) => {
-                      field.onChange(e);
                       handlePincodeChange(e);
+                      field.onChange(e.target.value === "" ? undefined : e)
                     }}
                   />
                 </FormControl>
@@ -528,7 +570,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
               <FormItem>
                 <FormLabel>Phone</FormLabel>
                 <FormControl>
-                  <Input type="number" {...field} value={field.value || ""} />
+                  <Input type="number" placeholder="Contact No" {...field}
+                       onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                    />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -541,7 +585,9 @@ export const EditVendor = ({ toggleEditSheet }) => {
               <FormItem>
                 <FormLabel>Email</FormLabel>
                 <FormControl>
-                  <Input {...field} value={field.value || ""} />
+                  <Input placeholder="Enter Email ID" {...field}
+                  onChange={(e) => field.onChange(e.target.value === "" ? undefined : e)} 
+                   />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -559,25 +605,63 @@ export const EditVendor = ({ toggleEditSheet }) => {
                                         <FormItem>
                                             <FormLabel>Account Name</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Enter Account Name" {...field} />
+                                                <Input 
+                                                    placeholder="Enter Account Name" 
+                                                    {...field}
+                                                    autoComplete="new-password" 
+                                                    autoCorrect="off"
+
+                                                 />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
                                     )}
                                 />
                                 <FormField
-                                    control={form.control}
-                                    name="account_number"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Account Number</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="Enter Account Number" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                                                    control={form.control}
+                                                                    name="account_number"
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <FormLabel>Account Number</FormLabel>
+                                                                            <FormControl>
+                                                                                <Input
+                                                                                  placeholder="Enter Account Number"
+                                                                                  {...field}
+                                                                                  type="password"
+                                                                                  autoComplete="new-password" 
+                                                                                  autoCorrect="off"
+                                                                                  onChange={(e) => {
+                                                                                    setAccountNumber(e.target.value);
+                                                                                    field.onChange(e.target.value === "" ? undefined : e);
+                                                                                    form.trigger("confirm_account_number")
+                                                                                  }}
+                                                                                />
+                                                                            </FormControl>
+                                                                            <FormMessage />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                                <FormField
+                                                                  control={form.control}
+                                                                  name="confirm_account_number"
+                                                                  render={({ field }) => (
+                                                                    <FormItem>
+                                                                      <FormLabel>Confirm Account Number</FormLabel>
+                                                                      <FormControl>
+                                                                        <Input placeholder="Confirm Account Number" 
+                                                                        {...field} 
+                                                                        autoComplete="new-password" 
+                                                                        autoCorrect="off"
+                                                                        onChange={(e) => {
+                                                                          setConfirmAccountNumber(e.target.value);
+                                                                          field.onChange(e.target.value === "" ? undefined : e);
+                                                                        }}
+                                                                        />
+                                                                      </FormControl>
+                                                                      <FormMessage />
+                                                                    </FormItem>
+                                                                  )}
+                                                                />
                                 <FormField
                                     control={form.control}
                                     name="ifsc"
@@ -585,9 +669,15 @@ export const EditVendor = ({ toggleEditSheet }) => {
                                         <FormItem>
                                             <FormLabel>IFSC Code</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="Enter IFSC Code" {...field} value={field.value || ""} />
+                                                <Input placeholder="Enter IFSC Code" {...field} value={field.value || ""} 
+                                                onChange={(e) => {
+                                                  const value = e.target.value.toUpperCase()
+                                                  setIFSC(value)
+                                                  field.onChange(value === "" ? undefined :  value)
+                                                }}
+                                                />
                                             </FormControl>
-                                            {(bank_details && bank_details.message.error) ? <FormMessage>IFSC Code Not Found</FormMessage> : <FormMessage />}
+                                            <FormMessage />
                                         </FormItem>
                                     )}
                                 />
@@ -631,13 +721,10 @@ export const EditVendor = ({ toggleEditSheet }) => {
               type="button"
               variant="secondary"
               className="flex items-center gap-1"
-              onClick={() => {
-                form.reset();
-                form.clearErrors();
-              }}
+              onClick={toggleEditSheet}
             >
-              <ListRestart className="h-4 w-4" />
-              Reset
+              <X className="h-4 w-4" />
+              Cancel
             </Button>
             <Button
               type="submit"

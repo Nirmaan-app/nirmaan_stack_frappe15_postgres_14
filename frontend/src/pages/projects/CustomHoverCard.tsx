@@ -41,11 +41,11 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
             );
 
             return {
-              title: `${category}: ₹${parseFloat(
-                totalAmountWithTax
-              ).toLocaleString()} (Base: ₹${parseFloat(
-                totalAmount
-              ).toLocaleString()})`,
+              title: `${category}: ${
+                formatToIndianRupee(totalAmountWithTax)
+              } (Base: ${
+                formatToIndianRupee(totalAmount)
+              })`,
               key: `${workPackage}-${category}`,
               children: items.map((item, index) => ({
                 title: `${item.item_name} - Qty: ${item.quantity}`,
@@ -56,9 +56,9 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
         );
 
         return {
-          title: `${workPackage} - Total: ₹${parseFloat(
-            workPackageTotalAmounts[workPackage]?.amountWithoutTax
-          ).toLocaleString()}`,
+          title: `${workPackage} - Total: ${
+            formatToIndianRupee(workPackageTotalAmounts[workPackage]?.amountWithoutTax)
+          }`,
           key: workPackage,
           children: categoryNodes,
         };
@@ -67,9 +67,9 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
     // Add service requests total as a standalone item
     if (totalServiceOrdersAmt) {
       treeData?.push({
-        title: `Service Requests Total: ₹${parseFloat(
-          totalServiceOrdersAmt
-        ).toLocaleString()}`,
+        title: `Service Requests Total: ${
+          formatToIndianRupee(totalServiceOrdersAmt)
+        }`,
         key: "service-requests-total",
       });
     }

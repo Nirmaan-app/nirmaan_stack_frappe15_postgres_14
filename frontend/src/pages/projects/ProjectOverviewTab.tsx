@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/card";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -33,7 +32,7 @@ import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe
 import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 interface ProjectOverviewTabProps {
   projectData: any;
@@ -58,6 +57,12 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
 
     const [selectedUser, setSelectedUser] = useState<string | undefined>();
     const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
+
+
+    const [assignUserDialog, setAssignUserDialog] = useState(false);
+    const toggleAssignUserDialog = useCallback(() => {
+      setAssignUserDialog((prevState) => !prevState);
+    }, [assignUserDialog]);
 
     // Accordion state
     const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
@@ -91,7 +96,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
       } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
-      });
+      }, "Nirmaan Users");
     
       // Grouping functionality
     const groupedAssignees : {[key: string]: string[]} = useMemo(() => {
@@ -169,7 +174,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
             });
             await projectAssigneesMutate();
             await usersListMutate();
-            document.getElementById("assignUserDialogClose")?.click();
+            toggleAssignUserDialog();
             toast({
               title: "Success!",
               description: `Successfully assigned ${getUserFullName(selectedUser)}.`,
@@ -194,7 +199,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
         }
 
     return (
-       <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4">
                   <Card>
                     <CardHeader>
                       <CardTitle>
@@ -232,7 +237,10 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
                           <CardDescription className="space-y-2 max-md:text-end">
                             <span>Customer</span>
                             <p className="font-bold text-black">
-                              {projectCustomer?.company_name || "--"}
+                              {projectCustomer?.company_name ? (
+                                <Link className="text-blue-500 underline" to={`/customers/${projectCustomer?.name}`}>{projectCustomer?.company_name}</Link>
+                              ) : "--"}
+
                             </p>
                           </CardDescription>
                           <CardDescription className="space-y-2 md:text-center">
@@ -334,8 +342,8 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
                     <CardHeader>
                       <CardTitle className="flex items-center justify-between">
                         Assignees
-                        {role === "Nirmaan Admin Profile" && (
-                          <Dialog>
+                        {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                          <Dialog open={assignUserDialog} onOpenChange={toggleAssignUserDialog}>
                             <DialogTrigger asChild>
                               <Button asChild>
                                 <div className="cursor-pointer">
@@ -393,12 +401,6 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
                                 <ListChecks className="mr-2 h-4 w-4" />
                                 {createDocLoading ? "Submitting..." : "Submit"}
                               </Button>
-                              <DialogClose
-                                className="hidden"
-                                id="assignUserDialogClose"
-                              >
-                                close
-                              </DialogClose>
                             </DialogContent>
                           </Dialog>
                         )}

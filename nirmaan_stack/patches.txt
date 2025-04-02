@@ -31,3 +31,6 @@ nirmaan_stack.patches.v2_1.project_payments_amount
 nirmaan_stack.patches.v2_1.project_gst_patch_sr
 nirmaan_stack.patches.v2_2.rfq_data_field_fill
 nirmaan_stack.patches.v2_2.pr_status_update_patch
+nirmaan_stack.patches.v2_3.po_delivery_data_patch
+nirmaan_stack.patches.v2_3.delivery_note_attachments_migration
+nirmaan_stack.patches.v2_3.approved_quotations_patch

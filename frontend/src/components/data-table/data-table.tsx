@@ -21,7 +21,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { NewInflowPayment } from "@/pages/projects/NewInflowPayment";
 import { formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
@@ -86,16 +85,11 @@ export function DataTable<TData, TValue>({
   vendorData = undefined,
   inFlowButton = false,
 }: DataTableProps<TData, TValue>) {
-  const [sorting, setSorting] = React.useState<SortingState>([
-
-  ]);
+  const [sorting, setSorting] = React.useState<SortingState>([]);
 
   const [searchParams] = useSearchParams();
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    []
-  );
-  const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>({ type: false, });
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ type: false, });
 
   const [rowSelection, setRowSelection] = React.useState({});
 
@@ -147,7 +141,7 @@ export function DataTable<TData, TValue>({
     setGlobalFilter(initialSearch);
   }, []);
 
-  const updateURL = (key: string, value: string) => {
+  const updateURL = React.useCallback((key: string, value: string) => {
     const url = new URL(window.location.href);
     if (value) {
       url.searchParams.set(key, value);
@@ -155,7 +149,7 @@ export function DataTable<TData, TValue>({
       url.searchParams.delete(key);
     }
     window.history.pushState({}, "", url);
-  };
+  }, []);
 
   const handleGlobalFilterChange = React.useCallback(
     debounce((value: string) => {
@@ -167,7 +161,7 @@ export function DataTable<TData, TValue>({
     []
   );
 
-  const customGlobalFilter = (row, columnId, filterValue) => {
+  const customGlobalFilter = React.useCallback((row: any, columnId: string, filterValue: string) => {
     const name = row.getValue("name");
     const vendorName = row.getValue("vendor_name");
     const orderList = row.getValue("order_list");
@@ -176,17 +170,17 @@ export function DataTable<TData, TValue>({
       }`.toLowerCase();
 
     return combinedString.includes(filterValue.toLowerCase());
-  };
+  }, []);
 
-  const handlePageChange = (newPageIndex: number) => {
-    setPageIndex(newPageIndex);
+  const handlePageChange = React.useCallback((newPageIndex: string) => {
+    setPageIndex(parseInt(newPageIndex));
     updateURL("pageIdx", newPageIndex);
-  };
+  }, [pageIndex, updateURL]);
 
-  const handlePageSizeChange = (newPageSize: number) => {
-    setPageSize(newPageSize);
+  const handlePageSizeChange = React.useCallback((newPageSize: string) => {
+    setPageSize(parseInt(newPageSize));
     updateURL("rows", newPageSize);
-  };
+  }, [pageSize, updateURL]);
 
   const { setSelectedData, selectedData } = useFrappeDataStore()
 
@@ -231,9 +225,9 @@ export function DataTable<TData, TValue>({
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
 
-  const toggleDialog = () => {
+  const toggleDialog = React.useCallback(() => {
     setDialogOpen((prevState) => !prevState);
-  };
+  }, [dialogOpen]);
   const [debitAccountNumber, setDebitAccountNumber] = React.useState("093705003327")
 
   const [paymentMode, setPaymentMode] = React.useState("IMPS")
@@ -308,7 +302,7 @@ export function DataTable<TData, TValue>({
             <Button onClick={toggleNewInflowDialog}>Add New Entry</Button>
           )}
 
-          {inFlowButton && <NewInflowPayment />}
+          {/* {inFlowButton && <NewInflowPayment />} */}
 
           {isExport && (
             <Button onClick={toggleDialog} disabled={!selectedData?.length} variant={"outline"} className="flex items-center gap-1 h-8 px-2 border-primary text-primary">

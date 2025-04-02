@@ -49,7 +49,7 @@ export const ToolandEquipementAccordion : React.FC<ToolandEquipementAccordionPro
                       <div className="flex space-x-4 text-sm text-gray-600">
                         <span className="font-semibold">{category}:</span>
                         <span>
-                          Total Amount: ₹{totalAmount.toLocaleString()}
+                          Total Amount: {formatToIndianRupee(totalAmount)}
                         </span>
                         {/* <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span> */}
                       </div>
@@ -139,7 +139,7 @@ export const ToolandEquipementAccordion : React.FC<ToolandEquipementAccordionPro
                                   {estimateItem?.quantity_estimate || "--"}
                                 </TableCell>
                                 <TableCell className="px-4 py-2">
-                                  ₹{parseFloat(item.amount).toLocaleString()}
+                                  {formatToIndianRupee(item.amount)}
                                 </TableCell>
                                 <TableCell className="px-4 py-2">
                                   {formatToIndianRupee(

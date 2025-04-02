@@ -1,11 +1,14 @@
 import { useUserData } from "@/hooks/useUserData";
+import DeliveryHistoryTable from '@/pages/DeliveryNotes/DeliveryHistory';
+import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/deliveryNoteItemsDisplay";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, Undo2 } from "lucide-react";
+import { useDialogStore } from "@/zustand/useDialogStore";
+import { useFrappeGetDoc, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, TriangleAlert, Undo2 } from "lucide-react";
 import React, { useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
@@ -34,7 +37,9 @@ import { Label } from "./label";
 import { Separator } from "./separator";
 import {
   Sheet,
-  SheetContent
+  SheetContent,
+  SheetHeader,
+  SheetTitle
 } from "./sheet";
 import { Textarea } from "./textarea";
 import { toast } from "./use-toast";
@@ -52,13 +57,13 @@ interface PODetailsProps {
     totalAmt: number
   }
   amountPaid: number
-  pr: ProcurementRequest
   poMutate: any
+  toggleRequestPaymentDialog: () => void
 }
 
 export const PODetails : React.FC<PODetailsProps> = (
   {po, summaryPage, accountsPage, estimatesViewing, poPayments, togglePoPdfSheet,
-    getTotal, amountPaid, poMutate, pr
+    getTotal, amountPaid, poMutate, toggleRequestPaymentDialog
   }) => {
 
     const {role} = useUserData();
@@ -66,6 +71,8 @@ export const PODetails : React.FC<PODetailsProps> = (
     const { updateDoc, loading : update_loading } = useFrappeUpdateDoc();
     const {call : deleteCustomPOCall, loading : deleteCustomPOCallLoading} = useFrappePostCall("nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po");
     const navigate = useNavigate();
+
+    const { data: pr } = useFrappeGetDoc<ProcurementRequest>("Procurement Requests", po?.procurement_request, po ? undefined : null);
 
     const [contactPerson, setContactPerson] = useState({
         name: "",
@@ -78,6 +85,13 @@ export const PODetails : React.FC<PODetailsProps> = (
     const [emailBody, setEmailBody] = useState("");
     const [phoneError, setPhoneError] = useState("");
     const [emailError, setEmailError] = useState("");
+
+    const {toggleNewInvoiceDialog} = useDialogStore()
+
+    const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false)
+    const toggleDeliveryNoteSheet = useCallback(() => {
+      setDeliveryNoteSheet((prevState) => !prevState);
+    }, [deliveryNoteSheet]);
 
     const [dispatchPODialog, setDispatchPODialog] = useState(false);
     const toggleDispatchPODialog = useCallback(() => {
@@ -208,7 +222,11 @@ export const PODetails : React.FC<PODetailsProps> = (
             <CardHeader>
               <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                 <div>
-                  <h2>{po?.custom === "true" && "Custom"} PO Details</h2>
+                  <h2>{po?.custom === "true" && "Custom"} PO Details
+                  {!po?.project_gst && (
+                    <TriangleAlert className="inline ml-2 text-primary max-sm:w-4 max-sm:h-4" />
+                  )}
+                  </h2>
                   <Badge
                     variant={
                       po?.status === "PO Approved"
@@ -218,19 +236,40 @@ export const PODetails : React.FC<PODetailsProps> = (
                         : "green"
                     }
                   >
-                    {po?.status === "Partially Delivered"
-                      ? "Delivered"
-                      : po?.status}
+                    {po?.status}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2">
+
+                    {!accountsPage && !estimatesViewing && !summaryPage && (
+                        <Button
+                        variant="outline"
+                        className="text-primary border-primary text-xs px-2"
+                        onClick={toggleRequestPaymentDialog}
+                      >
+                        Request Payment
+                      </Button>
+                    )}
+
+                  {!accountsPage && !estimatesViewing && !summaryPage && po?.status !== "PO Approved" && (
+                      <>
+                        <Button
+                        variant="outline"
+                        className="text-primary border-primary text-xs px-2"
+                        onClick={toggleNewInvoiceDialog}
+                      >
+                        Add Invoice
+                      </Button>
+                      </>
+                    )}
+
                   {!summaryPage &&
                     !accountsPage &&
                     !estimatesViewing &&
                     po?.status === "Dispatched" &&
                     !((poPayments || [])?.length > 0) && (
                       <Button
-                      variant="outline"
+                        variant="outline"
                         onClick={toggleRevertDialog}
                         className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                       >
@@ -238,12 +277,40 @@ export const PODetails : React.FC<PODetailsProps> = (
                         Revert
                       </Button>
                     )}
+
+                  {
+                    ["Dispatched", "Partially Delivered"].includes(po?.status) && (
+                      <Button
+                      onClick={toggleDeliveryNoteSheet}
+                      variant="outline"
+                      className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
+                      >
+                        Update DN
+                      </Button>
+                    )
+                  }
+
+                  <Sheet open={deliveryNoteSheet} onOpenChange={toggleDeliveryNoteSheet}>
+                    <SheetContent className="overflow-auto">
+                        <SheetHeader className="text-start mb-4">
+                          <SheetTitle className="text-primary">Update Delivery Note</SheetTitle>
+                        </SheetHeader>
+                        <div className="space-y-4">
+                          <DeliveryNoteItemsDisplay data={po} poMutate={poMutate}
+                          toggleDeliveryNoteSheet={toggleDeliveryNoteSheet} />
+
+                          <DeliveryHistoryTable deliveryData={po?.delivery_data?.data || null} />
+
+                        </div>
+                    </SheetContent>
+                  </Sheet>
                   {((po?.status !== "PO Approved" ||
                     summaryPage ||
                     accountsPage ||
-                    estimatesViewing) || (role != "Nirmaan Procurement Executive Profile" && po?.project_gst)) && (
+                    estimatesViewing) || (role != "Nirmaan Procurement Executive Profile")) && (
                     <Button
                       variant="outline"
+                      disabled={!po?.project_gst}
                       onClick={togglePoPdfSheet}
                       className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                     >
@@ -264,7 +331,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                         <Trash2Icon className="w-4 h-4" />
                         Delete
                       </Button>
-                    )}
+                )}
 
                 <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
                   <DialogContent>
@@ -312,7 +379,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                               <span className="text-primary">
                                 Edit Payment Terms Dialog
                               </span>{" "}
-                              in order to enable Dispatch button!
+                              in order to enable the button!
                             </HoverCardContent>
                           </HoverCard>
                     ) : (
@@ -746,6 +813,6 @@ export const PODetails : React.FC<PODetailsProps> = (
                 </div>
               </div>
             </CardContent>
-          </Card>
+    </Card>
   )
 }

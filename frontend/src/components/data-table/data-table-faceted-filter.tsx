@@ -1,7 +1,3 @@
-import * as React from "react";
-import { CheckIcon } from "@radix-ui/react-icons";
-import { Column } from "@tanstack/react-table";
-import { cn } from "@/lib/utils";
 import {
     Command,
     CommandEmpty,
@@ -12,10 +8,11 @@ import {
     CommandSeparator,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { cn } from "@/lib/utils";
+import { CheckIcon } from "@radix-ui/react-icons";
+import { Column } from "@tanstack/react-table";
 import { Filter, FilterX } from "lucide-react";
-import { useFilterStore } from "@/zustand/useFilterStore";
-import { useSearchParams } from "react-router-dom";
+import * as React from "react";
 
 interface DataTableFacetedFilterProps<TData, TValue> {
     column?: Column<TData, TValue>;
@@ -131,7 +128,7 @@ export function DataTableFacetedFilter<TData, TValue>({
         }
     }, [title, column]);
 
-    const updateURL = (key: string, value: string[] | undefined) => {
+    const updateURL = React.useCallback((key: string, value: string[] | undefined) => {
         const url = new URL(window.location.href);
         if (value && value.length) {
             url.searchParams.set(key, value.join(","));
@@ -139,9 +136,9 @@ export function DataTableFacetedFilter<TData, TValue>({
             url.searchParams.delete(key);
         }
         window.history.pushState({}, "", url);
-    };
+    }, []);
 
-    const handleSelect = (option: { value: string }) => {
+    const handleSelect = React.useCallback((option: { value: string }) => {
         const newSelectedValues = new Set(selectedValues);
 
         if (newSelectedValues.has(option.value)) {
@@ -156,15 +153,15 @@ export function DataTableFacetedFilter<TData, TValue>({
 
         // Update URL parameters
         updateURL(title, filterValues.length ? filterValues : undefined);
-    };
+    }, [updateURL, column, title, selectedValues]);
 
-    const clearFilters = () => {
+    const clearFilters = React.useCallback(() => {
         setSelectedValues(new Set());
         column?.setFilterValue(undefined);
 
         // Clear filter from URL parameters
         updateURL(title, undefined);
-    };
+    }, [updateURL, column, title, selectedValues]);
 
 
     return (

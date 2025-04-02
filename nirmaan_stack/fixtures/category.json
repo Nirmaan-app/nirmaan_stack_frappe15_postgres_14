@@ -1,27 +1,5 @@
 [
  {
-  "category_name": "Sprinklers",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/sprinklers.jpeg",
-  "modified": "2024-11-23 14:28:30.836660",
-  "name": "Sprinklers",
-  "new_items": null,
-  "tax": "18",
-  "work_package": "Fire Fighting System"
- },
- {
-  "category_name": "Sprinkler Valves",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/sprinkler-valve.jpg",
-  "modified": "2024-11-23 14:28:30.830720",
-  "name": "Sprinkler Valves",
-  "new_items": null,
-  "tax": "18",
-  "work_package": "Fire Fighting System"
- },
- {
   "category_name": "Terminations",
   "docstatus": 0,
   "doctype": "Category",
@@ -275,12 +253,12 @@
   "work_package": "HVAC System"
  },
  {
-  "category_name": "DX Sysetm",
+  "category_name": "DX System",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/dx.jpg",
   "modified": "2024-11-23 14:28:30.867279",
-  "name": "DX Sysetm",
+  "name": "DX System",
   "new_items": "true",
   "tax": "28",
   "work_package": "HVAC System"
@@ -957,14 +935,14 @@
   "work_package": "WLD & RR"
  },
  {
-  "category_name": "Sprinkler Piping",
+  "category_name": "Miscellaneous Services",
   "docstatus": 0,
   "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-08-19 13:26:09.991438",
-  "name": "Sprinkler Piping",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20Services/misc_services%20(1).png",
+  "modified": "2025-03-26 23:36:53.473120",
+  "name": "Miscellaneous Services",
   "new_items": "true",
   "tax": "18",
-  "work_package": "Fire Fighting System"
+  "work_package": "Services"
  }
 ]

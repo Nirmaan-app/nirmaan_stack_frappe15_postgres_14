@@ -297,7 +297,7 @@ export const ReleasePOSelect : React.FC = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <Badge variant={row.getValue("status") === "PO Approved" ? "default" : row.getValue("status") === "PO Sent" ? "yellow" : row.getValue("status") === "Dispatched" ? "orange" : "green"}>{row.getValue("status") === "Partially Delivered" ? "Delivered" : row.getValue("status")}</Badge>
+                        <Badge variant={row.getValue("status") === "PO Approved" ? "default" : row.getValue("status") === "Dispatched" ? "orange" : "green"}>{row.getValue("status")}</Badge>
                     )
                 }
             },

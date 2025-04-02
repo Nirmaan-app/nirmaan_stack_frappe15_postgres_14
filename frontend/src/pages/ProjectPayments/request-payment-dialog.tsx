@@ -25,7 +25,7 @@ interface RequestPaymentDialogProps {
   amountPending: number;
   totalAmountWithoutGST: number;
   totalPaid: number;
-  po?: ProcurementOrder;
+  po: ProcurementOrder | null;
   sr?: ServiceRequests;
   gst?: any
   isSr?: boolean;

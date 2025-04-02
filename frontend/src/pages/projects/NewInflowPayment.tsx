@@ -1,4 +1,5 @@
 import ProjectSelect from "@/components/custom-select/project-select";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,10 +8,11 @@ import { toast } from "@/components/ui/use-toast";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList } from "frappe-react-sdk";
-import { Paperclip } from "lucide-react";
+import memoize from "lodash/memoize";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 
@@ -36,36 +38,26 @@ export const NewInflowPayment : React.FC = () => {
   const {data : projects, isLoading: projectsLoading} = useFrappeGetDocList<Projects>("Projects", {
     fields: ["name", "project_name", "customer"],
     limit: 1000,
-  })
+  }, "Projects")
 
   const {data : customers, isLoading: customersLoading} = useFrappeGetDocList("Customers", {
     fields: ["company_name", 'name'],
     limit: 1000,
-  })
+  }, "Customers")
 
   const validateProject = useMemo(
-    () => (projectId : string) => {
+    () => memoize((projectId : string) => {
       const project = projects?.find((i) => i?.name === projectId);
       if(!project?.customer) return false;
       return true;
-  }, [projects])
+  }, (projectId : string) => projectId), [projects])
 
   const getAmountReceived = useMemo(
-    () => (projectId : string) => {
-      let total = 0;
-      const filteredPayments = projectInflows?.filter((i) => i?.project === projectId);
-      filteredPayments?.forEach((i) => {
-        total += parseNumber(i?.amount);
-      });
-      return total;
+    () => memoize((projectId : string) => {
+      const filteredPayments = projectInflows?.filter((i) => i?.project === projectId) || [];
+      return getTotalInflowAmount(filteredPayments);
   }
-, [projectInflows])
-
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
-      if(event.target.files && event.target.files.length > 0) {
-          setPaymentScreenshot(event.target.files[0]);
-      }
-  };
+,  (projectId : string) => projectId), [projectInflows])
 
   const AddPayment = useCallback(async () => {
     try {
@@ -115,7 +107,7 @@ export const NewInflowPayment : React.FC = () => {
     <AlertDialog open={newInflowDialog} onOpenChange={toggleNewInflowDialog}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-center">Add New Project Inflow Payment!</AlertDialogTitle>
+          <AlertDialogTitle className="text-center">Add New Inflow Payment!</AlertDialogTitle>
                                   <div className="flex items-center justify-between">
                                       <Label className=" text-red-700">Project:</Label>
                                       <div className="w-[50%]">
@@ -154,11 +146,11 @@ export const NewInflowPayment : React.FC = () => {
                                           />
                                       </div>
                                       <div className="flex gap-4 w-full">
-                                          <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                          <Label className="w-[40%]">Payment Ref<sup className=" text-sm text-red-600">*</sup></Label>
                                           <Input
                                               disabled={!isValid}
                                               type="text"
-                                              placeholder="Enter UTR"
+                                              placeholder="Enter Payment Ref.."
                                               value={newPayment?.utr || ""}
                                               onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
                                           />
@@ -176,36 +168,17 @@ export const NewInflowPayment : React.FC = () => {
                                                />
                                       </div>
                                   </div>
-          
-                                  <div className="flex flex-col gap-2">
-                                      <div role="button" tabIndex={0} className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
-                                          onClick={() => document.getElementById("file-upload")?.click()}
-                                      >
-                                          <Paperclip size="15px" />
-                                          <span className="p-0 text-sm">Attach Screenshot</span>
-                                          <input
-                                              type="file"
-                                              id={`file-upload`}
-                                              className="hidden"
-                                              onChange={handleFileChange}
-                                              disabled={!!paymentScreenshot || !isValid}
-                                          />
-                                      </div>
-                                      {(paymentScreenshot) && (
-                                          <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                                              <span className="text-sm">{paymentScreenshot?.name}</span>
-                                              <button
-                                                  className="ml-1 text-red-500"
-                                                  onClick={() => setPaymentScreenshot(null)}
-                                              >
-                                                  ✖
-                                              </button>
-                                          </div>
-                                      )}
-                                  </div>
+
+                                  <CustomAttachment
+                                      maxFileSize={20 * 1024 * 1024} // 20MB
+                                      selectedFile={paymentScreenshot}
+                                      onFileSelect={setPaymentScreenshot}
+                                      disabled={!isValid}
+                                      className="pt-2"
+                                      label="Attach Screenshot"
+                                  />
           
                                   <div className="flex gap-2 items-center pt-4 justify-center">
-          
                                       {createLoading || uploadLoading ? <TailSpin color="red" width={40} height={40} /> : (
                                           <>
                                               <AlertDialogCancel className="flex-1" asChild>

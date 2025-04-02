@@ -29,7 +29,9 @@
   "notes",
   "tracking_details_section",
   "status",
-  "delivery_contact"
+  "delivery_contact",
+  "delivery_data",
+  "invoice_data"
  ],
  "fields": [
   {
@@ -165,11 +167,21 @@
    "fieldname": "custom",
    "fieldtype": "Data",
    "label": "Custom"
+  },
+  {
+   "fieldname": "delivery_data",
+   "fieldtype": "JSON",
+   "label": "Delivery Data"
+  },
+  {
+   "fieldname": "invoice_data",
+   "fieldtype": "JSON",
+   "label": "Invoice Data"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-03-11 13:45:16.640964",
+ "modified": "2025-03-27 15:33:52.999749",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

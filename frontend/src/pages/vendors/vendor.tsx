@@ -6,6 +6,7 @@
 
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -75,25 +76,19 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
   const [editBankDetails, setEditBankDetails] = useState({
     account_name: "",
     account_number: "", 
+    confirm_account_number: "",
     ifsc: "",
   });
 
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
-    if (!event.target?.files) {
-      return;
-    }
-    setPaymentScreenshot(event.target.files[0]);
-  };
-
   const [currentPayment, setCurrentPayment] = useState(null);
 
   const [screenShotDialog, setScreenShotDialog] = useState(false);
 
-  const toggleScreenShotDialog = () => {
+  const toggleScreenShotDialog = useCallback(() => {
     setScreenShotDialog((prevState) => !prevState);
-  };
+  }, [setScreenShotDialog]);
 
   const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc();
 
@@ -101,24 +96,20 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
   
   const { call, loading: callLoading } = useFrappePostCall('frappe.client.set_value')
 
-  const { data, error, isLoading, mutate } = useFrappeGetDoc(
-    "Vendors",
-    vendorId,
-    `Vendors ${vendorId}`
-  );
+  const { data, error, isLoading, mutate } = useFrappeGetDoc("Vendors", vendorId, `Vendors ${vendorId}`);
 
   useEffect(() => {
     if (data) {
       setEditBankDetails({
         account_name: data?.account_name,
         account_number: data?.account_number,
+        confirm_account_number: data?.account_number,
         ifsc: data?.ifsc
       });
     }
   }, [data]);
 
-  const { data: bank_details } = useFrappeGetCall(
-        "nirmaan_stack.api.bank_details.generate_bank_details",
+  const { data: bank_details } = useFrappeGetCall("nirmaan_stack.api.bank_details.generate_bank_details",
         { ifsc_code:  editBankDetails?.ifsc},
         editBankDetails?.ifsc && editBankDetails?.ifsc?.length === 11 ? undefined : null
       );
@@ -213,14 +204,14 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["name", "project_name"],
     limit: 1000,
-  });
+  }, "Projects");
 
 const projectValues = useMemo(() => projects?.map((item) => ({
   label: item.project_name,
   value: item.name,
 })) || [], [projects]);
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments",
+const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments",
     {
       fields: ["*"],
       filters: [["vendor", "=", vendorId], ["status", "=", "Paid"]],
@@ -320,12 +311,12 @@ const projectValues = useMemo(() => projects?.map((item) => ({
   const [expandedPackages, setExpandedPackages] =
     useState<ExpandedPackagesState>({});
 
-  const toggleExpand = (packageName: string) => {
+  const toggleExpand = useCallback((packageName: string) => {
     setExpandedPackages((prev) => ({
       ...prev,
       [packageName]: !prev[packageName],
     }));
-  };
+  }, [setExpandedPackages]);
 
   const vendorCategories = useMemo(() => (data && data?.vendor_category && JSON.parse(data?.vendor_category)?.categories) || [], [data]);
 
@@ -928,13 +919,30 @@ const AddScreenShot = async () => {
                                 />
                             </div>
                             <div className="flex items-center gap-4 w-full">
-                                <Label className="w-[60%]">Account number<sup className=" text-sm text-red-600">*</sup></Label>
+                                <Label className="w-[60%]">Account number<sup className="text-sm text-red-600">*</sup></Label>
                                 <Input
-                                    type="text"
+                                    type="password"
+                                    autoComplete="new-password" 
+                                    autoCorrect="off"
                                     placeholder="Enter Account number"
                                     value={editBankDetails?.account_number || ""}
                                     onChange={(e) => setEditBankDetails({ ...editBankDetails, account_number: e.target.value })}
                                 />
+                            </div>
+                            <div className="flex items-center gap-4 w-full">
+                                <Label className="w-[60%]">Confirm Account number<sup className="text-sm text-red-600">*</sup></Label>
+                                <div className="flex flex-col gap-1 w-full">
+                                <Input
+                                    autoComplete="new-password" 
+                                    autoCorrect="off"
+                                    placeholder="Confirm Account Number"
+                                    value={editBankDetails?.confirm_account_number || ""}
+                                    onChange={(e) => setEditBankDetails({ ...editBankDetails, confirm_account_number: e.target.value })}
+                                />
+                                {editBankDetails?.account_number !== editBankDetails?.confirm_account_number && (
+                                    <span className="text-red-500 text-xs">Account numbers do not match.</span>
+                                )}
+                                </div>
                             </div>
                             <div className="flex items-center gap-4 w-full">
                                 <Label className="w-[60%]">IFSC<sup className=" text-sm text-red-600">*</sup></Label>
@@ -965,7 +973,7 @@ const AddScreenShot = async () => {
                                         <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                                     </AlertDialogCancel>
                                      <Button
-                                        disabled={ifscError || (bank_details && bank_details.message.error)}
+                                        disabled={!!ifscError || (bank_details && bank_details.message.error) || editBankDetails?.account_number !== editBankDetails?.confirm_account_number}
                                         onClick={handleUpdateVendor}
                                         className="flex-1">
                                             Confirm
@@ -996,32 +1004,13 @@ const AddScreenShot = async () => {
                                 <AlertDialogTitle className="text-center">
                                   Attach Screenshot
                                 </AlertDialogTitle>
-                                <div className="flex flex-col gap-2">
-                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
-                                    onClick={() => document.getElementById("file-upload")?.click()}
-                                    >
-                                        <Paperclip size="15px" />
-                                        <span className="p-0 text-sm">Attach Screenshot</span>
-                                        <input
-                                            type="file"
-                                            id={`file-upload`}
-                                            className="hidden"
-                                            onChange={handleFileChange}
-                                            disabled={paymentScreenshot ? true : false}
-                                        />
-                                    </div>
-                                    {(paymentScreenshot) && (
-                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                                            <span className="text-sm">{paymentScreenshot?.name}</span>
-                                            <button
-                                                className="ml-1 text-red-500"
-                                                onClick={() => setPaymentScreenshot(null)}
-                                            >
-                                                ✖
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
+                                <CustomAttachment 
+                                  maxFileSize={20 * 1024 * 1024} // 20MB
+                                  selectedFile={paymentScreenshot}
+                                  onFileSelect={setPaymentScreenshot}
+                                  className="pt-2"
+                                  label="Attach Screenshot"
+                                />
 
                                 <div className="flex gap-2 items-center pt-4 justify-center">
                                     {(upload_loading || callLoading) ? <TailSpin color="red" width={40} height={40} /> : (

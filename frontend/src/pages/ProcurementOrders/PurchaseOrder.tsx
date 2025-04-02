@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/card";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -35,13 +34,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PODetails } from "@/components/ui/PODetails";
 import { POPdf } from "@/components/ui/POPdf";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetClose,
@@ -59,61 +51,46 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import SITEURL from "@/constants/siteURL";
 import { useUserData } from "@/hooks/useUserData";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts";
-import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
 import {
   useFrappeCreateDoc,
-  useFrappeDeleteDoc,
-  useFrappeFileUpload,
-  useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappePostCall,
-  useFrappeUpdateDoc,
+  useFrappeUpdateDoc
 } from "frappe-react-sdk";
-import { debounce } from "lodash";
 import {
   AlertTriangle,
-  BookCheck,
-  CalendarDays,
   CheckCheck,
   CircleX,
   Eye,
-  HandCoins,
-  Info,
   List,
   ListChecks,
   Merge,
   MessageCircleMore,
   MessageCircleWarning,
-  Paperclip,
   Pencil,
-  PencilIcon,
   PencilRuler,
   Split,
-  SquarePlus,
   Trash2,
-  TriangleAlert,
-  Truck,
   Undo,
   X
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
+import DeliveryHistory from "../DeliveryNotes/DeliveryHistory";
+import { InvoiceDialog } from "./InvoiceDialog";
+import POAttachments from "./POAttachments";
+import POPaymentTermsCard from "./POPaymentTermsCard";
+import TransactionDetailsCard from "./TransactionDetailsCard";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -153,11 +130,7 @@ export const PurchaseOrder = ({
   const [afterDelivery, setAfterDelivery] = useState(0);
   const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0);
   const [xDays, setXDays] = useState(0);
-  const [loadingCharges, setLoadingCharges] = useState(0);
-  const [freightCharges, setFreightCharges] = useState(0);
   const [includeComments, setIncludeComments] = useState(false);
-  const [notes, setNotes] = useState("");
-  const [selectedGST, setSelectedGST] = useState<{gst : string | undefined, location? : string | undefined} | null>(null);
 
   const [mergeablePOs, setMergeablePOs] = useState<ProcurementOrder[]>([]);
   const [mergedItems, setMergedItems] = useState<ProcurementOrder[]>([]);
@@ -194,100 +167,63 @@ export const PurchaseOrder = ({
 
   const [poPdfSheet, setPoPdfSheet] = useState(false);
 
-  const togglePoPdfSheet = () => {
+  const togglePoPdfSheet = useCallback(() => {
     setPoPdfSheet((prevState) => !prevState);
-  };
-
-  const [editPOTermsDialog, setEditPOTermsDialog] = useState(false);
-
-  const toggleEditPOTermsDialog = () => {
-    setEditPOTermsDialog((prevState) => !prevState);
-  };
+  }, [poPdfSheet]);
 
   const [mergeSheet, setMergeSheet] = useState(false);
 
-  const toggleMergeSheet = () => {
+  const toggleMergeSheet = useCallback(() => {
     setMergeSheet((prevState) => !prevState);
-  };
+  }, [mergeSheet]);
 
   const [mergeConfirmDialog, setMergeConfirmDialog] = useState(false);
 
-  const toggleMergeConfirmDialog = () => {
+  const toggleMergeConfirmDialog = useCallback(() => {
     setMergeConfirmDialog((prevState) => !prevState);
-  };
+  }, [mergeConfirmDialog]);
 
   const [amendPOSheet, setAmendPOSheet] = useState(false);
 
-  const toggleAmendPOSheet = () => {
+  const toggleAmendPOSheet = useCallback(() => {
     setAmendPOSheet((prevState) => !prevState);
-  };
+  }, [amendPOSheet]);
 
   const [cancelPODialog, setCancelPODialog] = useState(false);
 
-  const toggleCancelPODialog = () => {
+  const toggleCancelPODialog = useCallback(() => {
     setCancelPODialog((prevState) => !prevState);
-  };
+  }, [cancelPODialog]);
 
   const [unMergeDialog, setUnMergeDialog] = useState(false);
 
-  const toggleUnMergeDialog = () => {
+  const toggleUnMergeDialog = useCallback(() => {
     setUnMergeDialog((prevState) => !prevState);
-  };
+  }, [unMergeDialog]);
 
   const [amendEditItemDialog, setAmendEditItemDialog] = useState(false);
 
-  const toggleAmendEditItemDialog = () => {
+  const toggleAmendEditItemDialog = useCallback(() => {
     setAmendEditItemDialog((prevState) => !prevState);
-  };
+  }, [amendEditItemDialog]);
 
   const [showAddNewMake, setShowAddNewMake] = useState(false);
 
-  const toggleAddNewMake = () => {
+  const toggleAddNewMake = useCallback(() => {
     setShowAddNewMake((prevState) => !prevState);
-  };
-
-  const [newPaymentDialog, setNewPaymentDialog] = useState(false);
-
-  const toggleNewPaymentDialog = () => {
-    setNewPaymentDialog((prevState) => !prevState);
-  };
+  }, [showAddNewMake]);
 
   const { toggleRequestPaymentDialog} = useDialogStore()
 
-  const [warning, setWarning] = useState("");
-
-  const [newPayment, setNewPayment] = useState({
-    amount: "",
-    payment_date: "",
-    utr: "",
-    tds: ""
-  });
-
-  const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
-
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
-    if(event.target.files){
-      setPaymentScreenshot(event.target.files[0]);
-    }
-  };
-
-  const { updateDoc, loading : updateLoading } = useFrappeUpdateDoc();
+  const { updateDoc } = useFrappeUpdateDoc();
 
   const { createDoc } = useFrappeCreateDoc();
-
-  const { deleteDoc } = useFrappeDeleteDoc();
-
-  const { upload: upload } = useFrappeFileUpload();
-
-  const { call } = useFrappePostCall("frappe.client.set_value");
 
   const {call : cancelPOCall, loading : cancelPOCallLoading} = useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
 
   const {call : mergePOCall, loading : mergePOCallLoading} = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos");
 
   const {call : unMergePOCall, loading : unMergePOCallLoading} = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos");
-
-  const [deleteFlagged, setDeleteFlagged] = useState<ProjectPayments | null>(null);
 
   const [PO, setPO] = useState<ProcurementOrder | null>(null)
 
@@ -304,42 +240,17 @@ export const PurchaseOrder = ({
     }
   }, [po])
 
-  const {
-    data: associated_po_list,
-    error: associated_po_list_error,
-    isLoading: associated_po_list_loading,
-  } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
+  const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
     fields: ["*"],
     limit: 100000,
   });
 
-  const { data: poProject } = useFrappeGetDoc<Projects>(
-    "Projects",
-    PO?.project,
-    PO ? undefined : null
-  );
-
-  const {
-    data: pr,
-    isLoading: prLoading,
-    error: prError,
-  } = useFrappeGetDoc<ProcurementRequest>("Procurement Requests", PO?.procurement_request, PO ? undefined : null);
-
-  const {
-    data: usersList,
-    isLoading: usersListLoading,
-    error: usersListError,
-  } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+  const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["name", "full_name"],
     limit: 1000,
-  });
+  }, `Nirmaan Users`);
 
-  const {
-    data: poPayments,
-    isLoading: poPaymentsLoading,
-    error: poPaymentsError,
-    mutate: poPaymentsMutate,
-  } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
+  const { data: poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
     filters: [["document_name", "=", poId]],
     limit: 1000,
@@ -347,25 +258,11 @@ export const PurchaseOrder = ({
   poId ? undefined : null
 );
 
-  const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } =
-    useFrappeGetDocList<ProjectPayments>("Project Payments", {
+  const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
       fields: ["*"],
       filters: [["document_type", "=", "Procurement Orders"]],
       limit: 1000,
     });
-
-  const { control, handleSubmit, reset } = useForm({
-    defaultValues: {
-      advance: 0,
-      materialReadiness: 0,
-      afterDelivery: 0,
-      xDaysAfterDelivery: 0,
-      xDays: 0,
-      loadingCharges: 0,
-      freightCharges: 0,
-      notes: "",
-    },
-  });
 
   useEffect(() => {
     if (associated_po_list && associated_po_list?.length > 0) {
@@ -391,100 +288,15 @@ export const PurchaseOrder = ({
     }
   }, [associated_po_list, PO, AllPoPaymentsList]);
 
-
-  const onSubmit = async (data: any) => {
-    try {
-      setLoadingFuncName("onSubmit");
-      const updateData = {
-        advance: `${parseNumber(data?.advance)}, ${parseNumber(data?.materialReadiness)}, ${parseNumber(data?.afterDelivery)}, ${
-          parseNumber(data?.xDaysAfterDelivery)}, ${parseNumber(data?.xDays)}`,
-        loading_charges: parseNumber(data?.loadingCharges),
-        freight_charges: parseNumber(data?.freightCharges),
-        notes: data.notes || "",
-        project_gst: selectedGST?.gst,
-      };
-
-      const res = await updateDoc("Procurement Orders", poId, updateData);
-
-      await poMutate();
-      toggleEditPOTermsDialog();
-      toast({
-        title: "Success!",
-        description: `${res.name} updated successfully!`,
-        variant: "success",
-      });
-    } catch (error) {
-      console.log("update_submit_error", error);
-      toast({
-        title: "Failed!",
-        description: `Failed to update ${poId}`,
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingFuncName("");
-    }
-  };
-
-  const checkPrintDisabled =
-    advance > 100 ||
-    advance < 0 ||
-    materialReadiness > 100 ||
-    materialReadiness < 0 ||
-    afterDelivery > 100 ||
-    afterDelivery < 0 ||
-    xDaysAfterDelivery > 100 ||
-    xDaysAfterDelivery < 0 ||
-    ![100, 0].includes(
-      advance + materialReadiness + afterDelivery + xDaysAfterDelivery
-    );
-
   useEffect(() => {
     if (!mergeSheet) {
       handleUnmergeAll();
     }
   }, [mergeSheet]);
 
-  const resetForm = useCallback((poData: typeof PO) => {
-    if (!poData) return;
-    
-    const chargesArray = poData.advance?.split(', ');
-    const parsedCharges = chargesArray?.map(charge => parseFloat(charge));
-    
-    setAdvance(parsedCharges?.[0] || 0);
-    setMaterialReadiness(parsedCharges?.[1] || 0);
-    setAfterDelivery(parsedCharges?.[2] || 0);
-    setXDaysAfterDelivery(parsedCharges?.[3] || 0);
-    setXDays(parsedCharges?.[4] || 0);
-    setLoadingCharges(parseNumber(poData.loading_charges));
-    setFreightCharges(parseNumber(poData.freight_charges));
-    setNotes(poData.notes || '');
-
-    reset({
-      advance: parsedCharges?.[0] || 0,
-      materialReadiness: parsedCharges?.[1] || 0,
-      afterDelivery: parsedCharges?.[2] || 0,
-      xDaysAfterDelivery: parsedCharges?.[3] || 0,
-      xDays: parsedCharges?.[4] || 0,
-      loadingCharges: parseNumber(poData.loading_charges),
-      freightCharges: parseNumber(poData.freight_charges),
-      notes: poData.notes || '',
-    });
-
-    if (poData.project_gst) {
-      setSelectedGST(prev =>  ({ ...prev, gst: poData.project_gst }));
-    }
-
-  }, [reset]);
-
-  useEffect(() => {
-    if (PO || !editPOTermsDialog) {
-      resetForm(PO);
-    }
-  }, [PO, editPOTermsDialog, resetForm]);
-
   const getTotal = useMemo(() => {
-    return getPOTotal(PO, freightCharges, loadingCharges);
-  }, [PO, freightCharges, loadingCharges]);
+    return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
+  }, [PO]);
 
   const handleMerge = (po : ProcurementOrder) => {
     let updatedOrderList = po.order_list.list;
@@ -588,7 +400,7 @@ export const PurchaseOrder = ({
     }
 };
 
-const handleUnmergePOs = async () => {
+  const handleUnmergePOs = async () => {
     try {
         // Call the backend API for unmerging POs
         const response = await unMergePOCall({
@@ -830,7 +642,7 @@ const handleUnmergePOs = async () => {
     setStack(newStack);
   }, [orderData, setOrderData, setStack, stack]);
 
-  const treeData = [
+  const treeData = useMemo(() => [
     {
       title: PO?.name,
       key: "mainPO",
@@ -843,127 +655,10 @@ const handleUnmergePOs = async () => {
         })),
       })),
     },
-  ];
+  ], [prevMergedPOs, PO]);
 
-  const AddPayment = async () => {
-    try {
-      setLoadingFuncName("AddPayment");
-      const res = await createDoc("Project Payments", {
-        document_type: "Procurement Orders",
-        document_name: poId,
-        project: PO?.project,
-        vendor: PO?.vendor,
-        utr: newPayment?.utr,
-        tds: newPayment?.tds,
-        amount: newPayment?.amount,
-        payment_date: newPayment?.payment_date,
-        status: "Paid"
-      });
+  const amountPaid = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid")), [poPayments]);
 
-      if(paymentScreenshot) {
-        const fileArgs = {
-          doctype: "Project Payments",
-          docname: res?.name,
-          fieldname: "payment_attachment",
-          isPrivate: true,
-        };
-  
-        const uploadedFile = await upload(paymentScreenshot, fileArgs);
-  
-        await call({
-          doctype: "Project Payments",
-          name: res?.name,
-          fieldname: "payment_attachment",
-          value: uploadedFile.file_url,
-        });
-      }
-
-      await AllPoPaymentsListMutate();
-
-      await poPaymentsMutate();
-
-      toggleNewPaymentDialog();
-
-      toast({
-        title: "Success!",
-        description: "Payment added successfully!",
-        variant: "success",
-      });
-
-      setNewPayment({
-        amount: "",
-        payment_date: "",
-        utr: "",
-        tds: ""
-      });
-
-      setPaymentScreenshot(null);
-    } catch (error) {
-      console.log("error", error);
-      toast({
-        title: "Failed!",
-        description: "Failed to add Payment!",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingFuncName("");
-    }
-  };
-
-  const handleDeletePayment = async () => {
-    try {
-
-      setLoadingFuncName("handleDeletePayment");
-      await deleteDoc("Project Payments", deleteFlagged?.name);
-
-      await AllPoPaymentsListMutate();
-
-      await poPaymentsMutate();
-
-      toast({
-        title: "Success!",
-        description: "Payment deleted successfully!",
-        variant: "success",
-      });
-      
-    } catch (error) {
-      console.log("error", error);
-      toast({
-        title: "Failed!",
-        description: "Failed to delete Payment!",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingFuncName("");
-    }
-  }
-
-  const amountPaid = getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid"));
-
-  const amountPending = getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status)));
-
-  const validateAmount = debounce((amount : number) => {
-    const { totalAmt } = getTotal;
-
-    const compareAmount = totalAmt - amountPaid;
-
-    if (amount > compareAmount) {
-      setWarning(
-        `Entered amount exceeds the total ${
-          amountPaid ? "remaining" : ""
-        } amount including GST: ${formatToIndianRupee(compareAmount)}`
-      );
-    } else {
-      setWarning(""); // Clear warning if within the limit
-    }
-  }, 300);
-
-  // Handle input change
-  const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
-    const amount = e.target.value;
-    setNewPayment({ ...newPayment, amount });
-    validateAmount(amount);
-  };
 
   const getUserName = useMemo(() => (id : string | undefined) => {
     return usersList?.find((user) => user?.name === id)?.full_name || ""
@@ -985,7 +680,6 @@ const handleUnmergePOs = async () => {
     // project_address_loading ||
     usersListLoading ||
     associated_po_list_loading ||
-    prLoading ||
     poPaymentsLoading
   )
     return (
@@ -998,7 +692,6 @@ const handleUnmergePOs = async () => {
     // vendor_address_error ||
     // project_address_error ||
     usersListError ||
-    prError ||
     poError ||
     poPaymentsError
   )
@@ -1317,8 +1010,8 @@ const handleUnmergePOs = async () => {
           </>
         )}
 
-          <PODetails po={PO} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
-            getTotal={getTotal} amountPaid={amountPaid} pr={pr} poMutate={poMutate} />
+          <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
+            getTotal={getTotal} amountPaid={amountPaid} poMutate={poMutate} />
 
       <Accordion type="multiple" 
       defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
@@ -1333,709 +1026,42 @@ const handleUnmergePOs = async () => {
           )}
           <AccordionContent>
         <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-          <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <p className="text-xl max-sm:text-lg text-red-600">
-                  Transaction Details
-                </p>
-                {!accountsPage && !estimatesViewing && !summaryPage && (
-                  <>
-                  <Button
-                  variant="outline"
-                  className="text-primary border-primary text-xs px-2"
-                  onClick={toggleRequestPaymentDialog}
-                >
-                  Request Payment
-                </Button>
-                <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
-                  po={PO} paymentsMutate={poPaymentsMutate}
-                  />
-                </>
-                )}
+          <TransactionDetailsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} amountPaid={amountPaid} poPayments={poPayments} poPaymentsMutate={poPaymentsMutate} AllPoPaymentsListMutate={AllPoPaymentsListMutate} />
 
-                {accountsPage && (
-                        <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
-                            <AlertDialogTrigger
-                            onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
-                            >
-                                <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                                <AlertDialogHeader className="text-start">
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">Project:</Label>
-                                    <span className="">{PO?.project_name}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">Vendor:</Label>
-                                    <span className="">{PO?.vendor_name}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(getTotal?.total)}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(Math.floor(getTotal?.totalAmt || 0))}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                    <span className="">{amountPaid ? formatToIndianRupee(amountPaid) : "--"}</span>
-                                </div>
-
-                                <div className="flex flex-col gap-4 pt-4">
-                                                            <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <div className="w-full">
-                                                                <Input
-                                                                    type="number"
-                                                                    placeholder="Enter Amount"
-                                                                    value={newPayment.amount}
-                                                                    onChange={(e) => handleAmountChange(e)}
-                                                                />
-                                                                    {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
-                                                                </div> 
-                                                            </div>
-                                                            <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">TDS Amount</Label>
-                                                                <div className="w-full">
-                                                                <Input
-                                                                    type="number"
-                                                                    placeholder="Enter TDS Amount"
-                                                                    value={newPayment.tds}
-                                                                    onChange={(e) => {
-                                                                        const tdsValue = e.target.value;
-                                                                        setNewPayment({ ...newPayment, tds: tdsValue })
-                                                                    }}
-                                                                />
-                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((parseNumber(newPayment?.amount)) - parseNumber(newPayment?.tds))}</span>}
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <Input
-                                                                    type="text"
-                                                                    placeholder="Enter UTR"
-                                                                    value={newPayment.utr}
-                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                                                />
-                                                            </div>
-
-                                                            <div className="flex gap-4 w-full" >
-                                                                <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <Input
-                                                                        type="date"
-                                                                        value={newPayment.payment_date}
-                                                                        placeholder="DD/MM/YYYY"
-                                                                        onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
-                                                                        max={new Date().toISOString().split("T")[0]}
-                                                                        onKeyDown={(e) => e.preventDefault()}
-                                                                     />
-                                                            </div>
-
-                                                        </div>
-
-                                <div className="flex flex-col gap-2">
-                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
-                                    onClick={() => document.getElementById("file-upload")?.click()}
-                                    >
-                                        <Paperclip size="15px" />
-                                        <span className="p-0 text-sm">Attach Screenshot</span>
-                                        <input
-                                            type="file"
-                                            id={`file-upload`}
-                                            className="hidden"
-                                            onChange={handleFileChange}
-                                            disabled={paymentScreenshot ? true : false}
-                                        />
-                                    </div>
-                                    {(paymentScreenshot) && (
-                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                                            <span className="text-sm">{paymentScreenshot?.name}</span>
-                                            <button
-                                                className="ml-1 text-red-500"
-                                                onClick={() => setPaymentScreenshot(null)}
-                                            >
-                                                ✖
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="flex gap-2 items-center pt-4 justify-center">
-                                    {loadingFuncName === "AddPayment" ? <TailSpin color="red" width={40} height={40} /> : (
-                                        <>
-                                        <AlertDialogCancel className="flex-1" asChild>
-                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                        </AlertDialogCancel>
-                                        <Button
-                                            onClick={AddPayment}
-                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
-                                            className="flex-1">Add Payment
-                                        </Button>
-                                        </>
-                                    )}
-                                </div>
-                                
-                                </AlertDialogHeader>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                        )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-black font-bold">Amount</TableHead>
-                    <TableHead className="text-black font-bold">UTR No.</TableHead>
-                    <TableHead className="text-black font-bold">Date</TableHead>
-                    <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
-                    <TableHead ></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(poPayments || [])?.length > 0 ? (
-                    poPayments?.map((payment) => {
-                      return (
-                        <TableRow key={payment?.name}>
-                          <TableCell>
-                            {formatToIndianRupee(payment?.amount)}
-                          </TableCell>
-                            {(payment?.utr && payment?.payment_attachment) ? (
-                              <TableCell className="text-blue-500 underline">
-                              {<a
-                                  href={`${SITEURL}${payment?.payment_attachment}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  {payment?.utr}
-                                </a>}
-                              </TableCell>
-                            ) : (
-                              <TableCell>
-                                {payment?.utr || "--"}
-                              </TableCell>
-                            )}
-                          <TableCell>
-                            {formatDate(
-                              payment?.payment_date || payment?.creation
-                            )}
-                          </TableCell>
-                          <TableCell>{payment?.status}</TableCell>
-                          <TableCell className="text-red-500 text-end w-[5%]">
-                            {payment?.status !== "Paid" && !estimatesViewing && !summaryPage && 
-                            <Dialog>
-                              <DialogTrigger>
-                                <Trash2
-                                  onClick={() => setDeleteFlagged(payment)}
-                                  className="w-4 h-4" />
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Are you sure?</DialogTitle>
-                                </DialogHeader>
-                                <div className="flex items-center justify-end gap-2">
-                                  {loadingFuncName === "handleDeletePayment" ? <TailSpin color="red" height={40} width={40} /> : (
-                                    <>
-                                      <DialogClose asChild>
-                                        <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                        </DialogClose>
-                                      <Button onClick={() => handleDeletePayment()}>Delete</Button>
-                                    </>
-                                  )}
-                                </div>
-
-                              </DialogContent>
-                            </Dialog>
-                            }
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-2">
-                        No Payments Found
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-          <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
-            <CardHeader>
-              <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  Payment Terms
-                  {!PO?.project_gst && (
-                    <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
-                  )}
-                </div>
-                {!summaryPage &&
-                  !accountsPage &&
-                  !estimatesViewing &&
-                  PO?.status === "PO Approved" && (
-                    <Dialog
-                      open={editPOTermsDialog}
-                      onOpenChange={toggleEditPOTermsDialog}
-                    >
-                      <DialogTrigger>
-                        <Button
-                          variant={"outline"}
-                          className="flex items-center gap-1"
-                        >
-                          <PencilIcon className="w-4 h-4" />
-                          Edit
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader className="text-start">
-                          <DialogTitle className="text-center">
-                            Edit Terms and Charges
-                          </DialogTitle>
-
-                          <div className="px-4 flex flex-col gap-4 pt-2">
-                            <div className="flex flex-col gap-1">
-                              <h3
-                                className={`font-semibold text-lg tracking-tight ${
-                                  !selectedGST?.gst ? "text-primary" : ""
-                                }`}
-                              >
-                                Project GST Selection
-                                <sup className="text-sm text-red-600">*</sup>
-                              </h3>
-                              {poProject &&
-                                JSON.parse(poProject?.project_gst_number)?.list
-                                  ?.length > 0 && (
-                                  <>
-                                    <Select
-                                      value={selectedGST?.gst}
-                                      defaultValue={PO?.project_gst}
-                                      onValueChange={(selectedOption) => {
-                                        const gstArr = JSON.parse(
-                                          poProject?.project_gst_number
-                                        )?.list;
-                                        setSelectedGST(
-                                          gstArr.find(
-                                            (item) =>
-                                              item.gst === selectedOption
-                                          )
-                                        );
-                                      }}
-                                    >
-                                      <SelectTrigger
-                                        className={`${
-                                          !selectedGST?.gst
-                                            ? "text-primary border-primary ring-1 ring-inset ring-primary"
-                                            : ""
-                                        }`}
-                                      >
-                                        <SelectValue placeholder="Select Project GST" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {JSON.parse(
-                                          poProject?.project_gst_number
-                                        )?.list?.map((option) => (
-                                          <SelectItem
-                                            key={option.location}
-                                            value={option.gst}
-                                          >
-                                            {option.location}
-                                            {` (${option.gst})`}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    {selectedGST?.gst && !PO?.project_gst && (
-                                      <span className="text-sm">
-                                        <strong>Note:</strong>{" "}
-                                        <span className="text-primary">
-                                          GST selected but not saved, click on
-                                          Save below!
-                                        </span>
-                                      </span>
-                                    )}
-                                  </>
-                                )}
-                            </div>
-                            <h3 className="font-semibold text-lg tracking-tight">
-                              Terms:
-                            </h3>
-                            <div className="flex justify-between items-center pb-2 border-b border-gray-300">
-                              <p className="text-sm text-gray-500">Terms</p>
-                              <p className="text-sm text-gray-500">
-                                Percentage(%)
-                              </p>
-                            </div>
-                            <form
-                              onSubmit={handleSubmit(onSubmit)}
-                              className="space-y-4"
-                            >
-                              {/* Payments Section */}
-                              <section className="space-y-2">
-                                <div className="flex flex-col gap-2">
-                                  <div className="flex justify-between items-center">
-                                    <Label>After Delivery</Label>
-                                    <Controller
-                                      control={control}
-                                      name="afterDelivery"
-                                      render={({ field }) => (
-                                        <Input
-                                          {...field}
-                                          className="max-w-[120px]"
-                                          onChange={(e) => {
-                                            const value = e.target.value;
-                                            field.onChange(e);
-                                            setAfterDelivery(
-                                              value !== "" ? parseFloat(value) : 0
-                                            );
-                                          }}
-                                        />
-                                      )}
-                                    />
-                                  </div>
-                                  <div className="flex justify-between items-center">
-                                    <Label>Advance</Label>
-                                    <Controller
-                                      control={control}
-                                      name="advance"
-                                      render={({ field }) => (
-                                        <Input
-                                          {...field}
-                                          className="max-w-[120px]"
-                                          onChange={(e) => {
-                                            const value = e.target.value;
-                                            field.onChange(e);
-                                            setAdvance(
-                                              value !== "" ? parseFloat(value) : 0
-                                            );
-                                          }}
-                                        />
-                                      )}
-                                    />
-                                  </div>
-                                  <div className="flex justify-between items-center">
-                                    <Label>Material Readiness</Label>
-                                    <Controller
-                                      control={control}
-                                      name="materialReadiness"
-                                      render={({ field }) => (
-                                        <Input
-                                          {...field}
-                                          className="max-w-[120px]"
-                                          onChange={(e) => {
-                                            const value = e.target.value;
-                                            field.onChange(e);
-                                            setMaterialReadiness(
-                                              value !== "" ? parseFloat(value) : 0
-                                            );
-                                          }}
-                                        />
-                                      )}
-                                    />
-                                  </div>
-                                  <div className="flex justify-between items-center">
-                                    <Label>
-                                      After{" "}
-                                      <Controller
-                                        control={control}
-                                        name="xDays"
-                                        render={({ field }) => (
-                                          <input
-                                            {...field}
-                                            className="max-w-[45px] inline border px-2 rounded text-center text-black"
-                                            onChange={(e) => {
-                                              const value = e.target.value;
-                                              field.onChange(e);
-                                              setXDays(
-                                                value !== ""
-                                                  ? parseFloat(value)
-                                                  : 0
-                                              );
-                                            }}
-                                          />
-                                        )}
-                                      />{" "}
-                                      days of delivery
-                                    </Label>
-                                    <Controller
-                                      control={control}
-                                      name="xDaysAfterDelivery"
-                                      render={({ field }) => (
-                                        <Input
-                                          {...field}
-                                          className="max-w-[120px]"
-                                          onChange={(e) => {
-                                            const value = e.target.value;
-                                            field.onChange(e);
-                                            setXDaysAfterDelivery(
-                                              value !== "" ? parseFloat(value) : 0
-                                            );
-                                          }}
-                                        />
-                                      )}
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1">
-                                  <Badge>
-                                    Total aggregated percentages:{" "}
-                                    {advance +
-                                      materialReadiness +
-                                      afterDelivery +
-                                      xDaysAfterDelivery}
-                                    %
-                                  </Badge>
-                                  <HoverCard>
-                                    <HoverCardTrigger>
-                                      <Info className="w-4 h-4 text-blue-500" />
-                                    </HoverCardTrigger>
-                                    <HoverCardContent side="left">
-                                      <Badge variant={"red"}>Note</Badge>{" "}
-                                      <strong className="text-xs">
-                                        Total aggregated percentage must sum up
-                                        to 100% to enable save button!
-                                      </strong>
-                                    </HoverCardContent>
-                                  </HoverCard>
-                                </div>
-                              </section>
-
-                              {/* Additional Charges Section */}
-                              <section className="flex flex-col gap-2">
-                                <h3 className="font-semibold text-lg tracking-tight">
-                                  Additional Charges:
-                                </h3>
-                                <div className="flex justify-between items-center pb-2 border-b border-gray-300">
-                                  <p className="text-sm text-gray-500">Type</p>
-                                  <p className="text-sm text-gray-500">
-                                    Amount
-                                  </p>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <Label>Loading</Label>
-                                  <Controller
-                                    control={control}
-                                    name="loadingCharges"
-                                    render={({ field }) => (
-                                      <Input
-                                        {...field}
-                                        className="max-w-[120px]"
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          field.onChange(e);
-                                          setLoadingCharges(
-                                            value !== "" ? parseFloat(value) : 0
-                                          );
-                                        }}
-                                      />
-                                    )}
-                                  />
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <Label>Freight</Label>
-                                  <Controller
-                                    control={control}
-                                    name="freightCharges"
-                                    render={({ field }) => (
-                                      <Input
-                                        {...field}
-                                        className="max-w-[120px]"
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          field.onChange(e);
-                                          setFreightCharges(
-                                            value !== "" ? parseFloat(value) : 0
-                                          );
-                                        }}
-                                      />
-                                    )}
-                                  />
-                                </div>
-                              </section>
-
-                              {/* Notes Section */}
-                              <section>
-                                <Label>Add Notes:</Label>
-                                <Controller
-                                  control={control}
-                                  name="notes"
-                                  render={({ field }) => (
-                                    <Textarea
-                                      {...field}
-                                      onChange={(e) => {
-                                        const value = e.target.value;
-                                        field.onChange(value);
-                                        setNotes(value);
-                                      }}
-                                      className="w-full"
-                                    />
-                                  )}
-                                />
-                              </section>
-                            </form>
-
-                            <div className="flex gap-2 items-center justify-end">
-                              {loadingFuncName === "onSubmit" || updateLoading ? (
-                                <TailSpin color="red" height={40} width={40} />
-                              ) : (
-                                <>
-                                  <DialogClose asChild>
-                                    <Button
-                                      variant={"outline"}
-                                      className="flex items-center gap-1"
-                                    >
-                                      <CircleX className="h-4 w-4" />
-                                      Cancel
-                                    </Button>
-                                  </DialogClose>
-                                  <Button
-                                    type="submit"
-                                    className="flex items-center gap-1"
-                                    disabled={checkPrintDisabled}
-                                    onClick={() =>
-                                      onSubmit(control._formValues)
-                                    }
-                                  >
-                                    <ListChecks className="h-4 w-4" />
-                                    Save
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </DialogHeader>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="max-sm:text-xs">
-              <div className="grid grid-cols-5">
-                {/* Terms */}
-                <div className="col-span-3 flex flex-col gap-4">
-                  <div className="flex items-center gap-1 border-b-2 pb-1 border-gray-400">
-                    <span className="font-semibold">Terms</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <HandCoins className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-light">Advance</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <BookCheck className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-light">Material Readiness</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Truck className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-light">After Delivery</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <CalendarDays className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-light">
-                      After {xDays || "--"} days of delivery
-                    </Label>
-                  </div>
-                </div>
-
-                {/* Percentages */}
-                <div className="col-span-1 flex flex-col gap-4">
-                  <div className="flex items-center gap-1 border-b-2 pb-1 border-gray-400">
-                    <span className="font-semibold">%</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">{advance}%</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">{materialReadiness}%</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">{afterDelivery}%</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">{xDaysAfterDelivery}%</Label>
-                  </div>
-                </div>
-
-                {/* Amounts  */}
-                <div className="col-span-1 flex flex-col gap-4">
-                  <div className="flex items-center gap-1 border-b-2 pb-1 border-gray-400">
-                    <span className="font-semibold">Amount</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">
-                      {formatToIndianRupee(
-                        getTotal?.totalAmt * (advance / 100)
-                      )}
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">
-                      {formatToIndianRupee(
-                        getTotal?.totalAmt * (materialReadiness / 100)
-                      )}
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">
-                      {formatToIndianRupee(
-                        getTotal?.totalAmt * (afterDelivery / 100)
-                      )}
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">
-                      {formatToIndianRupee(
-                        getTotal?.totalAmt * (xDaysAfterDelivery / 100)
-                      )}
-                    </Label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-5 mt-4">
-                <div className="col-span-4 flex flex-col gap-4">
-                  <div className="flex items-center gap-1 border-b-2 pb-1 border-gray-400">
-                    <span className="font-semibold">Additional Charges</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">Loading</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">Freight</Label>
-                  </div>
-                </div>
-
-                {/* Amounts  */}
-                <div className="col-span-1 flex flex-col gap-4">
-                  <div className="flex items-center gap-1 border-b-2 pb-1 border-gray-400">
-                    <span className="font-semibold">Amount</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">
-                      {formatToIndianRupee(loadingCharges * 1.18)}
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Label className="font-light">
-                      {formatToIndianRupee(freightCharges * 1.18)}
-                    </Label>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+         <POPaymentTermsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} poMutate={poMutate} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} setAdvance={setAdvance} setMaterialReadiness={setMaterialReadiness} setAfterDelivery={setAfterDelivery} setXDaysAfterDelivery={setXDaysAfterDelivery} setXDays={setXDays} />
         </div>
       </AccordionContent>
 
         </AccordionItem>
       </Accordion>
 
+
+      {/* PO Attachments Accordion */}
+      {PO?.status !== "PO Approved" && (
+        <Accordion type="multiple" 
+        defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+        className="w-full">
+          <AccordionItem key="poattachments" value="poattachments">
+            {tab === "Delivered PO" && (
+              <AccordionTrigger>
+              <p className="font-semibold text-lg text-red-600 pl-6">
+                PO Attachments
+              </p>
+            </AccordionTrigger>
+            )}
+            <AccordionContent> 
+              <POAttachments PO={PO} />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
+
+
+      {/* Invoice Dialog */}
+      <InvoiceDialog  po={PO} poMutate={poMutate} />
+
       {/* Order Details  */}
-      <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
+      <Card className="rounded-sm shadow-md md:col-span-3">
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <p className="text-xl max-sm:text-lg text-red-600">Order Details</p>
@@ -2052,16 +1078,16 @@ const handleUnmergePOs = async () => {
         </CardHeader>
         <CardContent>
           <table className="table-auto w-full">
-            <thead>
-              <tr className="border-gray-400 border-b-2 text-primary max-sm:text-sm">
+            <thead className="bg-red-100">
+              <tr className="max-sm:text-sm">
                 <th className="w-[5%] text-left ">S.No.</th>
-                <th className="w-[50%] text-left px-2">Item Name</th>
-                <th className="w-[10%]  text-center px-2">Unit</th>
-                <th className="w-[10%]  text-center px-2">Quantity</th>
-                <th className="w-[10%]  text-center px-2">Rate</th>
-                <th className="w-[10%]  text-center px-2">Amount</th>
+                <th className="w-[50%] text-left p-2">Item Name</th>
+                <th className="w-[10%]  text-center p-2">Unit</th>
+                <th className="w-[10%]  text-center p-2">Quantity</th>
+                <th className="w-[10%]  text-center p-2">Rate</th>
+                <th className="w-[10%]  text-center p-2">Amount</th>
                 {tab === "Delivered PO" && (
-                   <th className="w-[5%] text-center px-2">OD</th>
+                   <th className="w-[5%] text-center p-2">OD</th>
                 )}
               </tr>
             </thead>
@@ -2108,6 +1134,7 @@ const handleUnmergePOs = async () => {
           </div>
         </CardContent>
       </Card>
+
 
       {/* Unmerge, Amend and Cancel PO Buttons  */}
 
@@ -2636,9 +1663,15 @@ const handleUnmergePOs = async () => {
         </div>
       </div>
 
+      {/* Delivery History */}
+    {["Delivered", "Partially Delivered"].includes(PO?.status) && (
+      <DeliveryHistory
+        deliveryData={PO?.delivery_data?.data || null}
+      />
+    )}
+
       {/* PO Pdf  */}
-        
-        <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} loadingCharges={loadingCharges} freightCharges={freightCharges} notes={notes} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
+        <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
       
     </div>
   );
@@ -2715,9 +1748,9 @@ const AddNewMakes = ({
   toggleAddNewMake,
   setEditMakeOptions,
 } : AddNewMakesProps) => {
-  const [makeOptions, setMakeOptions] = useState([]);
+  const [makeOptions, setMakeOptions] = useState<Make[]>([]);
 
-  const [newSelectedMakes, setNewSelectedMakes] = useState([]);
+  const [newSelectedMakes, setNewSelectedMakes] = useState<Make[]>([]);
 
   const { data: categoryMakeList } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
@@ -2725,7 +1758,7 @@ const AddNewMakes = ({
   });
 
   useEffect(() => {
-    if (categoryMakeList?.length > 0) {
+    if ((categoryMakeList || [])?.length > 0) {
       const categoryMakes = categoryMakeList?.filter(
         (i) => i?.category === amendEditItem.category
       );

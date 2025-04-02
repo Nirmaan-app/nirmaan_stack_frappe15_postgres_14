@@ -71,7 +71,7 @@ import {
   HardHat,
   OctagonMinus
 } from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
   Link,
@@ -82,10 +82,12 @@ import { useReactToPrint } from "react-to-print";
 import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
-import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
+// import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMakesTab } from "./ProjectMakesTab";
 import ProjectOverviewTab from "./ProjectOverviewTab";
 import ProjectSpendsTab from "./ProjectSpendsTab";
+
+const ProjectFinancialsTab = React.lazy(() => import("./ProjectFinancialsTab"));
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -122,14 +124,9 @@ interface po_item_data_item {
 const Project : React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
-  const {
-    data,
-    isLoading,
-    mutate: project_mutate,
-  } = useFrappeGetDoc("Projects", projectId, projectId ? undefined : null);
+  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? undefined : null);
 
-  const { data: projectCustomer, isLoading: projectCustomerLoading } =
-    useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? `Customers ${data?.customer}` : null);
+  const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? `Customers ${data?.customer}` : null);
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{ message : { po_items : po_item_data_item[] }}>(
     "nirmaan_stack.api.procurement_orders.generate_po_summary",
@@ -1415,7 +1412,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           return <div className="flex items-center h-[90vh] w-full justify-center">
               <TailSpin color={"red"} />
           </div>
-      }
+    }
 
 
   return (
@@ -1652,19 +1649,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{totalPOAmountWithGST.toLocaleString()}
+                          {formatToIndianRupee(totalPOAmountWithGST)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{totalPosRaised.toLocaleString()}
+                          {formatToIndianRupee(totalPosRaised)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{getTotalAmountPaid.poAmount?.toLocaleString()}
+                          {formatToIndianRupee(getTotalAmountPaid.poAmount)}
                         </span>
                       </p>
                     </div>
@@ -1703,8 +1700,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options} updateURL={updateURL} categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
       )}
 
+
+
       {activePage === "projectfinancials" && (
-        <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} updateURL={updateURL} totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />
+        <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
+          <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} updateURL={updateURL} totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} /> 
+        </Suspense>
       )}
 
       {activePage === "projectestimates" && (
@@ -1742,7 +1743,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{getTotalAmountPaid?.srAmount?.toLocaleString()}
+                          {formatToIndianRupee(getTotalAmountPaid?.srAmount)}
                         </span>
                       </p>
                     </div>
