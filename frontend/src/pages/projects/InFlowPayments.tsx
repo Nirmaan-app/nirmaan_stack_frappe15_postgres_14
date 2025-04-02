@@ -48,7 +48,7 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
               accessorKey: "utr",
               header: ({ column }) => {
                   return (
-                      <DataTableColumnHeader column={column} title="UTR" />
+                      <DataTableColumnHeader column={column} title="Payment Ref" />
                   )
               },
               cell: ({ row }) => {

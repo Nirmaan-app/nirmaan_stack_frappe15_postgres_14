@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
@@ -47,6 +48,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [proceedDialog, setProceedDialog] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState<string>(new Date().toISOString().split("T")[0]);
 
   // API hooks
   const { call: DNUpdateCall, loading: DnUpdateCallLoading } = useFrappePostCall(
@@ -100,11 +102,11 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 
   // Transform changes to delivery data format
   const transformChangesToDeliveryData = useCallback(() => {
-    const now = new Date();
-    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padEnd(6, '0')}`;
+    // const now = new Date();
+    // const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padEnd(6, '0')}`;
 
     const deliveryData: DeliveryDataType = {
-      [formattedDate]: {
+      [deliveryDate]: {
         items: [],
         updated_by: userData?.user_id,
       }
@@ -115,7 +117,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       const originalItem = originalOrder.find(item => item.name === itemId);
       if (!originalItem) return;
 
-      deliveryData[formattedDate].items.push({
+      deliveryData[deliveryDate].items.push({
         item_id: itemId,
         item_name: originalItem.item,
         unit: originalItem.unit,
@@ -156,11 +158,11 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       const deliveryData = transformChangesToDeliveryData();
 
       // Update delivery data with actual attachment ID
-      if (attachmentId) {
-        Object.values(deliveryData).forEach(entry => {
-          entry.dc_attachment_id = attachmentId;
-        });
-      }
+      // if (attachmentId) {
+      //   Object.values(deliveryData).forEach(entry => {
+      //     entry.dc_attachment_id = attachmentId;
+      //   });
+      // }
       const modifiedItemsPayload: { [itemId: string]: number } = {};
       Object.entries(modifiedItems).forEach(([itemId, receivedObject]) => {
         modifiedItemsPayload[itemId] = receivedObject.newReceived;
@@ -223,7 +225,9 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
             <ArrowDown className="text-primary" />
           ) : null}
           {!originallyAllReceived && item.received ? (
-            <span className="">{item.received}<span> (original : {item.quantity})</span></span>
+            <span className="">{item.received}
+            {/* <span> (original : {item.quantity})</span> */}
+            </span>
           ) : (<span>{item.quantity}</span>)}
         </div>
       );
@@ -246,7 +250,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       />
       {item.received ? (
         <span className="text-xs text-gray-400">
-          (Original: {item.quantity})
+          (Ordered: {item.quantity})
         </span>
       ) : (
         <span />
@@ -262,44 +266,46 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
           <CardTitle className="text-xl font-semibold text-red-600">
             Item List
           </CardTitle>
-          {showEdit ? (
-            <div className="flex gap-4 items-start">
-              <CustomAttachment
-                maxFileSize={20 * 1024 * 1024} // 20MB
-                selectedFile={selectedAttachment}
-                onFileSelect={setSelectedAttachment}
-                label="Attach DC"
-                className="w-full"
-              />
-              <Button
-                onClick={() => setProceedDialog(true)}
-                disabled={!hasChanges}
-                className="gap-1"
-              >
-                <ListChecks className="h-4 w-4" />
-                Update
+          {data?.status !== "Delivered" && (
+            showEdit ? (
+              <div className="flex gap-4 items-start">
+                <CustomAttachment
+                  maxFileSize={20 * 1024 * 1024} // 20MB
+                  selectedFile={selectedAttachment}
+                  onFileSelect={setSelectedAttachment}
+                  label="Attach DC"
+                  className="w-full"
+                />
+                <Button
+                  onClick={() => setProceedDialog(true)}
+                  disabled={!hasChanges}
+                  className="gap-1"
+                >
+                  <ListChecks className="h-4 w-4" />
+                  Update
+                </Button>
+                <Button
+                  onClick={() => setShowEdit(false)}
+                  className="gap-1"
+                >
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button onClick={() => setShowEdit(true)} className="gap-1">
+                <Pencil className="h-4 w-4" />
+                Edit
               </Button>
-              <Button
-                onClick={() => setShowEdit(false)}
-                className="gap-1"
-              >
-                <X className="h-4 w-4" />
-                Cancel
-              </Button>
-            </div>
-          ) : (
-            <Button onClick={() => setShowEdit(true)} className="gap-1">
-              <Pencil className="h-4 w-4" />
-              Edit
-            </Button>
+            )
           )}
         </CardHeader>
-
         <CardContent>
+        <div className="overflow-auto">
           <Table>
             <TableHeader className="bg-gray-100">
               <TableRow>
-                <TableHead>Item Name</TableHead>
+                <TableHead className="w-[50%] min-w-[200px]">Item Name</TableHead>
                 <TableHead>Unit</TableHead>
                 <TableHead>Received</TableHead>
               </TableRow>
@@ -335,6 +341,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 
@@ -345,18 +352,29 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
             <AlertDialogDescription>
               {Object.keys(modifiedItems).length} item changes detected
               {selectedAttachment && " with attached delivery challan"}
+              <div className="flex gap-4 items-center w-full mt-4" >
+                <Label className="w-[40%]">Delivery Date: <sup className="text-sm text-red-600">*</sup></Label>
+                    <Input
+                        type="date"
+                        placeholder="DD/MM/YYYY"
+                        value={deliveryDate}
+                        onChange={(e) => setDeliveryDate(e.target.value)}
+                        max={new Date().toISOString().split("T")[0]}
+                        onKeyDown={(e) => e.preventDefault()}
+                     />
+            </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             {uploadLoading || DnUpdateCallLoading ? <TailSpin color="red" width={40} height={40} /> : (
-                                                  <>
-                                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <Button 
-              onClick={handleUpdateDeliveryNote}
-              disabled={DnUpdateCallLoading || uploadLoading}
-            >
-              Confirm Update
-            </Button>
+              <>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <Button 
+                onClick={handleUpdateDeliveryNote}
+                disabled={DnUpdateCallLoading || uploadLoading || !deliveryDate}
+              >
+                Confirm Update
+              </Button>
             </>)}
           </AlertDialogFooter>
         </AlertDialogContent>

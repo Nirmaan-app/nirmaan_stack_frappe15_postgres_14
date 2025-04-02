@@ -6,6 +6,7 @@
 
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -80,13 +81,6 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
   });
 
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
-
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
-    if (!event.target?.files) {
-      return;
-    }
-    setPaymentScreenshot(event.target.files[0]);
-  };
 
   const [currentPayment, setCurrentPayment] = useState(null);
 
@@ -1010,32 +1004,13 @@ const AddScreenShot = async () => {
                                 <AlertDialogTitle className="text-center">
                                   Attach Screenshot
                                 </AlertDialogTitle>
-                                <div className="flex flex-col gap-2">
-                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
-                                    onClick={() => document.getElementById("file-upload")?.click()}
-                                    >
-                                        <Paperclip size="15px" />
-                                        <span className="p-0 text-sm">Attach Screenshot</span>
-                                        <input
-                                            type="file"
-                                            id={`file-upload`}
-                                            className="hidden"
-                                            onChange={handleFileChange}
-                                            disabled={paymentScreenshot ? true : false}
-                                        />
-                                    </div>
-                                    {(paymentScreenshot) && (
-                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                                            <span className="text-sm">{paymentScreenshot?.name}</span>
-                                            <button
-                                                className="ml-1 text-red-500"
-                                                onClick={() => setPaymentScreenshot(null)}
-                                            >
-                                                ✖
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
+                                <CustomAttachment 
+                                  maxFileSize={20 * 1024 * 1024} // 20MB
+                                  selectedFile={paymentScreenshot}
+                                  onFileSelect={setPaymentScreenshot}
+                                  className="pt-2"
+                                  label="Attach Screenshot"
+                                />
 
                                 <div className="flex gap-2 items-center pt-4 justify-center">
                                     {(upload_loading || callLoading) ? <TailSpin color="red" width={40} height={40} /> : (

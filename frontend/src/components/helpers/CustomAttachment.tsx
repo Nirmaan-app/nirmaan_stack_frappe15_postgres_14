@@ -97,7 +97,7 @@ export const CustomAttachment = React.forwardRef<
           "transition-colors duration-200 hover:bg-accent/20",
           "focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2",
           disabled ? "opacity-50 cursor-not-allowed" : "",
-          selectedFile ? "border-primary" : "border-input"
+          selectedFile ? "border-primary opacity-50 cursor-not-allowed" : "border-input"
         )}
         aria-disabled={disabled}
       >

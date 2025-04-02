@@ -7,19 +7,19 @@ import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { parseNumber } from "@/utils/parseNumber";
+import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 
 interface InvoiceDialogProps {
-  invoiceDialog: boolean, 
-  toggleInvoiceDialog: () => void,
   po: ProcurementOrder | null
   poMutate: any
 }
 
-export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ invoiceDialog, toggleInvoiceDialog, po, poMutate }) => {
+export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) => {
 
+  const {toggleNewInvoiceDialog, newInvoiceDialog} = useDialogStore()
   const userData = useUserData();
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
 
@@ -60,7 +60,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ invoiceDialog, tog
           const attachmentId = await uploadInvoice();
           
           const modifiedInvoiceData = {...invoiceData, 
-            invoice_attachment_id: attachmentId,
+            // invoice_attachment_id: attachmentId,
             updated_by: userData?.user_id
           };
     
@@ -74,7 +74,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ invoiceDialog, tog
     
           if (response.message.status === 200) {
             await poMutate();
-            toggleInvoiceDialog();
+            toggleNewInvoiceDialog();
             setInvoiceData({
               invoice_no: "",
               amount: "",
@@ -103,12 +103,12 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ invoiceDialog, tog
             variant: "destructive"
           });
         }
-      }, [po, userData, InvoiceUpdateCall, poMutate, toggleInvoiceDialog, toast, uploadInvoice]);
+      }, [po, userData, InvoiceUpdateCall, poMutate, toggleNewInvoiceDialog, toast, uploadInvoice]);
     
 
   
   return (
-    <AlertDialog open={invoiceDialog} onOpenChange={toggleInvoiceDialog}>
+    <AlertDialog open={newInvoiceDialog} onOpenChange={toggleNewInvoiceDialog}>
     <AlertDialogContent className="max-w-xs">
       <AlertDialogHeader>
         <AlertDialogTitle className="text-center">Add Invoice</AlertDialogTitle>

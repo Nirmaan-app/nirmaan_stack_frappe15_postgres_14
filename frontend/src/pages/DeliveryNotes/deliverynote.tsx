@@ -293,13 +293,6 @@ export default function DeliveryNote() {
                 </tr>
                 <tr className="end-of-page page-break-inside-avoid">
                   <td colSpan={6}>
-                    {/* <div className="text-gray-400 text-sm py-2">Note</div>
-                                        <div className="text-sm text-gray-900">PlaceHolder</div> */}
-                    {/* 
-                                             <div className="text-gray-400 text-sm py-2">Payment Terms</div>
-                                             <div className="text-sm text-gray-900">
-                                                 {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
-                                             </div> */}
                     <img src={Seal} className="w-24 h-24" />
                     <div className="text-sm text-gray-900 py-6">
                       For, Stratos Infra Technologies Pvt. Ltd.

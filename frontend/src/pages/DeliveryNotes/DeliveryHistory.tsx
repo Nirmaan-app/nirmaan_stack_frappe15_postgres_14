@@ -59,7 +59,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ date, data, isExpanded, o
       >
         <TableCell>
           <div className="flex items-center">
-            <span className="font-medium">{formatDate(new Date(date), "dd/MM/yyyy HH:mm")}</span>
+            <span className="font-medium">{formatDate(new Date(date), "dd/MM/yyyy")}</span>
             <button
               aria-label={`${isExpanded ? 'Collapse' : 'Expand'} delivery details`}
               className="ml-2 rounded p-1 hover:bg-gray-100"
@@ -96,7 +96,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ date, data, isExpanded, o
                         </span>
                       )}
                     </TableCell>
-                    <TableCell>{item.unit}</TableCell>
+                    <TableCell className="w-[25%]">{item.unit}</TableCell>
                     <TableCell>{item.to}</TableCell>
                   </TableRow>
                 ))}
@@ -128,11 +128,12 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
         </CardTitle>
       </CardHeader>
       <CardContent>
+        <div className="overflow-auto">
         <Table>
           <TableHeader className="bg-gray-100">
             <TableRow>
-              <TableHead className="font-bold w-[50%]">Date</TableHead>
-              <TableHead className="font-bold">No. of Items</TableHead>
+              <TableHead className="font-bold w-[50%] min-w-[200px]">Date</TableHead>
+              <TableHead className="font-bold w-[25%] min-w-[100px]">No. of Items</TableHead>
               <TableHead className="font-bold">Updated By</TableHead>
             </TableRow>
           </TableHeader>
@@ -159,6 +160,7 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
             )}
           </TableBody>
         </Table>
+      </div>
       </CardContent>
     </Card>
   );
