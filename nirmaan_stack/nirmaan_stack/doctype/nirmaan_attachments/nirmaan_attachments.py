@@ -3,7 +3,12 @@
 
 # import frappe
 from frappe.model.document import Document
+from frappe.model.naming import getseries
 
 
 class NirmaanAttachments(Document):
-	pass
+	def autoname(self) -> None:
+		project = self.project.split("-")[-1]
+		prefix = f"ATT-{project}-"
+		self.name = f"{prefix}{getseries(prefix, 3)}"
+

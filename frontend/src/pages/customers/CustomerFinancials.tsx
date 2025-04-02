@@ -1,109 +1,102 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import SITEURL from "@/constants/siteURL"
-import { Customers } from "@/types/NirmaanStack/Customers"
-import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
-import { formatDate } from "@/utils/FormatDate"
-import formatToIndianRupee from "@/utils/FormatPrice"
-import { getTotalInflowAmount } from "@/utils/getAmounts"
-import { Radio } from "antd"
-import { useFrappeGetDocList } from "frappe-react-sdk"
-import React, { Suspense, useCallback, useMemo, useState } from "react"
-import { TailSpin } from "react-loader-spinner"
-import { useSearchParams } from "react-router-dom"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import SITEURL from "@/constants/siteURL";
+import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { Radio } from "antd";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import React, { Suspense, useCallback, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
 
+interface CustomerFinancialsProps {
+  customerId?: string
+  tab: string
+  onClick: (value: string) => void
+}
+
+interface FinancialDetailsResponse {
+  projects: Projects[];
+  // project_payments: ProjectPayments[];
+  project_inflows: ProjectInflows[];
+  // procurement_orders: ProcurementOrder[];
+  // service_requests: ServiceRequests[];
+  totals: {
+    total_amount_paid: number;
+    total_inflow_amount: number;
+    total_po_amount_with_gst: number;
+    total_sr_amount_with_gst: number;
+    total_amount_due: number;
+  };
+}
 
 const AccountantTabs = React.lazy(() => import("../ProjectPayments/AccountantTabs"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 
+export const CustomerFinancials : React.FC<CustomerFinancialsProps> = ({customerId, tab, onClick}) => {
 
-interface ProjectFinancialsTabProps {
-  projectData?: any
-  projectCustomer?: Customers;
-  updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
-  getTotalAmountPaid: {
-    poAmount: number;
-    srAmount: number;
-    totalAmount: number;
-    }
-  totalPOAmountWithGST : number;
-  getAllSRsTotalWithGST: number;
-}
-export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({projectData, projectCustomer, updateURL, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST}) => {
-
-  const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<string>(searchParams.get("fTab") || "All Payments")
   const [inflowPaymentsDialog, setInflowPaymentsDialog] = useState(false)
-  
-  const toggleInflowPaymentsDialog = useCallback(() => {
+
+  const {data: customerFinancialsData, isLoading: customerFinancialsDataLoading} = useFrappeGetCall<{message : FinancialDetailsResponse}>("nirmaan_stack.api.customers.customer_financials.get_customer_financial_details_api", {customer_id: customerId})
+
+  const financialTabs = useMemo(() => [
+    {
+      label: "All Payments",
+      value: "All Payments"
+    },
+    {
+      label: "All Orders",
+      value: "All Orders"
+    },
+], [])
+
+const toggleInflowPaymentsDialog = useCallback(() => {
       setInflowPaymentsDialog((prevState) => !prevState);
   }, [setInflowPaymentsDialog]);
 
-
-  const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
-    fields: ["*"],
-    filters: [["project", "=", projectData?.name]],
-    limit: 1000
-  })
-
-  const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
-
-  const amountsSummaryItems = useMemo(() => [
+const amountsSummaryItems = useMemo(() => [
+  ...(customerFinancialsData ? [
     {
       label: "Total Amount Received",
-      value: totalInflowAmount,
+      value: customerFinancialsData.message.totals.total_inflow_amount,
       style: "text-green-600 underline",
       onClick: () => toggleInflowPaymentsDialog()
     },
     {
       label: "Total Amount Paid",
-      value: getTotalAmountPaid.totalAmount,
+      value: customerFinancialsData.message.totals.total_amount_paid,
       style: "text-red-600"
     },
     {
       label: "Total Amount Due",
-      value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
+      value: customerFinancialsData.message.totals.total_amount_due,
       style: "text-red-600"
     },
     {
       label: "Total PO Amount",
-      value: totalPOAmountWithGST,
+      value: customerFinancialsData.message.totals.total_po_amount_with_gst,
       style: ""
     },
     {
       label: "Total SR Amount",
-      value: getAllSRsTotalWithGST,
+      value: customerFinancialsData.message.totals.total_sr_amount_with_gst,
       style: ""
     },
-    {
-      label: "Project Value",
-      value: 0,
-      style: ""
-    },
-  ], [projectInflows])
+    // {
+    //   label: "Project Value",
+    //   value: 0,
+    //   style: ""
+    // },
+  ] : [])
+  ], [customerFinancialsData])
 
+  if(customerFinancialsDataLoading) {
+    return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+  }
 
-  const tabs = useMemo(() => [
-      {
-        label: "All Payments",
-        value: "All Payments"
-      },
-      {
-        label: "All Orders",
-        value: "All Orders"
-      },
-    ], [])
-
-  const onClick = useCallback(
-    (value : string) => {
-      if (value !== tab){
-        setTab(value);
-        updateURL({ fTab: value });
-      }
-    }
-    , [tab, updateURL]);
 
   return (
         <div className="flex-1 space-y-4">
@@ -125,9 +118,9 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
               </CardContent>
           </Card> 
 
-            {tabs && (
+            {financialTabs && (
                   <Radio.Group
-                      options={tabs}
+                      options={financialTabs}
                       defaultValue="All Payments"
                       optionType="button"
                       buttonStyle="solid"
@@ -136,28 +129,28 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                   />
               )}
 
-                <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
-                  {tab === "All Payments" ? (
-                    <AccountantTabs tab="Fulfilled Payments" projectsView />
+               <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
+                   {tab === "All Payments" ? (
+                    <AccountantTabs tab="Fulfilled Payments" customerId={customerId} />
                   ) : (
                   
-                    <ProjectPaymentsList projectsView />
+                    <ProjectPaymentsList customerId={customerId} />
                   )}
                 </Suspense>
 
                       <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>
                               <DialogContent className="text-start">
-                                  <DialogHeader className="text-start py-8 overflow-auto">
-                                    <DialogTitle>Inflow Payments</DialogTitle>
+                                  <DialogHeader className="py-4">
+                                    <DialogTitle className="text-center">Inflow Payments</DialogTitle>
                                   </DialogHeader>
                                       <div className="flex items-center justify-between mb-4">
                                           <div className="flex items-center gap-2">
-                                              <Label className=" text-red-700">Customer:</Label>
-                                              <span className="text-xs">{projectCustomer?.company_name || "--"}</span>
+                                              {/* <Label className=" text-red-700">Customer:</Label> */}
+                                              {/* <span className="text-xs">{projectCustomer?.company_name || "--"}</span> */}
                                           </div>
                                           <div className="flex items-center gap-2">
                                               <Label className=" text-red-700">Total Inflow:</Label>
-                                              <span className="text-xs text-green-600">{formatToIndianRupee(totalInflowAmount)}</span>
+                                              <span className="text-xs text-green-600">{formatToIndianRupee(customerFinancialsData?.message?.totals?.total_inflow_amount)}</span>
                                           </div>
                                       </div>
               
@@ -165,16 +158,18 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                           <TableHeader className="bg-gray-300">
                                               <TableRow>
                                                   <TableHead>Date</TableHead>
+                                                  <TableHead>Project</TableHead>
                                                   <TableHead>UTR No.</TableHead>
                                                   <TableHead>Amount</TableHead>
                                               </TableRow>
                                           </TableHeader>
                                           <TableBody>
-                                              {(projectInflows || []).length > 0 ? (
-                                                  projectInflows?.map((payment) => {
+                                              {(customerFinancialsData?.message?.project_inflows || []).length > 0 ? (
+                                                  customerFinancialsData?.message?.project_inflows?.map((payment) => {
                                                       return (
                                                           <TableRow key={payment?.name}>
                                                               <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
+                                                              <TableCell className="font-semibold">{customerFinancialsData?.message?.projects?.find(i => i?.name === payment?.project)?.project_name}</TableCell>
                                                               {payment?.inflow_attachment ? (
                                                                 <TableCell className="font-semibold text-blue-500 underline">
                                                                       <a href={`${SITEURL}${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
@@ -190,7 +185,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                                   })
                                               ) : (
                                                   <TableRow>
-                                                    <TableCell colSpan={3} className="text-center py-2">
+                                                    <TableCell colSpan={4} className="text-center py-2">
                                                       No Payments Found
                                                     </TableCell>
                                                   </TableRow>
@@ -198,9 +193,9 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                           </TableBody>
                                       </Table>
                               </DialogContent>
-                    </Dialog>
+                          </Dialog>
         </div>
   )
 }
 
-export default ProjectFinancialsTab;
+export default CustomerFinancials;

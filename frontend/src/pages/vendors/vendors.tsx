@@ -1,20 +1,20 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
+import { formatDate } from "@/utils/FormatDate";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, Ellipsis, CirclePlus, Package } from "lucide-react";
-import { useMemo, useState, useEffect } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
-import { TableSkeleton } from "@/components/ui/skeleton";
+import { Ellipsis, Package } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { formatDate } from "@/utils/FormatDate";
-import { Badge } from "@/components/ui/badge"
-import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { Link, useSearchParams } from "react-router-dom";
 
-import {Radio} from 'antd'
+import { Radio } from 'antd';
 
 export default function Vendors() {
 
@@ -48,36 +48,37 @@ export default function Vendors() {
     // console.log("options", categoryOptions)
   }, [category_data]);
 
-  const getVendorAddr = (id) => {
+  const getVendorAddr = useMemo(() => (id: string) => {
     if (data) {
       const vendor = data?.find((ven) => ven?.name === id);
       return { city: vendor?.vendor_city, state: vendor?.vendor_state };
     }
-  };
+  }, [data]);
 
-  const updateURL = (key, value) => {
-    const url = new URL(window.location);
+  const updateURL = useCallback((key: string, value: string) => {
+    const url = new URL(window.location.href);
     url.searchParams.set(key, value);
     window.history.pushState({}, "", url);
-};
+}, []);
 
-const onClick = (value) => {
-
+const onClick = useCallback((value: string) => {
     if (type === value) return; // Prevent redundant updates
 
-    const newTab = value;
-    setType(newTab);
-    updateURL("type", newTab);
+    setType(value);
+    updateURL("type", value);
+}, [type, updateURL]);
 
-};
+const sVendorsCount = useMemo(() => data?.filter(i => i?.vendor_type === "Service").length, [data]);
+const mVendorsCount = useMemo(() => data?.filter(i => i?.vendor_type === "Material").length, [data]);
+const msVendorsCount = useMemo(() => data?.filter(i => i?.vendor_type === "Material & Service").length, [data]);
 
-const items = [
+const items = useMemo(() => [
     {
         label: (
             <div className="flex items-center">
                 <span>Material</span>
                 <span className="ml-2 text-xs font-bold">
-                    {data?.filter(i => i?.vendor_type === "Material").length}
+                    {mVendorsCount}
                 </span>
             </div>
         ),
@@ -88,7 +89,7 @@ const items = [
             <div className="flex items-center">
                 <span>Service</span>
                 <span className="ml-2 rounded text-xs font-bold">
-                  {data?.filter(i => i?.vendor_type === "Service").length}
+                  {sVendorsCount}
                 </span>
             </div>
         ),
@@ -99,13 +100,13 @@ const items = [
           <div className="flex items-center">
               <span>Material & Service</span>
               <span className="ml-2 rounded text-xs font-bold">
-                {data?.filter(i => i?.vendor_type === "Material & Service").length}
+                {msVendorsCount}
               </span>
           </div>
       ),
       value: "Material & Service",
   },
-];
+], [data, sVendorsCount, mVendorsCount, msVendorsCount]);
 
 
   const columns: ColumnDef<VendorsType>[] = useMemo(
@@ -261,12 +262,6 @@ const items = [
     );
   return (
     <div className="flex-1 space-y-4">
-      {/* <div className="flex items-center justify-between">
-                <div className="flex gap-1 items-center">
-                    <Link to="/"><ArrowLeft className="" /></Link>
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
-                </div>
-            </div> */}
         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">Total Vendors</CardTitle>
@@ -291,17 +286,16 @@ const items = [
             </div>
             <div className="flex flex-col gap-1 text-sm font-semibold">
             <div className="flex items-center gap-1">
-              <span>Material : {data?.filter(i => i?.vendor_type === "Material").length}</span>
+              <span>Material : {mVendorsCount}</span>
               <span>|</span>
-              <span>Service : {data?.filter(i => i?.vendor_type === "Service").length}</span>
+              <span>Service : {sVendorsCount}</span>
             </div>
-            <span>Material & Service : {data?.filter(i => i?.vendor_type === "Material & Service").length}</span>
+            <span>Material & Service : {msVendorsCount}</span>
             </div>
           </CardContent>
         </Card>
             {items && (
                     <Radio.Group
-                        block
                         options={items}
                         defaultValue="Material"
                         optionType="button"

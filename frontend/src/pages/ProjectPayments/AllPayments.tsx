@@ -15,6 +15,7 @@ import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-s
 import { Download, Info } from "lucide-react";
 import { useCallback, useContext, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 
 export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"}) => {
 
@@ -24,6 +25,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
     fields: ["*"],
     filters: [["status", "=", tab === "Payments Done" ? "Paid" : "Requested"]],
     limit: 100000,
+    orderBy: {field: "payment_date", order: "desc"},
   },
   tab ? undefined : null
   );
@@ -38,7 +40,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
   const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", {
       fields: ["name", "vendor_name", "vendor_mobile"],
       limit: 10000,
-  });
+  }, 'Vendors');
 
   const projectValues = useMemo(() => projects?.map((item) => ({
     label: item.project_name,
@@ -83,7 +85,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
   const columns : ColumnDef<ProjectPayments>[] = useMemo(
           () => [
                   {
-                      accessorKey: "creation",
+                      accessorKey: "payment_date",
                       header: ({ column }) => {
                           return (
                               <DataTableColumnHeader column={column} title="Payment Date" />
@@ -184,7 +186,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
                   },
                   cell: ({ row }) => {
                       return <div className="font-medium">
-                          {formatToIndianRupee(row.original?.amount)}
+                          <AmountPaidHoverCard paymentInfo={row.original} />
                       </div>
                   },
               },

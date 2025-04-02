@@ -194,63 +194,63 @@ export const PurchaseOrder = ({
 
   const [poPdfSheet, setPoPdfSheet] = useState(false);
 
-  const togglePoPdfSheet = () => {
+  const togglePoPdfSheet = useCallback(() => {
     setPoPdfSheet((prevState) => !prevState);
-  };
+  }, [poPdfSheet]);
 
   const [editPOTermsDialog, setEditPOTermsDialog] = useState(false);
 
-  const toggleEditPOTermsDialog = () => {
+  const toggleEditPOTermsDialog = useCallback(() => {
     setEditPOTermsDialog((prevState) => !prevState);
-  };
+  }, [editPOTermsDialog]);
 
   const [mergeSheet, setMergeSheet] = useState(false);
 
-  const toggleMergeSheet = () => {
+  const toggleMergeSheet = useCallback(() => {
     setMergeSheet((prevState) => !prevState);
-  };
+  }, [mergeSheet]);
 
   const [mergeConfirmDialog, setMergeConfirmDialog] = useState(false);
 
-  const toggleMergeConfirmDialog = () => {
+  const toggleMergeConfirmDialog = useCallback(() => {
     setMergeConfirmDialog((prevState) => !prevState);
-  };
+  }, [mergeConfirmDialog]);
 
   const [amendPOSheet, setAmendPOSheet] = useState(false);
 
-  const toggleAmendPOSheet = () => {
+  const toggleAmendPOSheet = useCallback(() => {
     setAmendPOSheet((prevState) => !prevState);
-  };
+  }, [amendPOSheet]);
 
   const [cancelPODialog, setCancelPODialog] = useState(false);
 
-  const toggleCancelPODialog = () => {
+  const toggleCancelPODialog = useCallback(() => {
     setCancelPODialog((prevState) => !prevState);
-  };
+  }, [cancelPODialog]);
 
   const [unMergeDialog, setUnMergeDialog] = useState(false);
 
-  const toggleUnMergeDialog = () => {
+  const toggleUnMergeDialog = useCallback(() => {
     setUnMergeDialog((prevState) => !prevState);
-  };
+  }, [unMergeDialog]);
 
   const [amendEditItemDialog, setAmendEditItemDialog] = useState(false);
 
-  const toggleAmendEditItemDialog = () => {
+  const toggleAmendEditItemDialog = useCallback(() => {
     setAmendEditItemDialog((prevState) => !prevState);
-  };
+  }, [amendEditItemDialog]);
 
   const [showAddNewMake, setShowAddNewMake] = useState(false);
 
-  const toggleAddNewMake = () => {
+  const toggleAddNewMake = useCallback(() => {
     setShowAddNewMake((prevState) => !prevState);
-  };
+  }, [showAddNewMake]);
 
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);
 
-  const toggleNewPaymentDialog = () => {
+  const toggleNewPaymentDialog = useCallback(() => {
     setNewPaymentDialog((prevState) => !prevState);
-  };
+  }, [newPaymentDialog]);
 
   const { toggleRequestPaymentDialog} = useDialogStore()
 
@@ -265,11 +265,11 @@ export const PurchaseOrder = ({
 
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
-  const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((event : React.ChangeEvent<HTMLInputElement>) => {
     if(event.target.files){
       setPaymentScreenshot(event.target.files[0]);
     }
-  };
+  }, [paymentScreenshot]);
 
   const { updateDoc, loading : updateLoading } = useFrappeUpdateDoc();
 
@@ -316,7 +316,7 @@ export const PurchaseOrder = ({
   const { data: poProject } = useFrappeGetDoc<Projects>(
     "Projects",
     PO?.project,
-    PO ? undefined : null
+    PO ? `Projects ${PO}` : null
   );
 
   const {
@@ -332,7 +332,7 @@ export const PurchaseOrder = ({
   } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["name", "full_name"],
     limit: 1000,
-  });
+  }, `Nirmaan Users`);
 
   const {
     data: poPayments,
@@ -588,7 +588,7 @@ export const PurchaseOrder = ({
     }
 };
 
-const handleUnmergePOs = async () => {
+  const handleUnmergePOs = async () => {
     try {
         // Call the backend API for unmerging POs
         const response = await unMergePOCall({
@@ -830,7 +830,7 @@ const handleUnmergePOs = async () => {
     setStack(newStack);
   }, [orderData, setOrderData, setStack, stack]);
 
-  const treeData = [
+  const treeData = useMemo(() => [
     {
       title: PO?.name,
       key: "mainPO",
@@ -843,7 +843,7 @@ const handleUnmergePOs = async () => {
         })),
       })),
     },
-  ];
+  ], [prevMergedPOs, PO]);
 
   const AddPayment = async () => {
     try {
@@ -938,11 +938,12 @@ const handleUnmergePOs = async () => {
     }
   }
 
-  const amountPaid = getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid"));
+  const amountPaid = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid")), [poPayments]);
 
-  const amountPending = getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status)));
+  const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
 
-  const validateAmount = debounce((amount : number) => {
+  const validateAmount = useCallback(
+    debounce((amount : number) => {
     const { totalAmt } = getTotal;
 
     const compareAmount = totalAmt - amountPaid;
@@ -956,14 +957,14 @@ const handleUnmergePOs = async () => {
     } else {
       setWarning(""); // Clear warning if within the limit
     }
-  }, 300);
+  }, 300), [getTotal]);
 
   // Handle input change
-  const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
+  const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
     const amount = e.target.value;
     setNewPayment({ ...newPayment, amount });
     validateAmount(amount);
-  };
+  }, [newPayment, validateAmount]);
 
   const getUserName = useMemo(() => (id : string | undefined) => {
     return usersList?.find((user) => user?.name === id)?.full_name || ""
@@ -1317,7 +1318,7 @@ const handleUnmergePOs = async () => {
           </>
         )}
 
-          <PODetails po={PO} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
+          <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
             getTotal={getTotal} amountPaid={amountPaid} pr={pr} poMutate={poMutate} />
 
       <Accordion type="multiple" 
@@ -1415,7 +1416,7 @@ const handleUnmergePOs = async () => {
                                                             <div className="flex gap-4 w-full">
                                                                 <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                                                 <Input
-                                                                    type="text"
+                                                                    type="number"
                                                                     placeholder="Enter UTR"
                                                                     value={newPayment.utr}
                                                                     onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
@@ -1471,7 +1472,7 @@ const handleUnmergePOs = async () => {
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || warning}
+                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -2715,9 +2716,9 @@ const AddNewMakes = ({
   toggleAddNewMake,
   setEditMakeOptions,
 } : AddNewMakesProps) => {
-  const [makeOptions, setMakeOptions] = useState([]);
+  const [makeOptions, setMakeOptions] = useState<Make[]>([]);
 
-  const [newSelectedMakes, setNewSelectedMakes] = useState([]);
+  const [newSelectedMakes, setNewSelectedMakes] = useState<Make[]>([]);
 
   const { data: categoryMakeList } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
@@ -2725,7 +2726,7 @@ const AddNewMakes = ({
   });
 
   useEffect(() => {
-    if (categoryMakeList?.length > 0) {
+    if ((categoryMakeList || [])?.length > 0) {
       const categoryMakes = categoryMakeList?.filter(
         (i) => i?.category === amendEditItem.category
       );
