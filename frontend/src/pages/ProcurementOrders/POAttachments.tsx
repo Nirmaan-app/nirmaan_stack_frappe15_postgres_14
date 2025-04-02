@@ -124,7 +124,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
                             <TableRow key={att.name}>
                               <TableCell>{index + 1}</TableCell>
                               <TableCell>{formatDate(att.creation, "dd/MM/yyyy")}</TableCell>
-                              <TableCell className="font-semibold text-blue-500 underline">
+                              <TableCell className="font-semibold text-blue-500 underline truncate max-w-[150px]">
                                 <a href={`${SITEURL}${att.attachment}`} target="_blank" rel="noreferrer">
                                   {att.attachment?.split("file_name=")[1]}
                                 </a>

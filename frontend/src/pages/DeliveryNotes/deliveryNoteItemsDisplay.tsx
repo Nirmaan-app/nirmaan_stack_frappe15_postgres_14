@@ -17,7 +17,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
 import { DeliveryDataType, PurchaseOrderItem } from '@/types/NirmaanStack/ProcurementOrders';
 import { parseNumber } from '@/utils/parseNumber';
-import { useFrappeFileUpload, useFrappePostCall } from 'frappe-react-sdk';
+import { useFrappeFileUpload, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { ArrowDown, ArrowUp, Check, ListChecks, MessageCircleMore, Pencil, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TailSpin } from "react-loader-spinner";
@@ -41,6 +41,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 }) => {
   const userData = useUserData();
   const { toast } = useToast();
+  const {mutate} = useSWRConfig()
 
   // State management
   const [originalOrder, setOriginalOrder] = useState<PurchaseOrderItem[]>([]);
@@ -180,6 +181,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 
       if (response.message.status === 200) {
         await poMutate();
+        await mutate(`Nirmaan Attachments-${data?.name}`)
         setShowEdit(false);
         setProceedDialog(false);
         setModifiedItems({});
