@@ -1,27 +1,5 @@
 [
  {
-  "category_name": "Sprinklers",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/sprinklers.jpeg",
-  "modified": "2024-11-23 14:28:30.836660",
-  "name": "Sprinklers",
-  "new_items": null,
-  "tax": "18",
-  "work_package": "Fire Fighting System"
- },
- {
-  "category_name": "Sprinkler Valves",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/sprinkler-valve.jpg",
-  "modified": "2024-11-23 14:28:30.830720",
-  "name": "Sprinkler Valves",
-  "new_items": null,
-  "tax": "18",
-  "work_package": "Fire Fighting System"
- },
- {
   "category_name": "Terminations",
   "docstatus": 0,
   "doctype": "Category",
@@ -955,17 +933,6 @@
   "new_items": "true",
   "tax": "18",
   "work_package": "WLD & RR"
- },
- {
-  "category_name": "Sprinkler Piping",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-08-19 13:26:09.991438",
-  "name": "Sprinkler Piping",
-  "new_items": "true",
-  "tax": "18",
-  "work_package": "Fire Fighting System"
  },
  {
   "category_name": "Miscellaneous Services",
