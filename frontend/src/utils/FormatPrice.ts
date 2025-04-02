@@ -7,7 +7,7 @@ function formatToIndianRupee(price : number | string | undefined) {
   }
 
   // Convert the number to Indian currency format
-  return `₹${amount.toLocaleString('en-IN', {
+  return `₹${Math.round(amount).toLocaleString('en-IN', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   })}`;

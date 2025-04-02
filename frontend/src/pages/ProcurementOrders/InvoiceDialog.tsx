@@ -8,7 +8,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import { useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 
@@ -20,6 +20,7 @@ interface InvoiceDialogProps {
 export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) => {
 
   const {toggleNewInvoiceDialog, newInvoiceDialog} = useDialogStore()
+  const {mutate} = useSWRConfig()
   const userData = useUserData();
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
 
@@ -74,6 +75,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) =>
     
           if (response.message.status === 200) {
             await poMutate();
+            await mutate(`Nirmaan Attachments-${po?.name}`)
             toggleNewInvoiceDialog();
             setInvoiceData({
               invoice_no: "",
@@ -145,7 +147,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) =>
                                   </div>
                               </div>
       
-                                    <CustomAttachment
+                                        <CustomAttachment
                                               maxFileSize={20 * 1024 * 1024} // 20MB
                                               selectedFile={selectedAttachment}
                                               onFileSelect={setSelectedAttachment}

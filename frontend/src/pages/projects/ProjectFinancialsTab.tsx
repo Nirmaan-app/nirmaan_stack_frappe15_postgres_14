@@ -79,7 +79,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
     },
     {
       label: "Project Value",
-      value: 0,
+      value: projectData?.project_value,
       style: ""
     },
   ], [projectInflows])
@@ -165,7 +165,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                           <TableHeader className="bg-gray-300">
                                               <TableRow>
                                                   <TableHead>Date</TableHead>
-                                                  <TableHead>UTR No.</TableHead>
+                                                  <TableHead>Payment Ref.</TableHead>
                                                   <TableHead>Amount</TableHead>
                                               </TableRow>
                                           </TableHeader>

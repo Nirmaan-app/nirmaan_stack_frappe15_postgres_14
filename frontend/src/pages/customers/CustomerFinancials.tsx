@@ -159,7 +159,7 @@ const amountsSummaryItems = useMemo(() => [
                                               <TableRow>
                                                   <TableHead>Date</TableHead>
                                                   <TableHead>Project</TableHead>
-                                                  <TableHead>UTR No.</TableHead>
+                                                  <TableHead>Payment Ref.</TableHead>
                                                   <TableHead>Amount</TableHead>
                                               </TableRow>
                                           </TableHeader>

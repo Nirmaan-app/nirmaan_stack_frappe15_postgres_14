@@ -186,7 +186,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
                   },
                   cell: ({ row }) => {
                       return <div className="font-medium">
-                          <AmountPaidHoverCard paymentInfo={row.original} />
+                          {tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={row.original} /> : formatToIndianRupee(row.original?.amount)}
                       </div>
                   },
               },

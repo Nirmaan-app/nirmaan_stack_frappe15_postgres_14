@@ -479,14 +479,14 @@ export const POPdf : React.FC<POPdfProps> = ({
                           {formatToIndianRupee(getTotal?.totalGst)}
                         </div>
                         <div className="ml-4">
-                          -{" "}
+                          {" "}
                           {formatToIndianRupee(
-                            getTotal?.totalAmt -
-                              Math.floor(getTotal?.totalAmt)
+                            (getTotal?.totalAmt -
+                              Math.round(getTotal?.totalAmt)) * -1
                           )}
                         </div>
                         <div className="ml-4">
-                          {formatToIndianRupee(Math.floor(getTotal?.totalAmt))}
+                          {formatToIndianRupee(Math.round(getTotal?.totalAmt))}
                         </div>
                       </td>
                     </tr>
