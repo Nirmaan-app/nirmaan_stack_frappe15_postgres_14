@@ -187,7 +187,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                     {!summaryPage &&
                       !accountsPage &&
                       !estimatesViewing &&
-                      PO?.status === "PO Approved" && (
+                      // PO?.status === "PO Approved" && 
+                      (
                         <Dialog
                           open={editPOTermsDialog}
                           onOpenChange={toggleEditPOTermsDialog}

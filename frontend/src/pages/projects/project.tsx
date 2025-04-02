@@ -1649,19 +1649,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{totalPOAmountWithGST.toLocaleString()}
+                          {formatToIndianRupee(totalPOAmountWithGST)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{totalPosRaised.toLocaleString()}
+                          {formatToIndianRupee(totalPosRaised)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{getTotalAmountPaid.poAmount?.toLocaleString()}
+                          {formatToIndianRupee(getTotalAmountPaid.poAmount)}
                         </span>
                       </p>
                     </div>
@@ -1743,7 +1743,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          ₹{getTotalAmountPaid?.srAmount?.toLocaleString()}
+                          {formatToIndianRupee(getTotalAmountPaid?.srAmount)}
                         </span>
                       </p>
                     </div>

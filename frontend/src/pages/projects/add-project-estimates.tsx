@@ -718,7 +718,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                         return (
                                                             <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
                                                                 <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
-                                                                    {overallTotal?.withoutGst?.toLocaleString()}
+                                                                    {formatToIndianRupee(overallTotal?.withoutGst)}
                                                                 </tspan>
                                                                 <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
                                                                     Total
@@ -765,7 +765,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                             return (
                                                                 <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
                                                                     <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
-                                                                        {overAllCategoryTotals?.withoutGst?.toLocaleString()}
+                                                                        {formatToIndianRupee(overAllCategoryTotals?.withoutGst)}
                                                                     </tspan>
                                                                     <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
                                                                         Total

@@ -19,8 +19,8 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { formatDate } from "date-fns";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import memoize from "lodash/memoize";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { TailSpin } from "react-loader-spinner";
 
 interface POAttachmentsProps {
   PO: ProcurementOrder | null
@@ -34,20 +34,30 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
     fields: ["*"],
     filters: [["associated_doctype", "=", "Procurement Orders"], ["associated_docname", "=", PO?.name]],
     limit: 1000,
-  }, PO ? undefined : null)
+  }, PO ? `Nirmaan Attachments-${PO?.name}` : null)
 
   const dcAttachments = useMemo(() => attachmentsData?.filter((i) => i?.attachment_type === "po delivery challan") || [], [attachmentsData]);
 
   const invoiceAttachments = useMemo(() => attachmentsData?.filter((i) => i?.attachment_type === "po invoice") || [], [attachmentsData]);
 
-  console.log("invoiceAttachments", invoiceAttachments)
+  const handleOpenScreenshot = useCallback(
+    (att: string | undefined) => {
+      const invoice = invoiceAttachments?.find((i) => i?.name === att)?.attachment;
+      if (invoice) {
+        window.open(`${SITEURL}${invoice}`, '_blank');
+      } else {
+        // Handle case where attachment is not found (optional)
+        console.error('Invoice attachment not found.');
+      }
+    },
+    [invoiceAttachments, attachmentsData]
+  );
 
-  const getInvoiceAttachment = useMemo(() => 
-    memoize((id: string) : string | undefined => {
-      return invoiceAttachments?.find((i) => i?.name === id)?.attachment
-    }, (id: string) => id), [invoiceAttachments]);
-
-    console.log("getInvoiceAttachment", getInvoiceAttachment("ATT-00042-014"))
+  if(attachmentsLoading) {
+    return (
+      <TailSpin color="red" width={40} height={40} />
+    )
+  }
 
   return (
       <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
@@ -78,13 +88,9 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
                             <TableRow key={date}>
                               <TableCell>{formatDate(date, "dd/MM/yyyy")}</TableCell>
                               <TableCell>{PO?.invoice_data?.data[date]?.amount}</TableCell>
-                              {getInvoiceAttachment(PO?.invoice_data?.data[date]?.invoice_attachment_id) && (
-                                <TableCell className="font-semibold text-blue-500 underline">
-                                  <a href={`${SITEURL}${getInvoiceAttachment(PO?.invoice_data?.data[date]?.invoice_attachment_id)}`} target="_blank" rel="noreferrer">
+                                <TableCell onClick={() => handleOpenScreenshot(PO?.invoice_data?.data[date]?.invoice_attachment_id)} className="font-semibold text-blue-500 underline">
                                   {PO?.invoice_data?.data[date]?.invoice_no}
-                                  </a>
                                 </TableCell>
-                              )}
                             </TableRow>
                           )) : (
                             <TableRow>

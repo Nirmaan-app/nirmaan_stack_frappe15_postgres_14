@@ -123,7 +123,7 @@ export const CustomAttachment = React.forwardRef<
               target="_blank"
               rel="noopener noreferrer"
               className={cn(
-                "text-sm truncate hover:underline",
+                "text-sm truncate max-w-[150px] hover:underline",
                 preview ? "text-primary" : "text-muted-foreground"
               )}
               aria-label={`View ${selectedFile.name}`}
