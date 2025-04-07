@@ -1,4 +1,4 @@
-import { useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeGetDocList } from "frappe-react-sdk";
 // import { ClientSideRowModelModule } from "@ag-grid-community/client-side-row-model";
 // import {
 //     ChartToolPanelsDef,
@@ -25,23 +25,19 @@ import { useFrappeGetDocList } from "frappe-react-sdk"
 // import { SparklinesModule } from "@ag-grid-enterprise/sparklines";
 // import { StatusBarModule } from "@ag-grid-enterprise/status-bar";
 import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+    useMemo
 } from "react";
 
-import styles from "./FinanceExample.module.css";
+import { DataTable } from "@/components/data-table/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { Link, useNavigate } from "react-router-dom";
-import { DataTable } from "@/components/data-table/data-table";
-import { TableSkeleton } from "@/components/ui/skeleton";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Separator } from "@/components/ui/separator";
+import { ColumnDef } from "@tanstack/react-table";
+import memoize from "lodash/memoize";
+import { Link } from "react-router-dom";
 // import { CsvExportModule } from "@ag-grid-community/csv-export";
-import { Button } from "@/components/ui/button";
 
 interface Props {
     gridTheme?: string;
@@ -71,9 +67,9 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
     isDarkMode = false,
   }) => {
 
-    const [itemIds, setItemIds] = useState([])
+    // const [itemIds, setItemIds] = useState([])
 
-    const {data : approvedQuotations, isLoading: approvedQuotationsLoading, mutate: approvedQuotationsMutate} = useFrappeGetDocList("Approved Quotations", {
+    const {data : approvedQuotations, isLoading: approvedQuotationsLoading} = useFrappeGetDocList("Approved Quotations", {
         fields: ["*"],
         limit: 100000
     })
@@ -91,39 +87,39 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
   //   itemIds?.length ? undefined : null
   // )
 
-    useEffect(() => {
-      if(approvedQuotations) {
-        const itemIds = approvedQuotations?.map((ap) => ap?.item_id)
-        setItemIds(itemIds)
-      }
-    }, [approvedQuotations])
+    // useEffect(() => {
+    //   if(approvedQuotations) {
+    //     const itemIds = approvedQuotations?.map((ap) => ap?.item_id)
+    //     setItemIds(itemIds)
+    //   }
+    // }, [approvedQuotations])
 
     // console.log("itemIds", itemIds)
     // console.log("approvedItems", approvedItems)
 
-    const  findVendorName = (id) => {
+    const  findVendorName = useMemo(() => memoize((id: string | undefined) => {
         if(vendorsList) {
-            return vendorsList?.find((i) => i?.name === id)?.vendor_name
+            return vendorsList?.find((i) => i?.name === id)?.vendor_name || ""
         }
-    }
+    }, (id: string | undefined) =>  id),[vendorsList])
 
-    const findItemId = (name) => {
-        if(approvedQuotations) {
-            return approvedQuotations?.find((i) => i?.name === name)?.item_id
-        }
-    }
+    // const findItemId = (name) => {
+    //     if(approvedQuotations) {
+    //         return approvedQuotations?.find((i) => i?.name === name)?.item_id
+    //     }
+    // }
 
-    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name }))
+    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })), [vendorsList])
 
     const getItemOptions = useMemo(() => {
-        const options = []
-        const itemOptions = []
+        const options: Set<string>  = new Set()
+        const itemOptions: {label: string, value: string}[] = []
         if(approvedQuotations) {
             approvedQuotations?.forEach((aq) => {
-                if(!options?.includes(aq.item_name)){
+                if(!options?.has(aq.item_name)){
                     const op = ({ label: aq.item_name, value: aq.item_name })
                     itemOptions.push(op)
-                    options.push(aq.item_name)
+                    options.add(aq.item_name)
                 }
             })
         }
@@ -131,7 +127,7 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
         return itemOptions
     }, [approvedQuotations])
 
-    const columns = useMemo(
+    const columns: ColumnDef<ApprovedQuotations>[]  = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -145,7 +141,7 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Creation" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
@@ -246,11 +242,11 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
                 accessorKey : "procurement_order",
                 header: ({column}) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Associated PO" />
+                        <DataTableColumnHeader column={column} title="#PO" />
                     )
                 },
                 cell: ({ row }) => {
-                    const poId = row.getValue("procurement_order")
+                    const poId: string = row.getValue("procurement_order")
                     return (
                         <Link className="underline hover:underline-offset-2" to={poId?.replaceAll("/", "&=")}>
                             {poId}

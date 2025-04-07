@@ -11,6 +11,7 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -37,43 +38,22 @@ export default function Items() {
   const [category, setCategory] = useState("");
 
   const userData = useUserData();
+  const { toast } = useToast();
 
   const { newItemDialog, toggleNewItemDialog } = useContext(UserContext)
 
-  const {
-    data: data,
-    isLoading: isLoading,
-    error: error,
-    mutate: mutate,
-  } = useFrappeGetDocList<ItemsType>("Items", {
-    fields: [
-      "name",
-      "item_name",
-      "unit_name",
-      "make_name",
-      "category",
-      "creation",
-    ],
+  const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList<ItemsType>("Items", {
+    fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
     limit: 100000,
     orderBy: { field: "creation", order: "desc" },
   });
-  const {
-    data: category_list,
-    isLoading: category_loading,
-    error: category_error,
-  } = useFrappeGetDocList("Category", {
+  const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
     fields: ["*"],
     orderBy: { field: "work_package", order: "asc" },
     limit: 1000,
   });
 
-  const {
-    createDoc: createDoc,
-    loading: loading,
-    isCompleted: submit_complete,
-    error: submit_error,
-  } = useFrappeCreateDoc();
-  const { toast } = useToast();
+  const { createDoc: createDoc, loading: loading, error: submit_error } = useFrappeCreateDoc();
 
   const columns: ColumnDef<ItemsType>[] = useMemo(
     () => [
@@ -131,7 +111,7 @@ export default function Items() {
       {
         accessorKey: "creation",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date Added" />;
+          return <DataTableColumnHeader column={column} title="Date Created" />;
         },
         cell: ({ row }) => {
           return (
@@ -166,9 +146,7 @@ export default function Items() {
           return value.includes(row.getValue(id));
         },
       },
-    ],
-    []
-  );
+    ], [data]);
 
   const handleAddItem = () => {
     const itemData = {
@@ -209,10 +187,10 @@ export default function Items() {
   })) || [], [category_list]);
 
   if (error || category_error)
-    return error ? <h1>error.message</h1> : <h1>category_error.message</h1>;
+    return <h1>{error?.message || category_error?.message}</h1>;
 
   return (
-    <div className="flex-1 space-y-4">
+      <div className="flex-1 space-y-4">
         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">Total Products</CardTitle>
@@ -244,12 +222,11 @@ export default function Items() {
                   <DialogTitle className="mb-2 text-center">Add New Product</DialogTitle>
                   <div className="flex flex-col gap-4 ">
                     <div className="flex flex-col items-start">
-                      <label
+                      <Label
                         htmlFor="itemUnit"
-                        className="block text-sm font-medium text-gray-700"
                       >
                         Category<sup className="pl-1 text-sm text-red-600">*</sup>
-                      </label>
+                      </Label>
                       <Select onValueChange={(value) => setCategory(value)}>
                         <SelectTrigger className="">
                           <SelectValue
@@ -269,30 +246,27 @@ export default function Items() {
                       </Select>
                     </div>
                     <div className="flex flex-col items-start">
-                      <label
+                      <Label
                         htmlFor="itemName"
-                        className="block text-sm font-medium text-gray-700"
                       >
                         Product Name
                         <sup className="pl-1 text-sm text-red-600">*</sup>
-                      </label>
+                      </Label>
                       <Input
                         type="text"
                         id="itemName"
                         placeholder="Enter name..."
                         value={curItem}
                         onChange={(e) => setCurItem(e.target.value)}
-                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                       />
                     </div>
                     <div className="flex flex-col items-start">
-                      <label
+                      <Label
                         htmlFor="itemUnit"
-                        className="block text-sm font-medium text-gray-700"
                       >
                         Product Unit
                         <sup className="pl-1 text-sm text-red-600">*</sup>
-                      </label>
+                      </Label>
                       <SelectUnit value={unit} onChange={(value) => setUnit(value)} />
                     </div>
                   </div>

@@ -17,7 +17,7 @@
  {
   "docstatus": 0,
   "doctype": "Role Profile",
-  "modified": "2025-01-04 15:38:57.751286",
+  "modified": "2025-04-07 19:01:47.039108",
   "name": "Nirmaan Project Lead Profile",
   "role_profile": "Nirmaan Project Lead Profile",
   "roles": [
@@ -56,6 +56,12 @@
     "parentfield": "roles",
     "parenttype": "Role Profile",
     "role": "Nirmaan Accountant"
+   },
+   {
+    "parent": "Nirmaan Project Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "System Manager"
    }
   ]
  },

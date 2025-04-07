@@ -4,16 +4,18 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
+import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from "lodash/memoize";
 import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
@@ -22,6 +24,8 @@ interface ApprovedSRListProps {
 }
 
 export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = undefined }) => {
+
+    const {getTotalAmount} = useOrderTotals()
     const sr_filters: Filter<FrappeDoc<ServiceRequests>>[] | undefined = [["status", "=", "Approved"]]
     if (for_vendor) {
         sr_filters.push(["vendor", "=", for_vendor])
@@ -37,7 +41,7 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
-    })
+    }, 'Projects')
 
     const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
@@ -61,25 +65,20 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
 
     const project_values = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name})) || [], [projects])
 
-    const getTotal = useCallback((order_id: string) => {
-        const orderData = service_list?.find(item => item.name === order_id);
-        return getSRTotal(orderData)
-    }, [service_list])
-
-    const getAmountPaid = useCallback((id : string) => {
+    const getAmountPaid = useMemo(() => memoize((id : string) => {
         const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
         return getTotalAmountPaid(payments)
-    }, [projectPayments])
+    }, (id: string) => id), [projectPayments])
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const getVendorName = useCallback((vendorId: string | undefined) => {
         return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name || "";
@@ -122,13 +121,13 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }
@@ -202,7 +201,7 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {formatToIndianRupee(getTotalAmount(row.getValue("name"), 'Service Requests')?.totalWithTax)}
                         </div>
                     )
                 }
@@ -214,13 +213,13 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
                     const data = row.original
                     const amountPaid = getAmountPaid(data?.name);
                     return <div className="font-medium">
-                        {formatToIndianRupee(amountPaid)}
+                        {formatToIndianRupee(amountPaid || "--")}
                     </div>
                 },
             },
 
         ],
-        [project_values, service_list, projectPayments, vendorsList, vendorOptions]
+        [project_values, service_list, projectPayments, vendorsList, vendorOptions, getTotalAmount, getAmountPaid]
     )
     const { toast } = useToast()
 

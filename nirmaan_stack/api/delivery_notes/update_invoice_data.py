@@ -3,7 +3,7 @@ from frappe.model.document import Document
 from datetime import datetime
 
 @frappe.whitelist()
-def update_invoice_data(po_id: str, invoice_data: dict, invoice_attachment: str = None):
+def update_invoice_data(po_id: str, invoice_data: dict, invoice_attachment: str = None, isSR: bool = False):
     """
     Updates the invoice data for a Procurement Order and optionally adds an invoice attachment.
 
@@ -11,11 +11,13 @@ def update_invoice_data(po_id: str, invoice_data: dict, invoice_attachment: str 
         po_id (str): Procurement Order ID.
         invoice_data (dict): Invoice data to append.
         invoice_attachment (str, optional): URL of uploaded invoice attachment. Defaults to None.
+        isSR (bool, optional): Indicates if the document is a Service Request. Defaults to False.
     """
+    doctype = "Service Requests" if isSR else "Procurement Orders"
     try:
         frappe.db.begin()
 
-        po = frappe.get_doc("Procurement Orders", po_id)
+        po = frappe.get_doc(doctype , po_id)
 
          # Handle invoice attachment
         if invoice_attachment:
@@ -67,7 +69,6 @@ def add_invoice_history(po, new_data: dict) -> None:
         unique_date = f"{invoice_date} {time_stamp}" #combine date and timestamp
         existing_data["data"][unique_date] = invoice_data_without_date # assign update info with unique date.
 
-    existing_data["data"].update({invoice_date: invoice_data_without_date})
     po.invoice_data = existing_data
 
 def create_attachment_doc(po, file_url: str, attachment_type: str) -> Document:
@@ -77,7 +78,7 @@ def create_attachment_doc(po, file_url: str, attachment_type: str) -> Document:
         "project": po.project,
         "attachment": file_url,
         "attachment_type": attachment_type,
-        "associated_doctype": "Procurement Orders",
+        "associated_doctype": po.doctype,
         "associated_docname": po.name,
         "attachment_link_doctype": "Vendors",
         "attachment_link_docname": po.vendor

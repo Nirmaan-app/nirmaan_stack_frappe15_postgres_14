@@ -12,10 +12,12 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from "lodash/memoize";
 import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 export const ApproveSelectVendor : React.FC = () => {
+
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation', "modified"],
@@ -29,10 +31,10 @@ export const ApproveSelectVendor : React.FC = () => {
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
-    })
+    }, "Projects")
 
 
-    const getTotal = useCallback((order_id: string) => {
+    const getTotal = useMemo(() => memoize((order_id: string) => {
         let total: number = 0;
         const allItems = procurement_request_list?.find(item => item?.name === order_id)?.procurement_list?.list;
         const orderData = allItems?.filter((item) => item.status === "Pending")
@@ -40,7 +42,7 @@ export const ApproveSelectVendor : React.FC = () => {
             total += parseNumber((item.quote || 0) * item.quantity);
         })
         return total;
-    }, [procurement_request_list])
+    }, (order_id: string) => order_id), [procurement_request_list])
 
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
@@ -63,7 +65,7 @@ export const ApproveSelectVendor : React.FC = () => {
                 accessorKey: "name",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="PR Number" />
+                        <DataTableColumnHeader column={column} title="#PR" />
                     )
                 },
                 cell: ({ row }) => {
@@ -95,14 +97,14 @@ export const ApproveSelectVendor : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                      const creation : string = row.getValue("creation")
                     return (
                         <p className="font-medium">
-                            {formatDate(creation.split(" ")[0])}
+                            {formatDate(creation)}
                         </p>
                     )
                 }
@@ -177,7 +179,7 @@ export const ApproveSelectVendor : React.FC = () => {
             }
 
         ],
-        [procurement_request_list, notifications, project_values]
+        [procurement_request_list, notifications, project_values, getTotal]
     )
 
     const { toast } = useToast()
