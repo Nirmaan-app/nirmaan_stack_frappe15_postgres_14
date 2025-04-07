@@ -17,33 +17,33 @@ import { useCallback, useContext, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 
-export const AllPayments : React.FC<{tab?: string, projectId?: string, customerId?: string}> = ({tab = "Payments Pending", projectId, customerId}) => {
+export const AllPayments: React.FC<{ tab?: string, projectId?: string, customerId?: string }> = ({ tab = "Payments Pending", projectId, customerId }) => {
 
-  const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() => 
+  const projectFilters: Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() =>
     customerId ? [["customer", "=", customerId]] : [], [customerId])
 
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["name", "project_name"],
     filters: projectFilters,
     limit: 1000,
-}, customerId ? `Projects ${customerId}` : "Projects");
+  }, customerId ? `Projects ${customerId}` : "Projects");
 
   const paymentFilters: Filter<FrappeDoc<ProjectPayments>>[] | undefined = useMemo(() => [["status", "in", tab === "Payments Done" ? ["Paid"] : ["Requested", "Approved"]], ...(projectId ? [["project", "=", projectId]] : []), ...(customerId ? [["project", "in", projects?.map(i => i?.name)]] : [])], [projectId, customerId, tab])
 
   const navigate = useNavigate()
 
-  const {data : projectPayments, isLoading: projectPaymentsLoading} = useFrappeGetDocList<ProjectPayments>("Project Payments", {
+  const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
     filters: paymentFilters,
     limit: 100000,
-    orderBy: {field: "payment_date", order: "desc"},
+    orderBy: { field: "payment_date", order: "desc" },
   },
-  tab ? undefined : null
+    tab ? undefined : null
   );
-  
+
   const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", {
-      fields: ["name", "vendor_name", "vendor_mobile"],
-      limit: 10000,
+    fields: ["name", "vendor_name", "vendor_mobile"],
+    limit: 10000,
   }, 'Vendors');
 
   const projectValues = useMemo(() => projects?.map((item) => ({
@@ -56,7 +56,7 @@ export const AllPayments : React.FC<{tab?: string, projectId?: string, customerI
     value: item.name,
   })) || [], [vendors])
 
-  const {getTotalAmount} = useOrderTotals()
+  const { getTotalAmount } = useOrderTotals()
 
   // const [phoneNumber, setPhoneNumber] = useState("");
   // const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
@@ -77,167 +77,199 @@ export const AllPayments : React.FC<{tab?: string, projectId?: string, customerI
   // };
 
   const { notifications, mark_seen_notification } = useNotificationStore();
-  
+
   const { db } = useContext(FrappeContext) as FrappeConfig;
 
-  const handleSeenNotification = useCallback((notification : NotificationType | undefined) => {
-        if (notification) {
-            mark_seen_notification(db, notification)
+  const handleSeenNotification = useCallback((notification: NotificationType | undefined) => {
+    if (notification) {
+      mark_seen_notification(db, notification)
+    }
+  }, [db, mark_seen_notification])
+
+  const columns: ColumnDef<ProjectPayments>[] = useMemo(
+    () => [
+      ...(tab === "Payments Done" ? [
+        {
+          accessorKey: "payment_date",
+          header: ({ column }) => {
+            return (
+              <DataTableColumnHeader column={column} title="Payment Date" />
+            )
+          },
+          cell: ({ row }) => {
+            const data = row.original
+            const isNew = notifications.find(
+              (item) => item.docname === data?.name && item.seen === "false" && item.event_id === "payment:fulfilled"
+            )
+            return <div onClick={() => handleSeenNotification(isNew)} className="font-medium flex items-center gap-2 relative">
+              {isNew && (
+                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+              )}
+              {formatDate(data?.payment_date || data?.creation)}
+            </div>;
+          },
+        },
+      ] : []),
+      ...(tab === "Payments Pending" ? [
+        {
+          accessorKey: "creation",
+          header: ({ column }) => {
+            return (
+              <DataTableColumnHeader column={column} title="Date Created" />
+            )
+          },
+          cell: ({ row }) => {
+            const data = row.original
+            return <div className="font-medium flex items-center gap-2 relative">
+              {formatDate(data?.creation)}
+            </div>;
+          },
+        },
+      ] : []),
+      {
+        accessorKey: "document_name",
+        header: "#PO",
+        cell: ({ row }) => {
+          const data: ProjectPayments = row.original;
+          let id;
+          if (data?.document_type === "Procurement Orders") {
+            id = data?.document_name.replaceAll("/", "&=")
+          } else {
+            id = data?.document_name
+          }
+          return <div className="font-medium flex items-center gap-1 min-w-[170px]">
+            {data?.document_name}
+            <HoverCard>
+              <HoverCardTrigger>
+                <Info onClick={() => navigate(`/project-payments/${id}`)} className="w-4 h-4 text-blue-600 cursor-pointer" />
+              </HoverCardTrigger>
+              <HoverCardContent>
+                Click on to navigate to the PO screen!
+              </HoverCardContent>
+            </HoverCard>
+          </div>;
         }
-    }, [db, mark_seen_notification])
+      },
+      {
+        accessorKey: "vendor",
+        header: "Vendor",
+        cell: ({ row }) => {
+          const vendor = vendorValues.find(
+            (vendor) => vendor.value === row.getValue("vendor")
+          );
+          return <div className="font-medium items-baseline min-w-[170px]">
+            {vendor?.label || ""}
+            <HoverCard>
+              <HoverCardTrigger>
+                <Info onClick={() => navigate(`/vendors/${vendor?.value}`)} className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1" />
+              </HoverCardTrigger>
+              <HoverCardContent>
+                Click on to navigate to the Vendor screen!
+              </HoverCardContent>
+            </HoverCard>
+          </div>;
+        },
+        filterFn: (row, id, value) => {
+          return value.includes(row.getValue(id))
+        }
+      },
+      ...(projectId ? [] : [
+        {
+          accessorKey: "project",
+          header: "Project",
+          cell: ({ row }) => {
+            const project = projectValues.find(
+              (project) => project.value === row.getValue("project")
+            );
+            return project ? <div className="font-medium">{project.label}</div> : null;
+          },
+          filterFn: (row, id, value) => {
+            return value.includes(row.getValue(id))
+          },
+        },
+      ]),
+      ...(tab === "Payments Pending" ? [
+        {
+          id: "status",
+          header: ({ column }) => {
+            return (
+              <DataTableColumnHeader column={column} title="Status" />
+            )
+          },
+          cell: ({ row }) => {
+            const data = row.original
+            return <div className="font-medium">{data?.status}</div>;
+          },
+        },
+      ] : []),
+      {
+        id: "po_amount_including_gst",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="PO Amt" />
+          )
+        },
+        cell: ({ row }) => {
+          return <div className="font-medium">
+            {formatToIndianRupee(getTotalAmount(row.original.document_name, row.original.document_type)?.totalWithTax)}
+          </div>
+        },
+      },
+      {
+        accessorKey: "amount",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title={tab === "Payments Done" ? "Amount Paid" : "Amount To Pay"} />
+          )
+        },
+        cell: ({ row }) => {
+          return <div className="font-medium">
+            {tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={row.original} /> : formatToIndianRupee(row.original?.amount)}
+          </div>
+        },
+      },
+      // {
+      //   accessorKey: "status",
+      //   header: "Status",
+      //   cell: ({ row }) => {
+      //       return <div className="font-medium">{row.original?.status}</div>;
+      //   }
+      // },
+      ...(tab === "Payments Done" ? [
+        {
+          id: "download",
+          header: "Download",
+          cell: ({ row }) => {
+            const data = row.original
+            return (
+              data?.payment_attachment && (
+                <a
+                  href={`${SITEURL}${data?.payment_attachment}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Download className="text-blue-500" />
+                </a>
+              )
+            )
+          }
+        },
 
-  const columns : ColumnDef<ProjectPayments>[] = useMemo(
-          () => [
-                  {
-                      accessorKey: "payment_date",
-                      header: ({ column }) => {
-                          return (
-                              <DataTableColumnHeader column={column} title="Payment Date" />
-                          )
-                      },
-                      cell: ({ row }) => {
-                          const data = row.original
-                          const isNew = notifications.find(
-                            (item) => item.docname === data?.name && item.seen === "false" && item.event_id === "payment:fulfilled"
-                        )
-                          return <div onClick={() => handleSeenNotification(isNew)} className="font-medium flex items-center gap-2 relative">
-                            {isNew && (
-                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
-                            )}
-                                  {formatDate(data?.payment_date || data?.creation)}
-                                </div>;
-                      },
-                  },
-              {
-                  accessorKey: "document_name",
-                  header: "#PO",
-                  cell: ({ row }) => {
-                      const data : ProjectPayments = row.original;
-                      let id;
-                      if (data?.document_type === "Procurement Orders") {
-                          id = data?.document_name.replaceAll("/", "&=")
-                      } else {
-                          id = data?.document_name
-                      }
-                      return <div className="font-medium flex items-center gap-1 min-w-[170px]">
-                          {data?.document_name}
-                          <HoverCard>
-                              <HoverCardTrigger>
-                                  <Info onClick={() => navigate(`/project-payments/${id}`)} className="w-4 h-4 text-blue-600 cursor-pointer" />
-                              </HoverCardTrigger>
-                              <HoverCardContent>
-                                  Click on to navigate to the PO screen!
-                              </HoverCardContent>
-                          </HoverCard>
-                      </div>;
-                  }
-              },
-              {
-                  accessorKey: "vendor",
-                  header: "Vendor",
-                  cell: ({ row }) => {
-                      const vendor = vendorValues.find(
-                          (vendor) => vendor.value === row.getValue("vendor")
-                      );
-                      return <div className="font-medium items-baseline min-w-[170px]">
-                        {vendor?.label || ""}
-                        <HoverCard>
-                              <HoverCardTrigger>
-                                  <Info onClick={() => navigate(`/vendors/${vendor?.value}`)} className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1" />
-                              </HoverCardTrigger>
-                              <HoverCardContent>
-                                  Click on to navigate to the Vendor screen!
-                              </HoverCardContent>
-                          </HoverCard>
-                      </div>;
-                  },
-                  filterFn: (row, id, value) => {
-                      return value.includes(row.getValue(id))
-                  }
-              },
-              ...(projectId ? [] : [
-                {
-                  accessorKey: "project",
-                  header: "Project",
-                  cell: ({ row }) => {
-                      const project = projectValues.find(
-                          (project) => project.value === row.getValue("project")
-                      );
-                      return project ? <div className="font-medium">{project.label}</div> : null;
-                  },
-                  filterFn: (row, id, value) => {
-                      return value.includes(row.getValue(id))
-                  },
-              },
-              ]),
-              {
-                id: "po_amount_including_gst",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="PO Amt" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return <div className="font-medium">
-                        {formatToIndianRupee(getTotalAmount(row.original.document_name, row.original.document_type)?.totalWithTax)}
-                    </div>
-                },
-              },
-              {
-                  accessorKey: "amount",
-                  header: ({ column }) => {
-                      return (
-                          <DataTableColumnHeader column={column} title={tab === "Payments Done" ? "Amount Paid" : "Amount To Pay"} />
-                      )
-                  },
-                  cell: ({ row }) => {
-                      return <div className="font-medium">
-                          {tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={row.original} /> : formatToIndianRupee(row.original?.amount)}
-                      </div>
-                  },
-              },
-              // {
-              //   accessorKey: "status",
-              //   header: "Status",
-              //   cell: ({ row }) => {
-              //       return <div className="font-medium">{row.original?.status}</div>;
-              //   }
-              // },
-              ...(tab === "Payments Done" ? [
-                {
-                  id: "download",
-                  header: "Download",
-                  cell: ({ row }) => {
-                    const data = row.original
-                      return (
-                        data?.payment_attachment && (
-                        <a
-                          href={`${SITEURL}${data?.payment_attachment}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <Download className="text-blue-500" />
-                        </a>
-                        )
-                      )
-                  }
-                },
-
-              ] : []),
-          ],
-          [projectValues, vendorValues, projectPayments, tab, getTotalAmount, projectId]
-      );
+      ] : []),
+    ],
+    [projectValues, vendorValues, projectPayments, tab, getTotalAmount, projectId]
+  );
 
 
-    return (
-      <div>
-          {projectsLoading || vendorsLoading || projectPaymentsLoading ? (
-                 <TableSkeleton />
-                          ) : (
-              <DataTable columns={columns} data={projectPayments || []} project_values={projectId ? undefined : projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} />
-          )}
+  return (
+    <div>
+      {projectsLoading || vendorsLoading || projectPaymentsLoading ? (
+        <TableSkeleton />
+      ) : (
+        <DataTable columns={columns} data={projectPayments || []} project_values={projectId ? undefined : projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} />
+      )}
 
-                    {/* <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
+      {/* <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
                         <DialogContent>
                           <DialogHeader>
                             <DialogTitle className="text-center">Share Payment Screenshot via WhatsApp</DialogTitle>
@@ -279,9 +311,9 @@ export const AllPayments : React.FC<{tab?: string, projectId?: string, customerI
                           </div>
                         </DialogContent>
                     </Dialog> */}
-      </div>
+    </div>
 
-      );
+  );
 }
 
 export default AllPayments;

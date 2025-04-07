@@ -16,7 +16,7 @@ import memoize from "lodash/memoize";
 import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
-export const ApproveSelectAmendSR : React.FC = () => {
+export const ApproveSelectAmendSR: React.FC = () => {
 
     const { getTotalAmount } = useOrderTotals()
     const { data: service_request_list, isLoading: service_request_list_loading, error: service_request_list_error, mutate: sr_list_mutate } = useFrappeGetDocList<ServiceRequests>("Service Requests",
@@ -53,11 +53,11 @@ export const ApproveSelectAmendSR : React.FC = () => {
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification: NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }, [db, mark_seen_notification ]);
+    }, [db, mark_seen_notification]);
 
     const getVendorName = useMemo(() => memoize((vendorId: string | undefined) => {
         return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name || "";
@@ -84,13 +84,13 @@ export const ApproveSelectAmendSR : React.FC = () => {
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
                             <div className="flex items-center gap-2">
-                            <Link
-                                className="underline hover:underline-offset-2"
-                                to={`${srId}?tab=approve-amended-so`}
-                            >
-                                {srId?.slice(-5)}
-                            </Link>
-                            <ItemsHoverCard order_list={data.service_order_list.list} isSR />
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`${srId}?tab=approve-amended-so`}
+                                >
+                                    {srId?.slice(-5)}
+                                </Link>
+                                <ItemsHoverCard order_list={data.service_order_list.list} isSR />
                             </div>
                         </div>
                     )
@@ -100,7 +100,7 @@ export const ApproveSelectAmendSR : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
