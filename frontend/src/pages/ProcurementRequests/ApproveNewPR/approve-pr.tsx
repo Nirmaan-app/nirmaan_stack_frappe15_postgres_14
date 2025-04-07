@@ -83,7 +83,7 @@ export const ApprovePR : React.FC = () => {
                 accessorKey: "name",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="PR Number" />
+                        <DataTableColumnHeader column={column} title="#PR" />
                     )
                 },
                 cell: ({ row }) => {
@@ -114,13 +114,13 @@ export const ApprovePR : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }

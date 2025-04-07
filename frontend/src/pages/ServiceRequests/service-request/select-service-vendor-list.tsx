@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
 export const SelectServiceVendorList : React.FC = () => {
+    
     const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests",
         {
             fields: ["*"],
@@ -24,8 +25,7 @@ export const SelectServiceVendorList : React.FC = () => {
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
-    })
-
+    }, "Projects")
 
     useFrappeDocTypeEventListener("Service Requests", async () => {
         await serviceListMutate()
@@ -58,13 +58,13 @@ export const SelectServiceVendorList : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }

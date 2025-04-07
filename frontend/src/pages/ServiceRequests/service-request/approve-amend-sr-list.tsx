@@ -3,19 +3,22 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
+import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import memoize from "lodash/memoize";
 import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 export const ApproveSelectAmendSR : React.FC = () => {
+
+    const { getTotalAmount } = useOrderTotals()
     const { data: service_request_list, isLoading: service_request_list_loading, error: service_request_list_error, mutate: sr_list_mutate } = useFrappeGetDocList<ServiceRequests>("Service Requests",
         {
             fields: ["*"],
@@ -46,29 +49,19 @@ export const ApproveSelectAmendSR : React.FC = () => {
 
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
 
-    const getTotal = useCallback((order_id: string) => {
-        let total: number = 0;
-
-        const orderData = service_request_list?.find(item => item.name === order_id)?.service_order_list;
-        orderData?.list.map((item) => {
-            total +=  parseNumber(item?.rate) * parseNumber(item?.quantity);
-        })
-        return total;
-    }, [service_request_list])
-
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification ]);
 
-    const getVendorName = useCallback((vendorId: string | undefined) => {
+    const getVendorName = useMemo(() => memoize((vendorId: string | undefined) => {
         return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name || "";
-    }, [vendorsList])
+    }, (vendorId: string | undefined) => vendorId), [vendorsList])
 
     const columns: ColumnDef<ServiceRequests>[] = useMemo(
         () => [
@@ -169,13 +162,13 @@ export const ApproveSelectAmendSR : React.FC = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {formatToIndianRupee(getTotalAmount(row.getValue("name"), 'Service Requests')?.totalWithTax)}
                         </div>
                     )
                 }
             }
         ],
-        [service_request_list, project_values, vendorsList, vendorOptions]
+        [service_request_list, project_values, vendorsList, vendorOptions, getTotalAmount]
     )
 
     const { toast } = useToast()

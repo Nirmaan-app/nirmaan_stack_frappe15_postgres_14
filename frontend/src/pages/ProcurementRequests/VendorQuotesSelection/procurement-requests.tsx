@@ -93,9 +93,9 @@ export const ProcurementRequests : React.FC = () => {
     }, [db, mark_seen_notification]);
 
     const updateURL = useCallback((key : string, value : string) => {
-            const url = new URL(window.location.href);
-            url.searchParams.set(key, value);
-            window.history.pushState({}, "", url);
+        const url = new URL(window.location.href);
+        url.searchParams.set(key, value);
+        window.history.pushState({}, "", url);
     }, []);
 
     const onClick = useCallback((value : string) => {
@@ -199,7 +199,7 @@ export const ProcurementRequests : React.FC = () => {
                 accessorKey: "name",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="PR Number" />
+                        <DataTableColumnHeader column={column} title="#PR" />
                     )
                 },
                 cell: ({ row }) => {
@@ -230,13 +230,13 @@ export const ProcurementRequests : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }

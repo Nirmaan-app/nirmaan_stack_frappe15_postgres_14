@@ -19,15 +19,8 @@ import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 
 export const AllPayments : React.FC<{tab?: string, projectId?: string, customerId?: string}> = ({tab = "Payments Pending", projectId, customerId}) => {
 
-  const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
-      
-  if (customerId) {
-    projectFilters.push(["customer", "=", customerId])
-  }
-
-  // const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() => [
-  //   ...(customerId ? ["customer", "=", customerId] : [])
-  // ], [customerId])
+  const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() => 
+    customerId ? [["customer", "=", customerId]] : [], [customerId])
 
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["name", "project_name"],
@@ -35,15 +28,7 @@ export const AllPayments : React.FC<{tab?: string, projectId?: string, customerI
     limit: 1000,
 }, customerId ? `Projects ${customerId}` : "Projects");
 
-  const paymentFilters : Filter<FrappeDoc<ProjectPayments>>[] | undefined = [["status", "=", tab === "Payments Done" ? "Paid" : "Requested"]]
-      
-  if (projectId) {
-    paymentFilters.push(["project", "=", projectId])
-  }
-
-  if(customerId) {
-    paymentFilters.push(["project", "in", projects?.map(i => i?.name)])
-  }
+  const paymentFilters: Filter<FrappeDoc<ProjectPayments>>[] | undefined = useMemo(() => [["status", "=", tab === "Payments Done" ? "Paid" : "Requested"], ...(projectId ? [["project", "=", projectId]] : []), ...(customerId ? [["project", "in", projects?.map(i => i?.name)]] : [])], [projectId, customerId, tab])
 
   const navigate = useNavigate()
 

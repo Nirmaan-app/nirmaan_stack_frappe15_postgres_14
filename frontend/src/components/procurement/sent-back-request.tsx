@@ -22,13 +22,13 @@ import { Button } from "../ui/button";
 import { TableSkeleton } from "../ui/skeleton";
 import { useToast } from "../ui/use-toast";
 
-export const SentBackRequest : React.FC<{tab? : string}> = ({tab = undefined}) => {
+export const SentBackRequest : React.FC<{tab? : string}> = ({tab}) => {
 
     const [searchParams] = useSearchParams();
 
     const {role} = useUserData()
 
-    const type = tab || (searchParams.get("tab") || "Rejected")
+    const type = useMemo(() => tab || (searchParams.get("tab") || "Rejected"), [tab, searchParams.get("tab")])
 
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate : sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
@@ -168,7 +168,7 @@ export const SentBackRequest : React.FC<{tab? : string}> = ({tab = undefined}) =
                 accessorKey: "procurement_request",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="PR Number" />
+                        <DataTableColumnHeader column={column} title="#PR" />
                     )
                 },
                 cell: ({ row }) => {
@@ -183,13 +183,13 @@ export const SentBackRequest : React.FC<{tab? : string}> = ({tab = undefined}) =
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }

@@ -121,13 +121,13 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }
@@ -213,13 +213,13 @@ export const ApprovedSRList : React.FC<ApprovedSRListProps> = ({ for_vendor = un
                     const data = row.original
                     const amountPaid = getAmountPaid(data?.name);
                     return <div className="font-medium">
-                        {formatToIndianRupee(amountPaid)}
+                        {formatToIndianRupee(amountPaid || "--")}
                     </div>
                 },
             },
 
         ],
-        [project_values, service_list, projectPayments, vendorsList, vendorOptions, getTotalAmount]
+        [project_values, service_list, projectPayments, vendorsList, vendorOptions, getTotalAmount, getAmountPaid]
     )
     const { toast } = useToast()
 

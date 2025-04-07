@@ -12,10 +12,12 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import memoize from "lodash/memoize";
+import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 export const ApproveSelectAmendPO : React.FC = () => {
+
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders",
         {
             fields: ["*"],
@@ -43,9 +45,10 @@ export const ApproveSelectAmendPO : React.FC = () => {
     })
 
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
+
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getTotal = useMemo(() => (order_id: string) => {
+    const getTotal = useMemo(() => memoize((order_id: string) => {
         let total: number = 0;
         const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
         orderData?.list.map((item) => {
@@ -53,17 +56,17 @@ export const ApproveSelectAmendPO : React.FC = () => {
             total += parseNumber(price * item.quantity);
         })
         return total;
-    }, [procurement_order_list])
+    }, (order_id: string) => order_id), [procurement_order_list])
 
     const {notifications, mark_seen_notification} = useNotificationStore()
 
 
     const {db} = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if(notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
@@ -117,13 +120,13 @@ export const ApproveSelectAmendPO : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }
@@ -187,7 +190,7 @@ export const ApproveSelectAmendPO : React.FC = () => {
                 }
             }
         ],
-        [project_values, procurement_order_list, vendorOptions]
+        [project_values, procurement_order_list, vendorOptions, getTotal]
     )
 
     const { toast } = useToast()
