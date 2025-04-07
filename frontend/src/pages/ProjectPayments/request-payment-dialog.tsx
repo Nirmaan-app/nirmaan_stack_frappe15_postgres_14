@@ -134,6 +134,7 @@ const RequestPaymentDialog = ({
       });
 
       toggleRequestPaymentDialog()
+      setAmountRequesting(0)
       await paymentsMutate();
 
       toast({
