@@ -34,10 +34,10 @@ import { Link } from "react-router-dom";
 export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerId?: string}> = ({ projectsView = false, customerId}) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
+
     const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
-    
     if (customerId) {
-              projectFilters.push(["customer", "=", customerId])
+        projectFilters.push(["customer", "=", customerId])
     }
 
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()

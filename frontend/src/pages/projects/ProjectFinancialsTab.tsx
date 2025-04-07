@@ -15,7 +15,7 @@ import { TailSpin } from "react-loader-spinner"
 import { useSearchParams } from "react-router-dom"
 
 
-const AccountantTabs = React.lazy(() => import("../ProjectPayments/AccountantTabs"));
+const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 
 
@@ -138,7 +138,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
 
                 <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
                   {tab === "All Payments" ? (
-                    <AccountantTabs tab="Fulfilled Payments" projectsView />
+                    <AllPayments tab="Payments Done" projectId={projectData?.name} />
                   ) : (
                   
                     <ProjectPaymentsList projectsView />

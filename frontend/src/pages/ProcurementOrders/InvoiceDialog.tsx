@@ -119,7 +119,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) =>
                                   <div className="flex gap-4 w-full">
                                       <Label className="w-[40%]">Invoice No.<sup className=" text-sm text-red-600">*</sup></Label>
                                       <Input
-                                          type="number"
+                                          type="text"
                                           placeholder="Enter Invoice no."
                                           value={invoiceData.invoice_no}
                                           onChange={(e) => setInvoiceData((prev) => ({...prev, invoice_no: e.target.value}))}

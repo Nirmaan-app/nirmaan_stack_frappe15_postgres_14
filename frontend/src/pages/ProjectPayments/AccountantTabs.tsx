@@ -17,7 +17,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
-import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Info, Trash2 } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -25,19 +25,11 @@ import { useNavigate } from "react-router-dom";
 
 interface AccountantTabsProps {
   tab : string
-  projectsView?: boolean
-  customerId?: string
 }
 
-export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsView = false, customerId}) => {
+export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab}) => {
 
       const navigate = useNavigate()
-      const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
-
-      if (customerId) {
-          projectFilters.push(["customer", "=", customerId])
-      }
-
       const [dialogType, setDialogType] = useState<"fulfill" | "delete">("fulfill");
   
       const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
@@ -54,9 +46,8 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
   
       const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
           fields: ["name", "project_name", 'customer'],
-          filters: projectFilters,
           limit: 1000,
-      }, customerId ? `Projects ${customerId}` : "Projects");
+      }, "Projects");
   
       const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
           fields: ["*"],
@@ -287,17 +278,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
                     {data?.document_name}
                     <HoverCard>
                         <HoverCardTrigger>
-                            <Info onClick={() => {
-                                if(projectsView) {
-                                    if(isPO) {
-                                        navigate(`po/${id}`)
-                                    } else {
-                                        navigate(`/service-requests-list/${id}`)
-                                    }
-                                } else {
-                                    navigate(`/project-payments/${id}`)
-                                }
-                            }} className="w-4 h-4 text-blue-600 cursor-pointer" />
+                            <Info onClick={() => navigate(`/project-payments/${id}`)} className="w-4 h-4 text-blue-600 cursor-pointer" />
                         </HoverCardTrigger>
                         <HoverCardContent>
                             Click on to navigate to the PO screen!
@@ -329,7 +310,6 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
                 return value.includes(row.getValue(id))
             }
         },
-        ...(!projectsView ? [
           {
             accessorKey: "project",
             header: "Project",
@@ -342,8 +322,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
             filterFn: (row, id, value) => {
                 return value.includes(row.getValue(id))
             },
-        }
-        ] : []),
+        },
         {
             accessorKey: "amount",
             header: ({ column }) => {
@@ -415,7 +394,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab, projectsVie
             }
         ] : [])
     ],
-    [projectValues, vendorValues, projectPayments, tab, notifications, projectsView, customerId]
+    [projectValues, vendorValues, projectPayments, tab, notifications]
 );
 
 if (projectsError || vendorsError || projectPaymentsError) {
@@ -430,7 +409,7 @@ if (projectsError || vendorsError || projectPaymentsError) {
       {projectsLoading || vendorsLoading || projectPaymentsLoading ? (
       <TableSkeleton />
   ) : (
-      <DataTable columns={columns} data={projectPayments?.filter(p => p?.status === (tab === "New Payments" ? "Approved" : "Paid")) || []} project_values={!projectsView ? projectValues : undefined} vendorData={vendors} approvedQuotesVendors={vendorValues} isExport={tab === "New Payments"} />
+      <DataTable columns={columns} data={projectPayments?.filter(p => p?.status === (tab === "New Payments" ? "Approved" : "Paid")) || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} isExport={tab === "New Payments"} />
   )}
        <AlertDialog open={fulFillPaymentDialog} onOpenChange={toggleFulFillPaymentDialog}>
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">

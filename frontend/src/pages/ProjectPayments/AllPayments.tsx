@@ -11,31 +11,50 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
+import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Download, Info } from "lucide-react";
 import { useCallback, useContext, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 
-export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"}) => {
+export const AllPayments : React.FC<{tab?: string, projectId?: string, customerId?: string}> = ({tab = "Payments Pending", projectId, customerId}) => {
+
+  const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
+      
+  if (customerId) {
+    projectFilters.push(["customer", "=", customerId])
+  }
+
+  // const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() => [
+  //   ...(customerId ? ["customer", "=", customerId] : [])
+  // ], [customerId])
+
+  const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
+    fields: ["name", "project_name"],
+    filters: projectFilters,
+    limit: 1000,
+}, customerId ? `Projects ${customerId}` : "Projects");
+
+  const paymentFilters : Filter<FrappeDoc<ProjectPayments>>[] | undefined = [["status", "=", tab === "Payments Done" ? "Paid" : "Requested"]]
+      
+  if (projectId) {
+    paymentFilters.push(["project", "=", projectId])
+  }
+
+  if(customerId) {
+    paymentFilters.push(["project", "in", projects?.map(i => i?.name)])
+  }
 
   const navigate = useNavigate()
 
   const {data : projectPayments, isLoading: projectPaymentsLoading} = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
-    filters: [["status", "=", tab === "Payments Done" ? "Paid" : "Requested"]],
+    filters: paymentFilters,
     limit: 100000,
     orderBy: {field: "payment_date", order: "desc"},
   },
   tab ? undefined : null
   );
-
-  const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
-          fields: ["name", "project_name"],
-          limit: 1000,
-      },
-      'Projects'
-    );
   
   const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", {
       fields: ["name", "vendor_name", "vendor_mobile"],
@@ -151,7 +170,8 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
                       return value.includes(row.getValue(id))
                   }
               },
-              {
+              ...(projectId ? [] : [
+                {
                   accessorKey: "project",
                   header: "Project",
                   cell: ({ row }) => {
@@ -164,6 +184,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
                       return value.includes(row.getValue(id))
                   },
               },
+              ]),
               {
                 id: "po_amount_including_gst",
                 header: ({ column }) => {
@@ -219,7 +240,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
 
               ] : []),
           ],
-          [projectValues, vendorValues, projectPayments, tab, getTotalAmount]
+          [projectValues, vendorValues, projectPayments, tab, getTotalAmount, projectId]
       );
 
 
@@ -228,7 +249,7 @@ export const AllPayments : React.FC<{tab?: string}> = ({tab = "Payments Pending"
           {projectsLoading || vendorsLoading || projectPaymentsLoading ? (
                  <TableSkeleton />
                           ) : (
-              <DataTable columns={columns} data={projectPayments || []} project_values={projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} />
+              <DataTable columns={columns} data={projectPayments || []} project_values={projectId ? undefined : projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} />
           )}
 
                     {/* <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
