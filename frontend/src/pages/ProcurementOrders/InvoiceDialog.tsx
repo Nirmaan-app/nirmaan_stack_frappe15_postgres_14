@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeFileUpload, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
@@ -13,11 +14,12 @@ import { useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 
 interface InvoiceDialogProps {
-  po: ProcurementOrder | null
-  poMutate: any
+  po?: ProcurementOrder | null
+  poMutate?: any
+  sr?: ServiceRequests | null
 }
 
-export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) => {
+export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate, sr }) => {
 
   const {toggleNewInvoiceDialog, newInvoiceDialog} = useDialogStore()
   const {mutate} = useSWRConfig()
@@ -40,8 +42,8 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) =>
   
       try {
         const result = await upload(selectedAttachment, {
-          doctype: "Procurement Orders",
-          docname: po?.name,
+          doctype: sr ? "Service Requests" : "Procurement Orders",
+          docname: po?.name || sr?.name,
           fieldname: "attachment",
           isPrivate: true
         });
@@ -54,7 +56,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) =>
         });
         return null;
       }
-    }, [selectedAttachment, po, upload, toast]);
+    }, [selectedAttachment, po, sr, upload, toast]);
 
     const handleUpdateInvoiceData = useCallback(async () => {
         try {
@@ -66,16 +68,17 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) =>
           };
     
           const payload = {
-            po_id: po?.name,
+            po_id: po?.name || sr?.name,
             invoice_data: modifiedInvoiceData,
-            invoice_attachment: attachmentId
+            invoice_attachment: attachmentId,
+            isSR: sr ? true : false
           };
     
           const response = await InvoiceUpdateCall(payload);
     
           if (response.message.status === 200) {
             await poMutate();
-            await mutate(`Nirmaan Attachments-${po?.name}`)
+            await mutate(`Nirmaan Attachments-${po?.name || sr?.name}`)
             toggleNewInvoiceDialog();
             setInvoiceData({
               invoice_no: "",
@@ -98,14 +101,14 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate }) =>
             });
           }
         } catch (error) {
-          console.error("Error updating PO Invoice data:", error);
+          console.error("Error updating Invoice data:", error);
           toast({
             title: "Update Failed",
             description: "Failed to Update Invoice Data",
             variant: "destructive"
           });
         }
-      }, [po, userData, InvoiceUpdateCall, poMutate, toggleNewInvoiceDialog, toast, uploadInvoice]);
+      }, [po, sr, userData, InvoiceUpdateCall, poMutate, toggleNewInvoiceDialog, toast, uploadInvoice]);
     
 
   

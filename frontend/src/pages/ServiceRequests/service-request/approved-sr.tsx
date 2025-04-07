@@ -1,8 +1,8 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CheckIcon, CirclePlus, Edit, Eye, Paperclip, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 // import { Button } from "../ui/button";
@@ -12,6 +12,7 @@ import { Pencil2Icon } from "@radix-ui/react-icons";
 // import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -31,9 +32,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import SITEURL from "@/constants/siteURL";
+import { InvoiceDialog } from "@/pages/ProcurementOrders/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
@@ -43,6 +46,7 @@ import { debounce } from "lodash";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SelectServiceVendorPage } from "./select-service-vendor";
+import SRAttachments from "./SRAttachments";
 
 // const { Sider, Content } = Layout;
 
@@ -57,33 +61,29 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
   
     const id = accountsPage ? params.id : params.srId;
 
-    const {toggleRequestPaymentDialog} = useDialogStore()
+    const {toggleRequestPaymentDialog, toggleNewInvoiceDialog} = useDialogStore()
 
-    const [selectedGST, setSelectedGST] = useState(null);
+    const [selectedGST, setSelectedGST] = useState<{gst : string | undefined, location? : string | undefined} | null>(null);
 
     const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
 
-    const [orderData, setOrderData] = useState(null)
-    // const [vendorAddress, setVendorAddress] = useState()
-    // const [projectAddress, setProjectAddress] = useState()
+    const [orderData, setOrderData] = useState<ServiceRequests | undefined>()
     const [notes, setNotes] = useState<{id : string, note : string}[]>([])
     const [curNote, setCurNote] = useState<string | null>(null)
     const [gstEnabled, setGstEnabled] = useState(false)
-    const [advance, setAdvance] = useState(0)
-    // const [customAdvance, setCustomAdvance] = useState(false);
 
     const [srPdfSheet, setSrPdfSheet] = useState(false)
     const [deleteFlagged, setDeleteFlagged] = useState(null);
 
-    const toggleSrPdfSheet = () => {
+    const toggleSrPdfSheet = useCallback(() => {
         setSrPdfSheet((prevState) => !prevState)
-    }
+    }, []);
 
     const [editSrTermsDialog, setEditSrTermsDialog] = useState(false)
 
-    const toggleEditSrTermsDialog = () => {
+    const toggleEditSrTermsDialog = useCallback(() => {
         setEditSrTermsDialog((prevState) => !prevState)
-    }
+    }, []);
 
     const [warning, setWarning] = useState("");
     
@@ -95,24 +95,18 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     const [newPaymentDialog, setNewPaymentDialog] = useState(false);
     
-    const toggleNewPaymentDialog = () => {
+    const toggleNewPaymentDialog = useCallback(() => {
         setNewPaymentDialog((prevState) => !prevState);
-    };
+    }, []);
 
     const [newPayment, setNewPayment] = useState({
-            amount: "",
-            payment_date: "",
-            utr: "",
-            tds: ""
+        amount: "",
+        payment_date: "",
+        utr: "",
+        tds: ""
     });
     
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
-
-    const handleFileChange = (event : React.ChangeEvent<HTMLInputElement>) => {
-        if(event.target.files && event.target.files.length > 0) {
-            setPaymentScreenshot(event.target.files[0]);
-        }
-    };
 
     const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
@@ -124,13 +118,14 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         limit: 100
     })
 
-    const getAmountPaid = getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || [])
+    const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
-    const amountPending = getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status)));
+    const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [projectPayments]);
 
     useEffect(() => {
         if (service_request) {
-            setOrderData(service_request)
+            const data = {...service_request, notes: service_request?.notes && JSON.parse(service_request?.notes), service_order_list: service_request?.service_order_list && JSON.parse(service_request.service_order_list), service_category_list: service_request?.service_category_list && JSON.parse(service_request.service_category_list), invoice_data: service_request?.invoice_data && JSON.parse(service_request.invoice_data)}
+            setOrderData(data)
             const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
             setNotes(notes || [])
             const gst = service_request?.gst
@@ -139,35 +134,12 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             } else {
                 setGstEnabled(false)
             }
-            setAdvance(parseNumber(service_request?.advance))
             if (service_request?.project_gst) {
                 setSelectedGST((prev) => ({ ...prev, gst: service_request?.project_gst }));
               }
         }
     }, [service_request])
 
-
-    // useEffect(() => {
-    //     if (orderData?.project && project && service_vendor) {
-    //         const doc = address_list?.find(item => item.name == project?.project_address);
-    //         const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
-    //         setProjectAddress(address)
-    //         const doc2 = address_list?.find(item => item.name == service_vendor?.vendor_address);
-    //         const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
-    //         setVendorAddress(address2)
-    //         // setPhoneNumber(doc2?.phone || "")
-    //         // setEmail(doc2?.email_id || "")
-    //     }
-    //     // if (orderData?.vendor) {
-    //     //     setVendor(orderData?.vendor)
-    //     // }
-    //     // if (vendor_data) {
-    //     //     setVendorGST(vendor_data?.vendor_gst)
-    //     // }
-
-    // }, [orderData, address_list, project, service_vendor]);
-
-    
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
     const {createDoc, loading: createLoading} = useFrappeCreateDoc()
@@ -185,11 +157,11 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     const [amendDialog, setAmendDialog] = useState(false);
 
-    const toggleAmendDialog = () => {
+    const toggleAmendDialog = useCallback(() => {
         setAmendDialog((prevState) => !prevState);
-    };
+    }, []);
 
-    const handleAddNote = () => {
+    const handleAddNote = useCallback(() => {
         if (editingIndex !== null) {
             const updatedNotes = notes.map(note =>
                 note.id === editingIndex ? { ...note, note: curNote || "" } : note
@@ -201,16 +173,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             setNotes([...notes, newNote])
         }
         setCurNote(null);
-    };
+    }, [notes, curNote, editingIndex]);
 
-    const handleEditNote = (id : string) => {
+    const handleEditNote = useCallback((id : string) => {
         setCurNote(notes?.find((i) => i?.id === id)?.note || "");
         setEditingIndex(id);
-    };
+    }, [notes]);
 
-    const handleDeleteNote = (id : string) => {
+    const handleDeleteNote = useCallback((id : string) => {
         setNotes(notes.filter((note) => note?.id !== id));
-    };
+    }, [notes]);
 
     const handleNotesSave = async () => {
         try {
@@ -219,11 +191,11 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
             updatedData = { ...updatedData, notes: { list: notes } }
 
-            if (service_request?.gst !== gstEnabled?.toString()) {
-                updatedData = { ...updatedData, gst: gstEnabled?.toString() }
+            if (orderData?.gst !== String(gstEnabled)) {
+                updatedData = { ...updatedData, gst: String(gstEnabled) }
             }
 
-            if (service_request?.project_gst !== selectedGST?.gst) {
+            if (orderData?.project_gst !== selectedGST?.gst) {
                 updatedData = { ...updatedData, project_gst: selectedGST?.gst }
             }
         
@@ -260,8 +232,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             const res = await createDoc("Project Payments", {
                 document_type: "Service Requests",
                 document_name: id,
-                project: service_request?.project,
-                vendor: service_request?.vendor,
+                project: orderData?.project,
+                vendor: orderData?.vendor,
                 utr: newPayment?.utr,
                 amount: parseNumber(newPayment?.amount),
                 tds: parseNumber(newPayment?.tds),
@@ -316,29 +288,30 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         }
     }
 
-    const validateAmount = debounce((amount : string) => {
+    const validateAmount = useCallback(
+        debounce((amount : string) => {
     
-        const compareAmount = service_request?.gst === "true"
+        const compareAmount = orderData?.gst === "true"
             ? (getTotal * 1.18 - getAmountPaid)
             : (getTotal - getAmountPaid);
     
         if (parseNumber(amount) > compareAmount) {
           setWarning(
             `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
-            ${service_request?.gst === "true" ? "including" : "excluding"
+            ${orderData?.gst === "true" ? "including" : "excluding"
             } GST: ${formatToIndianRupee(compareAmount)}`
           );
         } else {
           setWarning("");
         }
-      }, 300);
+      }, 300), [orderData, getTotal, getAmountPaid])
     
     // Handle input change
-    const handleAmountChange = (e : React.ChangeEvent<HTMLInputElement>) => {
+    const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
       const amount = e.target.value;
       setNewPayment({ ...newPayment, amount });
       validateAmount(amount);
-    };
+    }, [validateAmount]); 
 
     const handleDeletePayment = async () => {
         try {
@@ -383,15 +356,23 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                 <div>
                     <h2>SR Details</h2>
-                    <Badge>{service_request?.status}</Badge>
+                    <Badge>{orderData?.status}</Badge>
                 </div>
               <div className="flex items-center gap-2">
                                 {!summaryPage && !accountsPage && (
-                                    <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8">
+                                    <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
                                         <PencilRuler className="w-4 h-4" />
                                         Amend
                                     </Button>
                                 )}
+
+                                <Button
+                                    variant="outline"
+                                    className="text-primary border-primary text-xs px-2"
+                                    onClick={toggleNewInvoiceDialog}
+                                  >
+                                    Add Invoice
+                                </Button>
 
                                 <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
                                     <SheetContent className="overflow-auto">
@@ -401,7 +382,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
                                     </SheetContent>
                                 </Sheet>
-                              <Button variant={"outline"} disabled={!service_request?.project_gst}  onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-red-500 rounded-md h-8 p-1">
+                              <Button variant={"outline"} disabled={!orderData?.project_gst}  onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
                                 <Eye className="w-4 h-4" />
                                 Preview
                               </Button>
@@ -413,7 +394,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                         <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
                                   <div className="flex flex-col gap-2">
                                       <Label className=" text-red-700">Vendor</Label>
-                                      <VendorHoverCard vendor_id={service_request?.vendor} />
+                                      <VendorHoverCard vendor_id={orderData?.vendor} />
                                   </div>
                                   <div className="flex flex-col gap-2 sm:items-center max-sm:items-end">
                                       <Label className=" text-red-700">Package</Label>
@@ -459,9 +440,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
                         <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal * 1.18} totalAmountWithoutGST={getTotal} 
                             totalPaid={getAmountPaid}
-                            gst={service_request?.gst === "true"}
+                            gst={orderData?.gst === "true"}
                             isSr={true}
-                            sr={service_request} paymentsMutate={projectPaymentsMutate}
+                            sr={orderData} paymentsMutate={projectPaymentsMutate}
                         />
                             </>
                         )}
@@ -486,7 +467,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                     <Label className=" text-red-700">PO Amt excl. Tax:</Label>
                                     <span className="">{formatToIndianRupee(getTotal)}</span>
                                 </div>
-                                {service_request?.gst === "true" && (
+                                {orderData?.gst === "true" && (
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
                                     <span className="">{formatToIndianRupee(Math.floor(getTotal))}</span>
@@ -548,33 +529,14 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                             </div>
 
                                                         </div>
-
-                                <div className="flex flex-col gap-2">
-                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
-                                    onClick={() => document.getElementById("file-upload")?.click()}
-                                    >
-                                        <Paperclip size="15px" />
-                                        <span className="p-0 text-sm">Attach Screenshot</span>
-                                        <input
-                                            type="file"
-                                            id={`file-upload`}
-                                            className="hidden"
-                                            onChange={handleFileChange}
-                                            disabled={paymentScreenshot ? true : false}
-                                        />
-                                    </div>
-                                    {(paymentScreenshot) && (
-                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
-                                            <span className="text-sm">{paymentScreenshot?.name}</span>
-                                            <button
-                                                className="ml-1 text-red-500"
-                                                onClick={() => setPaymentScreenshot(null)}
-                                            >
-                                                ✖
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
+                                
+                                <CustomAttachment 
+                                    maxFileSize={20 * 1024 * 1024} // 20MB
+                                    selectedFile={paymentScreenshot}
+                                    onFileSelect={setPaymentScreenshot}
+                                    label="Attach Screenshot"
+                                    className="w-full"
+                                />
 
                                 <div className="flex gap-2 items-center pt-4 justify-center">
 
@@ -623,7 +585,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                  )} */}
                                                  {(payment?.utr && payment?.payment_attachment) ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
-                                                    <a href={`${import.meta.env.MODE === "development" ? `http://localhost:8000` : SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                    <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
                                                         {payment?.utr}
                                                     </a>
                                                     </TableCell>
@@ -666,7 +628,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                     })
                                 ) : (
                                   <TableRow>
-                                      <TableCell colSpan={service_request?.gst === "true" ? 4 : 3} className="text-center py-2">
+                                      <TableCell colSpan={orderData?.gst === "true" ? 4 : 3} className="text-center py-2">
                                           No Payments Found
                                       </TableCell>
                                   </TableRow>
@@ -680,7 +642,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                             <div className="flex items-center gap-1">
                                 SR Options
-                                {!service_request?.project_gst && (
+                                {!orderData?.project_gst && (
                                     <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
                                 )}
                             </div>
@@ -708,7 +670,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                   <>
                                     <Select
                                       value={selectedGST?.gst}
-                                      defaultValue={service_request?.project_gst}
+                                      defaultValue={orderData?.project_gst}
                                       onValueChange={(selectedOption) => {
                                         const gstArr = JSON.parse(
                                             project?.project_gst_number
@@ -744,7 +706,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         ))}
                                       </SelectContent>
                                     </Select>
-                                    {selectedGST?.gst && !service_request?.project_gst && (
+                                    {selectedGST?.gst && !orderData?.project_gst && (
                                       <span className="text-sm">
                                         <strong>Note:</strong>{" "}
                                         <span className="text-primary">
@@ -814,8 +776,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         </div>
                                     )}
 
-                                    <Button disabled={update_loading || (!notes?.length && !(service_request?.notes && JSON.parse(service_request?.notes)?.list?.length > 0) && service_request?.gst === gstEnabled?.toString() &&
-                                        (service_request?.project_gst || undefined) === selectedGST?.gst)
+                                    <Button disabled={update_loading || (!notes?.length && !(orderData?.notes?.list?.length) && orderData?.gst === String(gstEnabled) &&
+                                        orderData?.project_gst === selectedGST?.gst)
                                     }
                                         onClick={handleNotesSave}
                                         className="w-full mt-4 items-center flex gap-2">
@@ -852,6 +814,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 </Card>
             </div>
 
+            <SRAttachments SR={orderData} />
+
+            <InvoiceDialog  sr={orderData} poMutate={service_request_mutate} />
+
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
                 <CardHeader>
@@ -884,7 +850,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                             </tr>
                         </thead>
                         <tbody className="max-sm:text-xs text-sm">
-                            {orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item, index) => (
+                            {orderData && orderData?.service_order_list?.list?.map((item, index) => (
                                 <tr key={index} className="border-b-2">
                                     <td className="w-[5%] text-start ">
                                         {index + 1}
@@ -903,7 +869,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         {formatToIndianRupee(item?.rate)}
                                     </td>
                                     <td className="w-[10%]  text-center">
-                                        {formatToIndianRupee(item.rate * item.quantity)}
+                                        {formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}
                                     </td>
                                 </tr>
                             ))}
@@ -942,14 +908,14 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
                                                 <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
                                                 <div className="text-xs text-gray-600 font-normal">
-                                                      {service_request?.project_gst
-                                                        ? service_request?.project_gst === "29ABFCS9095N1Z9"
+                                                      {orderData?.project_gst
+                                                        ? orderData?.project_gst === "29ABFCS9095N1Z9"
                                                           ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
                                                           : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
                                                         : "Please set company GST number in order to display the Address!"}
                                                     </div>
                                                     <div className="text-xs text-gray-600 font-normal">
-                                                      GST: {service_request?.project_gst || "N/A"}
+                                                      GST: {orderData?.project_gst || "N/A"}
                                                     </div>
                                                 </div>
 
@@ -985,8 +951,8 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                         </tr>
                                     </thead>
                                     <tbody className={`bg-white`}>
-                                        {orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item, index) => (
-                                            <tr key={item.id} className={`${index === (orderData && JSON.parse(orderData?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
+                                        {orderData && orderData?.service_order_list?.list?.map((item, index) => (
+                                            <tr key={item.id} className={`${index === (orderData && orderData?.service_order_list)?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
                                                 <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
                                                 {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
@@ -997,7 +963,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
                                                 <td className=" py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
                                                 {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
-                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate * item.quantity)}</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}</td>
                                             </tr>
                                         ))}
                                         {/* {[...Array(20)].map((_, index) => (
@@ -1059,11 +1025,6 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                     </div>
                                                 )}
 
-                                                {/* <div className="text-gray-400 text-sm py-2">Payment Terms</div>
-                                               <div className="text-sm text-gray-900">
-                                                   {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
-                                               </div> */}
-
                                                 <img src={Seal} className="w-24 h-24" />
                                                 <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
                                             </td>
@@ -1092,14 +1053,14 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
                                                 <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
                                                 <div className="text-xs text-gray-600 font-normal">
-                                                      {service_request?.project_gst
-                                                        ? service_request?.project_gst === "29ABFCS9095N1Z9"
+                                                      {orderData?.project_gst
+                                                        ? orderData?.project_gst === "29ABFCS9095N1Z9"
                                                           ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
                                                           : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
                                                         : "Please set company GST number in order to display the Address!"}
                                                     </div>
                                                     <div className="text-xs text-gray-600 font-normal">
-                                                      GST: {service_request?.project_gst || "N/A"}
+                                                      GST: {orderData?.project_gst || "N/A"}
                                                     </div>
                                                 </div>
                                             </th>

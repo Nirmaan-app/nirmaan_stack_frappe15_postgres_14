@@ -51,7 +51,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
         console.error('Invoice attachment not found.');
       }
     },
-    [invoiceAttachments, attachmentsData]
+    [invoiceAttachments]
   );
 
   if(attachmentsLoading) {
@@ -62,7 +62,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
 
   return (
       <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-        <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
+          <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
             <CardHeader>
               <CardTitle className="flex justify-between items-center">
                 <p className="text-xl max-sm:text-lg text-red-600">Invoice</p>

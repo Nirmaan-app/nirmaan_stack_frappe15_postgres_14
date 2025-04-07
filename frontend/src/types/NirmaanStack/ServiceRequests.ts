@@ -1,3 +1,5 @@
+import { InvoiceDataType } from "./ProcurementOrders"
+
 interface ServiceCategoryType {
 	name: string
 }
@@ -42,4 +44,7 @@ export interface ServiceRequests{
 	gst?: string
 	/**	Advance : Data	*/
 	advance?: string
+	/**	Project GST : Data	*/
+	project_gst?: string
+	invoice_data?: {data : InvoiceDataType}
 }

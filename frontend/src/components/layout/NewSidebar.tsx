@@ -56,7 +56,7 @@ import {
   ShoppingCart,
   SquareSquare
 } from "lucide-react";
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { UserNav } from "../nav/user-nav";
 import {
@@ -76,10 +76,9 @@ export function NewSidebar() {
 
   const [collapsedKey, setCollapsedKey] = useState<string | null>(null); // Tracks the currently open group
 
-  const handleGroupToggle = (key : string) => {
-    // If the clicked group is already open, collapse it; otherwise, open it
+  const handleGroupToggle = useCallback((key : string) => {
     setCollapsedKey((prevKey) => (prevKey === key ? null : key));
-  };
+  }, [collapsedKey]);
 
   const { toggleSidebar, isMobile, state } = useSidebar();
 
@@ -800,15 +799,15 @@ export function NewSidebar() {
   }, [selectedKeys, role, groupMappings]);
   
 
-  const isDefaultOpen = useMemo(() => {
-    return new Set(["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : ""]);
-  }, [openKey, role]);
+  // const defaultOpenKeys = useMemo(() => {
+  //   return new Set(["admin-actions"]);
+  // }, [openKey]);
 
-  const handleCloseMobile = () => {
+  const handleCloseMobile = useCallback(() => {
     if (isMobile) {
       toggleSidebar();
     }
-  };
+  }, [isMobile, toggleSidebar]);
 
   useEffect(() => {
     if(["admin-actions"].includes(openKey)) {
@@ -848,7 +847,7 @@ export function NewSidebar() {
               <Collapsible
                 key={item.key}
                 open={collapsedKey === item?.key}
-                defaultOpen={isDefaultOpen.has(item.key)}
+                // defaultOpen={defaultOpenKeys.has(item.key)}
                 className="group/collapsible"
                 asChild
               >

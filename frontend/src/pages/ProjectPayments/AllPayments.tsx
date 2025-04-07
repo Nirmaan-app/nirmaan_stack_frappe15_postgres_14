@@ -28,7 +28,7 @@ export const AllPayments : React.FC<{tab?: string, projectId?: string, customerI
     limit: 1000,
 }, customerId ? `Projects ${customerId}` : "Projects");
 
-  const paymentFilters: Filter<FrappeDoc<ProjectPayments>>[] | undefined = useMemo(() => [["status", "=", tab === "Payments Done" ? "Paid" : "Requested"], ...(projectId ? [["project", "=", projectId]] : []), ...(customerId ? [["project", "in", projects?.map(i => i?.name)]] : [])], [projectId, customerId, tab])
+  const paymentFilters: Filter<FrappeDoc<ProjectPayments>>[] | undefined = useMemo(() => [["status", "in", tab === "Payments Done" ? ["Paid"] : ["Requested", "Approved"]], ...(projectId ? [["project", "=", projectId]] : []), ...(customerId ? [["project", "in", projects?.map(i => i?.name)]] : [])], [projectId, customerId, tab])
 
   const navigate = useNavigate()
 

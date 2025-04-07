@@ -251,7 +251,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                       </Button>
                     )}
 
-                  {!accountsPage && !estimatesViewing && !summaryPage && po?.status !== "PO Approved" && (
+                  {po?.status !== "PO Approved" && (
                       <>
                         <Button
                         variant="outline"
