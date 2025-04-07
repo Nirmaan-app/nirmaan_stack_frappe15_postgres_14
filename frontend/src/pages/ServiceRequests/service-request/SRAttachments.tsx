@@ -59,7 +59,7 @@ export const SRAttachments: React.FC<POAttachmentsProps> = ({SR}) => {
       }
 
   return (
-            <div className="grid grid-cols-6">
+            <div className="grid md:grid-cols-6">
                 <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
                       <CardHeader>
                         <CardTitle className="flex justify-between items-center">
