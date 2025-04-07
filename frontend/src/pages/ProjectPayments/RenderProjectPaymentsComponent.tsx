@@ -1,4 +1,5 @@
 import { useUserData } from "@/hooks/useUserData";
+import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
 import React, { Suspense, useCallback, useMemo, useState } from "react";
@@ -101,7 +102,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <div className="flex items-center">
                     <span>Payments Pending</span>
                     <span className="ml-2 text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
+                        {role === "Nirmaan Admin Profile" ? parseNumber(adminPaymentsCount?.requested) + parseNumber(adminPaymentsCount.approved) : parseNumber(paymentsCount?.requested) + parseNumber(paymentsCount?.approved)}
                     </span>
                 </div>
             ),

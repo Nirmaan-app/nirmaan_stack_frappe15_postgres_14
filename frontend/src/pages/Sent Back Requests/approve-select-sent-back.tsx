@@ -11,10 +11,12 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { useContext, useMemo } from "react";
+import memoize from "lodash/memoize";
+import { useCallback, useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 export const ApproveSelectSentBack : React.FC = () => {
+
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sbListMutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
             fields: ["*"],
@@ -28,13 +30,13 @@ export const ApproveSelectSentBack : React.FC = () => {
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
-    })
+    }, "Projects")
 
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
     const filteredList = useMemo(() => sent_back_list?.filter((item) => item?.item_list?.list?.some((i) => i.status === "Pending")) || [], [sent_back_list])
 
-    const getTotal = useMemo(() => (order_id: string) => {
+    const getTotal = useMemo(() => memoize((order_id: string) => {
         let total: number = 0;
         const orderData = sent_back_list?.find(item => item.name === order_id)?.item_list;
         orderData?.list.map((item) => {
@@ -42,7 +44,7 @@ export const ApproveSelectSentBack : React.FC = () => {
             total += parseNumber(price * item.quantity);
         })
         return total;
-    }, [sent_back_list])
+    }, (order_id: string) => order_id), [sent_back_list])
 
     useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
         await sbListMutate()
@@ -51,11 +53,12 @@ export const ApproveSelectSentBack : React.FC = () => {
     const {notifications, mark_seen_notification} = useNotificationStore()
 
     const {db} = useContext(FrappeContext) as FrappeConfig
-    const handleNewPRSeen = (notification : NotificationType | undefined) => {
+
+    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if(notification) {
             mark_seen_notification(db, notification)
         }
-    }
+    }, [db, mark_seen_notification])
 
     const columns: ColumnDef<SentBackCategory>[] = useMemo(
         () => [
@@ -109,13 +112,13 @@ export const ApproveSelectSentBack : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }
@@ -162,7 +165,7 @@ export const ApproveSelectSentBack : React.FC = () => {
                 }
             }
         ],
-        [sent_back_list, notifications, project_values]
+        [sent_back_list, notifications, project_values, getTotal]
     )
 
     const { toast } = useToast()

@@ -16,6 +16,7 @@ import {
 import SITEURL from "@/constants/siteURL";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import formatToIndianRupee from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { formatDate } from "date-fns";
 import { useFrappeGetDocList } from "frappe-react-sdk";
@@ -28,7 +29,7 @@ interface POAttachmentsProps {
 
 export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
 
-  const {toggleNewInvoiceDialog} = useDialogStore()
+  const { toggleNewInvoiceDialog } = useDialogStore()
 
   const {data: attachmentsData, isLoading: attachmentsLoading} = useFrappeGetDocList<NirmaanAttachment>("Nirmaan Attachments", {
     fields: ["*"],
@@ -50,7 +51,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
         console.error('Invoice attachment not found.');
       }
     },
-    [invoiceAttachments, attachmentsData]
+    [invoiceAttachments]
   );
 
   if(attachmentsLoading) {
@@ -61,7 +62,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
 
   return (
       <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-        <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
+          <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
             <CardHeader>
               <CardTitle className="flex justify-between items-center">
                 <p className="text-xl max-sm:text-lg text-red-600">Invoice</p>
@@ -87,7 +88,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO }) => {
                           {PO?.invoice_data ? Object.keys(PO?.invoice_data?.data)?.map((date) => (
                             <TableRow key={date}>
                               <TableCell>{formatDate(date, "dd/MM/yyyy")}</TableCell>
-                              <TableCell>{PO?.invoice_data?.data[date]?.amount}</TableCell>
+                              <TableCell>{formatToIndianRupee(PO?.invoice_data?.data[date]?.amount)}</TableCell>
                                 <TableCell onClick={() => handleOpenScreenshot(PO?.invoice_data?.data[date]?.invoice_attachment_id)} className="font-semibold text-blue-500 underline">
                                   {PO?.invoice_data?.data[date]?.invoice_no}
                                 </TableCell>

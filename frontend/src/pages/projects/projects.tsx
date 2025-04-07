@@ -266,7 +266,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
       {
         accessorKey: "creation",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date" />;
+          return <DataTableColumnHeader column={column} title="Date Created" />;
         },
         cell: ({ row }) => {
           return (

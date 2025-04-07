@@ -87,7 +87,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const [loadingCharges, setLoadingCharges] = useState(0);
   const [freightCharges, setFreightCharges] = useState(0);
   const { updateDoc, loading : updateLoading } = useFrappeUpdateDoc();
-  const [notes, setNotes] = useState("");
+  // const [notes, setNotes] = useState("");
   const [selectedGST, setSelectedGST] = useState<{gst : string | undefined, location? : string | undefined} | null>(null);
   const [editPOTermsDialog, setEditPOTermsDialog] = useState(false);
   
@@ -108,7 +108,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
       setXDays(parsedCharges?.[4] || 0);
       setLoadingCharges(parseNumber(poData.loading_charges));
       setFreightCharges(parseNumber(poData.freight_charges));
-      setNotes(poData.notes || '');
+      // setNotes(poData.notes || '');
   
       reset({
         advance: parsedCharges?.[0] || 0,
@@ -481,7 +481,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                                           onChange={(e) => {
                                             const value = e.target.value;
                                             field.onChange(value);
-                                            setNotes(value);
+                                            // setNotes(value);
                                           }}
                                           className="w-full"
                                         />

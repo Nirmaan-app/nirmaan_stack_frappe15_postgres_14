@@ -33,7 +33,8 @@ interface FinancialDetailsResponse {
   };
 }
 
-const AccountantTabs = React.lazy(() => import("../ProjectPayments/AccountantTabs"));
+// const AccountantTabs = React.lazy(() => import("../ProjectPayments/AccountantTabs"));
+const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 
 export const CustomerFinancials : React.FC<CustomerFinancialsProps> = ({customerId, tab, onClick}) => {
@@ -131,7 +132,7 @@ const amountsSummaryItems = useMemo(() => [
 
                <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
                    {tab === "All Payments" ? (
-                    <AccountantTabs tab="Fulfilled Payments" customerId={customerId} />
+                    <AllPayments tab="Payments Done" customerId={customerId} />
                   ) : (
                   
                     <ProjectPaymentsList customerId={customerId} />

@@ -11,6 +11,7 @@
   "service_request_details_section",
   "service_order_list",
   "service_category_list",
+  "invoice_data",
   "status",
   "notes",
   "gst",
@@ -75,11 +76,17 @@
    "fieldname": "project_gst",
    "fieldtype": "Data",
    "label": "Project GST"
+  },
+  {
+   "fieldname": "invoice_data",
+   "fieldtype": "JSON",
+   "label": "Invoice Data"
   }
  ],
+ "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-02-22 13:00:28.307780",
+ "modified": "2025-04-07 18:22:18.538270",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

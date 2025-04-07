@@ -64,14 +64,14 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
-  const toggleEditSheet = () => {
+  const toggleEditSheet = useCallback(() => {
     setEditSheetOpen((prevState) => !prevState);
-  };
+  }, [editSheetOpen]);
 
   const [editBankDetailsDialog, setEditBankDetailsDialog] = useState(false);
-  const toggleEditBankDetailsDialog = () => {
+  const toggleEditBankDetailsDialog = useCallback(() => {
     setEditBankDetailsDialog((prevState) => !prevState);
-  };
+  }, [editBankDetailsDialog]);
 
   const [editBankDetails, setEditBankDetails] = useState({
     account_name: "",
@@ -82,7 +82,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
-  const [currentPayment, setCurrentPayment] = useState(null);
+  const [currentPayment, setCurrentPayment] = useState<string | null>(null);
 
   const [screenShotDialog, setScreenShotDialog] = useState(false);
 
@@ -259,9 +259,9 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
 
   const [current, setCurrent] = useState("overview");
 
-  const onClick: MenuProps["onClick"] = (e) => {
+  const onClick: MenuProps["onClick"] = useCallback((e) => {
     setCurrent(e.key);
-  };
+  }, [current]);
 
   const getWorkPackage = (pr: string, procRequests: ProcurementRequest[]) => {
     return useMemo(() =>
@@ -316,7 +316,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
       ...prev,
       [packageName]: !prev[packageName],
     }));
-  }, [setExpandedPackages]);
+  }, [expandedPackages]);
 
   const vendorCategories = useMemo(() => (data && data?.vendor_category && JSON.parse(data?.vendor_category)?.categories) || [], [data]);
 
@@ -360,9 +360,9 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
-              title="PO Number"
+              title="PO ID"
             />
           );
         },
@@ -387,7 +387,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
               title="Status"
             />
@@ -406,9 +406,9 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
-              title="Date"
+              title="Date Created"
             />
           );
         },
@@ -425,7 +425,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
               title="Project"
             />
@@ -450,9 +450,9 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
-              title="PR Number"
+              title="PR ID"
             />
           );
         },
@@ -470,7 +470,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
               title="Package"
             />
@@ -481,7 +481,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
             <div className="text-[#11050599]">
               {getWorkPackage(
                 row.getValue("procurement_request"),
-                procurementRequests
+                procurementRequests || []
               )}
             </div>
           );
@@ -492,7 +492,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
               title="Category"
             />
@@ -513,9 +513,9 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         header: ({ column }) => {
           return (
             <DataTableColumnHeader
-              className="text-black font-bold"
+              className="text-black"
               column={column}
-              title="Order Price"
+              title="Order Financials"
             />
           );
         },
@@ -530,7 +530,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         },
       },
     ],
-    [procurementOrders, procurementRequests, projectPayments]
+    [procurementOrders, procurementRequests, projectPayments, getTotal, getCategories, projectValues]
   );
 
   const paymentColumns : ColumnDef<ProjectPayments>[] = useMemo(
@@ -544,7 +544,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
               {(data?.utr && data?.payment_attachment) ? (
                 <div className="text-blue-500 underline">
                       <a
-                        href={`${import.meta.env.MODE === "development" ? `http://localhost:8000` : SITEURL}${data?.payment_attachment}`}
+                        href={`${SITEURL}${data?.payment_attachment}`}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -687,7 +687,6 @@ const AddScreenShot = async () => {
   return (
     <div className="flex-1 space-y-2 md:space-y-4">
       <div className="flex items-center gap-1">
-        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} /> */}
         {isLoading ? (
           <Skeleton className="h-10 w-1/3 bg-gray-300" />
         ) : (

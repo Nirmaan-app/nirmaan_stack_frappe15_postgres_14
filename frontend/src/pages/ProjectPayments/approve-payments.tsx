@@ -35,9 +35,9 @@ export const ApprovePayments = () => {
 
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
 
-  const toggleDialog = () => {
+  const toggleDialog = useCallback(() => {
     setDialogOpen(!dialogOpen);
-  };
+  }, [dialogOpen]);
 
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -246,7 +246,7 @@ export const ApprovePayments = () => {
                         setSelectedPO(data)
                         setAmountInput(data.amount)
                         setDialogType("approve")
-                        toggleDialog()
+                        setDialogOpen(true)
                       }}
                        className="text-green-500 cursor-pointer" />
                       <CircleX
@@ -254,7 +254,7 @@ export const ApprovePayments = () => {
                          setSelectedPO(data)
                          setAmountInput(data.amount)
                          setDialogType("reject")
-                         toggleDialog()
+                         setDialogOpen(true)
                        }}
                        className="text-primary cursor-pointer" />
                     </div>
@@ -277,7 +277,7 @@ export const ApprovePayments = () => {
                         setSelectedPO(row.original)
                         setAmountInput(row.original.amount)
                         setDialogType("edit")
-                        toggleDialog()
+                        setDialogOpen(true)
                     }}
                      />
                   </div>

@@ -42,7 +42,6 @@ export const ServiceRequestsTabs : React.FC = () => {
                     </div>
                 ),
                 value: "approve-amended-so",
-
             }
         ] : []),
     ], [role, adminSelectedSRCount, selectedSRCount, adminAmendedSRCount, amendedSRCount]);

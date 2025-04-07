@@ -415,14 +415,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "PO Summary",
       key: "posummary",
     },
-    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
-      role
-    )
-      ? {
-        label: "Project Spends",
-        key: "projectspends",
-      }
-      : null,
+    // ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
+    //   role
+    // )
+    //   ? {
+    //     label: "Project Spends",
+    //     key: "projectspends",
+    //   }
+    //   : null,
+    {
+      label: "Project Spends",
+      key: "projectspends",
+    },
     role === "Nirmaan Admin Profile" ? {
       label: "Financials",
       key : "projectfinancials",
@@ -665,7 +669,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       header: ({ column }) => {
         return (
           <DataTableColumnHeader
-            className="text-black font-bold"
+            className="text-black"
             column={column}
             title="PR Id"
           />
@@ -689,9 +693,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       header: ({ column }) => {
         return (
           <DataTableColumnHeader
-            className="text-black font-bold"
+            className="text-black"
             column={column}
-            title="Creation"
+            title="Date Created"
           />
         );
       },
@@ -708,7 +712,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       header: ({ column }) => {
         return (
           <DataTableColumnHeader
-            className="text-black font-bold"
+            className="text-black"
             column={column}
             title="Created By"
           />
@@ -728,7 +732,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       header: ({ column }) => {
         return (
           <DataTableColumnHeader
-            className="text-black font-bold"
+            className="text-black"
             column={column}
             title="Status"
           />
@@ -741,8 +745,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <div className="font-medium">{statusRender(status, prId)}</div>;
       },
       filterFn: (row, id, value) => {
-        const rowValue = row.getValue(id);
-        const prId = row.getValue("name");
+        const rowValue: string = row.getValue(id);
+        const prId: string = row.getValue("name");
         const renderValue = statusRender(rowValue, prId);
         return value.includes(renderValue);
       },
@@ -752,7 +756,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       header: ({ column }) => {
         return (
           <DataTableColumnHeader
-            className="text-black font-bold"
+            className="text-black"
             column={column}
             title="Package"
           />
@@ -760,7 +764,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       },
       cell: ({ row }) => {
         return (
-          <div className="text-[#11050599]">{row.getValue("work_package")}</div>
+          <div className="text-[#11050599]">{row.getValue("work_package") || "Custom"}</div>
         );
       },
     },
@@ -769,7 +773,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       header: ({ column }) => {
         return (
           <DataTableColumnHeader
-            className="text-black font-bold"
+            className="text-black"
             column={column}
             title="Categories"
           />
@@ -796,7 +800,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       header: ({ column }) => {
         return (
           <DataTableColumnHeader
-            className="text-black font-bold"
+            className="text-black"
             column={column}
             title="Estimated Price"
           />
@@ -811,7 +815,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         );
       },
     },
-  ], [pr_data, statusOptions]);
+  ], [pr_data, statusOptions, statusRender, getTotal, usersList]);
 
   const getSRTotal = (order_id: string) => {
     return useMemo(() => {
@@ -852,7 +856,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         accessorKey: "creation",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date" />;
+          return <DataTableColumnHeader column={column} title="Date Created" />;
         },
         cell: ({ row }) => {
           return (
@@ -896,7 +900,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(getSRTotal(row.getValue("name")))}
+              {formatToIndianRupee(getSRTotal(row.getValue("name")) || "--")}
             </div>
           );
         },
@@ -908,12 +912,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             const data = row.original
             const amountPaid = getTotalAmountPaidPOWise(data?.name);
             return <div className="font-medium">
-                {formatToIndianRupee(amountPaid)}
+                {formatToIndianRupee(amountPaid || "--")}
             </div>
         },
     },
     ],
-    [projectId, allServiceRequestsData]
+    [projectId, allServiceRequestsData, getSRTotal]
   );
 
   const getPOTotal = (order_id: string) => {
@@ -996,7 +1000,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         accessorKey: "creation",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date" />;
+          return <DataTableColumnHeader column={column} title="Date Created" />;
         },
         cell: ({ row }) => {
           return (
@@ -1117,7 +1121,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => <span className="hidden">hh</span>
       }
     ],
-    [projectId, po_data_for_posummary, data, projectPayments]
+    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal]
   );
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});

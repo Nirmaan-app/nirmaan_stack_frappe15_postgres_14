@@ -20,7 +20,7 @@ export const useOrderTotals = () => {
     'Service Requests',
     {
       fields: ['*'],
-      filters: [['status', '=', 'Approved']],
+      // filters: [['status', '=', 'Approved']],
       limit: 10000,
       orderBy: { field: 'modified', order: 'desc' },
     }

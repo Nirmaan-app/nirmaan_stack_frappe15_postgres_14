@@ -21,9 +21,9 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
 
     const paymentFilters : Filter<FrappeDoc<ProjectInflows>>[] | undefined = []
         
-        if (customerId) {
-            paymentFilters.push(["customer", "=", customerId])
-        }
+    if (customerId) {
+        paymentFilters.push(["customer", "=", customerId])
+    }
 
   const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
     fields: ["*"],
@@ -79,10 +79,10 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
               },
           },
           {
-              accessorKey: "creation",
+              accessorKey: "payment_date",
               header: ({ column }) => {
                   return (
-                      <DataTableColumnHeader column={column} title="Date" />
+                      <DataTableColumnHeader column={column} title="Payment Date" />
                   )
               },
               cell: ({ row }) => {

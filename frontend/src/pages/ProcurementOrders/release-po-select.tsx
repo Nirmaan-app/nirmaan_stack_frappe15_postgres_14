@@ -56,7 +56,7 @@ export const ReleasePOSelect : React.FC = () => {
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
-    })
+    }, "Projects")
 
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["vendor_name", 'vendor_type'],
@@ -79,6 +79,7 @@ export const ReleasePOSelect : React.FC = () => {
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
+
     const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
@@ -182,7 +183,7 @@ export const ReleasePOSelect : React.FC = () => {
                 accessorKey: "name",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="ID" />
+                        <DataTableColumnHeader column={column} title="#PO" />
                     )
                 },
                 cell: ({ row }) => {
@@ -219,7 +220,7 @@ export const ReleasePOSelect : React.FC = () => {
                 accessorKey: "procurement_request",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="PR No" />
+                        <DataTableColumnHeader column={column} title="#PR" />
                     )
                 },
                 cell: ({ row }) => {
@@ -234,13 +235,13 @@ export const ReleasePOSelect : React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date" />
+                        <DataTableColumnHeader column={column} title="Date Created" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                            {formatDate(row.getValue("creation"))}
                         </div>
                     )
                 }
@@ -351,7 +352,7 @@ export const ReleasePOSelect : React.FC = () => {
                 cell: ({ row }) => <span className="hidden">hh</span>
             }
         ],
-        [project_values, procurement_order_list, projectPayments, tab, notifications]
+        [project_values, procurement_order_list, projectPayments, tab, notifications, getAmountPaid, getPOTotal]
     )
 
     const { toast } = useToast()
