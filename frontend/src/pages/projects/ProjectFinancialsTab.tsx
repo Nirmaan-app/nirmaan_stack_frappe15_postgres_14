@@ -141,7 +141,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                     <AllPayments tab="Payments Done" projectId={projectData?.name} />
                   ) : (
                   
-                    <ProjectPaymentsList projectsView />
+                    <ProjectPaymentsList projectId={projectData?.name} />
                   )}
                 </Suspense>
 

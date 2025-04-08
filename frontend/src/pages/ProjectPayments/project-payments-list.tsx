@@ -31,14 +31,18 @@ import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
-export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerId?: string}> = ({ projectsView = false, customerId}) => {
+export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?: string}> = ({ projectId = false, customerId}) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
-    const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
-    if (customerId) {
-        projectFilters.push(["customer", "=", customerId])
-    }
+    const projectFilters: Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() => [
+        ...(customerId ? [["customer", "=", customerId]] : []), ...(projectId ? [["name", "=", projectId]] : [])
+    ], [customerId, projectId])
+
+    // const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
+    // if (customerId) {
+    //     projectFilters.push(["customer", "=", customerId])
+    // }
 
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
 
@@ -50,7 +54,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerI
         fields: ["name", "project_name"],
         filters: projectFilters,
         limit: 1000,
-    }, customerId ? `Projects ${customerId}` : "Projects");
+    }, customerId ? `Projects ${customerId}` : projectId ? `Projects ${projectId}` : "Projects");
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
@@ -307,7 +311,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerI
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
                             <div className="flex items-center gap-1">
-                            <Link to={projectsView ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
+                            <Link to={projectId ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
                                 {id}
                             </Link>
                             <ItemsHoverCard isSR={!isPO} order_list={isPO ?  data?.order_list.list : data?.service_order_list.list} />
@@ -334,7 +338,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerI
                     <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>
                 ),
             },
-            ...(!projectsView ? [
+            ...(!projectId ? [
                 {
                     accessorKey: "project",
                     header: "Project",
@@ -399,7 +403,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerI
                     </div>
                 },
             },
-            ...(!projectsView && !customerId ? [
+            ...(!projectId && !customerId ? [
                 {
                     id: "Record_Payment",
                     header: "Record Payment",
@@ -432,7 +436,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerI
                 }
             ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectsView, getTotalAmount, customerId]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId]
     );
 
     if (poError || srError || projectsError || vendorsError) {
@@ -619,7 +623,7 @@ export const ProjectPaymentsList : React.FC<{ projectsView? : boolean, customerI
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={combinedData} project_values={!projectsView ? projectValues : undefined} approvedQuotesVendors={vendorValues} />
+                    <DataTable columns={columns} data={combinedData} project_values={!projectId ? projectValues : undefined} approvedQuotesVendors={vendorValues} />
                 )
             }
         </div>
