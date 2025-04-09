@@ -2,6 +2,7 @@ import logo from "@/assets/logo-svg.svg";
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { MessageCircleMore, Printer } from "lucide-react";
 import * as pdfjsLib from 'pdfjs-dist';
@@ -340,8 +341,8 @@ export const POPdf : React.FC<POPdfProps> = ({
                         <tr
                           key={index}
                           className={`${
-                            !po?.loading_charges &&
-                            !po?.freight_charges &&
+                            !parseNumber(po?.loading_charges) &&
+                            !parseNumber(po?.freight_charges) &&
                             index === length - 1 &&
                             "border-b border-black"
                           } page-break-inside-avoid ${
@@ -391,7 +392,7 @@ export const POPdf : React.FC<POPdfProps> = ({
                         </tr>
                       );
                     })}
-                    {po?.loading_charges ? (
+                    {parseNumber(po?.loading_charges) ? (
                       <tr
                         className={`${
                           !po?.freight_charges && "border-b border-black"
@@ -422,7 +423,7 @@ export const POPdf : React.FC<POPdfProps> = ({
                     ) : (
                       <></>
                     )}
-                    {po?.freight_charges ? (
+                    {parseNumber(po?.freight_charges) ? (
                       <tr className={`border-b border-black`}>
                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">
                           -

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import SITEURL from "@/constants/siteURL"
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
 import { formatDate } from "@/utils/FormatDate"
@@ -12,17 +13,16 @@ import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import React, { Suspense, useCallback, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
-import { useSearchParams } from "react-router-dom"
 
 
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
-
+const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
 
 interface ProjectFinancialsTabProps {
   projectData?: any
   projectCustomer?: Customers;
-  updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
+  // updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
   getTotalAmountPaid: {
     poAmount: number;
     srAmount: number;
@@ -31,10 +31,10 @@ interface ProjectFinancialsTabProps {
   totalPOAmountWithGST : number;
   getAllSRsTotalWithGST: number;
 }
-export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({projectData, projectCustomer, updateURL, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST}) => {
+export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST}) => {
 
-  const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<string>(searchParams.get("fTab") || "All Payments")
+  // const [searchParams] = useSearchParams();
+  const [tab, setTab] = useStateSyncedWithParams<string>("fTab", "All Payments")
   const [inflowPaymentsDialog, setInflowPaymentsDialog] = useState(false)
   
   const toggleInflowPaymentsDialog = useCallback(() => {
@@ -94,16 +94,20 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
         label: "All Orders",
         value: "All Orders"
       },
+      {
+        label: "All Invoices",
+        value: "All Invoices"
+      },
     ], [])
 
   const onClick = useCallback(
     (value : string) => {
       if (value !== tab){
         setTab(value);
-        updateURL({ fTab: value });
+        // updateURL({ fTab: value });
       }
     }
-    , [tab, updateURL]);
+    , [tab]);
 
   return (
         <div className="flex-1 space-y-4">
@@ -139,10 +143,10 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                 <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
                   {tab === "All Payments" ? (
                     <AllPayments tab="Payments Done" projectId={projectData?.name} />
-                  ) : (
+                  ) : tab === "All Orders" ? (
                   
-                    <ProjectPaymentsList projectsView />
-                  )}
+                    <ProjectPaymentsList projectId={projectData?.name} />
+                  ) : <ProjectWiseInvoices />}
                 </Suspense>
 
                       <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>

@@ -37,7 +37,7 @@ export interface DeliveryDataType {
 
 export interface InvoiceItem {
 	invoice_no: string;
-	amount: string;
+	amount: number;
 	invoice_attachment_id?: string;
 	updated_by: string;
 }

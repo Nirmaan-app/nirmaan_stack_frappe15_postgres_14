@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { Radio } from "antd";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import React, { useEffect, useState } from "react";
@@ -11,18 +12,18 @@ import ReactSelect from "react-select";
 
 interface ProjectMakesTabProps {
   projectData?: any;
+  initialTab: string;
   options?: {
     label: string;
     value: string;
 }[];
-  makesTab?: string;
-  setProjectMakesTab: (tab: any) => void;
   project_mutate?: any;
 }
 
-export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData, options, makesTab, setProjectMakesTab, project_mutate }) => {
+export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData,initialTab, options, project_mutate }) => {
 
 
+  const [makesTab, setMakesTab] = useStateSyncedWithParams<string>("makesTab", initialTab)
   const [wPmakesData, setWPMakesData] = useState([])
 
   const [editCategory, setEditCategory] = useState(null)
@@ -116,7 +117,7 @@ export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData, 
           optionType="button"
           buttonStyle="solid"
           value={makesTab}
-          onChange={(e) => setProjectMakesTab(e.target.value)}
+          onChange={(e) => setMakesTab(e.target.value)}
         />
       )}
 
