@@ -547,6 +547,7 @@ const tooltipPathMap : {[key : string] : string} = {
   // "Sent Back Requests": "sent-back-requests",
   "Service Requests": "service-requests",
   "Projects": "projects",
+  "In-Flow Payments": "in-flow-payments",
 };
 
 const getActiveClass = (selectedKeys : string, tooltipText : string) => 
@@ -601,7 +602,7 @@ const SidebarMenuButton = React.forwardRef<
     }
 
     return (
-      <Tooltip>
+    <Tooltip>
     <TooltipTrigger asChild>{button}</TooltipTrigger>
     <TooltipContent
       side="right"
@@ -629,7 +630,7 @@ const SidebarMenuButton = React.forwardRef<
           ))}
         </SidebarMenu>
       ) : (
-        <p 
+      <p 
         className={`rounded-md px-2 py-1 ${getActiveClass(selectedKeys, tooltip?.children)}`}><Link to={tooltipPathMap[tooltip?.children] ? `/${tooltipPathMap[tooltip?.children]}` : ""}>{tooltip?.children}</Link></p>
       )}
     </TooltipContent>
