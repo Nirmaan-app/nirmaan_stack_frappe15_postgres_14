@@ -5,13 +5,10 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import SITEURL from "@/constants/siteURL";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -30,6 +27,7 @@ import { SquarePlus } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+import { PaymentsDataDialog } from "./PaymentsDataDialog";
 
 export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?: string}> = ({ projectId = false, customerId}) => {
 
@@ -99,21 +97,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
         setNewPaymentDialog((prevState) => !prevState);
     }, [newPaymentDialog])
 
-    const [currentPaymentsDialogOpen, setCurrentPaymentsDialogOpen] = useState(false)
-
-    const toggleCurrentPaymentsDialog = useCallback(() => {
-        setCurrentPaymentsDialogOpen((prevState) => !prevState);
-    }, [currentPaymentsDialogOpen])
-
-    const [currentPayments, setCurrentPayments] = useState({ 
-        project : "", 
-        vendor : "", 
-        vendor_id : "", 
-        project_id : "", 
-        document_type : "", 
-        document_name : "", 
-        gst : ""
-    })
+    const [currentPaymentsDialog, setCurrentPaymentsDialog] = useState()
 
     const [newPayment, setNewPayment] = useState({
         docname: "",
@@ -150,8 +134,6 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
         value: item?.name,
     })) || [], [vendors])
 
-    const filteredCurrentPayments = useMemo(() => projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name) || [], [currentPayments, projectPayments])
-
     const {getTotalAmount} = useOrderTotals()
 
     const getAmountPaid =  useMemo(
@@ -165,21 +147,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
         ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
     ], [purchaseOrders, serviceOrders])
 
-    const getDataAttributes = useMemo(() => memoize((data : any) => {
-        let project = ""
-        let vendor = ""
-        let gst = ""
-        if (data?.type === "Purchase Order") {
-            project = data?.project_name
-            vendor = data?.vendor_name
-            gst = "true"
-        } else {
-            project = projects?.find(i => i?.name === data?.project)?.project_name || ""
-            vendor = vendors?.find(i => i?.name === data?.vendor)?.vendor_name || ""
-            gst = data?.gst
-        }
-        return { project, vendor, vendor_id: data?.vendor, project_id: data?.project, document_type: data?.type, document_name: data?.name, gst }
-    }, (data: any) => JSON.stringify(data)), [projects, vendors])
+    
 
     const AddPayment = async () => {
         try {
@@ -284,6 +252,16 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
           setWarning(""); // Clear warning if within the limit
         }
       }, 300), [newPayment])
+
+    const getVendorName = useMemo(() => memoize((id: string) => {
+        const vendorName = vendorValues.find((vend) => vend.value === id)?.label;
+        return vendorName;
+    }, (id: string) => id), [vendorValues])
+
+    const getProjectName = useMemo(() => memoize((id: string) => {
+        const projectName = projectValues.find((proj) => proj.value === id)?.label;
+        return projectName;
+    }, (id: string) => id), [vendorValues])
     
       // Handle input change
     const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
@@ -394,12 +372,8 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
                 cell: ({ row }) => {
                     const data = row.original
                     const amountPaid = getAmountPaid(data?.name);
-                    const { project, vendor, vendor_id, project_id, document_type, document_name, gst } = getDataAttributes(data)
-                    return <div onClick={() => {
-                        setCurrentPayments({ project, vendor, vendor_id, project_id, document_type, document_name, gst })
-                        toggleCurrentPaymentsDialog()
-                    }} className="font-medium cursor-pointer underline">
-                        {formatToIndianRupee(amountPaid)}
+                    return <div onClick={() => amountPaid && setCurrentPaymentsDialog(data)} className={`font-medium ${amountPaid ? "cursor-pointer underline" : ""}`}>
+                        {formatToIndianRupee(amountPaid || "N/A")}
                     </div>
                 },
             },
@@ -409,10 +383,11 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
                     header: "Record Payment",
                     cell: ({ row }) => {
                         const data = row.original
-                        const { project, vendor, vendor_id, project_id } = getDataAttributes(data)
+                        const project = getProjectName(data?.project)
+                        const vendor = getVendorName(data?.vendor)
                         return <div className="font-medium">
                             <SquarePlus onClick={() => {
-                                setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
+                                setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
                                 setWarning("")
                                 toggleNewPaymentDialog()
                             }} className="w-5 h-5 text-red-500 cursor-pointer" />
@@ -555,70 +530,15 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
                 </AlertDialogContent>
             </AlertDialog>
 
-            <Dialog open={currentPaymentsDialogOpen} onOpenChange={toggleCurrentPaymentsDialog}>
-                <DialogContent className="text-start">
-                    <DialogHeader className="text-start py-8 overflow-auto">
-                        <div className="flex items-center flex-wrap gap-4 mb-4">
-                            <div className="flex items-center gap-2">
-                                <Label className=" text-red-700">Project:</Label>
-                                <span className="text-xs">{currentPayments?.project}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Label className=" text-red-700">{currentPayments?.document_type === "Purchase Order" ? "PO" : "SR"} Number:</Label>
-                                <span className="text-xs">{currentPayments?.document_name}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Label className=" text-red-700">Vendor:</Label>
-                                <span className="text-xs">{currentPayments?.vendor}</span>
-                            </div>
-                        </div>
-
-                        <Table>
-                            <TableHeader className="bg-gray-300">
-                                <TableRow>
-                                    <TableHead>Payment Date</TableHead>
-                                    <TableHead>Amount</TableHead>
-                                    {/* {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && ( */}
-                                        <TableHead>TDS Amt</TableHead>
-                                    {/* )} */}
-                                    <TableHead>UTR No.</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {filteredCurrentPayments.length > 0 ? (
-                                    filteredCurrentPayments.map((payment) => {
-                                        return (
-                                            <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
-                                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount - (payment?.tds || 0))}</TableCell>
-                                                {/* {currentPayments?.document_type === "Service Order" && currentPayments?.gst === "true" && ( */}
-                                                    <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
-                                                {/* )} */}
-                                                {payment?.payment_attachment ? (
-                                                    <TableCell className="font-semibold text-blue-500 underline">
-                                                        <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                            {payment?.utr}
-                                                        </a>
-                                                </TableCell>
-                                                ) : (
-                                                    <TableCell className="font-semibold">{payment?.utr}</TableCell>
-                                                )}
-                                            </TableRow>
-                                        )
-                                    })
-                                ) : (
-                                    <TableRow>
-                                      <TableCell colSpan={4} className="text-center py-2">
-                                        No Payments Found
-                                      </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-
-                    </DialogHeader>
-                </DialogContent>
-            </Dialog>
+            <PaymentsDataDialog
+              open={!!currentPaymentsDialog}
+              onOpenChange={(open) => !open && setCurrentPaymentsDialog(undefined)}
+              payments={projectPayments}
+              data={currentPaymentsDialog}
+              projects={projects}
+              vendors={vendors}
+              isPO={currentPaymentsDialog?.document_type === "Purchase Order"}
+            />
             {
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
                     <TableSkeleton />

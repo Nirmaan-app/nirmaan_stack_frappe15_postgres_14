@@ -39,7 +39,7 @@ import { fuzzyFilter } from "./data-table-models";
 import { DataTablePagination } from "./data-table-pagination";
 import { DataTableViewOptions } from "./data-table-view-options";
 
-type ProjectOptions = {
+type OptionsType = {
   label: string;
   value: string;
 };
@@ -47,22 +47,23 @@ type ProjectOptions = {
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
-  project_values?: ProjectOptions[];
-  category_options?: ProjectOptions[];
   loading?: boolean;
   error?: any;
-  vendorOptions?: any;
-  projectTypeOptions?: any;
-  roleTypeOptions?: any;
-  statusOptions?: any;
+  project_values?: OptionsType[];
+  category_options?: OptionsType[];
+  vendorOptions?: OptionsType[];
+  projectTypeOptions?: OptionsType[];
+  roleTypeOptions?: OptionsType[];
+  statusOptions?: OptionsType[];
+  approvedQuotesVendors?: OptionsType[];
+  itemOptions?: OptionsType[];
+  wpOptions?: OptionsType[];
+  projectStatusOptions?: OptionsType[];
+  customerOptions?: OptionsType[];
+  vendorData?: any;
   totalPOsRaised?: any;
   itemSearch?: boolean;
-  approvedQuotesVendors?: any;
-  itemOptions?: any;
-  wpOptions?: any;
-  projectStatusOptions?: any;
   isExport?: boolean;
-  vendorData?: any;
   inFlowButton?: boolean;
 }
 
@@ -83,6 +84,7 @@ export function DataTable<TData, TValue>({
   projectStatusOptions = undefined,
   isExport = false,
   vendorData = undefined,
+  customerOptions = undefined,
   inFlowButton = false,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -371,6 +373,8 @@ export function DataTable<TData, TValue>({
                     <TableHead className="pl-4" key={header.id} colSpan={header.colSpan}>
                       {header.isPlaceholder ? null : (
                         <div className="flex items-center gap-2">
+
+                          {/* Status Faceted Filters for PR Summary tab in Project page */}
                           {statusOptions &&
                             header.id ===
                             table.getColumn("workflow_state")?.id &&
@@ -381,7 +385,8 @@ export function DataTable<TData, TValue>({
                                 options={statusOptions || []}
                               />
                             ) : null)}
-
+                          
+                          {/* Work Package Faceted Filters for PO Summary tab in Project page */}
                           {wpOptions &&
                             header.id === table.getColumn("wp")?.id &&
                             (table.getColumn("wp") ? (
@@ -392,6 +397,7 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
+                          {/* Projects Faceted Filter */}
                           {project_values &&
                             header.id === table.getColumn("project")?.id &&
                             (table.getColumn("project") ? (
@@ -402,6 +408,7 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
+                          {/* Categories Faceted Filter for both Products table and Vendors table  */}
                           {category_options &&
                             table
                               .getAllColumns()
@@ -430,6 +437,7 @@ export function DataTable<TData, TValue>({
                               )
                               : null}
 
+                          {/* Vendors Faceted Filter */}
                           {vendorOptions &&
                             header.id === table.getColumn("vendor_name")?.id &&
                             (table.getColumn("vendor_name") ? (
@@ -440,6 +448,8 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
+
+                          {/* Approved Quotes Vendors Faceted Filter */}
                           {approvedQuotesVendors &&
                             header.id === table.getColumn("vendor")?.id &&
                             (table.getColumn("vendor") ? (
@@ -450,6 +460,8 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
+                          
+                          {/* Approved Quotes Items Faceted Filter */}
                           {itemOptions &&
                             header.id === table.getColumn("item_name")?.id &&
                             (table.getColumn("item_name") ? (
@@ -460,6 +472,8 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
+
+                          {/* Projects Table- Project Types Faceted Filter */}
                           {projectTypeOptions &&
                             header.id === table.getColumn("project_type")?.id &&
                             (table.getColumn("project_type") ? (
@@ -470,6 +484,7 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
+                          {/* Roles Faceted Filter for Users Table */}
                           {roleTypeOptions &&
                             header.id === table.getColumn("role_profile")?.id &&
                             (table.getColumn("role_profile") ? (
@@ -480,6 +495,7 @@ export function DataTable<TData, TValue>({
                               />
                             ) : null)}
 
+                          {/* Statuses Faceted Filter for Projects Table */}
                           {projectStatusOptions &&
                             header.id === table.getColumn("status")?.id &&
                             (table.getColumn("status") ? (
@@ -489,6 +505,18 @@ export function DataTable<TData, TValue>({
                                 options={projectStatusOptions || []}
                               />
                             ) : null)}
+                          
+                          {/* Customers Faceted Filter for In-Flow Payments Table */}
+                          {customerOptions &&
+                            header.id === table.getColumn("customer")?.id &&
+                            (table.getColumn("customer") ? (
+                              <DataTableFacetedFilter
+                                column={table.getColumn("customer")}
+                                title={"Customer"}
+                                options={customerOptions || []}
+                              />
+                            ) : null)}
+
 
                           {flexRender(
                             header.column.columnDef.header,

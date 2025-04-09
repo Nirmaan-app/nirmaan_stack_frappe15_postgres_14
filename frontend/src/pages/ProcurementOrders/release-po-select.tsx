@@ -1,6 +1,7 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -8,7 +9,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -18,10 +19,12 @@ import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGe
 import memoize from 'lodash/memoize';
 import React, { Suspense, useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
 import { useToast } from "../../components/ui/use-toast";
+import { PaymentsDataDialog } from "../ProjectPayments/PaymentsDataDialog";
+import { InvoiceDataDialog } from "./InvoiceDataDialog";
 
 const ApproveSelectVendor = React.lazy(() => import("../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../Sent Back Requests/approve-select-sent-back"));
@@ -29,11 +32,11 @@ const ApproveSelectAmendPO = React.lazy(() => import("./approve-select-amend-po"
 
 export const ReleasePOSelect : React.FC = () => {
 
-    const [searchParams] = useSearchParams();
-
     const { role } = useUserData()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : "Approved PO"));
+    const [tab, setTab] = useStateSyncedWithParams<string>("tab", (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : "Approved PO"));
+    const [selectedInvoice, setSelectedInvoice] = useState<ProcurementOrdersType>();
+    const [currentPaymentsDialog, setCurrentPaymentsDialog] = useState()
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders",
         {
@@ -86,17 +89,10 @@ export const ReleasePOSelect : React.FC = () => {
         }
     }, [db, mark_seen_notification])
 
-    const updateURL = useCallback((key : string, value : string) => {
-        const url = new URL(window.location.href);
-        url.searchParams.set(key, value);
-        window.history.pushState({}, "", url);
-    }, []);
-
     const onClick = useCallback((value : string) => {
         if (tab === value) return; // Prevent redundant updates
         setTab(value);
-        updateURL("tab", value);
-    }, [tab, updateURL]);
+    }, [tab]);
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
@@ -176,6 +172,7 @@ export const ReleasePOSelect : React.FC = () => {
             value: "Delivered PO",
         },
     ], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminOtherPOCount, otherPOCount])
+
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
@@ -302,45 +299,68 @@ export const ReleasePOSelect : React.FC = () => {
                     )
                 }
             },
-            {
-                id: "totalWithoutGST",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const data = row.original;
-                    return (
-                        <div className="font-medium">
-                            {formatToIndianRupee(getPOTotal(data,  parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.total)}
-                        </div>
-                    )
-                }
-            },
+            // {
+            //     id: "totalWithoutGST",
+            //     header: ({ column }) => {
+            //         return (
+            //             <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+            //         )
+            //     },
+            //     cell: ({ row }) => {
+            //         const data = row.original;
+            //         return (
+            //             <div className="font-medium">
+            //                 {formatToIndianRupee(getPOTotal(data,  parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.total)}
+            //             </div>
+            //         )
+            //     }
+            // },
             {
                 id: "totalWithGST",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
+                        <DataTableColumnHeader column={column} title="Total PO Amt" />
                     )
                 },
                 cell: ({ row }) => {
                     const data = row.original;
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getPOTotal(data,  parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.totalAmt)}
+                            {formatToIndianRupee(getPOTotal(data, parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.totalAmt)}
                         </div>
                     )
                 }
             },
+            ...(["Dispatched PO", "Delivered PO"].includes(tab) ? [
+                {
+                    id: "invoices_amout",
+                    header: ({ column }) => {
+                        return (
+                            <DataTableColumnHeader column={column} title="Total Invoice Amt" />
+                        )
+                    },
+                    cell: ({ row }) => {
+                        const data = row.original;
+                        const invoiceAmount = getTotalInvoiceAmount(data?.invoice_data)
+                        return (
+                          <div 
+                            className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
+                            onClick={() => invoiceAmount && setSelectedInvoice(data)}
+                          >
+                            {formatToIndianRupee(invoiceAmount || "N/A")}
+                          </div>
+                        )
+                      }                      
+                },
+            ] : []),
             {
                 id: "Amount_paid",
                 header: "Amt Paid",
                 cell: ({ row }) => {
                     const data = row.original
-                    return <div className="font-medium">
-                        {formatToIndianRupee(getAmountPaid(data?.name))}
+                    const amountPaid = getAmountPaid(data?.name)
+                    return <div className={`font-medium ${amountPaid ? "cursor-pointer underline" : ""}`} onClick={() => amountPaid && setCurrentPaymentsDialog(data)}>
+                        {formatToIndianRupee(amountPaid || "N/A")}
                     </div>
                 },
             },
@@ -367,7 +387,25 @@ export const ReleasePOSelect : React.FC = () => {
     }
 
     return (
-        <>
+            <>
+            <InvoiceDataDialog
+              open={!!selectedInvoice}
+              onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
+              invoiceData={selectedInvoice?.invoice_data}
+              project={selectedInvoice?.project_name}
+              poNumber={selectedInvoice?.name}
+              vendor={selectedInvoice?.vendor_name}
+            />
+
+            <PaymentsDataDialog
+              open={!!currentPaymentsDialog}
+              onOpenChange={(open) => !open && setCurrentPaymentsDialog(undefined)}
+              payments={projectPayments}
+              data={currentPaymentsDialog}
+              projects={projects}
+              vendors={vendorsList}
+              isPO
+            />
             <div className="flex-1 space-y-4">
                 {role !== "Nirmaan Estimates Executive Profile" && (
                     <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
@@ -430,7 +468,6 @@ export const ReleasePOSelect : React.FC = () => {
                         <DataTable columns={columns} data={filtered_po_list} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                     )
                 )} */}
-
             </div>
 
         </>
