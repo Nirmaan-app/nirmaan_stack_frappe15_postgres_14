@@ -1,14 +1,21 @@
 import { Button } from "@/components/ui/button";
 
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Card,
   CardContent,
-  CardHeader,
   CardDescription,
-  CardTitle,
-  CardFooter,
+  CardHeader,
+  CardTitle
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -16,62 +23,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  FrappeConfig,
-  FrappeContext,
-  useFrappeCreateDoc,
-  useFrappeDeleteDoc,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useSWRConfig,
-} from "frappe-react-sdk";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogClose,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { useContext, useState } from "react";
-import {
-  ArrowLeft,
-  Calendar,
-  CirclePlus,
-  Edit2,
-  Edit2Icon,
-  Edit3Icon,
-  FolderArchiveIcon,
-  FoldHorizontalIcon,
-  FoldVertical,
-  KeyRound,
-  ListChecks,
-  LucidePencil,
-  LucideSettings,
-  LucideSettings2,
-  Mail,
-  MapPin,
-  PencilIcon,
-  PencilLineIcon,
-  PercentCircleIcon,
-  Phone,
-  Plus,
-  Settings,
-  Settings2,
-  Settings2Icon,
-  SettingsIcon,
-  Trash2,
-  Undo2,
-} from "lucide-react";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
+import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { Pencil1Icon, Pencil2Icon, ResumeIcon } from "@radix-ui/react-icons";
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Pencil2Icon } from "@radix-ui/react-icons";
+import {
+  useFrappeGetDoc,
+  useFrappeGetDocList
+} from "frappe-react-sdk";
+import memoize from "lodash/memoize";
+import {
+  Calendar,
+  CirclePlus,
+  KeyRound,
+  ListChecks,
+  Mail,
+  MapPin,
+  Phone,
+  Trash2,
+  Undo2
+} from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { useParams } from "react-router-dom";
 import EditUserForm from "./EditUserForm";
 
 interface SelectOption {
@@ -81,30 +61,39 @@ interface SelectOption {
 
 export default function Profile() {
   const [curProj, setCurProj] = useState("");
-  const [loadingState, setLoadingState] = useState(false);
 
   const { userId: id } = useParams<{ userId: string }>();
-  const navigate = useNavigate();
   const { toast } = useToast();
   const userData = useUserData();
+
+  const [deleteUserDialog, setDeleteUserDialog] = useState(false);
+  const toggleDeleteUserDialog = useCallback(() => {
+    setDeleteUserDialog((prevState) => !prevState);
+  }, []);
+
+  const [unlinkProjectDialog, setUnlinkProjectDialog] = useState(false);
+  const toggleUnlinkProjectDialog = useCallback(() => {
+    setUnlinkProjectDialog((prevState) => !prevState);
+  }, []);
+  const [assignProjectDialog, setAssignProjectDialog] = useState(false);
+  const toggleAssignProjectDialog = useCallback(() => {
+    setAssignProjectDialog((prevState) => !prevState);
+  }, []);
+
+
   const [editSheetOpen, setEditSheetOpen] = useState(false);
-
-  const toggleEditSheet = () => {
+  const toggleEditSheet = useCallback(() => {
     setEditSheetOpen((prevState) => !prevState);
-  };
+  }, []);
 
-  const { data, isLoading, error } = useFrappeGetDoc<NirmaanUsersType>(
-    "Nirmaan Users",
-    `${id}`,
-    id ? `Nirmaan Users ${id}` : null
-  );
-  const {
-    data: permission_list,
-    isLoading: permission_list_loading,
-    error: permission_list_error,
-    mutate: permission_list_mutate,
-  } = useFrappeGetDocList(
-    "User Permission",
+  const [resetPasswordDialog, setResetPasswordDialog] = useState(false);
+  const toggleResetPasswordDialog = useCallback(() => {
+    setResetPasswordDialog((prevState) => !prevState);
+  }, []);
+
+  const { data, isLoading, error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users",id, id ? `Nirmaan Users ${id}` : null);
+
+  const { data: permission_list, isLoading: permission_list_loading, mutate: permission_list_mutate } = useFrappeGetDocList<NirmaanUserPermissions>("User Permission",
     {
       fields: ["name", "for_value", "creation"],
       filters: [
@@ -116,19 +105,16 @@ export default function Profile() {
     },
     userData.role === "Nirmaan Admin Profile" ? undefined : null
   );
-  const {
-    data: project_list,
-    isLoading: project_list_loading,
-    error: project_list_error,
-  } = useFrappeGetDocList("Projects", {
+
+  const {handleSubmit, handleDeleteUser, handleDeleteProject, handlePasswordReset, create_loading, delete_loading} = useUserSubmitHandlers(data, permission_list_mutate);
+
+  const { data: project_list, isLoading: project_list_loading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["*"],
     limit: 1000,
     orderBy: { field: "creation", order: "desc" },
-  });
+  }, "Projects");
 
-  const { data: addressData, isLoading: addressDataLoading } =
-    useFrappeGetDocList(
-      "Address",
+  const { data: addressData, isLoading: addressDataLoading } = useFrappeGetDocList("Address",
       {
         fields: ["*"],
         limit: 10000,
@@ -137,163 +123,34 @@ export default function Profile() {
       "Address"
     );
 
-  const { call } = useContext(FrappeContext) as FrappeConfig;
-
-  const options: SelectOption[] =
-    project_list?.map((item) => ({
-      label: item.project_name, // Adjust based on your data structure
+  const options: SelectOption[] = useMemo(() => {
+    const filteredProjects = project_list?.filter(p => !permission_list?.find(pl => pl.for_value === p.name));
+    return filteredProjects?.map((item) => ({
+      label: item.project_name,
       value: item.name,
     })) || [];
+  }, [project_list, permission_list]);
 
-  const getProjectName = (item: string) => {
-    const projectName = project_list?.find(
-      (proj) => proj.name === item
-    )?.project_name;
+  const getProjectAttributes = useMemo(() => memoize((id: string) => {
+    const projectName = project_list?.find((proj) => proj.name === id)?.project_name;
+
     const address = addressData?.find(
       (add) => add.address_title === projectName
     );
     const formatAddress = `${address?.city || "--"}, ${address?.state || "--"}`;
     return { projectName, formatAddress };
-  };
-
-  // const getProjectAddress = (item: string) => {
-  //     const address = addressData?.find(add => add.address_title === item)
-  //     return `${address.city}, ${address.state}`
-  // }
-
-  const {
-    createDoc: createDoc,
-    loading: loading,
-    isCompleted: submit_complete,
-    error: submit_error,
-  } = useFrappeCreateDoc();
-  const {
-    deleteDoc: deleteDoc,
-    loading: delete_loading,
-    isCompleted: delete_complete,
-    error: delete_error,
-  } = useFrappeDeleteDoc();
-  const { mutate } = useSWRConfig();
-
-  const handleSubmit = () => {
-    createDoc("User Permission", {
-      user: id,
-      allow: "Projects",
-      for_value: curProj,
-    })
-      .then((doc) => {
-        // console.log("after_create", doc.user)
-        toast({
-          title: "Success!",
-          description: `Successfully assigned ${getProjectName(curProj).projectName
-            }`,
-          variant: "success",
-        });
-        permission_list_mutate();
-      })
-      .catch(() => {
-        // console.log(submit_error)
-        toast({
-          title: "Failed!",
-          description: `Failed to assign ${getProjectName(curProj).projectName
-            }`,
-          variant: "destructive",
-        });
-      });
-  };
-
-  const handleDeleteUser = () => {
-    deleteDoc("Nirmaan Users", data.email)
-      .then(() => {
-        mutate("Nirmaan Users");
-        toast({
-          title: "Success!",
-          description: `User: ${data?.full_name} deleted Successfully!`,
-          variant: "success",
-        });
-        navigate("/users");
-      })
-      .catch(() => {
-        // console.log(submit_error)
-        toast({
-          title: "Failed!",
-          description: `Failed to delete User: ${data?.full_name}`,
-          variant: "destructive",
-        });
-      });
-  };
-
-  const handleDeleteProject = (project: string) => {
-    let permission_id = permission_list?.filter(
-      (permissions) => permissions.for_value === project
-    )[0];
-    // console.log("permisison filtered", permission_id)
-    if (permission_id) {
-      deleteDoc("User Permission", permission_id.name)
-        .then((doc) => {
-          // console.log('after_delete', doc)
-          toast({
-            title: "Success!",
-            description: `${project} unlinked for ${id}`,
-            variant: "success",
-          });
-          permission_list_mutate();
-        })
-        .catch((doc) => {
-          // console.log(submit_error)
-          toast({
-            title: "Failed!",
-            description: `Failed to unlink ${project} for ${id}`,
-            variant: "destructive",
-          });
-        });
-    } else {
-      toast({
-        title: "Failed!",
-        description: `Failed to delete ${project}`,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handlePasswordReset = () => {
-    setLoadingState(true);
-    call
-      .post("frappe.core.doctype.user.user.reset_password", {
-        user: id,
-      })
-      .then(() => {
-        toast({
-          title: "Success!",
-          description: "Password Reset Email has been sent to the user",
-          variant: "success",
-        });
-      })
-      .catch((err) => {
-        toast({
-          title: "Error!",
-          description: err.exception,
-          variant: "destructive",
-        });
-      })
-      .finally(() => {
-        setLoadingState(false);
-      });
-  };
-
-  // console.log('user', data?.role_profile)
-
-  // console.log("userData.role", userData.role)
+  }, (id: string) => id), [project_list, addressData]);
 
   if (
     isLoading ||
     permission_list_loading ||
     project_list_loading ||
     addressDataLoading
-  )
+  ) {
     return <UserProfileSkeleton />;
+  }
+
   if (error) {
-    // console.log("Error in user-profile.tsx", error?.message)
     toast({
       title: "Error!",
       description: `Error ${error?.message}`,
@@ -301,12 +158,11 @@ export default function Profile() {
     });
   }
   return (
-    <div className="flex-1 md:space-y-4 space-y-2">
+    <div className="flex-1 space-y-4">
       <div className="flex items-center gap-1">
-        {/* <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" /> */}
-        <span className="text-2xl max-md:text-xl font-semibold pl-2">
+        <h2 className="text-2xl max-md:text-xl font-semibold pl-2">
           User Details
-        </span>
+        </h2>
         <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
           <SheetTrigger>
             <Pencil2Icon className="w-6 h-6 text-blue-600" />
@@ -336,28 +192,26 @@ export default function Profile() {
           </div>
           {userData.role === "Nirmaan Admin Profile" && (
             <div className="flex flex-wrap max-sm:flex-col gap-2">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button
+                <Button
                     className="flex gap-1 items-center"
-                    disabled={loadingState}
+                    onClick={toggleResetPasswordDialog}
                   >
                     <KeyRound className="w-5 h-5" />
                     <span className="max-md:hidden">Reset Password</span>
-                  </Button>
-                </DialogTrigger>
+                </Button>
+              <Dialog open={resetPasswordDialog} onOpenChange={toggleResetPasswordDialog}>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>
                       Reset password for {data?.full_name}
                     </DialogTitle>
                   </DialogHeader>
-                  <span>
+                  <DialogDescription>
                     This action will send a reset password email to this user.
                     Are you sure you want to continue?
-                  </span>
+                  </DialogDescription>
                   <div className="flex justify-end">
-                    <DialogClose className="flex items-center gap-2">
+                    <DialogClose asChild>
                       <Button
                         variant="secondary"
                         className="flex items-center gap-1"
@@ -365,45 +219,33 @@ export default function Profile() {
                         <Undo2 className="h-4 w-4" />
                         Cancel
                       </Button>
-
+                    </DialogClose>
                       <Button
-                        onClick={() => handlePasswordReset()}
+                        onClick={() => handlePasswordReset(toggleResetPasswordDialog)}
                         className="flex items-center gap-1"
-                        disabled={loadingState}
                       >
-                        {loading ? (
-                          <span>Please Wait...</span>
-                        ) : (
-                          <>
                             <KeyRound className="w-5 h-5" />
                             <span className="max-md:hidden">Reset</span>
-                          </>
-                        )}
                       </Button>
-                    </DialogClose>
                   </div>
                 </DialogContent>
               </Dialog>
-              {data?.role_profile === "Nirmaan Admin Profile" ? (
-                <Button className="flex gap-1 items-center" disabled={true}>
-                  <Trash2 className="w-5 h-5" />
-                  Delete User
-                </Button>
-              ) : (
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button className="flex gap-1 items-center">
+
+
+                  <Button disabled={data?.role_profile === "Nirmaan Admin Profile"} className="flex gap-1 items-center" onClick={toggleDeleteUserDialog}>
                       <Trash2 className="w-5 h-5" />
                       <span className="max-md:hidden">Delete User</span>
-                    </Button>
-                  </DialogTrigger>
+                  </Button>
+                <Dialog open={deleteUserDialog} onOpenChange={toggleDeleteUserDialog}>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Delete user {data?.full_name}</DialogTitle>
+                      <DialogTitle>Delete User: <span className="text-primary">{data?.full_name}</span></DialogTitle>
                     </DialogHeader>
-                    <span>This action will delete user from the system</span>
-                    <div className="flex justify-end">
-                      <DialogClose className="flex items-center gap-2">
+                    <DialogDescription>This action will delete user from the system</DialogDescription>
+                    <div className="flex justify-end gap-2 items-end">
+                      {delete_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                        <>
+                        <DialogClose asChild>
                         <Button
                           variant="secondary"
                           className="flex items-center gap-1"
@@ -411,18 +253,19 @@ export default function Profile() {
                           <Undo2 className="h-4 w-4" />
                           Cancel
                         </Button>
+                      </DialogClose>
                         <Button
-                          onClick={() => handleDeleteUser()}
+                          onClick={() => handleDeleteUser(toggleDeleteUserDialog)}
                           className="flex items-center gap-1"
                         >
                           <Trash2 className="h-4 w-4" />
                           Delete
                         </Button>
-                      </DialogClose>
+                        </>
+                      )}
                     </div>
                   </DialogContent>
                 </Dialog>
-              )}
             </div>
           )}
         </CardHeader>
@@ -453,15 +296,12 @@ export default function Profile() {
                 </div>
               </Button>
             ) : (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button asChild>
-                    <div className="cursor-pointer">
-                      <CirclePlus className="w-5 h-5 mt- pr-1 " />
+              <>
+                  <Button className="flex items-center gap-1" onClick={toggleAssignProjectDialog}>
+                      <CirclePlus className="w-5 h-5 " />
                       Assign New Project
-                    </div>
                   </Button>
-                </DialogTrigger>
+              <Dialog open={assignProjectDialog} onOpenChange={toggleAssignProjectDialog}>
                 <DialogContent className="sm:max-w-[425px]">
                   <DialogHeader>
                     <DialogTitle className="text-xl font-semibold mb-4">
@@ -476,24 +316,15 @@ export default function Profile() {
                       >
                         Assign:
                       </label>
-                      <Select onValueChange={(item) => setCurProj(item)}>
+                      <Select value={curProj} onValueChange={(item) => setCurProj(item)}>
                         <SelectTrigger className="col-span-3">
                           <SelectValue placeholder="Select Project" />
                         </SelectTrigger>
                         <SelectContent>
-                          {options.map((option) => {
-                            const isPresent = permission_list?.find(
-                              (item) => item.for_value === option.value
-                            );
-                            if (!isPresent) {
-                              return (
-                                <SelectItem value={option.value}>
+                          {options.map((option) => <SelectItem value={option.value}>
                                   {option.label}
                                 </SelectItem>
-                              );
-                            }
-                            return null;
-                          })}
+                            )}
                         </SelectContent>
                       </Select>
                     </div>
@@ -505,14 +336,18 @@ export default function Profile() {
                     </div>
                   </div>
 
-                  <DialogClose asChild>
-                    <Button onClick={() => handleSubmit()} className="w-full">
+                  {create_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                    <Button disabled={!curProj} onClick={() => {
+                      const selectedOption = options.find(o => o.value === curProj);
+                      handleSubmit(curProj, selectedOption?.label || "", toggleAssignProjectDialog);
+                    }} className="w-full">
                       <ListChecks className="mr-2 h-4 w-4" />
                       Submit
                     </Button>
-                  </DialogClose>
+                  )}
                 </DialogContent>
               </Dialog>
+            </>
             ))}
         </div>
         {userData.role === "Nirmaan Admin Profile" ? (
@@ -525,27 +360,27 @@ export default function Profile() {
                   <CardHeader>
                     <CardTitle className="flex justify-between items-start">
                       <span className="text-lg">
-                        {getProjectName(project.for_value).projectName}
+                        {getProjectAttributes(project.for_value).projectName}
                       </span>
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" onClick={toggleUnlinkProjectDialog}>
                             <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
+                        </Button>
+                      <Dialog open={unlinkProjectDialog} onOpenChange={toggleUnlinkProjectDialog}>
                         <DialogContent>
                           <DialogHeader>
                             <DialogTitle>
                               Delete access to{" "}
-                              {getProjectName(project.for_value).projectName}?
+                              {getProjectAttributes(project.for_value).projectName}?
                             </DialogTitle>
                           </DialogHeader>
-                          <span>
+                          <DialogDescription>
                             This action will delete access for this project to
                             this user. Are you sure you want to continue?
-                          </span>
-                          <div className="flex justify-end">
-                            <DialogClose className="flex items-center gap-2">
+                          </DialogDescription>
+                          <div className="flex justify-end items-end gap-2">
+                            {delete_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                              <>
+                              <DialogClose asChild>
                               <Button
                                 variant="secondary"
                                 className="flex items-center gap-1"
@@ -553,16 +388,19 @@ export default function Profile() {
                                 <Undo2 className="h-4 w-4" />
                                 Cancel
                               </Button>
+                            </DialogClose>
                               <Button
-                                onClick={() =>
-                                  handleDeleteProject(project.for_value)
+                                onClick={() => {
+                                  handleDeleteProject(project.for_value, permission_list, toggleUnlinkProjectDialog)
+                                }
                                 }
                                 className="flex items-center gap-1"
                               >
                                 <Trash2 className="h-4 w-4" />
                                 Delete
                               </Button>
-                            </DialogClose>
+                              </>
+                            )}
                           </div>
                         </DialogContent>
                       </Dialog>
@@ -575,7 +413,7 @@ export default function Profile() {
                     <div className="flex items-center gap-2 mb-2">
                       <MapPin className="h-4 w-4 text-muted-foreground text-red-700" />
                       <span className="text-sm">
-                        {getProjectName(project.for_value).formatAddress}
+                        {getProjectAttributes(project.for_value).formatAddress}
                       </span>
                     </div>
                     {/* <div className="flex items-start gap-2">
