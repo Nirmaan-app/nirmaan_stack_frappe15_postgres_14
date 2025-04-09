@@ -1,18 +1,18 @@
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectEstimates } from "@/types/NirmaanStack/ProjectEstimates";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { parseNumber } from "@/utils/parseNumber";
 import { Radio } from "antd";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import React, { Suspense, useCallback, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 
 
 interface ProjectSpendsTabProps {
     options: { label: string; value: string }[];
-    updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
+    // updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
     categorizedData: {
         [workPackage: string]: {
             [category: string]: any[];
@@ -29,10 +29,9 @@ interface ProjectSpendsTabProps {
     projectId?: string
 }
 
-export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, updateURL, categorizedData, po_data, getTotalAmountPaid, workPackageTotalAmounts, totalServiceOrdersAmt, projectId}) => {
+export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, categorizedData, po_data, getTotalAmountPaid, workPackageTotalAmounts, totalServiceOrdersAmt, projectId}) => {
 
-    const [searchParams] = useSearchParams();
-    const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "All");
+    const [activeTab, setActiveTab] = useStateSyncedWithParams<string>("tab", "All");
 
     const { data: project_estimates, isLoading :  project_estimates_loading} = useFrappeGetDocList<ProjectEstimates>("Project Estimates", {
         fields: ["*"],
@@ -105,9 +104,9 @@ export const ProjectSpendsTab : React.FC<ProjectSpendsTabProps> = ({options, upd
         (tab: string) => {
           if (activeTab !== tab) {
             setActiveTab(tab);
-            updateURL({ tab });
+            // updateURL({ tab });
           }
-        }, [activeTab, updateURL]);
+        }, [activeTab]);
 
     const ServiceRequestsAccordion = React.lazy(() => import("./ServiceRequestsAccordion"));
     const CategoryAccordion = React.lazy(() => import("./CategoryAccordion")); 
