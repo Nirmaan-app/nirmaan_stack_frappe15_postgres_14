@@ -24,12 +24,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { ValidationIndicator } from "@/components/validations/ValidationIndicator";
+import { VALIDATION_CONFIG } from "@/components/validations/ValidationTypes";
+import { usePOValidation } from "@/hooks/usePOValidation";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { BookCheck, CalendarDays, CircleX, HandCoins, Info, ListChecks, PencilIcon, TriangleAlert, Truck } from "lucide-react";
+import { BookCheck, CalendarDays, CircleX, HandCoins, Info, ListChecks, PencilIcon, Truck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { TailSpin } from "react-loader-spinner";
@@ -65,6 +68,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   setAdvance, setMaterialReadiness, setAfterDelivery, setXDaysAfterDelivery, setXDays
 }) => {
 
+
+  const { hasMissingGST } = usePOValidation(PO);
   const { control, handleSubmit, reset } = useForm({
       defaultValues: {
         advance: 0,
@@ -93,7 +98,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   
   const toggleEditPOTermsDialog = useCallback(() => {
       setEditPOTermsDialog((prevState) => !prevState);
-    }, [editPOTermsDialog]);
+    }, []);
 
   const resetForm = useCallback((poData: typeof PO) => {
       if (!poData) return;
@@ -175,13 +180,13 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         }
       };
   return (
-     <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
+            <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
                 <CardHeader>
                   <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center">
                       Payment Terms
-                      {!PO?.project_gst && (
-                        <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
+                      {hasMissingGST && (
+                        <ValidationIndicator error={VALIDATION_CONFIG.MISSING_GST} />
                       )}
                     </div>
                     {!summaryPage &&

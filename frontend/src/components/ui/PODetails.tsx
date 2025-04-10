@@ -1,3 +1,4 @@
+import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
 import DeliveryHistoryTable from '@/pages/DeliveryNotes/DeliveryHistory';
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/deliveryNoteItemsDisplay";
@@ -12,6 +13,8 @@ import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer
 import React, { useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
+import { ValidationIndicator } from "../validations/ValidationIndicator";
+import { ValidationMessages } from "../validations/ValidationMessages";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import {
@@ -31,7 +34,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./dialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card";
 import { Input } from "./input";
 import { Label } from "./label";
 import { Separator } from "./separator";
@@ -42,6 +44,7 @@ import {
   SheetTitle
 } from "./sheet";
 import { Textarea } from "./textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 import { toast } from "./use-toast";
 import { VendorHoverCard } from "./vendor-hover-card";
 
@@ -67,6 +70,7 @@ export const PODetails : React.FC<PODetailsProps> = (
   }) => {
 
     const {role} = useUserData();
+    const { errors, isValid, hasVendorIssues } = usePOValidation(po);
 
     const { updateDoc, loading : update_loading } = useFrappeUpdateDoc();
     const {call : deleteCustomPOCall, loading : deleteCustomPOCallLoading} = useFrappePostCall("nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po");
@@ -83,45 +87,38 @@ export const PODetails : React.FC<PODetailsProps> = (
     const [email, setEmail] = useState("");
     const [emailSubject, setEmailSubject] = useState("");
     const [emailBody, setEmailBody] = useState("");
-    const [phoneError, setPhoneError] = useState("");
-    const [emailError, setEmailError] = useState("");
 
     const {toggleNewInvoiceDialog} = useDialogStore()
 
     const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false)
     const toggleDeliveryNoteSheet = useCallback(() => {
       setDeliveryNoteSheet((prevState) => !prevState);
-    }, [deliveryNoteSheet]);
+    }, []);
 
     const [dispatchPODialog, setDispatchPODialog] = useState(false);
     const toggleDispatchPODialog = useCallback(() => {
       setDispatchPODialog((prevState) => !prevState);
-    }, [dispatchPODialog]);
+    }, []);
 
     const [revertDialog, setRevertDialog] = useState(false);
     const toggleRevertDialog = useCallback(() => {
       setRevertDialog((prevState) => !prevState);
-    }, [revertDialog]);
+    }, []);
 
     const [deleteDialog, setDeleteDialog] = useState(false);
     const toggleDeleteDialog = useCallback(() => {
       setDeleteDialog((prevState) => !prevState);
-    }, [deleteDialog]);
+    }, []);
 
     const handlePhoneChange = useCallback((e: any) => {
        const value = e.target.value.replace(/\D/g, "").slice(0, 10);
        setPhoneNumber(value);
-       if (value.length === 10) {
-         setPhoneError("");
-       }
-    }, [phoneNumber, setPhoneNumber]);
+    }, []);
     
     const handleEmailChange = useCallback((e: any) => {
       setEmail(e.target.value);
-      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value)) {
-        setEmailError("");
-      }
-    }, [email, setEmail]);
+    }, []);
+
 
     const handleDispatchPO = async () => {
         try {
@@ -218,14 +215,26 @@ export const PODetails : React.FC<PODetailsProps> = (
           
 
   return (
-    <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+      <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
             <CardHeader>
               <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                 <div>
                   <h2>{po?.custom === "true" && "Custom"} PO Details
-                  {!po?.project_gst && (
-                    <TriangleAlert className="inline ml-2 text-primary max-sm:w-4 max-sm:h-4" />
-                  )}
+                    {!isValid && (
+                    <Tooltip>
+                      <TooltipTrigger>
+                          <TriangleAlert className="inline-block ml-2 text-primary max-sm:w-4 max-sm:h-4" />
+                      </TooltipTrigger>
+                      {!isValid && (
+                        <TooltipContent
+                          side="bottom"
+                          className="bg-background border border-border text-foreground"
+                        >
+                          <ValidationMessages title="Required Before Proceeding" errors={errors} />
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                    )}
                   </h2>
                   <Badge
                     variant={
@@ -240,27 +249,37 @@ export const PODetails : React.FC<PODetailsProps> = (
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2">
-
                     {!accountsPage && !estimatesViewing && !summaryPage && (
-                        <Button
+                      <Tooltip>
+                      <TooltipTrigger>
+                      <Button
+                        disabled={!isValid}
                         variant="outline"
                         className="text-primary border-primary text-xs px-2"
-                        onClick={toggleRequestPaymentDialog}
+                        onClick={isValid ? toggleRequestPaymentDialog : undefined}
                       >
                         Request Payment
                       </Button>
+                      </TooltipTrigger>
+                      {!isValid && (
+                        <TooltipContent
+                          side="bottom"
+                          className="bg-background border border-border text-foreground"
+                        >
+                          <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
                     )}
 
                   {po?.status !== "PO Approved" && (
-                      <>
-                        <Button
+                      <Button
                         variant="outline"
                         className="text-primary border-primary text-xs px-2"
                         onClick={toggleNewInvoiceDialog}
                       >
                         Add Invoice
                       </Button>
-                      </>
                     )}
 
                   {!summaryPage &&
@@ -304,19 +323,32 @@ export const PODetails : React.FC<PODetailsProps> = (
                         </div>
                     </SheetContent>
                   </Sheet>
+
                   {((po?.status !== "PO Approved" ||
                     summaryPage ||
                     accountsPage ||
                     estimatesViewing) || (role != "Nirmaan Procurement Executive Profile")) && (
-                    <Button
-                      variant="outline"
-                      disabled={!po?.project_gst}
-                      onClick={togglePoPdfSheet}
-                      className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
-                    >
-                      <Eye className="w-4 h-4" />
-                      Preview
-                    </Button>
+                      <Tooltip>
+                        <TooltipTrigger>
+                        <Button
+                          variant="outline"
+                          disabled={!isValid}
+                          onClick={isValid ? togglePoPdfSheet : undefined}
+                          className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
+                        >
+                          <Eye className="w-4 h-4" />
+                          Preview
+                        </Button>
+                        </TooltipTrigger>
+                        {!isValid && (
+                          <TooltipContent
+                            side="bottom"
+                            className="bg-background border border-border text-foreground"
+                          >
+                            <ValidationMessages title="Required Before Preview" errors={errors} />
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
                   )}
                 {po?.custom === "true" &&
                   !summaryPage &&
@@ -331,7 +363,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                         <Trash2Icon className="w-4 h-4" />
                         Delete
                       </Button>
-                )}
+                  )}
 
                 <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
                   <DialogContent>
@@ -366,28 +398,26 @@ export const PODetails : React.FC<PODetailsProps> = (
                   !accountsPage &&
                   !estimatesViewing &&
                   po?.status === "PO Approved" && (
-                    !po?.project_gst ? (
-                        <HoverCard>
-                            <HoverCardTrigger>
-                              <Button disabled className="flex items-center gap-1 text-xs p-1 h-8 px-2">
-                                <Send className="h-4 w-4" />
-                                Dispatch PO
-                              </Button>
-                            </HoverCardTrigger>
-                            <HoverCardContent className="w-80 bg-gray-800 text-white p-2 text-base rounded-md shadow-lg">
-                              Please select and confirm <i>Project GST</i> from the{" "}
-                              <span className="text-primary">
-                                Edit Payment Terms Dialog
-                              </span>{" "}
-                              in order to enable the button!
-                            </HoverCardContent>
-                          </HoverCard>
-                    ) : (
-                      <Button onClick={toggleDispatchPODialog} className="flex items-center gap-1 text-xs p-1 h-8 px-2">
-                        <Send className="h-4 w-4" />
-                         Dispatch PO
-                      </Button>
-                    )
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button 
+                            disabled={!isValid}
+                            onClick={isValid ? toggleDispatchPODialog : undefined}
+                            className="flex items-center gap-1 text-xs p-1 h-8 px-2"
+                          >
+                            <Send className="h-4 w-4" />
+                            Dispatch PO
+                          </Button>
+                        </TooltipTrigger>
+                        {!isValid && (
+                          <TooltipContent
+                            side="bottom"
+                            className="bg-background border border-border text-foreground"
+                          >
+                            <ValidationMessages title="Required Before Dispatch" errors={errors} />
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
                   )}
 
                     <Sheet open={dispatchPODialog} onOpenChange={toggleDispatchPODialog}>
@@ -501,11 +531,6 @@ export const PODetails : React.FC<PODetailsProps> = (
                                           </DialogContent>
                                         </Dialog>
                                       </div>
-                                      {phoneError && (
-                                        <p className="text-red-500 text-xs mt-1">
-                                          {phoneError}
-                                        </p>
-                                      )}
                                     </div>
                                   </div>
                                   <div>
@@ -621,11 +646,6 @@ export const PODetails : React.FC<PODetailsProps> = (
                                           </DialogContent>
                                         </Dialog>
                                       </div>
-                                      {emailError && (
-                                        <p className="text-red-500 text-xs mt-1">
-                                          {emailError}
-                                        </p>
-                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -749,6 +769,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                       </SheetContent>
                     </Sheet>
                 </div>
+
                 <Dialog open={revertDialog} onOpenChange={toggleRevertDialog}>
                   <DialogContent>
                     <DialogHeader>
@@ -787,7 +808,10 @@ export const PODetails : React.FC<PODetailsProps> = (
               <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
                 <div className="flex flex-col gap-2">
                   <Label className=" text-red-700">Vendor</Label>
-                  <VendorHoverCard vendor_id={po?.vendor} />
+                  <div>
+                    <VendorHoverCard vendor_id={po?.vendor} />
+                    {hasVendorIssues && <ValidationIndicator error={errors.find(e => e.code === "INCOMPLETE_VENDOR")} />}
+                  </div>
                 </div>
                 <div className="flex flex-col gap-2 sm:items-center max-sm:text-end">
                   <Label className=" text-red-700">Package</Label>

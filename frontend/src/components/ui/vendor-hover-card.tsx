@@ -1,9 +1,10 @@
+import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { useFrappeGetDoc } from "frappe-react-sdk"
 import { useNavigate } from "react-router-dom"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
 
-export const VendorHoverCard = ({ vendor_id }) => {
-    const { data: vendorData } = useFrappeGetDoc("Vendors", vendor_id, vendor_id ? `Vendors ${vendor_id}` : null)
+export const VendorHoverCard: React.FC<{vendor_id: string}> = ({ vendor_id }) => {
+    const { data: vendorData } = useFrappeGetDoc<Vendors>("Vendors", vendor_id, vendor_id ? `Vendors ${vendor_id}` : null)
 
     const navigate = useNavigate()
     return (
@@ -23,12 +24,16 @@ export const VendorHoverCard = ({ vendor_id }) => {
                 <p className=" font-medium text-black">{vendorData?.vendor_type}</p>
               </div>
               <div>
-                <span className=" text-gray-500">Email:</span>
-                <p className=" font-medium text-black">{vendorData?.vendor_email || "N/A"}</p>
+                <span className=" text-gray-500">Contact Person Name:</span>
+                <p className={`${!vendorData?.vendor_contact_person_name ? "text-primary font-bold" : "font-medium text-black"}`}>{vendorData?.vendor_contact_person_name || "N/A"}</p>
               </div>
               <div>
                 <span className=" text-gray-500">Mobile Number:</span>
-                <p className=" font-medium text-black">{vendorData?.vendor_mobile || "N/A"}</p>
+                <p className={`${!vendorData?.vendor_mobile ? "text-primary font-bold" : "font-medium text-black"}`}>{vendorData?.vendor_mobile || "N/A"}</p>
+              </div>
+              <div>
+                <span className=" text-gray-500">Email:</span>
+                <p className=" font-medium text-black">{vendorData?.vendor_email || "N/A"}</p>
               </div>
               <div>
                 <span className=" text-gray-500">GST:</span>

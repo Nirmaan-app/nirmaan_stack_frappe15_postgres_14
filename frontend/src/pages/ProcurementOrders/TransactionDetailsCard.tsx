@@ -31,8 +31,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
+import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import SITEURL from "@/constants/siteURL";
+import { usePOValidation } from "@/hooks/usePOValidation";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
@@ -67,6 +70,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   accountsPage, estimatesViewing, summaryPage, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate
 }) => {
 
+  const { errors, isValid } = usePOValidation(PO);
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
   const { upload: upload, loading: uploadLoading } = useFrappeFileUpload();
   const { call, loading: callLoading } = useFrappePostCall("frappe.client.set_value");
@@ -87,7 +91,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);
   const toggleNewPaymentDialog = useCallback(() => {
       setNewPaymentDialog((prevState) => !prevState);
-    }, [newPaymentDialog]);
+    }, []);
 
   const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
 
@@ -106,14 +110,14 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
       } else {
         setWarning(""); // Clear warning if within the limit
       }
-    }, 300), [getTotal]);
+    }, 300), []);
   
     // Handle input change
     const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
       const amount = e.target.value;
       setNewPayment({ ...newPayment, amount });
       validateAmount(amount);
-    }, [newPayment, validateAmount]);
+    }, []);
 
     const AddPayment = async () => {
         try {
@@ -211,23 +215,36 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     </p>
                     {!accountsPage && !estimatesViewing && !summaryPage && (
                       <>
-                      <Button
-                      variant="outline"
-                      className="text-primary border-primary text-xs px-2"
-                      onClick={toggleRequestPaymentDialog}
-                    >
-                      Request Payment
-                    </Button>
+                      <Tooltip>
+                        <TooltipTrigger>
+                        <Button
+                          disabled={!isValid}
+                          variant="outline"
+                          className="text-primary border-primary text-xs px-2"
+                          onClick={isValid ? toggleRequestPaymentDialog : undefined}
+                        >
+                          Request Payment
+                        </Button>
+                        </TooltipTrigger>
+                        {!isValid && (
+                          <TooltipContent
+                            side="bottom"
+                            className="bg-background border border-border text-foreground"
+                          >
+                            <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
                     <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
                       po={PO} paymentsMutate={poPaymentsMutate}
                       />
                     </>
                     )}
     
-                    {accountsPage && (
+                        {accountsPage && (
                             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                                 <AlertDialogTrigger
-                                onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
+                                  onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
                                 >
                                     <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
                                 </AlertDialogTrigger>
