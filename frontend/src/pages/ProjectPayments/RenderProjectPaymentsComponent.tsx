@@ -19,7 +19,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     const {paymentsCount, adminPaymentsCount} = useDocCountStore()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : role === "Nirmaan Procurement Executive Profile" ? "Payments Done" : "PO Wise"));
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? "Payments Done" : "PO Wise"));
 
     const updateURL = useCallback((params: Record<string, string>) => {
         const url = new URL(window.location.href);

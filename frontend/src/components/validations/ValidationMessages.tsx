@@ -8,13 +8,13 @@ export const ValidationMessages = ({ title, errors }: {title:string, errors: Val
       {errors.map((error) => (
         <li key={error.code} className="text-sm">
           <span>{error.message}</span>
-          {error.link ? (
+          {/* {error.link ? (
             <a href={error.link} className="text-primary underline ml-1">
               ({error.resolution})
             </a>
-          ) : (
+          ) : ( */}
             <span>({error.resolution})</span>
-          )}
+          {/* )} */}
         </li>
       ))}
     </ul>

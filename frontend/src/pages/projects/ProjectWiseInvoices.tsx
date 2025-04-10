@@ -61,7 +61,7 @@ export const ProjectWiseInvoices: React.FC<{ projectId?: string }> = ({ projectI
 
 //   console.log("invoiceData", invoiceData);
 
-const {data: invoicesData, isLoading: invoicesDataLoading} = useFrappeGetCall<{message : InvoicesDataCallResponse}>("nirmaan_stack.api.projects.project_wise_invoice_data.generate_project_wise_invoice_data", {project_id: projectId})
+const {data: invoicesData, isLoading: invoicesDataLoading} = useFrappeGetCall<{message : InvoicesDataCallResponse}>("nirmaan_stack.api.projects.project_wise_invoice_data.generate_project_wise_invoice_data", {project_id: projectId}, projectId ? undefined : null)
 
 const {data : attachmentsData, isLoading: attachmentsDataLoading} = useFrappeGetDocList<NirmaanAttachment>("Nirmaan Attachments", {
     fields: ["name", "attachment"],
@@ -72,7 +72,7 @@ const {data : attachmentsData, isLoading: attachmentsDataLoading} = useFrappeGet
 const getAttachmentUrl = useMemo(() => memoize((id: string) => {
     const attachment = attachmentsData?.find((att) => att.name === id);
     return attachment?.attachment;
-}, (id: string) => id), [])
+}, (id: string) => id), [attachmentsData])
 
 const invoiceColumns: ColumnDef<InvoiceItem>[] =
     useMemo(() => [
@@ -176,8 +176,7 @@ const invoiceColumns: ColumnDef<InvoiceItem>[] =
           );
         },
       },
-    ], [invoicesData, attachmentsData, getAttachmentUrl, SITEURL]);
-  
+    ], [invoicesData, attachmentsData, getAttachmentUrl]);
 
 
   return (
@@ -190,7 +189,5 @@ const invoiceColumns: ColumnDef<InvoiceItem>[] =
     </div>
   )
 };
-
-
 
 export default ProjectWiseInvoices;

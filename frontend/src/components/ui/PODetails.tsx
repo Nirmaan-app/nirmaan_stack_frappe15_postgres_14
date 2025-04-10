@@ -228,7 +228,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                       {!isValid && (
                         <TooltipContent
                           side="bottom"
-                          className="bg-background border border-border text-foreground"
+                          className="bg-background border border-border text-foreground w-80"
                         >
                           <ValidationMessages title="Required Before Proceeding" errors={errors} />
                         </TooltipContent>
@@ -264,7 +264,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                       {!isValid && (
                         <TooltipContent
                           side="bottom"
-                          className="bg-background border border-border text-foreground"
+                          className="bg-background border border-border text-foreground w-80"
                         >
                           <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
                         </TooltipContent>
@@ -343,7 +343,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                         {!isValid && (
                           <TooltipContent
                             side="bottom"
-                            className="bg-background border border-border text-foreground"
+                            className="bg-background border border-border text-foreground w-80"
                           >
                             <ValidationMessages title="Required Before Preview" errors={errors} />
                           </TooltipContent>
@@ -412,7 +412,7 @@ export const PODetails : React.FC<PODetailsProps> = (
                         {!isValid && (
                           <TooltipContent
                             side="bottom"
-                            className="bg-background border border-border text-foreground"
+                            className="bg-background border border-border text-foreground w-80"
                           >
                             <ValidationMessages title="Required Before Dispatch" errors={errors} />
                           </TooltipContent>

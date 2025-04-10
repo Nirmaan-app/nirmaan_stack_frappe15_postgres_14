@@ -229,7 +229,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                         {!isValid && (
                           <TooltipContent
                             side="bottom"
-                            className="bg-background border border-border text-foreground"
+                            className="bg-background border border-border text-foreground w-80"
                           >
                             <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
                           </TooltipContent>
