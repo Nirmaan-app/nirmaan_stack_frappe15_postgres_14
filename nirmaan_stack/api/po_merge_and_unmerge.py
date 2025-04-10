@@ -96,7 +96,8 @@ def handle_unmerge_pos(po_id: str, prev_merged_pos: list):
         for po in prev_merged_pos:
             frappe.db.set_value("Procurement Orders", po["name"], "status", "PO Approved")
             frappe.db.set_value("Procurement Orders", po["name"], "merged", None)
-
+        
+        frappe.db.delete("Nirmaan Attachments", {"associated_docname": ("=", po_id)})
         frappe.delete_doc("Procurement Orders", po_id)
         frappe.db.commit()
 

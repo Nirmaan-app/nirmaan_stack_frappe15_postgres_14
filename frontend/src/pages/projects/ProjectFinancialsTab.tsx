@@ -146,7 +146,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                   ) : tab === "All Orders" ? (
                   
                     <ProjectPaymentsList projectId={projectData?.name} />
-                  ) : <ProjectWiseInvoices />}
+                  ) : <ProjectWiseInvoices projectId={projectData?.name} />}
                 </Suspense>
 
                       <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>
