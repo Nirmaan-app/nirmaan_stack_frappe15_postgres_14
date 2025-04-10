@@ -58,7 +58,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate, sr }
       }
     }, [selectedAttachment, po, sr, upload, toast]);
 
-    const handleUpdateInvoiceData = useCallback(async () => {
+  const handleUpdateInvoiceData = useCallback(async () => {
         try {
           const attachmentId = await uploadInvoice();
           
@@ -120,7 +120,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate, sr }
       </AlertDialogHeader>
                               <div className="flex flex-col gap-4 pt-4">
                                   <div className="flex gap-4 w-full">
-                                      <Label className="w-[40%]">Invoice No.<sup className=" text-sm text-red-600">*</sup></Label>
+                                      <Label className="w-[40%]">Invoice No.<sup className="text-sm text-red-600">*</sup></Label>
                                       <Input
                                           type="text"
                                           placeholder="Enter Invoice no."
@@ -140,7 +140,7 @@ export const InvoiceDialog: React.FC<InvoiceDialogProps> = ({ po, poMutate, sr }
                                            />
                                   </div>
                                   <div className="flex gap-4 w-full">
-                                      <Label className="w-[40%]">Amount</Label>
+                                      <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
                                       <Input
                                           type="number"
                                           placeholder="Enter Invoice Amount"

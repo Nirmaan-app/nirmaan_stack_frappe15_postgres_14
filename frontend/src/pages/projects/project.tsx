@@ -75,14 +75,14 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from "reac
 import { TailSpin } from "react-loader-spinner";
 import {
   Link,
-  useParams,
-  useSearchParams
+  useParams
 } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { ProjectMakesTab } from "./ProjectMakesTab";
 import ProjectOverviewTab from "./ProjectOverviewTab";
 import ProjectSpendsTab from "./ProjectSpendsTab";
@@ -196,53 +196,61 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const toggleEditSheet = useCallback(() => {
     setEditSheetOpen((prevState) => !prevState);
-  }, [editSheetOpen]);
-
-  const [searchParams] = useSearchParams(); // Only for initialization
-  const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
-  const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || makeOptions?.[0]?.value);
-
-  const updateURL = useCallback(
-    (params: Record<string, string>, removeParams: string[] = []) => {
-    const url = new URL(window.location.href);
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.set(key, value);
-    });
-    removeParams.forEach((key) => {
-      url.searchParams.delete(key);
-    });
-    window.history.pushState({}, '', url);
   }, []);
 
-  const setProjectMakesTab = useCallback(
-    (tab: string) => {
-      if (makesTab !== tab) {
-        setMakesTab(tab);
-        updateURL({ makesTab: tab });
+  // const [searchParams] = useSearchParams(); // Only for initialization
+  // const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
+  // const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || makeOptions?.[0]?.value);
+
+  const [makesTab] = useStateSyncedWithParams<string>("makesTab", makeOptions?.[0]?.value)
+  const [activePage, setActivePage] = useStateSyncedWithParams<string>("page", "overview")
+  // const [_, setTab] = useStateSyncedWithParams<string>("tab", "All")
+  // const [__, setETab] = useStateSyncedWithParams<string>("eTab", "All")
+  // const [___, setFTab] = useStateSyncedWithParams<string>("fTab", "All Payments")
+
+  // const setProjectMakesTab = useCallback(
+  //   (tab: string) => {
+  //     if (makesTab !== tab) {
+  //       setMakesTab(tab);
+  //       // updateURL({ makesTab: tab });
+  //     }
+  //   }, [makesTab]);
+
+    const onClick: MenuProps['onClick'] = useCallback(
+      (e) => {
+        if (activePage === e.key) return;
+        const newPage = e.key;
+
+        const tabsToRemove = newPage === 'projectspends' ? ['eTab', 'makesTab', 'fTab'] : newPage === 'projectmakes' ? ['tab', 'eTab', 'fTab'] : newPage === 'projectestimates' ? ['tab', 'makesTab', 'fTab'] : newPage === 'projectfinancials' ? ['tab', 'makesTab', 'eTab'] : ['tab', 'eTab', 'makesTab', 'fTab'];
+        setActivePage(newPage, tabsToRemove)
       }
-    }, [makesTab, updateURL]);
+      , [activePage, setActivePage]);
 
-  const onClick: MenuProps['onClick'] = useCallback(
-    (e) => {
-      if (activePage === e.key) return;
+  // const onClick: MenuProps['onClick'] = useCallback(
+  //   (e) => {
+  //     if (activePage === e.key) return;
 
-      const newPage = e.key;
+  //     const newPage = e.key;
 
-      if (newPage === 'projectspends') {
-        updateURL({ page: newPage, tab: 'All' }, ['eTab', 'makesTab', 'fTab']);
-      } else if (newPage === 'projectmakes') {
-        setMakesTab(makeOptions?.[0]?.value || '');
-        updateURL({ page: newPage, makesTab: makeOptions?.[0]?.value || '' }, ['eTab', 'tab', 'fTab']);
-      } else if (newPage === 'projectestimates'){
-        updateURL({page: newPage, eTab: 'All'}, ['tab', 'makesTab', 'fTab'])
-      } else if (newPage === "projectfinancials") {
-        updateURL({page: newPage, fTab: 'All Payments'}, ['tab', 'makesTab', 'eTab'])
-      } else {
-        setMakesTab('');
-        updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab', 'fTab']);
-      }
-      setActivePage(newPage);
-    }, [activePage, updateURL]);
+  //     if (newPage === 'projectspends') {
+  //       setTab("All", ['eTab', 'makesTab', 'fTab']);
+  //       // updateURL({ page: newPage, tab: 'All' }, ['eTab', 'makesTab', 'fTab']);
+  //     } else if (newPage === 'projectmakes') {
+  //       setMakesTab(makeOptions?.[0]?.value || '', ['eTab', 'tab', 'fTab']);
+  //       // updateURL({ page: newPage, makesTab: makeOptions?.[0]?.value || '' }, ['eTab', 'tab', 'fTab']);
+  //     } else if (newPage === 'projectestimates'){
+  //       setETab("All", ['tab', 'makesTab', 'fTab']);
+  //       // updateURL({page: newPage, eTab: 'All'}, ['tab', 'makesTab', 'fTab'])
+  //     } else if (newPage === "projectfinancials") {
+  //       setFTab("All Payments", ['tab', 'makesTab', 'eTab']);
+  //       // updateURL({page: newPage, fTab: 'All Payments'}, ['tab', 'makesTab', 'eTab'])
+  //     } 
+  //     // else {
+  //     //   setMakesTab('');
+  //     //    updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab', 'fTab']);
+  //     // }
+  //     setActivePage(newPage);
+  //   }, [activePage, updateURL]);
 
 
   const { data: mile_data } = useFrappeGetDocList(
@@ -1018,7 +1026,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         },
         cell: ({ row }) => {
           const po : string = row.getValue("name");
-          return <div className="font-medium">{getWorkPackageName(po)}</div>;
+          return <div className="font-medium">{getWorkPackageName(po) || "Custom"}</div>;
         },
         filterFn: (row, id, value) => {
           const rowValue : string = row.getValue(id);
@@ -1701,14 +1709,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       )}
 
       {activePage === "projectspends" && (
-          <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options} updateURL={updateURL} categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
+          <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options} 
+          // updateURL={updateURL}
+           categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
       )}
 
 
 
       {activePage === "projectfinancials" && (
         <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
-          <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} updateURL={updateURL} totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} /> 
+          <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} 
+          // updateURL={updateURL}
+           totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} /> 
         </Suspense>
       )}
 
@@ -1717,7 +1729,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       )}
 
       {activePage === "projectmakes" && (
-        <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} setProjectMakesTab={setProjectMakesTab} makesTab={makesTab} />
+        <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />
       )}
 
       {activePage === "SRSummary" && (

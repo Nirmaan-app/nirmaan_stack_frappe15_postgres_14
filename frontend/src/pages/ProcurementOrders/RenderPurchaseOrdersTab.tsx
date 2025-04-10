@@ -1,12 +1,10 @@
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
 
 export const RenderPurchaseOrdersTab : React.FC = () => {
 
-  const [searchParams] = useSearchParams();
-
-  const tab = searchParams.get("tab") || "Approved PO"
+  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO");
 
   const ApprovePO = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes"));
 

@@ -62,14 +62,14 @@ const RequestPaymentDialog = ({
     } else if (value === "withoutGST") {
       setAmountRequesting(totalAmountWithoutGST);
     } else if (value === "due") {
-      setAmountRequesting((gst ? totalAmount : totalAmountWithoutGST) - totalPaid);
+      setAmountRequesting((gst ? totalAmount : totalAmountWithoutGST) - (totalPaid + amountPending));
     }
     else if (value === "custom") {
       setAmountRequesting(Number(customAmount));
     } else {
       setAmountRequesting(((gst ? totalAmount : totalAmountWithoutGST) * Number(percentage)) / 100);
     }
-  }, [totalAmount, totalAmountWithoutGST, totalPaid, gst, customAmount, percentage]);
+  }, [totalAmount, totalAmountWithoutGST, totalPaid, gst, customAmount, percentage, amountPending]);
 
   const validateAmount = useCallback(
     debounce((amount: number) => {
@@ -221,7 +221,7 @@ const RequestPaymentDialog = ({
           {totalPaid > 0 && (
           <div className="flex items-center space-x-2">
             <RadioGroupItem value="due" id="due" />
-            <Label htmlFor="due">Due amount: {formatToIndianRupee((gst ? totalAmount : totalAmountWithoutGST) - totalPaid)}</Label>
+            <Label htmlFor="due">Due amount: {formatToIndianRupee((gst ? totalAmount : totalAmountWithoutGST) - (totalPaid + amountPending))}</Label>
           </div>
           )}
         </RadioGroup>

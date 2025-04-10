@@ -50,7 +50,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
+import { ValidationMessages } from "@/components/validations/ValidationMessages";
+import { usePOValidation } from "@/hooks/usePOValidation";
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
@@ -84,7 +88,7 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
 import DeliveryHistory from "../DeliveryNotes/DeliveryHistory";
 import { InvoiceDialog } from "./InvoiceDialog";
@@ -101,29 +105,37 @@ export const PurchaseOrder = ({
   summaryPage = false,
   accountsPage = false,
 }: PurchaseOrderProps) => {
-  const params = useParams();
+  
+  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO")
 
+  const userData = useUserData();
+  const estimatesViewing = useMemo(() => userData?.role === "Nirmaan Estimates Executive Profile", [userData?.role]);
+
+  const navigate = useNavigate();
+  const params = useParams();
   const id = summaryPage ? params.poId : params.id;
 
   const [isRedirecting, setIsRedirecting] = useState(false);
-
-  const [searchParams] = useSearchParams();
-
-  const tab = searchParams.get("tab") || "Approved PO";
-
   const poId = id?.replaceAll("&=", "/");
 
-  const navigate = useNavigate();
+  const [orderData, setOrderData] = useState<{ list : PurchaseOrderItem[]}>({
+    list: []
+  });
+  const [PO, setPO] = useState<ProcurementOrder | null>(null)
+  const { data: po, isLoading: poLoading, error: poError, mutate: poMutate} = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
+    fields: ["*"],
+    filters: [["name", "=", poId]],
+  });
 
-  const userData = useUserData();
-
-  const [estimatesViewing, setEstimatesViewing] = useState(false);
+  const { errors, isValid } = usePOValidation(PO);
 
   useEffect(() => {
-    if (userData?.role === "Nirmaan Estimates Executive Profile") {
-      setEstimatesViewing(true);
+    if(po) {
+      const doc = po[0]
+      setPO(doc)
+      setOrderData(doc?.order_list || { list: [] });
     }
-  }, [userData]);
+  }, [po])
 
   const [advance, setAdvance] = useState(0);
   const [materialReadiness, setMaterialReadiness] = useState(0);
@@ -137,10 +149,6 @@ export const PurchaseOrder = ({
   const [prevMergedPOs, setPrevMergedPos] = useState<ProcurementOrder[]>([]);
 
   const [loadingFuncName, setLoadingFuncName] = useState<string>("");
-
-  const [orderData, setOrderData] = useState<{ list : PurchaseOrderItem[]}>({
-    list: []
-  });
 
   const [quantity, setQuantity] = useState<number | null | string>(null);
 
@@ -169,13 +177,13 @@ export const PurchaseOrder = ({
 
   const togglePoPdfSheet = useCallback(() => {
     setPoPdfSheet((prevState) => !prevState);
-  }, [poPdfSheet]);
+  }, []);
 
   const [mergeSheet, setMergeSheet] = useState(false);
 
   const toggleMergeSheet = useCallback(() => {
     setMergeSheet((prevState) => !prevState);
-  }, [mergeSheet]);
+  }, []);
 
   const [mergeConfirmDialog, setMergeConfirmDialog] = useState(false);
 
@@ -187,7 +195,7 @@ export const PurchaseOrder = ({
 
   const toggleAmendPOSheet = useCallback(() => {
     setAmendPOSheet((prevState) => !prevState);
-  }, [amendPOSheet]);
+  }, []);
 
   const [cancelPODialog, setCancelPODialog] = useState(false);
 
@@ -199,7 +207,7 @@ export const PurchaseOrder = ({
 
   const toggleUnMergeDialog = useCallback(() => {
     setUnMergeDialog((prevState) => !prevState);
-  }, [unMergeDialog]);
+  }, []);
 
   const [amendEditItemDialog, setAmendEditItemDialog] = useState(false);
 
@@ -224,21 +232,6 @@ export const PurchaseOrder = ({
   const {call : mergePOCall, loading : mergePOCallLoading} = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos");
 
   const {call : unMergePOCall, loading : unMergePOCallLoading} = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos");
-
-  const [PO, setPO] = useState<ProcurementOrder | null>(null)
-
-  const { data: po, isLoading: poLoading, error: poError, mutate: poMutate} = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-    fields: ["*"],
-    filters: [["name", "=", poId]],
-  });
-
-  useEffect(() => {
-    if(po) {
-      const doc = po[0]
-      setPO(doc)
-      setOrderData(doc?.order_list || { list: [] });
-    }
-  }, [po])
 
   const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
     fields: ["*"],
@@ -664,6 +657,36 @@ export const PurchaseOrder = ({
     return usersList?.find((user) => user?.name === id)?.full_name || ""
   }, [usersList]);
 
+  const MERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && PO?.custom != "true" && !estimatesViewing && PO?.status === "PO Approved" && PO?.merged !== "true" && !((poPayments || [])?.length > 0) && mergeablePOs.length > 0, 
+  [
+    PO,
+    mergeablePOs,
+    poPayments,
+    summaryPage,
+    accountsPage,
+    estimatesViewing
+  ]);
+
+  const CANCELPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && ["PO Approved"].includes(PO?.status) && !((poPayments || []).length > 0) && PO?.merged !== "true", 
+  [PO,
+    poPayments,
+    summaryPage,
+    accountsPage,
+    estimatesViewing])
+
+  const AMENDPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !estimatesViewing && ["PO Approved"].includes(PO?.status) && PO?.merged !== "true" &&  !((poPayments || [])?.length > 0), 
+  [PO,
+    poPayments,
+    summaryPage,
+    accountsPage,
+    estimatesViewing])
+  
+  const UNMERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && PO?.merged === "true", 
+    [PO,
+      summaryPage,
+      accountsPage,
+      estimatesViewing])  
+  
   if (isRedirecting) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
@@ -733,14 +756,7 @@ export const PurchaseOrder = ({
 
   return (
     <div className="flex-1 space-y-4">
-      {!summaryPage &&
-        !accountsPage &&
-        PO?.custom != "true" &&
-        !estimatesViewing &&
-        PO?.status === "PO Approved" &&
-        PO?.merged !== "true" &&
-        !((poPayments || [])?.length > 0) &&
-        mergeablePOs.length > 0 && (
+      {MERGEPOVALIDATIONS && (
           <>
             <Alert variant="warning" className="">
               <AlertTitle className="text-sm flex items-center gap-2">
@@ -751,10 +767,22 @@ export const PurchaseOrder = ({
                 PO Merging Feature is available for this PO.
                 <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
                   <SheetTrigger asChild>
-                    <Button className="flex items-center gap-1" color="primary">
-                      <Merge className="w-4 h-4" />
-                      Merge PO(s)
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Button disabled={!isValid} className="flex items-center gap-1" color="primary">
+                          <Merge className="w-4 h-4" />
+                          Merge PO(s)
+                        </Button>
+                      </TooltipTrigger>
+                      {!isValid && (
+                        <TooltipContent
+                          side="bottom"
+                          className="bg-background border border-border text-foreground w-80"
+                        >
+                          <ValidationMessages title="Required Before Merging" errors={errors} />
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
                   </SheetTrigger>
                   <SheetContent className="overflow-y-auto">
                     <div className="md:p-6">
@@ -1010,7 +1038,7 @@ export const PurchaseOrder = ({
           </>
         )}
 
-          <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
+      <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
             getTotal={getTotal} amountPaid={amountPaid} poMutate={poMutate} />
 
       <Accordion type="multiple" 
@@ -1039,8 +1067,8 @@ export const PurchaseOrder = ({
       {/* PO Attachments Accordion */}
       {PO?.status !== "PO Approved" && (
         <Accordion type="multiple" 
-        defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
-        className="w-full">
+          defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+          className="w-full">
           <AccordionItem key="poattachments" value="poattachments">
             {tab === "Delivered PO" && (
               <AccordionTrigger>
@@ -1140,11 +1168,7 @@ export const PurchaseOrder = ({
 
       {/* Unmerge */}
       <div className="flex items-center justify-between">
-        {!summaryPage &&
-        !accountsPage &&
-        !PO?.custom &&
-        !estimatesViewing &&
-        PO?.merged === "true" ? (
+        {UNMERGEPOVALIDATIONS ? (
           PO?.status === "PO Approved" &&
           !((poPayments || [])?.length > 0) && (
             <AlertDialog
@@ -1160,7 +1184,7 @@ export const PurchaseOrder = ({
                   Unmerge
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent className="overflow-auto">
+              <AlertDialogContent className="overflow-auto max-h-[90vh]">
                 <AlertDialogHeader>
                   <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                 </AlertDialogHeader>
@@ -1237,13 +1261,7 @@ export const PurchaseOrder = ({
 
         {/* Amend PO */}
         <div className="flex gap-2 items-center justify-end">
-          {
-            !summaryPage &&
-              !accountsPage &&
-              !estimatesViewing &&
-              ["PO Approved"].includes(PO?.status) &&
-              PO?.merged !== "true" && 
-              !((poPayments || [])?.length > 0) && (
+          {AMENDPOVALIDATION && (
                 <Button
                   onClick={toggleAmendPOSheet}
                   variant={"outline"}
@@ -1574,14 +1592,7 @@ export const PurchaseOrder = ({
           </Sheet>
 
           {/* Cancel PO */}
-          {
-            !summaryPage &&
-              !accountsPage &&
-              !PO?.custom &&
-              !estimatesViewing &&
-              ["PO Approved"].includes(PO?.status) &&
-              !((poPayments || []).length > 0) &&
-              PO?.merged !== "true" && (
+          {CANCELPOVALIDATION && (
                 <Button
                   onClick={toggleCancelPODialog}
                   variant={"outline"}
