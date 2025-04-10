@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
+import { GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex";
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -28,10 +29,6 @@ import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
 import ReactSelect from "react-select";
 import * as z from "zod";
-
-const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
-const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
 const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
     const vendorGstSchema = isTaxGSTType
@@ -78,8 +75,13 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
 
     return z.object({
         vendor_contact_person_name: z
-            .string()
-            .optional(),
+            .string({
+              required_error: "Must provide Contact Person Name"
+          }).min(3, {
+              message: "Must be at least 3 characters.",
+          }).regex(NAME_REGEX, {
+              message: "Contact Person Name must not contain numbers.",
+          }),
         vendor_name: z
             .string({
                 required_error: "Must provide Vendor Name"
@@ -138,8 +140,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
                 required_error: "Must provide contact"
             })
             .max(10, { message: "Mobile number must be of 10 digits" })
-            .min(10, { message: "Mobile number must be of 10 digits" })
-            .optional(),
+            .min(10, { message: "Mobile number must be of 10 digits" }),
         // vendor_gst: z
         //     .string({
         //         required_error: "Vendor GST Required"
@@ -448,7 +449,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
             name="vendor_contact_person_name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Contact Person Name</FormLabel>
+                <FormLabel>Contact Person Name<sup className="text-sm text-red-600">*</sup></FormLabel>
                 <FormControl>
                   <Input {...field} />
                 </FormControl>
@@ -568,7 +569,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
             name="vendor_mobile"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Phone</FormLabel>
+                <FormLabel>Phone<sup className="text-sm text-red-600">*</sup></FormLabel>
                 <FormControl>
                   <Input type="number" placeholder="Contact No" {...field}
                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
