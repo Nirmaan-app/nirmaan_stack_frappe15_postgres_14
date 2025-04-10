@@ -20,11 +20,11 @@ export const ValidationIndicator = ({ error }: ValidationIndicatorProps) => (
           <h4 className="text-sm inline ml-1">{error?.message}</h4>
         </div>
         <p className="text-sm">{error?.resolution}</p>
-        {error?.link && (
+        {/* {error?.link && (
           <a href={error?.link} className="text-primary text-sm hover:underline">
             Resolve now →
           </a>
-        )}
+        )} */}
       </div>
     </HoverCardContent>
   </HoverCard>

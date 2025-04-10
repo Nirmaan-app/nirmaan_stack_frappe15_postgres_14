@@ -777,7 +777,7 @@ export const PurchaseOrder = ({
                       {!isValid && (
                         <TooltipContent
                           side="bottom"
-                          className="bg-background border border-border text-foreground"
+                          className="bg-background border border-border text-foreground w-80"
                         >
                           <ValidationMessages title="Required Before Merging" errors={errors} />
                         </TooltipContent>
