@@ -196,7 +196,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const toggleEditSheet = useCallback(() => {
     setEditSheetOpen((prevState) => !prevState);
-  }, [editSheetOpen]);
+  }, []);
 
   // const [searchParams] = useSearchParams(); // Only for initialization
   // const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
@@ -1026,7 +1026,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         },
         cell: ({ row }) => {
           const po : string = row.getValue("name");
-          return <div className="font-medium">{getWorkPackageName(po)}</div>;
+          return <div className="font-medium">{getWorkPackageName(po) || "Custom"}</div>;
         },
         filterFn: (row, id, value) => {
           const rowValue : string = row.getValue(id);
