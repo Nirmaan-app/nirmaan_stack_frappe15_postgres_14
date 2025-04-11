@@ -1,6 +1,7 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -18,7 +19,6 @@ import { Radio } from "antd";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import React, { Suspense, useCallback, useContext, useMemo, useState } from "react";
-import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
@@ -333,7 +333,7 @@ export const ReleasePOSelect : React.FC = () => {
             },
             ...(["Dispatched PO", "Delivered PO"].includes(tab) ? [
                 {
-                    id: "invoices_amout",
+                    id: "invoices_amount",
                     header: ({ column }) => {
                         return (
                             <DataTableColumnHeader column={column} title="Total Invoice Amt" />
@@ -437,9 +437,7 @@ export const ReleasePOSelect : React.FC = () => {
                 )}
 
                 <Suspense fallback={
-                    <div className="flex items-center h-[90vh] w-full justify-center">
-                        <TailSpin color={"red"} />{" "}
-                    </div>
+                    <LoadingFallback />
                 }>
                     {tab === "Approve PO" ? (
                         <ApproveSelectVendor />
