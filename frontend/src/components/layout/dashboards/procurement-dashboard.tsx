@@ -2,7 +2,7 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-import { Card } from "../ui/card";
+import { Card } from "../../ui/card";
 
 export default function ProcurementDashboard() {
 

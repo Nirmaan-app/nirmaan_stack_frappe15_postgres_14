@@ -1,7 +1,6 @@
-import { PropsWithChildren } from "react"
 import { AlertTriangle } from 'lucide-react';
-import { CustomCallout } from "./custom-callout"
-import { FC } from 'react';
+import { FC, PropsWithChildren } from "react";
+import { CustomCallout } from "./custom-callout";
 
 
 export const ErrorCallout = ({ children, ...props }: PropsWithChildren<{ message?: string }>) => {

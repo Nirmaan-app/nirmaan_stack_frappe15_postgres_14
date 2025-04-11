@@ -1,10 +1,10 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
 import { Coins, HardHat, ShoppingCart } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export const EstimatesExecutive = () => {
 

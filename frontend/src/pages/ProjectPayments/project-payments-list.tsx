@@ -17,25 +17,49 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { getTotalAmountPaid } from "@/utils/getAmounts";
+import { getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import { debounce } from "lodash";
-import memoize from "lodash/memoize";
+import { debounce, memoize } from "lodash";
 import { SquarePlus } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+import { InvoiceDataDialog } from "../ProcurementOrders/InvoiceDataDialog";
 import { PaymentsDataDialog } from "./PaymentsDataDialog";
 
-export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?: string}> = ({ projectId = false, customerId}) => {
+type ProjectFilter = Filter<FrappeDoc<Projects>>;
+export const projectPaymentsQueryKeys = {
+    projects: (filters: ProjectFilter[]) => ['projects', ...filters]
+}
+
+/**
+ * Displays Project Payments Data related to a specific project or customer if provided else shows all payments
+ * 
+ * @param projectId - The ID of the project to show payments for
+ * @param customerId - The ID of the customer to filter payments
+ * 
+ * @example
+ * <ProjectPaymentsList 
+ *   projectId="PROJ-123" 
+ *   customerId="CUST-456" 
+ * />
+ */
+export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: string}> = ({ projectId, customerId}) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
-    const projectFilters: Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() => [
-        ...(customerId ? [["customer", "=", customerId]] : []), ...(projectId ? [["name", "=", projectId]] : [])
-    ], [customerId, projectId])
+    const projectFilters = useMemo(() => {
+        const filters: ProjectFilter[] = []
+        if (customerId) {
+            filters.push(["customer", "=", customerId])
+        }
+        if (projectId) {
+            filters.push(["name", "=", projectId])
+        }
+        return filters
+    }, [customerId, projectId])
 
     // const projectFilters : Filter<FrappeDoc<Projects>>[] | undefined = []
     // if (customerId) {
@@ -47,12 +71,16 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
     const { call } = useFrappePostCall('frappe.client.set_value')
 
     const [warning, setWarning] = useState("");
+    const [selectedInvoice, setSelectedInvoice] = useState<ProcurementOrder>();
 
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         filters: projectFilters,
         limit: 1000,
-    }, customerId ? `Projects ${customerId}` : projectId ? `Projects ${projectId}` : "Projects");
+    }, 
+    // customerId ? `Projects ${customerId}` : projectId ? `Projects ${projectId}` : "Projects"
+    projectPaymentsQueryKeys.projects(projectFilters)
+    );
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
@@ -344,28 +372,54 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
                     return value.includes(row.getValue(id))
                 }
             },
-            {
-                id: "total",
-                header: "PO Amt excl. Tax",
-                cell: ({ row }) => (
-                    <div className="font-medium">
-                        {formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.total)}
-                    </div>
-                ),
-            },
+            // {
+            //     id: "total",
+            //     header: "PO Amt excl. Tax",
+            //     cell: ({ row }) => (
+            //         <div className="font-medium">
+            //             {formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.total)}
+            //         </div>
+            //     ),
+            // },
             {
                 id: "totalWithTax",
-                header: "PO Amt incl. Tax",
-                cell: ({ row }) => (
-                    <div className="font-medium">
-                        {row.original.type === "Service Order" ? (
-                            row.original.gst === "true" ? formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.totalWithTax)
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Total PO Amt" />
+                    )
+                },
+                cell: ({ row }) => {
+                    const data = row.original;
+                    const amount = getTotalAmount(row.original.name, row.original.type)
+                    return <div className="font-medium">
+                        {data.type === "Service Order" ? (
+                            data.gst === "true" ? formatToIndianRupee(amount?.totalWithTax)
                             : "--"
-                        ) : formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.totalWithTax)
+                        ) : formatToIndianRupee(amount?.totalWithTax)
                         }
                     </div>
-                ),
+                },
             },
+                {
+                    id: "invoices_amount",
+                    header: ({ column }) => {
+                        return (
+                            <DataTableColumnHeader column={column} title="Total Invoice Amt" />
+                        )
+                    },
+                    cell: ({ row }) => {
+                        const data = row.original;
+                        const invoiceAmount = getTotalInvoiceAmount(data?.invoice_data)
+                        return (
+                          <div 
+                            className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
+                            onClick={() => invoiceAmount && setSelectedInvoice(data)}
+                          >
+                            {formatToIndianRupee(invoiceAmount || "N/A")}
+                          </div>
+                        )
+                      }                      
+                },
             {
                 id: "Amount_paid",
                 header: "Amt Paid",
@@ -529,6 +583,15 @@ export const ProjectPaymentsList : React.FC<{ projectId? : boolean, customerId?:
                     </AlertDialogHeader>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <InvoiceDataDialog
+              open={!!selectedInvoice}
+              onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
+              invoiceData={selectedInvoice?.invoice_data}
+              project={getProjectName(selectedInvoice?.project)}
+              poNumber={selectedInvoice?.name}
+              vendor={getVendorName(selectedInvoice?.vendor)}
+            />
 
             <PaymentsDataDialog
               open={!!currentPaymentsDialog}

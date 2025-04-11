@@ -236,7 +236,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     useEffect(() => {
         if (project_data) {
             const wpList = JSON.parse(project_data.project_work_packages)?.work_packages
-            wpList?.push({ work_package_name: "Tool & Equipments" })
+            // wpList?.push({ work_package_name: "Tool & Equipments" })
             wpList?.push({ work_package_name: "Services" })
             setAllWorkPackages(wpList)
             const list: string[] = wpList?.map((wp) => wp.work_package_name)
