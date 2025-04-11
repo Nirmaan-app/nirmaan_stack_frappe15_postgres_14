@@ -83,6 +83,7 @@ import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
+import memoize from 'lodash/memoize';
 import { ProjectMakesTab } from "./ProjectMakesTab";
 import ProjectOverviewTab from "./ProjectOverviewTab";
 import ProjectSpendsTab from "./ProjectSpendsTab";
@@ -124,7 +125,7 @@ interface po_item_data_item {
 const Project : React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
-  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? undefined : null);
+  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? `${projectId}` : null);
 
   const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? `Customers ${data?.customer}` : null);
 
@@ -273,9 +274,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 10000,
-  });
+  }, projectId ? `Project Estimates ${projectId}` : null);
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
+  const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
     filters : [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 1000
@@ -284,7 +285,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
-  });
+  }, 'Nirmaan Users');
 
   const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
     "Procurement Requests",
@@ -293,7 +294,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       filters: [["project", "=", `${projectId}`]],
       limit: 1000,
     },
-    `Procurement Requests ${projectId}`
+    projectId ? `Procurement Requests ${projectId}` : null
   );
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
@@ -1288,10 +1289,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
   
-  const totalPOAmountWithGST = useMemo(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
+  const totalPOAmountWithGST: number = useMemo(memoize(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
       const { amountWithTax } = workPackageTotalAmounts[key];
       return acc + amountWithTax;
-    }, 0), [workPackageTotalAmounts])
+    }, 0), (workPackageTotalAmounts: any) => JSON.stringify(workPackageTotalAmounts)), [workPackageTotalAmounts])
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };

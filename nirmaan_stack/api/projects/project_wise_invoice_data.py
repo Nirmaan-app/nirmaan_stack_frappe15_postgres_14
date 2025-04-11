@@ -27,6 +27,8 @@ def generate_project_wise_invoice_data(project_id: str):
             - updated_by (str)
             - date (str)  (The key from each invoice_data object)
             - procurement_order (str) (PO ID)
+            - vendor (str) (Vendor ID)
+            - vendor_name (str) (Vendor Name)
             
     Raises:
         frappe.DoesNotExistError: If the project is not found.
@@ -41,7 +43,7 @@ def generate_project_wise_invoice_data(project_id: str):
         procurement_orders = frappe.get_all(
             "Procurement Orders",
             filters={"project": project_id},
-            fields=["name", "invoice_data"]
+            fields=["name", "invoice_data", "vendor", "vendor_name"]
         )
 
         invoice_entries = []
@@ -70,7 +72,9 @@ def generate_project_wise_invoice_data(project_id: str):
                     "amount": invoice_item["amount"],
                     "updated_by": invoice_item["updated_by"],
                     "invoice_attachment_id": invoice_item.get("invoice_attachment_id"),
-                    "procurement_order": po.name
+                    "procurement_order": po.name,
+                    "vendor": po.vendor,
+                    "vendor_name": po.vendor_name
                 }
                 invoice_entries.append(entry)
 

@@ -82,7 +82,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
       value: projectData?.project_value,
       style: ""
     },
-  ], [projectInflows])
+  ], [totalInflowAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value])
 
 
   const tabs = useMemo(() => [
@@ -108,6 +108,8 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
       }
     }
     , [tab]);
+
+    console.log("totalPOAmountWithGST", totalPOAmountWithGST)
 
   return (
         <div className="flex-1 space-y-4">
