@@ -1,8 +1,8 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
 import { Boxes, HardHat, Package, ShoppingCart, SquareUserRound, UsersRound } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export const Default = () => {
 

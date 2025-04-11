@@ -1,11 +1,11 @@
 import { RocketIcon } from "@radix-ui/react-icons";
 
-import { Default } from "@/components/dashboard-default";
-import { ProjectLead } from "@/components/dashboard-pl";
-import { ProjectManager } from "@/components/dashboard-pm";
-import { EstimatesExecutive } from "@/components/estimates-executive-dashboard";
-import { Accountant } from "@/components/layout/dashboard-accountant";
-import ProcurementDashboard from "@/components/procurement/procurement-dashboard";
+import { Accountant } from "@/components/layout/dashboards/dashboard-accountant";
+import { Default } from "@/components/layout/dashboards/dashboard-default";
+import { ProjectLead } from "@/components/layout/dashboards/dashboard-pl";
+import { ProjectManager } from "@/components/layout/dashboards/dashboard-pm";
+import { EstimatesExecutive } from "@/components/layout/dashboards/estimates-executive-dashboard";
+import ProcurementDashboard from "@/components/layout/dashboards/procurement-dashboard";
 import {
     Alert,
     AlertDescription,

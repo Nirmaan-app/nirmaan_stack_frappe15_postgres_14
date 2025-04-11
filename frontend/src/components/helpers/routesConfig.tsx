@@ -4,7 +4,6 @@ import { RouteObject } from "react-router-dom";
 // --- Import all necessary components used in routes ---
 import { ManPowerOverallSummary } from "@/components/ManPowerOverallSummary";
 import { ManPowerReport } from "@/components/ManPowerReport";
-import { ProjectManager } from "@/components/dashboard-pm";
 import { MainLayout } from "@/components/layout/main-layout";
 import { NotificationsPage } from "@/components/nav/notifications";
 import { ProcurementPackages } from "@/components/procurement-packages";
@@ -51,6 +50,7 @@ import { NewVendor } from "@/pages/vendors/new-vendor";
 import Vendors from "@/pages/vendors/vendors";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
+import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
