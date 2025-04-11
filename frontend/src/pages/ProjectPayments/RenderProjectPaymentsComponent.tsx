@@ -1,10 +1,10 @@
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
-import React, { Suspense, useCallback, useMemo, useState } from "react";
-import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
+import React, { Suspense, useCallback, useMemo } from "react";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments"));
 const AccountantTabs = React.lazy(() => import("./AccountantTabs"));
@@ -13,29 +13,18 @@ const AllPayments = React.lazy(() => import("./AllPayments"));
 
 export const RenderProjectPaymentsComponent: React.FC = () => {
 
-    const [searchParams] = useSearchParams();
-
     const {role} = useUserData();
 
     const {paymentsCount, adminPaymentsCount} = useDocCountStore()
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? "Payments Done" : "PO Wise"));
-
-    const updateURL = useCallback((params: Record<string, string>) => {
-        const url = new URL(window.location.href);
-        Object.entries(params).forEach(([key, value]) => {
-          url.searchParams.set(key, value);
-        });
-        window.history.pushState({}, '', url);
-    }, []);
+    const [tab, setTab] = useStateSyncedWithParams<string>("tab", (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? "Payments Done" : "PO Wise"))
 
     const onClick = useCallback(
         (value : string) => {
         if (tab === value) return; // Prevent redundant updates
 
         setTab(value);
-        updateURL({ tab: value });
-    }, [tab, updateURL]);
+    }, [tab]);
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Admin Profile"].includes(role) ? [
@@ -153,9 +142,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             </div>
 
             <Suspense fallback={
-                <div className="flex items-center h-[90vh] w-full justify-center">
-                    <TailSpin color={"red"} />{" "}
-                </div>
+                <LoadingFallback />
             }>
                 {tab === "Approve Payments" ? (
                 <ApprovePayments />

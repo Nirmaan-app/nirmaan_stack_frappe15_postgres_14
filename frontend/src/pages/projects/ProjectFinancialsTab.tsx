@@ -1,3 +1,4 @@
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -12,8 +13,6 @@ import { getTotalInflowAmount } from "@/utils/getAmounts"
 import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import React, { Suspense, useCallback, useMemo, useState } from "react"
-import { TailSpin } from "react-loader-spinner"
-
 
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
@@ -39,7 +38,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
   
   const toggleInflowPaymentsDialog = useCallback(() => {
       setInflowPaymentsDialog((prevState) => !prevState);
-  }, [setInflowPaymentsDialog]);
+  }, []);
 
 
   const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
@@ -109,8 +108,6 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
     }
     , [tab]);
 
-    console.log("totalPOAmountWithGST", totalPOAmountWithGST)
-
   return (
         <div className="flex-1 space-y-4">
           <Card>
@@ -142,7 +139,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                   />
               )}
 
-                <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
+                <Suspense fallback={<LoadingFallback />}>
                   {tab === "All Payments" ? (
                     <AllPayments tab="Payments Done" projectId={projectData?.name} />
                   ) : tab === "All Orders" ? (
