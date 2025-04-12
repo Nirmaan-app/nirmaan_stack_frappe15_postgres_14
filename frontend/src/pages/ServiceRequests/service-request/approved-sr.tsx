@@ -13,6 +13,7 @@ import { Pencil2Icon } from "@radix-ui/react-icons";
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -30,7 +31,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import SITEURL from "@/constants/siteURL";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";

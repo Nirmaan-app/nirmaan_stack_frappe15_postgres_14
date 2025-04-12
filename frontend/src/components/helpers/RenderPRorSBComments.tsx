@@ -1,7 +1,7 @@
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
 import { formatDate } from "@/utils/FormatDate"
 import React from "react"
-import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar"
 
 interface RenderPRorSBCommentsProps {
   universalComment? :  NirmaanComments[]

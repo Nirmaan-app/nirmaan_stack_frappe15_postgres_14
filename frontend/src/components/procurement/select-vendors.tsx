@@ -19,8 +19,8 @@ import { ArrowBigUpDash, ArrowLeft, BookOpenText, CheckCheck, Info, ListChecks, 
 import { useEffect, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
+import { ProcurementHeaderCard } from '../helpers/ProcurementHeaderCard';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
-import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
 import { useToast } from '../ui/use-toast';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];

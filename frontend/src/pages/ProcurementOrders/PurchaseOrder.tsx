@@ -32,8 +32,6 @@ import {
 } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PODetails } from "@/components/ui/PODetails";
-import { POPdf } from "@/components/ui/POPdf";
 import {
   Sheet,
   SheetClose,
@@ -56,6 +54,8 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
+import { PODetails } from "@/pages/ProcurementOrders/PODetails";
+import { POPdf } from "@/pages/ProcurementOrders/POPdf";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -761,15 +761,21 @@ export const PurchaseOrder = ({
             <Alert variant="warning" className="">
               <AlertTitle className="text-sm flex items-center gap-2">
                 <MessageCircleWarning className="h-4 w-4" />
-                Heads Up
+                Heads Up - PO Merging Available
               </AlertTitle>
-              <AlertDescription className="text-xs flex justify-between items-center">
-                PO Merging Feature is available for this PO.
+              <AlertDescription className="text-xs flex justify-end items-center">
+                <span className="sr-only">
+                  This purchase order can be merged with other compatible orders
+                </span>
+                {/* PO Merging Feature is available for this PO. */}
                 <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
-                  <SheetTrigger asChild>
+                  <SheetTrigger disabled={!isValid} className="disabled:opacity-50">
+                    <div>
                     <Tooltip>
-                      <TooltipTrigger>
-                        <Button disabled={!isValid} className="flex items-center gap-1" color="primary">
+                      <TooltipTrigger asChild>
+                        <Button
+                          aria-label={isValid ? "Merge PO(s)" : "Merge unavailable"}
+                          className="flex items-center gap-1" color="primary">
                           <Merge className="w-4 h-4" />
                           Merge PO(s)
                         </Button>
@@ -783,6 +789,7 @@ export const PurchaseOrder = ({
                         </TooltipContent>
                       )}
                     </Tooltip>
+                    </div>
                   </SheetTrigger>
                   <SheetContent className="overflow-y-auto">
                     <div className="md:p-6">

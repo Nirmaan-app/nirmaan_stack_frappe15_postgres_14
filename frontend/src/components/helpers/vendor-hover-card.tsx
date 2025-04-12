@@ -1,7 +1,7 @@
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { useFrappeGetDoc } from "frappe-react-sdk"
 import { useNavigate } from "react-router-dom"
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 
 export const VendorHoverCard: React.FC<{vendor_id?: string}> = ({ vendor_id }) => {
     const { data: vendorData } = useFrappeGetDoc<Vendors>("Vendors", vendor_id, vendor_id ? `Vendors ${vendor_id}` : null)

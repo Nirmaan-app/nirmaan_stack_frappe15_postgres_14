@@ -2,8 +2,8 @@ import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"
 import { formatDate } from "@/utils/FormatDate"
 import { useFrappeGetDoc } from "frappe-react-sdk"
 import { useEffect, useState } from "react"
-import { Card } from "./card"
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
+import { Card } from "../ui/card"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 
 interface ProcurementActionsHeaderCardProps {
   orderData: ProcurementRequest | any
