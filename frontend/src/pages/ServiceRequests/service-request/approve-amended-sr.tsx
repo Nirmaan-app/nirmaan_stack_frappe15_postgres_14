@@ -1,3 +1,5 @@
+import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
+import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -7,8 +9,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
-import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";

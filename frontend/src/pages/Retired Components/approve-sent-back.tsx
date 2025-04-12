@@ -1,4 +1,4 @@
-import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
+import { ProcurementActionsHeaderCard } from '@/components/helpers/ProcurementActionsHeaderCard';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from "@/components/ui/button";

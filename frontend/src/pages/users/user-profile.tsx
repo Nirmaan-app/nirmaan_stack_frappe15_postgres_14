@@ -356,7 +356,7 @@ export default function Profile() {
               <h1> No projects assigned</h1>
             ) : (
               permission_list?.map((project, index) => (
-                <Card key={index} className="flex flex-col">
+                <Card key={`project-${index}`} className="flex flex-col">
                   <CardHeader>
                     <CardTitle className="flex justify-between items-start">
                       <span className="text-lg">

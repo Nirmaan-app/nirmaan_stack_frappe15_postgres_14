@@ -337,7 +337,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date Created" />
+                        <DataTableColumnHeader column={column} title="PO Date Created" />
                     )
                 },
                 cell: ({ row }) => (

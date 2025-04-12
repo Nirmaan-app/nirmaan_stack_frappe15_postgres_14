@@ -213,26 +213,26 @@ export const ReleasePOSelect : React.FC = () => {
                         )
                     }
             },
-            {
-                accessorKey: "procurement_request",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="#PR" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("procurement_request")?.slice(-4)}
-                        </div>
-                    )
-                }
-            },
+            // {
+            //     accessorKey: "procurement_request",
+            //     header: ({ column }) => {
+            //         return (
+            //             <DataTableColumnHeader column={column} title="#PR" />
+            //         )
+            //     },
+            //     cell: ({ row }) => {
+            //         return (
+            //             <div className="font-medium">
+            //                 {row.getValue("procurement_request")?.slice(-4)}
+            //             </div>
+            //         )
+            //     }
+            // },
             {
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date Created" />
+                        <DataTableColumnHeader column={column} title="PO Date Created" />
                     )
                 },
                 cell: ({ row }) => {

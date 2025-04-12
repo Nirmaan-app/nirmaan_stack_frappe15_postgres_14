@@ -1022,7 +1022,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         accessorKey: "creation",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date Created" />;
+          return <DataTableColumnHeader column={column} title="PO Date Created" />;
         },
         cell: ({ row }) => {
           return (
