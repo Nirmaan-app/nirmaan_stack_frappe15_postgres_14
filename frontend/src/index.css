@@ -9,7 +9,8 @@
 }
 
 html, body {
-  font-family:"Inter"
+  font-family:"Inter";
+  overflow: hidden;
 }
 
 ::-webkit-scrollbar-track {
@@ -169,10 +170,6 @@ sup {
   color: red;
 }
 
-body, html {
-  overflow: hidden;
-}
-
 .scrollbar-container {
   overflow-y: auto;
 }
@@ -209,6 +206,17 @@ body, html {
   @apply opacity-0;
 }
 
+
+.order-details-table {
+  table-layout: fixed;
+}
+
+@media (max-width: 768px) {
+  .table-cell {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
 
 
 /* @media (max-width: 600px) {
