@@ -1,4 +1,3 @@
-import logo from "@/assets/logo-svg.svg";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -18,9 +17,6 @@ import {
   CardContent,
   CardDescription
 } from "@/components/ui/card";
-import {
-  ChartConfig
-} from "@/components/ui/chart";
 import {
   Command,
   CommandGroup,
@@ -82,6 +78,7 @@ import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import memoize from 'lodash/memoize';
 import { ProjectMakesTab } from "./ProjectMakesTab";
@@ -122,12 +119,26 @@ interface po_item_data_item {
   work_package: string
 }
 
+interface FilterParameters {
+  fields?: string[]
+  filters?: any
+  limit?: number
+  orderBy?: { field: string, order: string }
+}
+
+export const ProjectQueryKeys = {
+  project: (projectId: string) => ['projects', projectId],
+  customer: (customerId: string) => ['customers', customerId],
+  quotes: (parameters: FilterParameters) => ['Approved Quotations', {...parameters}],
+  estimates: (parameters: FilterParameters) => ['Project Estimates', {...parameters}]
+}
+
 const Project : React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
-  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? `${projectId}` : null);
+  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? ProjectQueryKeys.project(projectId) : null);
 
-  const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? `Customers ${data?.customer}` : null);
+  const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? ProjectQueryKeys.customer(data?.customer) : null);
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{ message : { po_items : po_item_data_item[] }}>(
     "nirmaan_stack.api.procurement_orders.generate_po_summary",
@@ -135,9 +146,7 @@ const Project : React.FC = () => {
   );
 
   if(isLoading || projectCustomerLoading || po_item_loading) {
-    return <div className="flex items-center h-[90vh] w-full justify-center">
-            <TailSpin color={"red"} />{" "}
-          </div>
+    return <LoadingFallback />
   }
 
   return (
@@ -163,23 +172,23 @@ interface ProjectViewProps {
 
 export const Component = Project;
 
-const chartConfig = {
-  visitors: {
-    label: "Visitors",
-  },
-  category1: {
-    label: "Category 1",
-    color: "hsl(var(--chart-1))",
-  },
-  category2: {
-    label: "Category 2",
-    color: "hsl(var(--chart-2))",
-  },
-  category3: {
-    label: "Category 3",
-    color: "hsl(var(--chart-3))",
-  },
-} satisfies ChartConfig;
+// const chartConfig = {
+//   visitors: {
+//     label: "Visitors",
+//   },
+//   category1: {
+//     label: "Category 1",
+//     color: "hsl(var(--chart-1))",
+//   },
+//   category2: {
+//     label: "Category 2",
+//     color: "hsl(var(--chart-2))",
+//   },
+//   category3: {
+//     label: "Category 3",
+//     color: "hsl(var(--chart-3))",
+//   },
+// } satisfies ChartConfig;
 
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
@@ -217,15 +226,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //     }
   //   }, [makesTab]);
 
+  const getTabsToRemove = useMemo(() => memoize((newPage: string) => {
+    const tabsToRemove = newPage === 'projectspends' ? ['eTab', 'makesTab', 'fTab'] : newPage === 'projectmakes' ? ['tab', 'eTab', 'fTab'] : newPage === 'projectestimates' ? ['tab', 'makesTab', 'fTab'] : newPage === 'projectfinancials' ? ['tab', 'makesTab', 'eTab'] : ['tab', 'eTab', 'makesTab', 'fTab'];
+    return tabsToRemove;
+  }, (newPage: string) => newPage), [])
+
     const onClick: MenuProps['onClick'] = useCallback(
       (e) => {
         if (activePage === e.key) return;
         const newPage = e.key;
-
-        const tabsToRemove = newPage === 'projectspends' ? ['eTab', 'makesTab', 'fTab'] : newPage === 'projectmakes' ? ['tab', 'eTab', 'fTab'] : newPage === 'projectestimates' ? ['tab', 'makesTab', 'fTab'] : newPage === 'projectfinancials' ? ['tab', 'makesTab', 'eTab'] : ['tab', 'eTab', 'makesTab', 'fTab'];
+        const tabsToRemove = getTabsToRemove(newPage)
         setActivePage(newPage, tabsToRemove)
       }
-      , [activePage, setActivePage]);
+      , [activePage, getTabsToRemove]);
 
   // const onClick: MenuProps['onClick'] = useCallback(
   //   (e) => {
@@ -254,19 +267,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //   }, [activePage, updateURL]);
 
 
-  const { data: mile_data } = useFrappeGetDocList(
-    "Project Work Milestones",
-    {
-      fields: ["*"],
-      filters: [["project", "=", projectId]],
-      limit: 1000,
-      orderBy: { field: "start_date", order: "asc" },
-    },
-    `Project Work MileStones ${projectId}`,
-    {
-      revalidateIfStale: false,
-    }
-  );
+  // const { data: mile_data } = useFrappeGetDocList(
+  //   "Project Work Milestones",
+  //   {
+  //     fields: ["*"],
+  //     filters: [["project", "=", projectId]],
+  //     limit: 1000,
+  //     orderBy: { field: "start_date", order: "asc" },
+  //   },
+  //   `Project Work MileStones ${projectId}`,
+  //   {
+  //     revalidateIfStale: false,
+  //   }
+  // );
 
   const {
     data: project_estimates,
@@ -274,7 +287,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 10000,
-  }, projectId ? `Project Estimates ${projectId}` : null);
+  }, projectId ? ProjectQueryKeys.estimates({fields: ["*"], filters: [["project", "=", projectId]], limit: 10000}) : null);
 
   const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
@@ -450,7 +463,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   ], [role]);
 
-  const [areaNames, setAreaNames] = useState(null);
+  // const [areaNames, setAreaNames] = useState(null);
 
   // const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
   //   const statusNames = Array.from(
@@ -596,20 +609,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations", {
     fields: ["item_id", "quote"],
     limit: 100000,
-  });
+  }, ProjectQueryKeys.quotes({fields: ["item_id", "quote"], limit: 100000}));
 
 
   const getItemStatus = useMemo(
-    () => (item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => {
+    () => memoize((item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => {
       return filteredPOs.some((po) =>
         po?.order_list?.list.some((poItem) => poItem?.name === item.name)
       );
-    },
+    }, (item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => JSON.stringify(item) + JSON.stringify(filteredPOs)),
     []
   );
 
   const statusRender = useMemo(
-    () => (status: string, prId: string) => {
+    () => memoize((status: string, prId: string) => {
       const procurementRequest = pr_data?.find((pr) => pr?.name === prId);
       const itemList = procurementRequest?.procurement_list?.list || [];
 
@@ -623,7 +636,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       );
 
       return allItemsApproved ? 'Approved PO' : 'Open PR';
-    },
+    }, (status: string, prId: string) => JSON.stringify(status) + JSON.stringify(prId)),
     [pr_data, po_data, getItemStatus]
   );
 
@@ -1009,7 +1022,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         accessorKey: "creation",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date Created" />;
+          return <DataTableColumnHeader column={column} title="PO Date Created" />;
         },
         cell: ({ row }) => {
           return (
@@ -1347,9 +1360,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const [popOverOpen, setPopOverOpen] = useState(false);
 
-  const setPopOverStatus = () => {
+  const setPopOverStatus = useCallback(() => {
     setPopOverOpen((prevState) => !prevState);
-  };
+  }, []);
 
   useEffect(() => {
     if (data) {
@@ -1358,7 +1371,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         const options = [
           { label: "All", value: "All" },
           ...workPackages.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })),
-          { label: "Tool & Equipments", value: "Tool & Equipments" },
+          // { label: "Tool & Equipments", value: "Tool & Equipments" },
           { label: "Services", value: "Services" },
         ].sort((a, b) => {
           if (a.label === "All") return -1;
@@ -1422,9 +1435,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const estimatesTotal = useMemo(() => project_estimates?.reduce((acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)), 0) || 0, [project_estimates]);
 
   if(po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || allServiceRequestsDataLoading) {
-          return <div className="flex items-center h-[90vh] w-full justify-center">
-              <TailSpin color={"red"} />
-          </div>
+          return <LoadingFallback />
     }
 
 
@@ -1547,6 +1558,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           </div>
         </div>
       </div>
+
+
         <div className="w-full">
           <ConfigProvider
             theme={{
@@ -1570,7 +1583,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
       {/* Overview Section */}
 
-      {activePage === "overview" && (
+        {activePage === "overview" && (
               <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
         )
       }
@@ -1694,13 +1707,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   vendorOptions={vendorOptions}
                   itemSearch={true}
                   wpOptions={
-                    [
-                      ...wpOptions,
-                      {
-                        label: "Tool & Equipments",
-                        value: "Tool & Equipments",
-                      },
-                    ]
+                    wpOptions
+                    // [
+                    //   ...wpOptions,
+                    //   {
+                    //     label: "Tool & Equipments",
+                    //     value: "Tool & Equipments",
+                    //   },
+                    // ]
                   }
                 />
               )
@@ -1711,16 +1725,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
       {activePage === "projectspends" && (
           <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options} 
-          // updateURL={updateURL}
            categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
       )}
 
 
-
       {activePage === "projectfinancials" && (
-        <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
+        <Suspense fallback={<LoadingFallback />}>
           <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} 
-          // updateURL={updateURL}
            totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} /> 
         </Suspense>
       )}
@@ -1774,7 +1785,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </>
       )}
 
-      <div className="hidden">
+      {/* <div className="hidden">
         <div ref={componentRef} className="px-4 pb-1">
           <div className="overflow-x-auto">
             <table className="w-full my-4">
@@ -1876,7 +1887,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   >
                     End Date
                   </th>
-                  {/* <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th> */}
                   {areaNames?.map((area) => (
                     <th
                       scope="col"
@@ -2156,7 +2166,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   >
                     End Date
                   </th>
-                  {/* <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th> */}
                   {areaNames?.map((area) => (
                     <th
                       scope="col"
@@ -2232,7 +2241,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             </table>
           </div>
         </div>
-      </div>
+      </div> */}
     </div>
   );
 };

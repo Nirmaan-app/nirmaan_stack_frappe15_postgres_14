@@ -1,4 +1,4 @@
-import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
+import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
@@ -13,7 +13,7 @@ import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
 import { useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
+import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard";
 import { Button } from "../../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
 import { toast } from "../../../components/ui/use-toast";

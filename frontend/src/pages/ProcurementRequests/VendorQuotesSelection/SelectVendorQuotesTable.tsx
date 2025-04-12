@@ -1,10 +1,10 @@
 import QuantityQuoteInput from "@/components/helpers/QtyandQuoteInput";
+import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";

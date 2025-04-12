@@ -1,11 +1,11 @@
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger
 } from "@/components/ui/dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
@@ -25,9 +25,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
+import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
-import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard";
 import { toast } from "../../../components/ui/use-toast";
 
 export interface DataItem extends ProcurementItem {

@@ -1,6 +1,6 @@
+import { Button } from "@/components/ui/button";
 import { HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "./ui/button";
 
 function DashboardCard({ title, icon, onClick, className, beta = false }: any) {
   return (

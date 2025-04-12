@@ -1,8 +1,8 @@
+import { ProcurementHeaderCard } from "@/components/helpers/ProcurementHeaderCard";
 import { VendorsReactMultiSelect } from "@/components/helpers/VendorsReactSelect";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { ProcurementHeaderCard } from "@/components/ui/ProcurementHeaderCard";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/use-toast";
 import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementRequests";

@@ -1,8 +1,8 @@
-import { ActionSummary } from '@/components/ui/ActionSummary';
+import { ActionSummary } from '@/components/helpers/ActionSummary';
+import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/helpers/ApproveVendorQuotesPRorSBAntDTable';
+import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/ui/ApproveVendorQuotesPRorSBAntDTable';
 import { Button } from "@/components/ui/button";
-import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
 import { useToast } from "@/components/ui/use-toast";
 import { CategoryWithChildren, DataItem } from "@/pages/ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
@@ -19,7 +19,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { RenderPRorSBComments } from '../../components/ui/RenderPRorSBComments';
+import { RenderPRorSBComments } from '../../components/helpers/RenderPRorSBComments';
 
 const ApproveSBVendorQuotes : React.FC = () => {
 

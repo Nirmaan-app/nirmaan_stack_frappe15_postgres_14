@@ -1,27 +1,16 @@
-/**
- * v0 by Vercel.
- * @see https://v0.dev/t/1ADs2FRNaQg
- * Documentation: https://v0.dev/docs#integrating-generated-code-into-your-nextjs-app
- */
-
-import { useState, useContext } from "react";
-import { useForm } from "react-hook-form";
-import { Eye, EyeOff } from "lucide-react";
-import { Link, Navigate } from "react-router-dom";
-import { UserContext } from "@/utils/auth/UserProvider";
-import { Box, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
-import { FrappeError } from "frappe-react-sdk";
+import logo from "@/assets/logo-svg.svg";
 import { ErrorText, Label } from "@/components/common/form";
-import { Button, buttonVariants } from "@/components/ui/button";
-import logo from "@/assets/logo-svg.svg"
+import { Button } from "@/components/ui/button";
+import { UserContext } from "@/utils/auth/UserProvider";
+import { FrappeError } from "frappe-react-sdk";
+import { useContext, useState } from "react";
+import { useForm } from "react-hook-form";
+import { Link, Navigate } from "react-router-dom";
 
-import { CardTitle, CardDescription, CardHeader, CardContent, Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { LoginInputs } from "@/types/Auth/Login";
 import { TailSpin } from "react-loader-spinner";
-
-
-
 
 export default function Login() {
 

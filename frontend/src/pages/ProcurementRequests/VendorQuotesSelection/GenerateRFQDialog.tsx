@@ -193,9 +193,10 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
           setItemList(items);
         }
     }, [orderData, selectedItems]);
+
   return (
-    <div className='hidden'>
-    <div ref={componentRef} className="px-4 pb-4">
+        <div className='hidden'>
+                <div ref={componentRef} className="px-4 pb-4">
                     <div className="overflow-x-auto">
                         <table className="w-full">
                             <thead className="w-full border-b border-black">
@@ -224,11 +225,18 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
                                         <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
                                             <div className="border-0 flex flex-col">
                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
-                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation?.split(" ")[0])}</p>
+                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation)}</p>
                                             </div>
+                                            <div className="flex flex-col gap-2">
                                             <div className="border-0 flex flex-col ml-10">
                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Project ID</p>
                                                 <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.name}</p>
+                                            </div>
+                                            <div className="border-0 flex flex-col ml-10">
+                                                <p className="text-left py-1 font-medium text-xs text-gray-500">Project Address</p>
+                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.project_city}, {procurement_project?.project_state}</p>
+                                            </div>
+
                                             </div>
                                         </div>
                                     </th>
@@ -238,7 +246,7 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
                                     <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Category</th>
                                     <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Unit</th>
                                     <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Quantity</th>
-                                    <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Rate</th>
+                                    <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Rate excl. GST</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
@@ -267,7 +275,10 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
                         </table>
                         <div className="pt-24">
                             <p className="text-md font-bold text-red-700 underline">Note</p>
-                            <p className="text-xs">Please share the quotes as soon as possible</p>
+                            <ul className="list-disc ml-4 text-xs">
+                                <li>Please share the quotes as soon as possible</li>
+                                <li>Please Exclude GST from the rates</li>
+                            </ul>
                         </div>
                     </div>
       </div>

@@ -1,76 +1,62 @@
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
-  ArrowBigRightDash,
-  ArrowLeft,
-  CirclePlus,
-  Download,
-  Handshake,
-  ListChecks,
-  PencilLine,
-  Trash,
-} from "lucide-react";
-import SentBackQuotationForm from "./sent-back-quotation-form";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { useLocation, useParams } from "react-router-dom";
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button } from "../ui/button";
-import { NewVendor } from "@/pages/vendors/new-vendor";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { ColumnDef } from "@tanstack/react-table";
+import {
+    Card,
+    CardContent,
+    CardHeader
+} from "@/components/ui/card";
+import {
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import {
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from "@/components/ui/sheet";
+import { NewVendor } from "@/pages/vendors/new-vendor";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import { Badge } from "../ui/badge";
-import { AddVendorCategories } from "../forms/addvendorcategories";
+import { ColumnDef } from "@tanstack/react-table";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
+    CirclePlus,
+    Download,
+    ListChecks,
+    PencilLine,
+    Trash
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { TailSpin } from "react-loader-spinner";
+import { useNavigate, useParams } from "react-router-dom";
+import { DataTable } from "../data-table/data-table";
+import { AddVendorCategories } from "../forms/addvendorcategories";
+import { ProcurementHeaderCard } from "../helpers/ProcurementHeaderCard";
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
 } from "../ui/accordion";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-} from "@/components/ui/card";
-import { DataTable } from "../data-table/data-table";
-import {
-  HoverCard,
-  HoverCardTrigger,
-  HoverCardContent,
-} from "@/components/ui/hover-card";
-import { useToast } from "../ui/use-toast";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
 } from "../ui/alert-dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
-import { PrintRFQ } from "./rfq-pdf";
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
-import { TailSpin } from "react-loader-spinner";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { useToast } from "../ui/use-toast";
+import { PrintRFQ } from "./rfq-pdf";
+import SentBackQuotationForm from "./sent-back-quotation-form";
 
 export const SentBackUpdateQuote = () => {
   const { sbId: id } = useParams<{ sbId: string }>();

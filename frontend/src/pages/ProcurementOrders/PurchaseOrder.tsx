@@ -32,8 +32,6 @@ import {
 } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PODetails } from "@/components/ui/PODetails";
-import { POPdf } from "@/components/ui/POPdf";
 import {
   Sheet,
   SheetClose,
@@ -56,6 +54,8 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
+import { PODetails } from "@/pages/ProcurementOrders/PODetails";
+import { POPdf } from "@/pages/ProcurementOrders/POPdf";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -761,15 +761,21 @@ export const PurchaseOrder = ({
             <Alert variant="warning" className="">
               <AlertTitle className="text-sm flex items-center gap-2">
                 <MessageCircleWarning className="h-4 w-4" />
-                Heads Up
+                Heads Up - PO Merging Available
               </AlertTitle>
-              <AlertDescription className="text-xs flex justify-between items-center">
-                PO Merging Feature is available for this PO.
+              <AlertDescription className="text-xs flex justify-end items-center">
+                <span className="sr-only">
+                  This purchase order can be merged with other compatible orders
+                </span>
+                {/* PO Merging Feature is available for this PO. */}
                 <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
-                  <SheetTrigger asChild>
+                  <SheetTrigger disabled={!isValid} className="disabled:opacity-50">
+                    <div>
                     <Tooltip>
-                      <TooltipTrigger>
-                        <Button disabled={!isValid} className="flex items-center gap-1" color="primary">
+                      <TooltipTrigger asChild>
+                        <Button
+                          aria-label={isValid ? "Merge PO(s)" : "Merge unavailable"}
+                          className="flex items-center gap-1" color="primary">
                           <Merge className="w-4 h-4" />
                           Merge PO(s)
                         </Button>
@@ -783,6 +789,7 @@ export const PurchaseOrder = ({
                         </TooltipContent>
                       )}
                     </Tooltip>
+                    </div>
                   </SheetTrigger>
                   <SheetContent className="overflow-y-auto">
                     <div className="md:p-6">
@@ -1088,80 +1095,157 @@ export const PurchaseOrder = ({
       {/* Invoice Dialog */}
       <InvoiceDialog  po={PO} poMutate={poMutate} />
 
-      {/* Order Details  */}
-      <Card className="rounded-sm shadow-md md:col-span-3">
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <p className="text-xl max-sm:text-lg text-red-600">Order Details</p>
-            <div className="flex items-center gap-1">
-              <span className="text-xs">Comments</span>
-              <Switch
-                className="w-8 h-4"
-                value={includeComments}
-                onCheckedChange={(e) => setIncludeComments(e)}
-                id="includeComments"
-              />
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <table className="table-auto w-full">
-            <thead className="bg-red-100">
-              <tr className="max-sm:text-sm">
-                <th className="w-[5%] text-left ">S.No.</th>
-                <th className="w-[50%] text-left p-2">Item Name</th>
-                <th className="w-[10%]  text-center p-2">Unit</th>
-                <th className="w-[10%]  text-center p-2">Quantity</th>
-                <th className="w-[10%]  text-center p-2">Rate</th>
-                <th className="w-[10%]  text-center p-2">Amount</th>
+      {/* Order Details */}
+<Card className="rounded-sm shadow-md md:col-span-3">
+  <CardHeader>
+    <CardTitle className="flex items-center justify-between">
+      <p className="text-xl max-sm:text-lg text-red-600">Order Details</p>
+      <div className="flex items-center gap-1">
+        <span className="text-xs">Comments</span>
+        <Switch
+          className="w-8 h-4"
+          value={includeComments}
+          onCheckedChange={(e) => setIncludeComments(e)}
+          id="includeComments"
+        />
+      </div>
+    </CardTitle>
+  </CardHeader>
+  <CardContent className="p-0">
+    <div className="relative overflow-hidden">
+      {/* Synchronized Table Layout */}
+      <div className="overflow-x-auto">
+        {/* Header Table */}
+        <table className="w-full border-collapse" id="order-details-table">
+          <colgroup>
+            <col className="w-[5%]" />
+            <col className="w-[50%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            {tab === "Delivered PO" && <col className="w-[5%]" />}
+          </colgroup>
+          <thead className="bg-red-100">
+            <tr className="text-sm font-semibold text-gray-700">
+              <th className="sticky top-0 z-10 text-left pl-4 py-3 bg-red-100">
+                S.No.
+              </th>
+              <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
+                Item Name
+              </th>
+              <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                Unit
+              </th>
+              <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                Quantity
+              </th>
+              <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                Rate
+              </th>
+              <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                Tax
+              </th>
+              <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
+                Amount
+              </th>
+              {tab === "Delivered PO" && (
+                <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                  OD
+                </th>
+              )}
+            </tr>
+          </thead>
+        </table>
+      </div>
+
+      {/* Body Table with Synchronized Columns */}
+      <div 
+        className={`overflow-y-auto ${!summaryPage ? 'max-h-32' : ''} border-t border-gray-200`}
+        role="region"
+        aria-labelledby="order-details-table"
+        tabIndex={0}
+      >
+        <table className="w-full border-collapse order-details-table">
+          <colgroup>
+            <col className="w-[5%]" />
+            <col className="w-[50%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            {tab === "Delivered PO" && <col className="w-[5%]" />}
+          </colgroup>
+          <tbody className="divide-y divide-gray-200">
+            {orderData?.list?.map((item, index) => (
+              <tr 
+                key={index} 
+                className="hover:bg-gray-50 transition-colors text-sm text-gray-600"
+              >
+                {/* S.No. */}
+                <td className="pl-4 py-2 align-top">{index + 1}</td>
+                
+                {/* Item Name */}
+                <td className="pl-2 py-2 align-top">
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium text-gray-700 truncate">
+                      {item.item}
+                      {item?.makes?.list?.length > 0 && (
+                        <span className="ml-1 text-xs italic font-semibold text-gray-500">
+                          - {item.makes.list.find(i => i?.enabled === "true")?.make || "N/A"}
+                        </span>
+                      )}
+                    </span>
+                    {item.comment && (
+                      <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5">
+                        <MessageCircleMore className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
+                        <div className="text-xs text-gray-600 leading-snug">
+                          {item.comment}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </td>
+                
+                {/* Unit */}
+                <td className="text-center py-2 align-top">{item.unit}</td>
+                
+                {/* Quantity */}
+                <td className="text-center py-2 align-top">{item.quantity}</td>
+                
+                {/* Rate */}
+                <td className="text-center py-2 align-top">
+                  {formatToIndianRupee(item?.quote)}
+                </td>
+                
+                {/* Tax */}
+                <td className="text-center py-2 align-top">{item?.tax}%</td>
+                
+                {/* Amount */}
+                <td className="pr-4 text-center py-2 align-top font-medium">
+                  {formatToIndianRupee(item?.quote * item?.quantity)}
+                </td>
+                
+                {/* OD (Conditional) */}
                 {tab === "Delivered PO" && (
-                   <th className="w-[5%] text-center p-2">OD</th>
+                  <td className={`text-center py-2 align-top ${
+                    item?.received === item?.quantity 
+                      ? 'text-green-600' 
+                      : 'text-red-700'
+                  }`}>
+                    {item?.received || 0}
+                  </td>
                 )}
               </tr>
-            </thead>
-          </table>
-          <div className={`${!summaryPage && "max-h-32"} overflow-y-auto`}>
-            <table className="w-full">
-              <tbody className="max-sm:text-xs text-sm">
-                {orderData?.list?.map((item, index) => (
-                  <tr key={index} className="border-b-2">
-                    <td className="w-[5%] text-start ">{index + 1}</td>
-                    <td className="w-[50%] text-left py-1">
-                      <span>
-                        {item.item}{" "}
-                        {item?.makes?.list?.length > 0 && (
-                          <span className="text-xs italic font-semibold text-gray-500">
-                            -{" "}
-                            {item.makes.list.find((i) => i?.enabled === "true")
-                              ?.make || "no make specified"}
-                          </span>
-                        )}
-                      </span>
-                      {item.comment && (
-                        <div className="flex gap-1 items-start border rounded-md p-1 md:w-[60%]">
-                          <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
-                          <div className="text-xs ">{item.comment}</div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="w-[10%] text-center">{item.unit}</td>
-                    <td className="w-[10%] text-center">{item.quantity}</td>
-                    <td className="w-[10%] text-center">
-                      {formatToIndianRupee(item?.quote)}
-                    </td>
-                    <td className="w-[10%] text-center">
-                      {formatToIndianRupee(item?.quote * item?.quantity)}
-                    </td>
-                    {tab === "Delivered PO" && (
-                   <th className={`w-[5%] text-center ${item?.received === item?.quantity ? "text-green-600" : "text-red-700"}`}>{item?.received || 0}</th>
-                )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </CardContent>
+</Card>
 
 
       {/* Unmerge, Amend and Cancel PO Buttons  */}
