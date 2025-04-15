@@ -15,7 +15,7 @@ interface ProcurementActionsHeaderCardProps {
 }
 
 export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend, pr} : ProcurementActionsHeaderCardProps) => {
-    const [projectName, setProjectName] = useState<string | undefined>("")
+  const [projectName, setProjectName] = useState<string | undefined>("")
   const [userName, setUserName] = useState<string | undefined>("")
   const [vendorId, setVendorId] = useState("")
 
@@ -166,7 +166,7 @@ export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend
         {/* <p className="text-left font-bold py-1 text-base text-black underline">{orderData?.owner}</p> */}
         <HoverCard>
           <HoverCardTrigger>
-            <p className="text-left font-bold py-1 text-base text-black underline cursor-pointer">
+            <p className="text-left font-bold py-1 text-base text-black underline cursor-pointer truncate">
               {orderData?.modified_by}
             </p>
           </HoverCardTrigger>
