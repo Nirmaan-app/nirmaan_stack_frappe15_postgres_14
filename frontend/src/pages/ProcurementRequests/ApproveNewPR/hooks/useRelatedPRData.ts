@@ -25,7 +25,7 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
         filters: workPackage ? [["work_package", "=", workPackage]] : [],
         orderBy: { field: "category_name", order: "asc" },
         limit: 10000,
-    }, workPackage ? "Category" : null);
+    }, workPackage ? `Category_${workPackage}` : null);
 
     const categoryNames = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
 

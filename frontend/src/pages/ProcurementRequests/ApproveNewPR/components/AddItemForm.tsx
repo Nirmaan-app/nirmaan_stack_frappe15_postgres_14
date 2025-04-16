@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { CirclePlus } from 'lucide-react';
 import { ItemOption } from '../types';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { parseNumber } from '@/utils/parseNumber';
 
 interface AddItemFormProps {
     itemOptions: ItemOption[];
@@ -95,7 +96,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <Button
                      onClick={onAdd}
-                     disabled={!currentItemOption || !quantity || parseFloat(quantity) <= 0 || isLoading}
+                     disabled={!currentItemOption || !quantity || parseNumber(quantity) <= 0 || isLoading}
                      size="sm"
                  >
                     {isLoading ? "Adding..." : "Add Product"}

@@ -1,13 +1,20 @@
-import React from 'react';
+import React, { useMemo } from 'react'; // Added useMemo
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { TailSpin } from 'react-loader-spinner';
+
 import { ApprovePRView } from './ApprovePRView';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic';
-import { useRelatedPRData } from './hooks/useRelatedPRData';
-import { PRDocType } from './types'; // Import dependent types for hook
-import { Projects as Project } from '@/types/NirmaanStack/Projects'; // Import Project type
+import { PRDocType } from './types';
+import { Projects as Project } from '@/types/NirmaanStack/Projects';
 import { Button } from '@/components/ui/button';
+import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
+
+// Import the new individual hooks
+import { useUsersList } from './hooks/useUsersList';
+import { useCategoryList } from './hooks/useCategoryList';
+import { useItemList } from './hooks/useItemList';
+import { usePRComments } from './hooks/usePRComments';
 
 export const ApprovePRContainer: React.FC = () => {
     const { prId } = useParams<{ prId: string }>();
@@ -18,57 +25,64 @@ export const ApprovePRContainer: React.FC = () => {
         return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
     }
 
-    // 1. Fetch the main PR Document
+    // --- 1. Fetch Main PR Document ---
+    const prQueryKey = queryKeys.procurementRequests.doc(prId);
     const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
         "Procurement Requests",
         prId,
-        `Procurement Requests ${prId}`
+        prQueryKey
     );
 
-    // 2. Fetch related data (conditionally enabled based on prDoc existence)
-    const {
-        usersList,
-        categoryList,
-        itemList,
-        quoteData,
-        universalComments,
-        itemMutate,
-        isLoading: relatedDataLoading,
-        error: relatedDataError,
-    } = useRelatedPRData({ prDoc, enabled: !!prDoc }); // `enabled` controls fetching, not the hook call
-
-    // 3. Fetch Project data separately (conditionally enabled)
+    // --- 2. Fetch Project Document (conditional) ---
+    const projectQueryKey = prDoc?.project ? queryKeys.projects.doc(prDoc.project) : null;
     const { data: projectDoc, isLoading: projectLoading, error: projectError } = useFrappeGetDoc<Project>(
         "Projects",
-        prDoc?.project,
-        { enabled: !!prDoc?.project } // `enabled` controls fetching
+        prDoc?.project, // Docname to fetch
+        projectQueryKey
     );
 
-    // --- Instantiate the Logic Hook UNCONDITIONALLY ---
-    // Pass potentially undefined data; the hook handles initialization.
+    // --- 3. Fetch Related Data using Individual Hooks ---
+    const workPackage = prDoc?.work_package;
+    const prName = prDoc?.name;
+
+    // Fetch Users
+    const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
+
+    // Fetch Categories (depends on workPackage)
+    const { data: categoryList, isLoading: categoriesLoading, error: categoriesError } = useCategoryList({ workPackage });
+
+    // Derive category names for item fetching
+    const categoryNames = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
+
+    // Fetch Items (depends on categoryNames)
+    const { data: itemList, isLoading: itemsLoading, error: itemsError, mutate: itemMutate } = useItemList({ categoryNames });
+
+    // Fetch Comments (depends on prName)
+    const { data: universalComments, isLoading: commentsLoading, error: commentsError } = usePRComments({ prName });
+
+    // --- 4. Instantiate the Logic Hook (Unconditionally) ---
     const logicProps = useApprovePRLogic({
-        prDoc: prDoc!, // Use non-null assertion OR handle undefined inside the hook if prDoc is truly needed before it exists
+        // Pass data fetched above. Handle potential undefined values gracefully inside the hook or here.
+        prDoc: prDoc!, // Assert prDoc is available based on checks below
         projectDoc,
-        usersList,
-        categoryList,
-        itemList,
-        comments: universalComments,
-        itemMutate: itemMutate!, // Assert or provide dummy function if needed before available
-        prMutate: prMutate!,   // Assert or provide dummy function if needed before available
+        usersList: usersList || [], // Provide default empty array
+        categoryList: categoryList || [], // Provide default empty array
+        itemList: itemList || [],       // Provide default empty array
+        comments: universalComments || [], // Provide default empty array
+        itemMutate: itemMutate!, // Assert mutate is available when needed
+        prMutate: prMutate!,     // Assert mutate is available when needed
     });
 
     // --- Combined Loading State ---
-    // Consider if logicProps.isLoading should be included based on when actions can happen
-    const isDataLoading = prLoading || relatedDataLoading || projectLoading;
-    // const isActionLoading = logicProps.isLoading; // Loading from actions within the hook
+    const isDataLoading = prLoading || projectLoading || usersLoading || categoriesLoading || itemsLoading || commentsLoading;
 
     // --- Combined Error State ---
-    const error = prError || relatedDataError || projectError;
+    const error = prError || projectError || usersError || categoriesError || itemsError || commentsError;
 
     // --- Render Logic ---
 
-    // Initial Data Loading State
-    if (isDataLoading && !prDoc) { // Show spinner only if main PR doc isn't loaded yet
+    // Initial Data Loading State (Focus on PR doc first)
+    if (prLoading && !prDoc) {
         return (
             <div className="flex items-center justify-center h-[90vh]">
                 <TailSpin color="red" height={50} width={50} />
@@ -78,64 +92,70 @@ export const ApprovePRContainer: React.FC = () => {
 
     // Error State
     if (error) {
-        console.error("Error loading PR data:", error);
+        console.error("Error loading PR or related data:", error);
         return (
             <div className="p-4 flex flex-col items-center justify-center h-[90vh] text-red-600">
-                <p className='mb-2'>Error loading Procurement Request details. Please try again later.</p>
+                <p className='mb-2'>Error loading details. Please try again later.</p>
                 <pre className='text-xs bg-red-100 p-2 rounded mb-4 w-full max-w-lg overflow-auto'>{JSON.stringify(error, null, 2)}</pre>
                 <Button onClick={() => navigate("/procurement-requests?tab=Approve PR")} className="mt-4">Go Back</Button>
             </div>
         );
     }
 
-    // If prDoc hasn't loaded (e.g., invalid ID or network issue not caught by error state)
+    // If prDoc hasn't loaded (after loading finishes without error)
     if (!prDoc) {
         return (
-            <div className="flex items-center justify-center h-[90vh]">
-                Procurement Request <span className='font-mono mx-1'>{prId}</span> not found or failed to load.
-                <Button onClick={() => navigate("/procurement-requests?tab=Approve PR")} className="ml-4">Go Back</Button>
-            </div>
-        );
+             <div className="flex items-center justify-center h-[90vh]">
+                 Procurement Request <span className='font-mono mx-1'>{prId}</span> not found.
+                 <Button onClick={() => navigate("/procurement-requests?tab=Approve PR")} className="ml-4">Go Back</Button>
+             </div>
+         );
     }
 
     // --- Workflow State Check ---
-    // This check can now safely assume prDoc exists.
-    // It might briefly use the initial (potentially null/empty) logicProps.getFullName before `usersList` loads,
-    // which is fine as `getFullName` handles undefined IDs.
     if (prDoc.workflow_state !== "Pending") {
-        const modifierName = logicProps.getFullName(prDoc.modified_by) || prDoc.modified_by; // getFullName handles undefined usersList initially
+        // Logic hook and getFullName should be available here
+        const modifierName = logicProps.getFullName(prDoc.modified_by) || prDoc.modified_by;
         return (
             <div className="flex items-center justify-center h-[90vh]">
-                <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
-                    <h2 className="text-2xl font-semibold text-gray-800">Heads Up!</h2>
-                    <p className="text-gray-600 text-lg">
-                        The PR: <span className="font-medium text-gray-900">{prDoc.name}</span> is no longer
-                        in the <span className="italic">Pending</span> state. The current state is{" "}
-                        <span className="font-semibold text-blue-600">{prDoc.workflow_state}</span>.
-                        Last modified by{" "}
-                        <span className="font-medium text-gray-900">{modifierName}</span>.
-                    </p>
-                    <Button
-                        onClick={() => navigate("/procurement-requests?tab=Approve PR")}
-                        className="mt-4"
-                    >
-                        Go Back to PR List
-                    </Button>
-                </div>
+                {/* ... (Workflow state message remains the same) ... */}
+                 <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                     <h2 className="text-2xl font-semibold text-gray-800">Heads Up!</h2>
+                     <p className="text-gray-600 text-lg">
+                         The PR: <span className="font-medium text-gray-900">{prDoc.name}</span> is no longer
+                         in the <span className="italic">Pending</span> state. The current state is{" "}
+                         <span className="font-semibold text-blue-600">{prDoc.workflow_state}</span>.
+                         Last modified by{" "}
+                         <span className="font-medium text-gray-900">{modifierName}</span>.
+                     </p>
+                     <Button
+                         onClick={() => navigate("/procurement-requests?tab=Approve PR")}
+                         className="mt-4"
+                     >
+                         Go Back to PR List
+                     </Button>
+                 </div>
             </div>
         );
     }
 
+     // Show loading indicator if PR is loaded but related data is still fetching
+     if (isDataLoading) {
+         return (
+             <div className="flex items-center justify-center h-[90vh]">
+                 <TailSpin color="red" height={50} width={50} />
+                 <span className='ml-2'>Loading details...</span>
+             </div>
+         );
+     }
+
+
     // --- Render View ---
-    // Render the view, passing the logicProps. The View/hook should handle the case
-    // where `orderData` inside logicProps might still be null until the useEffect initializes it.
-    // You might want to show a loading state *within* ApprovePRView if logicProps.orderData is null.
+    // All necessary data should be loaded by this point
     return (
         <ApprovePRView
             {...logicProps} // Spread all state and handlers from the logic hook
-            projectDoc={projectDoc} // Pass project details if needed in View
-            quoteData={quoteData}   // Pass quote data for summary view
-            categoryList={categoryList}
+            projectDoc={projectDoc}
         />
     );
 };

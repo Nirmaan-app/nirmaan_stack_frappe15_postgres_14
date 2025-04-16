@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialog, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import ReactSelect from 'react-select';
 import { SelectUnit } from '@/components/helpers/SelectUnit'; // Assuming this is your unit selector
 import { NewItemState } from '../types';
 import { TailSpin } from 'react-loader-spinner';
+import { parseNumber } from '@/utils/parseNumber';
 
 interface CategoryOption {
     label: string; // category_name
@@ -43,9 +44,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
          setNewItem(prev => ({ ...prev, unit_name: value }));
     };
 
-    const canSubmit = currentCategory && newItem.item_name && newItem.unit_name && newItem.quantity && parseFloat(String(newItem.quantity)) > 0;
-
-    console.log("newItem unit name", newItem.unit_name)
+    const canSubmit = currentCategory && newItem.item_name && newItem.unit_name && newItem.quantity && parseNumber(newItem.quantity) > 0;
 
     return (
         <AlertDialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

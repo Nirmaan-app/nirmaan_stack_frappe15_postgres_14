@@ -10,9 +10,10 @@ import { ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementReq
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { omit } from "lodash";
-import { CheckCheck, CircleMinus, MessageCircleMore } from "lucide-react";
+import { CheckCheck, CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import React, { useCallback } from "react";
 import { MakesSelection } from "./ItemVendorMakeSelection";
+import { parseNumber } from "@/utils/parseNumber";
 
 interface SelectVendorQuotesTableProps {
   sentBack?: boolean
@@ -211,7 +212,19 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                               <TableCell>{item.unit}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
                               {formData?.selectedVendors?.map(v => {
-                                const data = formData?.details?.[item.name]?.vendorQuotes?.[v?.value]
+                                const vendorQuotes = formData?.details?.[item.name]?.vendorQuotes
+                                let lowestQuote = Number.POSITIVE_INFINITY; // Initialize with the highest possible value
+                                let lowestVendorId: string | null = null; // Initialize winner vendor ID as null
+
+                                // 3. Iterate through each [vendorId, quoteData] pair in vendorQuotes
+                                for (const [vendorId, quoteData] of Object.entries(vendorQuotes)) {
+                                  const q = parseNumber(quoteData?.quote)
+                                  if (q < lowestQuote) {
+                                    lowestQuote = parseNumber(q)
+                                    lowestVendorId = vendorId
+                                  }
+                                }
+                                const data = vendorQuotes?.[v?.value]
                                 const quote = data?.quote
                                 const make = data?.make
                                 const isSelected = mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.value;
@@ -233,13 +246,14 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                     role="radio" 
                                     tabIndex={0} 
                                     className={`min-w-[150px] max-w-[150px] space-y-3 p-3 border border-gray-300 rounded-md shadow-md transition-all 
-                                    ring-offset-2 ring-gray-300 focus:ring-2 focus:ring-primary hover:shadow-lg ${mode === "view" && !quote ? "pointer-events-none opacity-50" : ""} ${isSelected ? "bg-red-100 ring-2 ring-primary" : "bg-white"}`}>
+                                    ring-offset-2 ring-gray-300 focus:ring-2 focus:ring-primary hover:shadow-lg ${mode === "view" && !quote ? "pointer-events-none opacity-50" : ""} ${isSelected ? "bg-red-100 ring-2 ring-primary" : "bg-white"} relative`}>
+                                      <CircleCheck className={`absolute w-5 h-5 right-2 text-red-600 ${isSelected ? "" : 'hidden'}`} />
                                       <div className="flex flex-col gap-1">
                                         <Label className="text-xs font-semibold text-primary">Make</Label>
                                         {mode === "edit" ? (
                                            <MakesSelection vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
                                         ) : (
-                                          <p className="text-sm font-medium text-gray-700">{make || "--"}</p>
+                                          <p className={`text-sm font-medium text-gray-700 ${lowestVendorId === v?.value ? "text-green-600" : ""}`}>{make || "--"}</p>
                                         )}
                                       </div>
                                       <div className="flex flex-col gap-1">
@@ -257,7 +271,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                           // />
                                           <QuantityQuoteInput value={quote || ""} onChange={(value) => handleQuoteChange(item.name, v?.value || "", value)} />
                                         ) : (
-                                          <p>{quote ?  formatToIndianRupee(quote) : "--"}</p>
+                                          <p className={`${lowestVendorId === v?.value ? "text-green-600" : ""}`}>{quote ?  formatToIndianRupee(quote) : "--"}</p>
                                         )}
                                       </div>
                                     </div>

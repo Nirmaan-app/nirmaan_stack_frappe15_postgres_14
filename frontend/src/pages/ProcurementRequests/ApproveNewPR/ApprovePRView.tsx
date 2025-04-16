@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { CirclePlus, Undo } from 'lucide-react';
+import { Undo } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 
@@ -19,14 +19,14 @@ import { PRCommentsSection } from './components/PRCommentsSection';
 
 
 // Import types
-import { Quote, Category, Project } from './types';
+import { Category, Project } from './types';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic'; // Get hook's return type
+import { parseNumber } from '@/utils/parseNumber';
 
 // Props Type for the View Component
 interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
     // Add any additional props needed specifically for rendering that are NOT in the logic hook
     projectDoc?: Project; // Pass project details if needed
-    quoteData?: Quote[]; // Pass quote data
     categoryList?: Category[]
 }
 
@@ -34,7 +34,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     const {
         // State & Data from Hook
         orderData,
-        page,
         summaryAction,
         showNewItemsCard,
         undoStack,
@@ -100,8 +99,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         projectDoc,
     } = props;
 
-    console.log("orderData", orderData)
-
 
     if (!orderData) {
         // Should be handled by Container, but good practice
@@ -111,11 +108,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     const addedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [], [orderData]);
     const requestedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status === 'Request') ?? [], [orderData]);
 
-    console.log("addedItems", addedItems)
-
     const addedCategories = useMemo(() => orderData.category_list?.list?.filter(c => addedItems.some(item => item.category === c.name && item.status === (c.status || "Pending"))) ?? [], [orderData, addedItems]);
-
-    console.log("addedCategories", addedCategories)
 
     const requestedCategories = useMemo(() => orderData.category_list?.list?.filter(c => requestedItems.some(item => item.category === c.name && item.status === c.status)) ?? [], [addedItems, orderData]);
 
@@ -143,7 +136,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     return (
         <>
             <div className="flex-1 space-y-4 p-4"> {/* Add padding */}
-                {page === 'itemlist' && (
                     <div className='space-y-4'>
                         {/* Header Section */}
                         <div className="flex justify-between items-center">
@@ -215,23 +207,10 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                              )}
                          </div>
 
-                             <AddItemForm
-                                showNewItemsCard={showNewItemsCard}
-                                 itemOptions={itemOptions}
-                                 currentItemOption={currentItemOption}
-                                 setCurrentItemOption={setCurrentItemOption}
-                                 quantity={currentQuantity}
-                                 handleQuantityChange={handleQuantityChange}
-                                 onAdd={handleAddItemToList}
-                                 onClose={toggleNewItemsCard} // Use onClose to hide
-                                 onToggleNewItemDialog={handleOpenNewItemDialog} // Pass handler
-                                 canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')} // Example permission check
-                                 isLoading={isLoading}
-                             />
-
                         {/* Added Items Section */}
                         {/* {addedItems.length > 0 && ( */}
                            <ItemListSection
+                                canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')}
                                 toggleNewItemsCard={toggleNewItemsCard}
                                 categories={addedCategories}
                                 items={addedItems}
@@ -248,8 +227,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
 
 
                     </div>
-                )}
-
                 {/* {page === 'summary' && summaryAction && (
                      <div className="space-y-4">
                          <div className="flex items-center pt-1">
@@ -301,13 +278,29 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
             </div>
 
             {/* Dialogs */}
+
+
+            <AddItemForm
+                showNewItemsCard={showNewItemsCard}
+                 itemOptions={itemOptions}
+                 currentItemOption={currentItemOption}
+                 setCurrentItemOption={setCurrentItemOption}
+                 quantity={currentQuantity}
+                 handleQuantityChange={handleQuantityChange}
+                 onAdd={handleAddItemToList}
+                 onClose={toggleNewItemsCard} // Use onClose to hide
+                 onToggleNewItemDialog={handleOpenNewItemDialog} // Pass handler
+                 canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')} // Example permission check
+                 isLoading={isLoading}
+             />
+
             <NewItemDialog
                  isOpen={isNewItemDialogOpen}
                  onClose={() => setIsNewItemDialogOpen(false)}
                  newItem={newItem}
                  setNewItem={setNewItem} // Allow direct updates if simple
                  // handleNewItemChange={handleNewItemChange} // Or pass handler
-                 categoryOptions={categoryList?.map(c => ({ label: c.category_name, value: c.name, tax: parseFloat(c.tax ?? '0') })) ?? []}
+                 categoryOptions={categoryList?.map(c => ({ label: c.category_name, value: c.name, tax: parseNumber(c.tax) })) ?? []}
                  currentCategory={currentCategoryForNewItem}
                  setCurrentCategory={setCurrentCategoryForNewItem}
                  onSubmit={handleCreateAndAddItem}
@@ -332,7 +325,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                  setRequestItem={setRequestItem} // Allow direct updates
                  // handleRequestItemFormChange={handleRequestItemFormChange} // Or pass handler
                  categoryOptions={categoryList?.map(c => ({ label: c.category_name, value: c.name })) ?? []}
-                 unitOptions={[]} // Define or fetch unit options
                  fuzzyMatches={fuzzyMatches}
                  handleFuzzySearch={handleFuzzySearch}
                  onApproveAsNew={handleApproveRequestedItemAsNew}

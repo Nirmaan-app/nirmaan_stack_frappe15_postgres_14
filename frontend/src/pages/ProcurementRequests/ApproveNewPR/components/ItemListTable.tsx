@@ -8,14 +8,21 @@ interface ItemListTableProps {
     category: string;
     items: PRItem[];
     onEdit: (item: PRItem) => void;
+    makes: string[]
 }
 
-export const ItemListTable: React.FC<ItemListTableProps> = ({ items, onEdit, category }) => {
+export const ItemListTable: React.FC<ItemListTableProps> = ({ items, onEdit, category, makes }) => {
     return (
         <Table className="table-fixed"> {/* Use table-fixed for better column control */}
             <TableHeader>
                 <TableRow className="bg-red-200">
-                    <TableHead className="w-[55%] text-xs h-8 text-red-700 font-semibold">{category}</TableHead>
+                    <TableHead className="w-[55%] text-xs h-8 text-red-700 font-semibold">{category}
+                    {makes.length > 0 && (
+                         <div className="text-xs font-medium text-muted-foreground italic">
+                             Makes: {makes.join(', ')}
+                         </div>
+                     )}
+                    </TableHead>
                     <TableHead className="w-[15%] text-xs text-center h-8">Unit</TableHead>
                     <TableHead className="w-[15%] text-xs text-center h-8">Quantity</TableHead>
                     <TableHead className="w-[15%] text-xs text-center h-8">Actions</TableHead>

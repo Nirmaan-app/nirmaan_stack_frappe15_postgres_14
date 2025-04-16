@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import {
-    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialog, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SelectUnit } from '@/components/helpers/SelectUnit';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RequestItemState, FuzzyMatch, Item, Category } from '../types'; // Use specific types
+import { RequestItemState, FuzzyMatch, Item } from '../types'; // Use specific types
 import { TailSpin } from 'react-loader-spinner';
 import { CirclePlus, CheckCheck, X, Trash } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

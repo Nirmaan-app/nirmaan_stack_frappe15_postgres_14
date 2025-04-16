@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { EditItemState, PRItem } from '../types'; // Use EditItemState which includes PRItem fields
 import { Trash2 } from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
+import { parseNumber } from '@/utils/parseNumber';
 
 
 interface EditItemDialogProps {
@@ -28,7 +29,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
 }) => {
     if (!editItem) return null; // Don't render if no item selected
 
-    const canSave = editItem.quantity !== undefined && parseFloat(String(editItem.quantity)) > 0;
+    const canSave = parseNumber(editItem.quantity) > 0;
 
     return (
         <AlertDialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

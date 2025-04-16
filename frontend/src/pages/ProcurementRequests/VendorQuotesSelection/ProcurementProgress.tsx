@@ -83,6 +83,11 @@ export const ProcurementProgress : React.FC = () => {
   const navigate = useNavigate()
 
   const {prId} = useParams<{ prId: string }>()
+
+  // Ensure prId exists early
+  if (!prId) {
+    return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
+}
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>()
   const [addVendorsDialog, setAddVendorsDialog] = useState(false)

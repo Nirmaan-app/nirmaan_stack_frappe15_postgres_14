@@ -4,8 +4,6 @@ import {
     useFrappeCreateDoc,
     useFrappeUpdateDoc,
     useFrappeDeleteDoc,
-    useFrappeFileUpload,
-    useFrappePostCall,
     useSWRConfig,
     FrappeDoc, // Keep for potential global cache invalidation if needed outside feature
 } from 'frappe-react-sdk';
@@ -51,12 +49,12 @@ export const useApprovePRLogic = ({
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
-    const { upload, loading: uploadLoading } = useFrappeFileUpload();
-    const { call: setFrappeValue, loading: callLoading } = useFrappePostCall("frappe.client.set_value");
+    // const { upload, loading: uploadLoading } = useFrappeFileUpload();
+    // const { call: setFrappeValue, loading: callLoading } = useFrappePostCall("frappe.client.set_value");
 
     // --- State ---
     const [orderData, setOrderData] = useState<OrderData | null>(null);
-    const [page, setPage] = useState<'itemlist' | 'summary'>('itemlist');
+    // const [page, setPage] = useState<'itemlist' | 'summary'>('itemlist');
     const [summaryAction, setSummaryAction] = useState<'approve' | 'reject' | null>(null); // Track action for summary confirmation
     const [showNewItemsCard, setShowNewItemsCard] = useState(false);
     const [undoStack, setUndoStack] = useState<PRItem[]>([]); // Use specific type
@@ -184,17 +182,15 @@ export const useApprovePRLogic = ({
     useEffect(() => {
         if (!orderData && prDoc) {
             try {
-                
-             // Directly use the lists, assuming they are objects
+                // Directly use the lists, assuming they are objects
                 // Add checks for existence and list property
                 const procurementListRaw = prDoc.procurement_list;
-                const categoryListRaw = (prDoc.category_list); // This might be outdated, will be recalculated
+                const categoryListRaw = (prDoc.category_list);
 
                 const initialProcurementList = (procurementListRaw && typeof procurementListRaw === 'object')
                     ? procurementListRaw.list
                     : JSON.parse(procurementListRaw)?.list;
 
-                // Initialize with an empty category list, it will be derived in the next effect
                 const initialCategoryList = (categoryListRaw && typeof categoryListRaw === 'object')
                     ? categoryListRaw.list
                     : JSON.parse(categoryListRaw)?.list;
@@ -208,12 +204,6 @@ export const useApprovePRLogic = ({
                 console.error("Error initializing orderData:", error);
                 toast({ title: "Error", description: "Failed to process initial PR details.", variant: "destructive" });
             }
-        //   let mod_pr_data = {
-        //     ...prDoc,
-        //     category_list: JSON.parse(prDoc?.category_list),
-        //     procurement_list: JSON.parse(prDoc?.procurement_list),
-        //   };
-        //   setOrderData(mod_pr_data);
 
         }
       }, [prDoc, orderData, toast]);
@@ -355,7 +345,7 @@ export const useApprovePRLogic = ({
     const handleAddItemToList = useCallback(() => {
         if (!currentItemOption || !currentQuantity || !orderData) return;
 
-        const quantityValue = parseFloat(currentQuantity);
+        const quantityValue = parseNumber(currentQuantity);
         if (isNaN(quantityValue) || quantityValue <= 0) {
             toast({ title: "Invalid Quantity", description: "Please enter a valid positive number for quantity.", variant: "destructive" });
             return;
@@ -419,7 +409,7 @@ export const useApprovePRLogic = ({
     const handleSaveEditedItem = useCallback(() => {
         if (!editItem || !editItem.name || !orderData) return;
 
-        const quantityValue = typeof editItem.quantity === 'string' ? parseFloat(editItem.quantity) : editItem.quantity;
+        const quantityValue = parseNumber(editItem.quantity)
 
         if (quantityValue === undefined || isNaN(quantityValue) || quantityValue <= 0) {
              toast({ title: "Invalid Quantity", description: "Please enter a valid positive number for quantity.", variant: "destructive" });
@@ -440,7 +430,7 @@ export const useApprovePRLogic = ({
     }, [editItem, orderData, toast]);
 
 
-    const handleDeleteItem = useCallback((itemToDelete: PRItem | EditItemState) => { // Can delete from main list or edit dialog
+    const handleDeleteItem = useCallback((itemToDelete: PRItem | EditItemState | RequestItemState) => { // Can delete from main list or edit dialog
         if (!itemToDelete || !itemToDelete.name || !orderData) return;
 
         const item = orderData.procurement_list.list.find(i => i.name === itemToDelete.name);
@@ -462,8 +452,6 @@ export const useApprovePRLogic = ({
         if (isRequestItemDialogOpen) setIsRequestItemDialogOpen(false); // If rejecting/deleting request item
         setEditItem(null);
         setRequestItem(null);
-
-
     }, [orderData, toast, isEditItemDialogOpen, isRequestItemDialogOpen]);
 
     const handleUndoDelete = useCallback(() => {
@@ -504,7 +492,7 @@ export const useApprovePRLogic = ({
             return;
         }
 
-        const quantityValue = parseFloat(String(newItem.quantity));
+        const quantityValue = parseNumber(newItem.quantity);
          if (isNaN(quantityValue) || quantityValue <= 0) {
              toast({ title: "Invalid Quantity", description: "Please enter a valid positive quantity.", variant: "destructive" });
              return;
@@ -590,126 +578,118 @@ export const useApprovePRLogic = ({
      }, [handleFuzzySearch]);
 
 
-    const handleApproveRequestedItemAsNew = useCallback(async () => {
+     const handleApproveRequestedItemAsNew = useCallback(async () => {
+        // --- Initial Checks ---
         if (!requestItem || !requestItem.newItemName || !requestItem.newUnit || !requestItem.newCategory || !requestItem.quantity || !orderData) {
             toast({ title: "Missing Information", description: "Please ensure all fields are filled to approve/create.", variant: "destructive" });
             return;
         }
-         const quantityValue = parseFloat(String(requestItem.quantity));
-          if (isNaN(quantityValue) || quantityValue <= 0) {
-              toast({ title: "Invalid Quantity", description: "Please enter a valid positive quantity.", variant: "destructive" });
-              return;
-          }
-
-           const categoryDoc = categoryList.find(c => c.name === requestItem.newCategory);
-           if (!categoryDoc) {
-               toast({ title: "Invalid Category", description: "Selected category not found.", variant: "destructive" });
-               return;
-           }
-
+        const quantityValue = parseNumber(requestItem.quantity);
+        if (isNaN(quantityValue) || quantityValue <= 0) {
+            toast({ title: "Invalid Quantity", description: "Please enter a valid positive quantity.", variant: "destructive" });
+            return;
+        }
+        const categoryDoc = categoryList.find(c => c.name === requestItem.newCategory);
+        if (!categoryDoc) {
+            toast({ title: "Invalid Category", description: "Selected category not found.", variant: "destructive" });
+            return;
+        }
+    
         try {
-             // 1. Create the Item Doc
-             const createdItemDoc = await createDoc("Items", {
-                 item_name: requestItem.newItemName,
-                 unit_name: requestItem.newUnit,
-                 category: requestItem.newCategory, // category docname
-             });
-
-             const curRequest = [...orderData?.procurement_list.list];
-
-            const combinedRequest = [...curRequest, ...undoStack];
-                
-            const itemToUpdate = combinedRequest.find((i) => i.name === requestItem.name);
-            
-            if(itemToUpdate) {
-                itemToUpdate.item = createdItemDoc.item_name
-                itemToUpdate.name = createdItemDoc.name // Update to new item docname
-                itemToUpdate.unit = createdItemDoc.unit_name
-                itemToUpdate.category = createdItemDoc.category
-                itemToUpdate.quantity = parseNumber(quantityValue)
-                itemToUpdate.tax = parseFloat(categoryDoc.tax ?? "0")
-                itemToUpdate.status = "Pending" // Change status from "Request"
-            }
-        
-            const newCategories: PRCategory[] = [];
-        
-            if (combinedRequest.some((i) => i.status === "Request")) {
-              combinedRequest.map((item) => {
-                const isDuplicate = newCategories.some(
-                  (category) =>
-                    category.name === item.category &&
-                    category?.status === item.status
-                );
-                if (!isDuplicate) {
-                  newCategories.push({ name: item.category, status: item.status });
-                }
-              });
-            } else {
-              combinedRequest.map((item) => {
-                const isDuplicate = newCategories.some(
-                  (category) => category.name === item.category
-                );
-                if (!isDuplicate) {
-                  newCategories.push({ name: item.category });
-                }
-              });
-            }
-        
-            setOrderData((prevState) => ({
-              ...prevState,
-              procurement_list: {
-                list: curRequest,
-              },
-            }));
-        
-            await updateDoc("Procurement Requests", orderData?.name, {
-              procurement_list: { list: combinedRequest },
-              category_list: {
-                list: newCategories,
-              },
+            // --- Create New Item Master ---
+            const createdItemDoc = await createDoc("Items", {
+                item_name: requestItem.newItemName,
+                unit_name: requestItem.newUnit,
+                category: requestItem.newCategory, // category docname
             });
-        
-            await prMutate();
-            await itemMutate();
-
-            // // 3. Update the *original* item in the PR list
-            // const updatedList = orderData.procurement_list.list.map(listItem => {
-            //     if (listItem.name === requestItem.name) { // Find by original identifier
-            //         return {
-            //             ...listItem, // Keep potential comments etc.
-            //             item: createdItemDoc.item_name,
-            //             name: createdItemDoc.name, // Update to new item docname
-            //             unit: createdItemDoc.unit_name,
-            //             category: createdItemDoc.category,
-            //             quantity: quantityValue,
-            //             tax: parseFloat(categoryDoc.tax ?? "0"),
-            //             status: "Pending", // Change status from "Request"
-            //         };
-            //     }
-            //     return listItem;
-            // });
-
-
-            // setOrderData(prev => prev ? { ...prev, procurement_list: { list: updatedList } } : null);
-
+    
+            // --- Prepare Updated Procurement List ---
+            // Map over the *current* list from state to create the new list
+            const updatedProcurementList = orderData.procurement_list.list.map(listItem => {
+                if (listItem.name === requestItem.name) { // Find the original requested item by its temp/original name
+                    return {
+                        ...listItem, // Keep potentially existing fields like comments
+                        item: createdItemDoc.item_name,
+                        name: createdItemDoc.name, // IMPORTANT: Update to the NEW item's docname
+                        unit: createdItemDoc.unit_name,
+                        category: createdItemDoc.category,
+                        quantity: quantityValue, // Use the validated quantity
+                        tax: parseNumber(categoryDoc.tax),
+                        status: "Pending", // Change status from "Request"
+                    };
+                }
+                return listItem; // Return other items unchanged
+            });
+    
+            // --- Prepare Updated Category List (Based on the *new* procurement list) ---
+            const newCategories: PRCategory[] = [];
+            updatedProcurementList.forEach((item) => { // Use forEach for clarity
+                const existingCategory = newCategories.find(
+                    (category) => category.name === item.category && category.status === item.status
+                );
+                if (!existingCategory) {
+                    // Find makes only if status is Pending (or based on your logic)
+                    let makes: string[] = [];
+                    if (item.status === "Pending" && projectDoc?.project_work_packages) {
+                        try {
+                            makes = JSON.parse(projectDoc.project_work_packages).work_packages
+                                .flatMap((wp: any) => wp.category_list?.list || [])
+                                .find((cat: any) => cat.name === item.category) // Use find for single category
+                                ?.makes || []; // Get makes or empty array
+                        } catch (e) { console.error("Error parsing makes in handleApproveRequestedItemAsNew:", e); }
+                    }
+                    newCategories.push({
+                        name: item.category, // Category Docname
+                        status: item.status,
+                        makes: makes.length > 0 ? makes : undefined // Only add makes if found
+                    });
+                }
+            });
+             // Deduplicate categories if needed (though the above logic should prevent duplicates)
+             const uniqueNewCategories = newCategories.filter((category, index, self) =>
+                 index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
+             );
+    
+    
+            // --- Update Local State ---
+            // IMPORTANT: Update state with BOTH lists
+            setOrderData((prevState) => {
+                if (!prevState) return null; // Handle null case
+                return {
+                    ...prevState, // Keep other PR properties
+                    procurement_list: { list: updatedProcurementList },
+                    category_list: { list: uniqueNewCategories }, // Use the newly calculated categories
+                };
+            });
+    
+            // --- Update Database ---
+            await updateDoc("Procurement Requests", orderData.name, { // Use orderData.name safely here
+                procurement_list: { list: updatedProcurementList }, // Send the final list
+                category_list: { list: uniqueNewCategories }, // Send the final category list
+                // No need to update workflow_state here, only when approving/rejecting the whole PR
+            });
+    
+            // --- Post-Update Actions ---
+            await prMutate(); // Refetch PR data to confirm backend state (optional but good)
+            await itemMutate(); // Refetch item list as a new item was created
+    
             toast({ title: "Success", description: `Requested item approved as "${createdItemDoc.item_name}".`, variant: "success" });
             setIsRequestItemDialogOpen(false);
             setRequestItem(null);
             setFuzzyMatches([]);
-
-
+    
         } catch (error: any) {
             console.error("Error approving requested item:", error);
             toast({ title: "Approval Failed", description: error?.message || "Could not approve the requested item.", variant: "destructive" });
         }
-
-    }, [requestItem, orderData, categoryList, createDoc, itemMutate, toast]);
+    
+    }, [requestItem, orderData, categoryList, projectDoc, createDoc, updateDoc, itemMutate, prMutate, toast, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches]); // Added projectDoc, updateDoc, prMutate dependencies
 
 
     const handleAddMatchingItem = useCallback((match: Item, originalRequest: RequestItemState) => {
          if (!match || !originalRequest || !orderData) return;
 
-         const quantityValue = parseFloat(String(originalRequest.quantity));
+         const quantityValue = parseNumber(originalRequest.quantity);
           if (isNaN(quantityValue) || quantityValue <= 0) {
               toast({ title: "Invalid Quantity", description: "Original request quantity is invalid.", variant: "destructive" });
               return;
@@ -744,7 +724,7 @@ export const useApprovePRLogic = ({
                unit: match.unit_name,
                quantity: quantityValue, // Use quantity from original request
                category: match.category,
-               tax: parseFloat(categoryDoc.tax ?? "0"),
+               tax: parseNumber(categoryDoc.tax),
                status: "Pending",
                // comment: originalRequest.comment // Carry over comment? Decide policy.
            };
@@ -902,19 +882,19 @@ export const useApprovePRLogic = ({
          navigate("/procurement-requests?tab=Approve PR");
      }, [navigate]);
 
-     const navigateToItemList = useCallback(() => {
-         setPage('itemlist');
-         setSummaryAction(null);
-     }, []);
+    //  const navigateToItemList = useCallback(() => {
+    //     //  setPage('itemlist');
+    //      setSummaryAction(null);
+    //  }, []);
 
     // --- Loading States ---
-    const isLoading = createLoading || updateLoading || deleteLoading || callLoading || uploadLoading;
+    const isLoading = createLoading || updateLoading || deleteLoading;
 
 
     return {
         // State
         orderData,
-        page,
+        // page,
         summaryAction,
         showNewItemsCard,
         undoStack,
@@ -938,7 +918,7 @@ export const useApprovePRLogic = ({
         isConfirmActionDialogOpen,
 
         // Handlers
-        setPage,
+        // setPage,
         toggleNewItemsCard,
         setCurrentItemOption,
         handleQuantityChange,
@@ -966,7 +946,7 @@ export const useApprovePRLogic = ({
         handleOpenDeletePRDialog,
         handleDeletePR,
         navigateBackToList,
-        navigateToItemList,
+        // navigateToItemList,
 
         // Dialog Visibility Setters
         setIsNewItemDialogOpen,

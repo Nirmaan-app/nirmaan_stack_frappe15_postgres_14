@@ -210,6 +210,10 @@ export const innerColumns : TableColumnsType<DataItem> = [
 export const VendorsSelectionSummary : React.FC = () => {
 
   const { prId } = useParams<{ prId: string }>();
+
+  if (!prId) {
+    return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
+  }
   const navigate = useNavigate();
   const [comment, setComment] = useState<{approving: string, delaying: string}>({ approving: "", delaying: "" })
 
@@ -217,7 +221,7 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>();
 
-  const {getItemEstimate} = useItemEstimate()
+  // const {getItemEstimate} = useItemEstimate()
 
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: pr_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
       {
@@ -251,22 +255,22 @@ export const VendorsSelectionSummary : React.FC = () => {
     }
   }, [procurement_request_list])
 
-  const getCategoryTotals = useMemo(() => {
-    const totals : {[category: string]: number} = {}
+  // const getCategoryTotals = useMemo(() => {
+  //   const totals : {[category: string]: number} = {}
 
-  if(!orderData?.procurement_list?.list?.length) return totals
-    orderData?.procurement_list?.list?.forEach(item => {
-      const category = item.category
-      const quote = item.quote || 0
-      const quantity = item.quantity
-      if(!totals[category]) {
-        totals[category] = 0
-      }
-      totals[category] += quote * quantity
-    })
+  // if(!orderData?.procurement_list?.list?.length) return totals
+  //   orderData?.procurement_list?.list?.forEach(item => {
+  //     const category = item.category
+  //     const quote = item.quote || 0
+  //     const quantity = item.quantity
+  //     if(!totals[category]) {
+  //       totals[category] = 0
+  //     }
+  //     totals[category] += quote * quantity
+  //   })
 
-    return totals
-  }, [orderData])
+  //   return totals
+  // }, [orderData])
 
   const getVendorName = useMemo(() => (vendorId : string | undefined) : string => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
@@ -276,40 +280,40 @@ export const VendorsSelectionSummary : React.FC = () => {
         return getLowestQuoteFilled(orderData, itemId)
     }, (itemId: string) => itemId),[orderData]);
 
-  const getFinalVendorQuotesData = useMemo(() => {
-    const data : CategoryWithChildren[] = []
-    if(orderData?.procurement_list.list?.length) {
-      const procurementList = orderData.procurement_list.list
-      procurementList.forEach(item => {
-        const category : string = item.category
-        const existingCategory = data?.find(entry => entry[category])
-        if(existingCategory) {
-          existingCategory[category]?.items.push({
-            ...item,
-            vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
-            amount: (item.quote || 0) * item.quantity,
-            threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
-            lowestQuotedAmount: getLowest(item.name) * item.quantity,
-          })
-        } else {
-          data.push({
-            [category]: {
-              totalAmount: getCategoryTotals[category],
-              key: uuidv4(),
-              items: [{
-                ...item,
-                vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
-                amount: (item.quote || 0) * item.quantity,
-                threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
-                lowestQuotedAmount: getLowest(item.name) * item.quantity,
-              }]
-            }
-          })
-        }
-      })
-    }
-    return data
-  }, [orderData, vendor_list])
+  // const getFinalVendorQuotesData = useMemo(() => {
+  //   const data : CategoryWithChildren[] = []
+  //   if(orderData?.procurement_list.list?.length) {
+  //     const procurementList = orderData.procurement_list.list
+  //     procurementList.forEach(item => {
+  //       const category : string = item.category
+  //       const existingCategory = data?.find(entry => entry[category])
+  //       if(existingCategory) {
+  //         existingCategory[category]?.items.push({
+  //           ...item,
+  //           vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
+  //           amount: (item.quote || 0) * item.quantity,
+  //           threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
+  //           lowestQuotedAmount: getLowest(item.name) * item.quantity,
+  //         })
+  //       } else {
+  //         data.push({
+  //           [category]: {
+  //             totalAmount: getCategoryTotals[category],
+  //             key: uuidv4(),
+  //             items: [{
+  //               ...item,
+  //               vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
+  //               amount: (item.quote || 0) * item.quantity,
+  //               threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
+  //               lowestQuotedAmount: getLowest(item.name) * item.quantity,
+  //             }]
+  //           }
+  //         })
+  //       }
+  //     })
+  //   }
+  //   return data
+  // }, [orderData, vendor_list])
 
 
   const handleSubmit = async () => {
@@ -349,7 +353,7 @@ export const VendorsSelectionSummary : React.FC = () => {
 
 interface VendorWiseApprovalItems {
   [vendor : string] : {
-    items : ProcurementItem[];
+    items : (ProcurementItem & {potentialLoss? : number})[];
     total : number;
   }
 }
@@ -361,19 +365,24 @@ interface VendorWiseApprovalItems {
 
     orderData?.procurement_list?.list.forEach((item) => {
         const vendor = item?.vendor;
+        const lowestItemPrice = getLowest(item?.name)
         if (!vendor) {
             // Delayed items
             allDelayedItems.push(item);
         } else {
             // Approval items segregated by vendor
-            const itemTotal = parseNumber(item.quantity * (item.quote || 0));
+            const itemTotal = parseNumber(item.quantity * parseNumber(item.quote));
             if (!vendorWiseApprovalItems[vendor]) {
                 vendorWiseApprovalItems[vendor] = {
                     items: [],
                     total: 0,
                 };
             }
-            vendorWiseApprovalItems[vendor].items.push(item);
+            if(lowestItemPrice && lowestItemPrice !== parseNumber(item.quote)) {
+              vendorWiseApprovalItems[vendor].items.push({...item, potentialLoss : itemTotal - (parseNumber(item.quantity) * lowestItemPrice)});
+            } else {
+              vendorWiseApprovalItems[vendor].items.push(item);
+            }
             vendorWiseApprovalItems[vendor].total += itemTotal;
             approvalOverallTotal += itemTotal;
         }
@@ -431,68 +440,75 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
                   <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
                   <ProcurementHeaderCard orderData={orderData} />
               </div>
-              <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200 mt-4">
-                        <h2 className="text-lg font-bold mb-3 flex items-center">
+              {/* <div className="bg-white shadow-md rounded-lg border border-gray-200 mt-4"> */}
+                        {/* <h2 className="text-lg font-bold mb-3 flex items-center">
                             <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
                             Actions Summary
-                        </h2>
-                        <div className="grid md:grid-cols-2 gap-4">
+                        </h2> */}
+                        <div className="flex flex-col gap-4">
+                            {/* Approval Items Summary */}
+                            {Object.keys(vendorWiseApprovalItems).length > 0 && (
+                                <div className="p-6 rounded-lg bg-green-100 opacity-70">
+                                    <div className="flex items-center mb-2">
+                                        <ListChecks className="h-5 w-5 mr-2 text-green-600" />
+                                        <h3 className="font-medium">Approval Products</h3>
+                                    </div>
+                                    <p className="text-sm">
+                                        These items will be sent to the project lead for approval.
+                                    </p>
+                                    <ul className="list-[number] text-red-700 pl-5 space-y-2">
+                                    {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
+                                        <li key={vendor} className="mt-2 space-y-2">
+                                            <h4 className="text-sm font-medium">
+                                                {getVendorName(vendor)}:
+                                            </h4>
+                                            <ul className="list-disc pl-5 text-black space-y-2">
+                                                {items.map((item) => (
+                                                    <li key={item.name} className="text-xs md:text-sm">
+                                                        {item.item} - {item.quantity} {item.unit} -
+                                                        {formatToIndianRupee(item.quantity * (item.quote || 0))}
+                                                        {item?.potentialLoss && (
+                                                          <span className="ml-2 text-red-700">
+                                                            (You are potentially losing {formatToIndianRupee(item.potentialLoss)} on this product)
+                                                          </span>
+                                                        )}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                          <p className="text-sm text-black font-medium -ml-5 mt-2">
+                                            Vendor Total: <span className="font-semibold">{formatToIndianRupee(total)}</span>
+                                          </p>
+                                        </li>
+                                    ))}
+                                    </ul>
+                                    <p className="mt-2 font-medium text-end">
+                                        <span className="text-red-700">Overall Total:</span> {formatToIndianRupee(approvalOverallTotal)}
+                                    </p>
+                                </div>
+                            )}
+
                             {/* Delayed Items Summary */}
                             {allDelayedItems.length > 0 && (
-                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                <div className="p-6 space-y-2 rounded-lg bg-red-100 opacity-70">
                                     <div className="flex items-center mb-2">
                                         <SendToBack className="h-5 w-5 text-red-500 mr-2" />
-                                        <h3 className="font-medium text-gray-700">Delayed Items</h3>
+                                        <h3 className="font-medium">Delayed Products</h3>
                                     </div>
-                                    <p className="text-sm text-gray-600">
+                                    <p className="text-sm">
                                         These items are delayed and a <strong>new Delayed Sent Back</strong> will be created:
                                     </p>
-                                    <ul className="mt-1 list-disc pl-5">
+                                    <ul className="list-disc space-y-2 pl-5">
                                         {allDelayedItems.map((item) => (
-                                            <li key={item.name}>
+                                            <li key={item.name} className="text-xs md:text-sm">
                                                 {item.item} - {item.quantity} {item.unit}
                                             </li>
                                         ))}
                                     </ul>
                                 </div>
                             )}
-
-                            {/* Approval Items Summary */}
-                            {Object.keys(vendorWiseApprovalItems).length > 0 && (
-                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                    <div className="flex items-center mb-2">
-                                        <ListChecks className="h-5 w-5 text-green-500 mr-2" />
-                                        <h3 className="font-medium text-gray-700">Approval Items</h3>
-                                    </div>
-                                    <p className="text-sm text-gray-600">
-                                        These items will be sent to the project lead for approval.
-                                    </p>
-                                    {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
-                                        <div key={vendor} className="mt-2">
-                                            <h4 className="text-sm font-medium text-gray-800">
-                                                {getVendorName(vendor)}:
-                                            </h4>
-                                            <ul className="list-disc pl-5 text-sm text-gray-600">
-                                                {items.map((item) => (
-                                                    <li key={item.name}>
-                                                        {item.item} - {item.quantity} {item.unit} -
-                                                        {formatToIndianRupee(item.quantity * (item.quote || 0))}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                            <p className="text-sm font-medium mt-1">
-                                                Vendor Total: {formatToIndianRupee(total)}
-                                            </p>
-                                        </div>
-                                    ))}
-                                    <p className="mt-2 font-medium">
-                                        Overall Total: {formatToIndianRupee(approvalOverallTotal)}
-                                    </p>
-                                </div>
-                            )}
                         </div>
-              </div>
-              {getFinalVendorQuotesData?.length > 0 ? (
+              {/* </div> */}
+              {/* {getFinalVendorQuotesData?.length > 0 ? (
         <div className="overflow-x-auto">
           <ConfigProvider
           
@@ -531,7 +547,7 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
         <div className="h-[10vh] flex items-center justify-center">
           No Results.
         </div>
-      )}
+      )} */}
               <div className="flex flex-col justify-end items-end mr-2 my-4">
                         <Dialog>
                             <DialogTrigger asChild>

@@ -20,7 +20,6 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
     isLoading
 }) => {
 
-    console.log("canApprove", canApprove)
     return (
         <div className="flex max-sm:flex-col gap-2 justify-end items-center">
             <Button variant="outline" className='border-primary text-primary hover:text-red-400 mr-4' size="sm" onClick={handleOpenDeletePRDialog}>
