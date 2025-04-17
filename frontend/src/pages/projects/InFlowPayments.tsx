@@ -34,7 +34,7 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
     fields: ["*"],
     filters: paymentFilters,
     limit: 1000,
-    orderBy: { field: "creation", order: "desc" },
+    orderBy: { field: "payment_date", order: "desc" },
   }, customerId ? `Project Inflows ${customerId}` : "Project Inflows")
 
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {

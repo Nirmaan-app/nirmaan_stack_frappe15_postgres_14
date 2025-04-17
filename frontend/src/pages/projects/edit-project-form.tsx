@@ -16,12 +16,13 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { Projects, Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatToLocalDateTimeString } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
 import {
+  FrappeDoc,
   useFrappeDocTypeEventListener,
   useFrappeGetDoc,
   useFrappeGetDocList,
@@ -33,7 +34,7 @@ import {
   ListChecks,
   MessageCircleWarning
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
 import ReactSelect from "react-select";
@@ -74,6 +75,8 @@ import {
 } from "../../components/ui/select";
 import { Separator } from "../../components/ui/separator";
 import NewCustomer from "../customers/add-new-customer";
+import {KeyedMutator} from 'swr'
+import { ProjectQueryKeys } from "./project";
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -173,12 +176,18 @@ interface SelectOption {
 //     work_package: string;
 // }
 
-export const EditProjectForm = ({ toggleEditSheet }) => {
+interface EditProjectFormProps {
+  toggleEditSheet: () => void;
+  // projectMutate: KeyedMutatator<FrappeDoc<Projects>>;
+}
+
+export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
   const { projectId } = useParams<{ projectId: string }>();
 
   const { data, mutate: projectMutate } = useFrappeGetDoc<ProjectsType>(
     "Projects",
-    `${projectId}`
+    projectId,
+    projectId ? ProjectQueryKeys.project(projectId) : null
   );
 
   // console.log("projectData", data)

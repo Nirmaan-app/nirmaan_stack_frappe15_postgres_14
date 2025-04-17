@@ -68,7 +68,7 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
 
             {/* Vendor Approval Table (Reused) */}
             <VendorApprovalTable
-                initialSelection={selectionMap}
+                selection={selectionMap}
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
             />

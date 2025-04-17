@@ -614,11 +614,13 @@ export const ProcurementPackages : React.FC = () => {
 
 interface AddMakeComponentProps {
   makeList? : Makelist[]
-  makeListMutate: any
+  makeListMutate: any;
+  category?: string
+  categoryMakeListMutate?: any
 }
 
 
-const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeListMutate }) => {
+const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeListMutate, category, categoryMakeListMutate }) => {
   const [newMake, setNewMake] = useState("");
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [checking, setChecking] = useState(false); // To show loading state for the check
@@ -630,6 +632,14 @@ const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeList
       await createDoc("Makelist", {
         make_name: newMake
       })
+
+      if(category) {
+        await createDoc("Category Makelist", {
+          category: category,
+          make: newMake
+        })
+        await categoryMakeListMutate?.()
+      }
 
       await makeListMutate()
 

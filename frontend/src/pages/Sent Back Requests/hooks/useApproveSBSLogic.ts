@@ -124,17 +124,18 @@ export const useApproveSBSLogic = ({
             const vendorId = item.vendor;
             const vendorName = getVendorName(vendorId);
             const amount = (item.quote ?? 0) * (item.quantity ?? 0);
-            const threeMonthsLowest = getThreeMonthsLowest(item.name) ?? 0;
+            const threeMonthsLowest = (getThreeMonthsLowest(item.name) ?? 0) * 0.98;
             const lowestQuoted = getLowest(item.name) ?? 0;
 
             // Assert item as VendorItemDetails - might need adjustments based on SBItem vs ProcurementItem
             const itemDetails: VendorItemDetails = {
-                ...(item as unknown as VendorItemDetails), // Cast carefully or map fields
+                ...item,
                 vendor_name: vendorName,
                 amount,
                 lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
-                threeMonthsLowestAmount: threeMonthsLowest * (item.quantity ?? 0),
-                savingLoss: lowestQuoted !== null && item.quote !== null ? (lowestQuoted - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
+                // threeMonthsLowestAmount: threeMonthsLowest * (item.quantity ?? 0),
+                targetAmount: threeMonthsLowest * (item.quantity ?? 0),
+                savingLoss: ((lowestQuoted || threeMonthsLowest) && item.quote) ? (((lowestQuoted && threeMonthsLowest) ? Math.min(lowestQuoted, threeMonthsLowest) : (lowestQuoted || threeMonthsLowest)) - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
             };
 
             if (!data[vendorId]) {

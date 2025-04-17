@@ -127,10 +127,10 @@ interface FilterParameters {
 }
 
 export const ProjectQueryKeys = {
-  project: (projectId: string) => ['projects', projectId],
-  customer: (customerId: string) => ['customers', customerId],
-  quotes: (parameters: FilterParameters) => ['Approved Quotations', {...parameters}],
-  estimates: (parameters: FilterParameters) => ['Project Estimates', {...parameters}]
+  project: (projectId: string) => ['projects', 'single', projectId],
+  customer: (customerId: string) => ['customers', 'single', customerId],
+  quotes: (parameters: FilterParameters) => ['Approved Quotations', 'list', {...parameters}],
+  estimates: (parameters: FilterParameters) => ['Project Estimates', 'list', {...parameters}]
 }
 
 const Project : React.FC = () => {
@@ -379,7 +379,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [projectPayments]);
 
 
-  const getUserFullName = useMemo(() => (id: string | undefined) => {
+  const getUserFullName = useCallback(() => (id: string | undefined) => {
     if (id === "Administrator") return id;
     return usersList?.find((user) => user.name === id)?.full_name || "";
   }, [usersList]);
@@ -641,8 +641,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   );
 
 
-  const getTotal = (order_id: string) => {
-    return useMemo(() => {
+  const getTotal = useMemo(() => memoize((order_id: string) => {
     let total = 0;
     const procurementRequest = pr_data?.find((item) => item.name === order_id);
     const orderData = procurementRequest?.procurement_list;
@@ -664,8 +663,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       });
     }
     return total || "N/A";
-    }, [pr_data, po_data, quote_data, statusRender, order_id]);
-  };
+    }, (order_id: string) => order_id),[pr_data, po_data, quote_data, statusRender]);
 
   useEffect(() => {
     if (pr_data) {
@@ -967,12 +965,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }, [po_data_for_posummary, order_id]);
   }
 
-  const getWorkPackageName = (poId: string) => {
-    return useMemo(() => {
+  const getWorkPackageName = useMemo(() => memoize((poId: string) => {
     const po = po_data_for_posummary?.find((j) => j?.name === poId);
     return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
-    }, [po_data_for_posummary, pr_data, poId]);
-  }
+  }, (poId: string) =>  poId),[po_data_for_posummary, pr_data])
 
 
   const wpOptions = useMemo(() => {
@@ -989,12 +985,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [data]);
 
 
-  const getTotalAmountPaidPOWise =(id: string) => {
-    return useMemo(() => {
+  const getTotalAmountPaidPOWise = useMemo(() => memoize((id: string) => {
     const payments = projectPayments?.filter((payment) => payment.document_name === id);
     return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-    }, [projectPayments, id]);
-  }
+    }, (id: string) => id), [projectPayments]);
 
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
@@ -1302,10 +1296,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
   
-  const totalPOAmountWithGST: number = useMemo(memoize(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
+  const totalPOAmountWithGST: number = useMemo(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
       const { amountWithTax } = workPackageTotalAmounts[key];
       return acc + amountWithTax;
-    }, 0), (workPackageTotalAmounts: any) => JSON.stringify(workPackageTotalAmounts)), [workPackageTotalAmounts])
+    }, 0), [workPackageTotalAmounts])
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };

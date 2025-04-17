@@ -1116,7 +1116,7 @@ export const PurchaseOrder = ({
       {/* Synchronized Table Layout */}
       <div className="overflow-x-auto">
         {/* Header Table */}
-        <table className="w-full border-collapse" id="order-details-table">
+        <table className="w-full border-collapse order-details-table">
           <colgroup>
             <col className="w-[5%]" />
             <col className="w-[50%]" />

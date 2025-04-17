@@ -1,8 +1,11 @@
+import AddMakeComponent from "@/components/procurement-packages"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor"
+import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist"
+import { Makelist } from "@/types/NirmaanStack/Makelist"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"
 import { useFrappeGetDocList } from "frappe-react-sdk"
@@ -30,17 +33,23 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
 
   const [newSelectedMakes, setNewSelectedMakes] = useState([]);
 
-  const { data: categoryMakeList } = useFrappeGetDocList("Category Makelist", {
+  const { data: categoryMakeList, mutate: categoryMakeListMutate } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
     fields: ["*"],
     limit: 100000,
   })
+
+  const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList<Makelist>("Makelist", {
+      fields: ["*"],
+      limit: 100000,
+    })
 
   useEffect(() => {
     if ((categoryMakeList || [])?.length > 0) {
       const categoryMakes = categoryMakeList?.filter((i) => i?.category === item?.category);
       const makeOptionsList = categoryMakes?.map((i) => ({ label: i?.make, value: i?.make })) || [];
-      const filteredOptions = makeOptionsList?.filter(i => !formData?.details?.[item?.name]?.makes?.some(j => j === i?.value))
-      setMakeOptions(filteredOptions)
+      // const filteredOptions = makeOptionsList?.filter(i => !formData?.details?.[item?.name]?.makes?.some(j => j === i?.value))
+      // setMakeOptions(filteredOptions)
+      setMakeOptions(makeOptionsList)
     }
 
   }, [categoryMakeList, item, formData, orderData])
@@ -55,7 +64,6 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
   //   ?.makes?.find((m) => m?.enabled === "true");
 
   const selectedMakeName = formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make
-
 
   const selectedVendorMake = { value: selectedMakeName, label: selectedMakeName }
   // const selectedMakeValue = selectedMake
@@ -107,7 +115,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
           className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
           onClick={() => toggleShowAlert()}
         >
-          <strong>Add New Make</strong>
+          <strong>Create New Make</strong>
         </div>
       </MenuList>
     );
@@ -120,7 +128,8 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
         className="w-full"
         placeholder="Select Make..."
         value={selectedVendorMake}
-        options={editMakeOptions}
+        // options={editMakeOptions}
+        options={makeOptions}
         onChange={handleMakeChange}
         components={{ MenuList: CustomMenu }}
       />
@@ -132,7 +141,8 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
           <DialogTitle>Add New Makes</DialogTitle>
         </DialogHeader>
         <DialogDescription>
-        <div className="flex gap-1 flex-wrap mb-4">
+          <AddMakeComponent category={item?.category} categoryMakeListMutate={categoryMakeListMutate} makeList={makeList} makeListMutate={makeListMutate} />
+        {/* <div className="flex gap-1 flex-wrap mb-4">
           {editMakeOptions?.length > 0 && (
             <div className="flex flex-col gap-2">
               <h2 className="font-semibold">Existing Makes for this item:</h2>
@@ -160,7 +170,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
             <ListChecks className="h-4 w-4" />
             Confirm
           </Button>
-        </div>
+        </div> */}
         </DialogDescription>
       </DialogContent>
     </Dialog>

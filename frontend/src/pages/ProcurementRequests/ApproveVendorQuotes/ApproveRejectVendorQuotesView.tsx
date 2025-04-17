@@ -74,7 +74,7 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
             <VendorApprovalTable
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
-                initialSelection={selectionMap}
+                selection={selectionMap}
                 // Pass initial selection if needed
             />
 

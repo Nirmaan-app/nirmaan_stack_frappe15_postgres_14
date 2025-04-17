@@ -69,7 +69,6 @@ export const useApproveRejectLogic = ({
     useEffect(() => {
         if (initialPrData) {
             try {
-              console.log("initialPrData", initialPrData)
                 // Filter only 'Pending' items for this view's list
                 const pendingItems = (typeof initialPrData.procurement_list === "string" ? JSON.parse(initialPrData.procurement_list)?.list : initialPrData.procurement_list?.list || [])
                     .filter((item: ProcurementItem) => item.status === 'Pending');
@@ -98,7 +97,7 @@ export const useApproveRejectLogic = ({
         }
     }, [initialPrData, toast]);
 
-    console.log("orderData", orderData)
+    // console.log("orderData", orderData)
 
     // --- Memos ---
     const vendorMap = useMemo(() => new Map(vendorList.map(v => [v.name, v.vendor_name])), [vendorList]);
@@ -129,7 +128,7 @@ export const useApproveRejectLogic = ({
             const vendorId = item.vendor;
             const vendorName = getVendorName(vendorId);
             const amount = (item.quote ?? 0) * (item.quantity ?? 0);
-            const threeMonthsLowest = getThreeMonthsLowest(item.name) ?? 0;
+            const threeMonthsLowest = (getThreeMonthsLowest(item.name) ?? 0) * 0.98;
             const lowestQuoted = getLowest(item.name) ?? 0;
 
             const itemDetails: VendorItemDetails = {
@@ -137,9 +136,9 @@ export const useApproveRejectLogic = ({
                 vendor_name: vendorName,
                 amount,
                 lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
-                targetAmount: (threeMonthsLowest * 0.98) * (item.quantity ?? 0),
+                targetAmount: threeMonthsLowest * (item.quantity ?? 0),
                 // Calculate saving/loss based on comparison (e.g., lowest vs selected)
-                savingLoss: lowestQuoted !== null && item.quote !== null ? (lowestQuoted - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
+                savingLoss: ((lowestQuoted || threeMonthsLowest) && item.quote) ? (((lowestQuoted && threeMonthsLowest) ? Math.min(lowestQuoted, threeMonthsLowest) : (lowestQuoted || threeMonthsLowest)) - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
             };
 
             if (!data[vendorId]) {
@@ -235,7 +234,6 @@ export const useApproveRejectLogic = ({
     }, [orderData, selectionMap, approveSelection, prMutate, navigate, toggleApproveDialog, toast]);
 
 
-    console.log("selctionMap", selectionMap)
     const handleSendBackConfirm = useCallback(async () => {
         if (!orderData) return;
 
