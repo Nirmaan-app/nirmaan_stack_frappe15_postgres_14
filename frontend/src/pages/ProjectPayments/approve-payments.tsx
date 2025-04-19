@@ -12,7 +12,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -211,7 +211,7 @@ export const ApprovePayments = () => {
                     order = serviceOrders?.find(i => i?.name === data?.document_name)
                   }
                   return <div className="font-medium">
-                      {formatToIndianRupee(isSr ? (order?.gst === "true" ? getSRTotal(order) : getSRTotal(order) * 1.18 ) : 
+                      {formatToRoundedIndianRupee(isSr ? (order?.gst === "true" ? getSRTotal(order) : getSRTotal(order) * 1.18 ) : 
                       getPOTotal(order, parseNumber(order?.loading_charges), parseNumber(order?.freight_charges))?.totalAmt)}
                   </div>
               },
@@ -225,7 +225,7 @@ export const ApprovePayments = () => {
                 },
                 cell: ({ row }) => {
                     return <div className="font-medium">
-                        {formatToIndianRupee(row.getValue("amount"))}
+                        {formatToRoundedIndianRupee(row.getValue("amount"))}
                     </div>
                 },
             },
@@ -306,7 +306,7 @@ export const ApprovePayments = () => {
               <AlertDialogHeader>
                 <AlertDialogTitle>
                   {["approve", "reject"] .includes(dialogType) ? (
-                    <p>Are you sure you want to {dialogType} the payment of <span className="text-primary">{formatToIndianRupee(selectedPO?.amount)} to the {vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}</span> for PO <i>#{selectedPO?.document_name}</i>?</p>
+                    <p>Are you sure you want to {dialogType} the payment of <span className="text-primary">{formatToRoundedIndianRupee(selectedPO?.amount)} to the {vendorValues?.find(v => v?.value === selectedPO?.vendor)?.label}</span> for PO <i>#{selectedPO?.document_name}</i>?</p>
                   ) : 
                   "Edit Payment"} 
                 </AlertDialogTitle>

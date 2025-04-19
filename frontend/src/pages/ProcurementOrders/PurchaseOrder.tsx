@@ -90,7 +90,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import DeliveryHistory from "../DeliveryNotes/DeliveryHistory";
+import DeliveryHistory from "../DeliveryNotes/components/DeliveryHistory";
 import { InvoiceDialog } from "./InvoiceDialog";
 import POAttachments from "./POAttachments";
 import POPaymentTermsCard from "./POPaymentTermsCard";

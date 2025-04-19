@@ -6,7 +6,7 @@ import SITEURL from "@/constants/siteURL";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { InvoiceDataType, InvoiceItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import { useMemo } from "react";
@@ -105,7 +105,7 @@ export const InvoiceDataDialog = ({
                       </TableCell>
                       <TableCell>{item.invoiceNo}</TableCell>
                       <TableCell className="text-right">
-                        {formatToIndianRupee(Number(item.amount))}
+                        {formatToRoundedIndianRupee(Number(item.amount))}
                       </TableCell>
                       <TableCell>
                         {item.attachment ? (

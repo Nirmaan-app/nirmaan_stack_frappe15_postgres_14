@@ -1,12 +1,12 @@
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
-import DeliveryHistoryTable from '@/pages/DeliveryNotes/DeliveryHistory';
-import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/deliveryNoteItemsDisplay";
+import DeliveryHistoryTable from '@/pages/DeliveryNotes/components/DeliveryHistory';
+import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeGetDoc, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, TriangleAlert, Undo2 } from "lucide-react";
@@ -823,16 +823,16 @@ export const PODetails : React.FC<PODetailsProps> = (
                 </div>
                 <div className="flex flex-col gap-2 max-sm:items-end">
                   <Label className=" text-red-700">Total (Excl. GST)</Label>
-                  <span>{formatToIndianRupee(getTotal?.total)}</span>
+                  <span>{formatToRoundedIndianRupee(getTotal?.total)}</span>
                 </div>
                 <div className="flex flex-col gap-2 sm:items-center">
                   <Label className=" text-red-700">Total Amount Paid</Label>
-                  <span>{amountPaid ? formatToIndianRupee(amountPaid) : "--"}</span>
+                  <span>{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
                 </div>
                 <div className="flex flex-col gap-2 items-end">
                   <Label className=" text-red-700">Total (Incl. GST)</Label>
                   <span>
-                    {formatToIndianRupee(getTotal?.totalAmt)}
+                    {formatToRoundedIndianRupee(getTotal?.totalAmt)}
                   </span>
                 </div>
               </div>

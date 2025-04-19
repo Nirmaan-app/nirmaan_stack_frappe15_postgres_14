@@ -1,5 +1,5 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -299,7 +299,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
           setWarning(
             `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
             ${orderData?.gst === "true" ? "including" : "excluding"
-            } GST: ${formatToIndianRupee(compareAmount)}`
+            } GST: ${formatToRoundedIndianRupee(compareAmount)}`
           );
         } else {
           setWarning("");
@@ -406,16 +406,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                   </div>
                                   <div className="flex flex-col gap-2 max-sm:items-end">
                                       <Label className=" text-red-700">Total (Excl. GST)</Label>
-                                      <span>{formatToIndianRupee(getTotal)}</span>
+                                      <span>{formatToRoundedIndianRupee(getTotal)}</span>
                                   </div>
                                   <div className="flex flex-col gap-2 sm:items-center">
                                       <Label className=" text-red-700">Total Amount Paid</Label>
-                                      <span>{getAmountPaid ? formatToIndianRupee(getAmountPaid) : "--"}</span>    
+                                      <span>{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>    
                                   </div>
                                   {gstEnabled && (
                                     <div className="flex flex-col gap-2 items-end">
                                         <Label className=" text-red-700">Total (Incl. GST)</Label>
-                                        <span>{formatToIndianRupee(getTotal * 1.18)}</span>
+                                        <span>{formatToRoundedIndianRupee(getTotal * 1.18)}</span>
                                     </div>
                                   )}
                         </div>
@@ -465,17 +465,17 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(getTotal)}</span>
+                                    <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
                                 </div>
                                 {orderData?.gst === "true" && (
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(Math.floor(getTotal))}</span>
+                                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
                                 </div>
                                 )}
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                    <span className="">{getAmountPaid ? formatToIndianRupee(getAmountPaid) : "--"}</span>
+                                    <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
                                 </div>
 
                                 <div className="flex flex-col gap-4 pt-4">
@@ -503,7 +503,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                                                     }}
                                                                 />
-                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
+                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
                                                                 </div>
                                                             </div>
                                                             <div className="flex gap-4 w-full">
@@ -579,7 +579,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                     projectPayments?.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
                                                 {/* {service_request?.gst === "true" && (
                                                      <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
                                                  )} */}

@@ -39,7 +39,7 @@ import { usePOValidation } from "@/hooks/usePOValidation";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -105,7 +105,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
         setWarning(
           `Entered amount exceeds the total ${
             amountPaid ? "remaining" : ""
-          } amount including GST: ${formatToIndianRupee(compareAmount)}`
+          } amount including GST: ${formatToRoundedIndianRupee(compareAmount)}`
         );
       } else {
         setWarning(""); // Clear warning if within the limit
@@ -260,15 +260,15 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                        <span className="">{formatToIndianRupee(getTotal?.total)}</span>
+                                        <span className="">{formatToRoundedIndianRupee(getTotal?.total)}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                        <span className="">{formatToIndianRupee(Math.floor(getTotal?.totalAmt || 0))}</span>
+                                        <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal?.totalAmt || 0))}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                        <span className="">{amountPaid ? formatToIndianRupee(amountPaid) : "--"}</span>
+                                        <span className="">{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
                                     </div>
     
                                     <div className="flex flex-col gap-4 pt-4">
@@ -296,7 +296,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                                                                             setNewPayment({ ...newPayment, tds: tdsValue })
                                                                         }}
                                                                     />
-                                                                    {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((parseNumber(newPayment?.amount)) - parseNumber(newPayment?.tds))}</span>}
+                                                                    {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee((parseNumber(newPayment?.amount)) - parseNumber(newPayment?.tds))}</span>}
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex gap-4 w-full">
@@ -369,7 +369,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                           return (
                             <TableRow key={payment?.name}>
                               <TableCell>
-                                {formatToIndianRupee(payment?.amount)}
+                                {formatToRoundedIndianRupee(payment?.amount)}
                               </TableCell>
                                 {(payment?.utr && payment?.payment_attachment) ? (
                                   <TableCell className="text-blue-500 underline">

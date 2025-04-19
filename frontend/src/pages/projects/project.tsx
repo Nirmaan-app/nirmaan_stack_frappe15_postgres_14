@@ -44,7 +44,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
@@ -830,7 +830,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         const total = getTotal(row.getValue("name"));
         return (
           <div className="text-[#11050599]">
-            {total === "N/A" ? total : formatToIndianRupee(total)}
+            {total === "N/A" ? total : formatToRoundedIndianRupee(total)}
           </div>
         );
       },
@@ -920,7 +920,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(getSRTotal(row.getValue("name")) || "--")}
+              {formatToRoundedIndianRupee(getSRTotal(row.getValue("name")) || "--")}
             </div>
           );
         },
@@ -932,7 +932,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             const data = row.original
             const amountPaid = getTotalAmountPaidPOWise(data?.name);
             return <div className="font-medium">
-                {formatToIndianRupee(amountPaid || "--")}
+                {formatToRoundedIndianRupee(amountPaid || "--")}
             </div>
         },
     },
@@ -1094,7 +1094,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(
+              {formatToRoundedIndianRupee(
                 getPOTotal(row.getValue("name")).totalWithoutGST
               )}
             </div>
@@ -1111,7 +1111,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(
+              {formatToRoundedIndianRupee(
                 getPOTotal(row.getValue("name")).totalWithGST
               )}
             </div>
@@ -1125,7 +1125,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             const data = row.original
             const amountPaid = getTotalAmountPaidPOWise(data?.name);
             return <div className="font-medium">
-                {formatToIndianRupee(amountPaid)}
+                {formatToRoundedIndianRupee(amountPaid)}
             </div>
         },
       },
@@ -1540,13 +1540,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             <div>
               <span className="whitespace-nowrap">Total Estimates: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(estimatesTotal)}
+                {formatToRoundedIndianRupee(estimatesTotal)}
               </span>
             </div>
             <div>
               <span className="whitespace-nowrap">Total Amt Paid: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(getTotalAmountPaid.totalAmount)}
+                {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
               </span>
             </div>
           </div>
@@ -1669,19 +1669,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(totalPOAmountWithGST)}
+                          {formatToRoundedIndianRupee(totalPOAmountWithGST)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(totalPosRaised)}
+                          {formatToRoundedIndianRupee(totalPosRaised)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(getTotalAmountPaid.poAmount)}
+                          {formatToRoundedIndianRupee(getTotalAmountPaid.poAmount)}
                         </span>
                       </p>
                     </div>
@@ -1753,7 +1753,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(getAllSRsTotalWithGST)}
+                          {formatToRoundedIndianRupee(getAllSRsTotalWithGST)}
                         </span>
                       </p>
                       {/* <p className="text-gray-700">
@@ -1765,7 +1765,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(getTotalAmountPaid?.srAmount)}
+                          {formatToRoundedIndianRupee(getTotalAmountPaid?.srAmount)}
                         </span>
                       </p>
                     </div>

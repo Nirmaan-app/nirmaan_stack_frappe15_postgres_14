@@ -1,6 +1,6 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import React, { useMemo } from "react";
 
@@ -15,7 +15,7 @@ export const AmountPaidHoverCard: React.FC<{ paymentInfo: ProjectPayments }> = R
       <HoverCard>
         <HoverCardTrigger>
           <p className="text-xs text-gray-600 font-semibold underline">
-            {formatToIndianRupee(amountPaid)}
+            {formatToRoundedIndianRupee(amountPaid)}
           </p>
         </HoverCardTrigger>
         <HoverCardContent className="w-80">
@@ -27,7 +27,7 @@ export const AmountPaidHoverCard: React.FC<{ paymentInfo: ProjectPayments }> = R
               </div>
               <div>
                 <p className="text-xs font-semibold text-right">
-                  {formatToIndianRupee(TotalAmount)}
+                  {formatToRoundedIndianRupee(TotalAmount)}
                 </p>
               </div>
               <div>
@@ -35,7 +35,7 @@ export const AmountPaidHoverCard: React.FC<{ paymentInfo: ProjectPayments }> = R
               </div>
               <div>
                 <p className="text-xs font-semibold text-right text-red-600">
-                  - {formatToIndianRupee(tdsAmount)}
+                  - {formatToRoundedIndianRupee(tdsAmount)}
                 </p>
               </div>
               <div className="border-t border-gray-200 col-span-2"></div>
@@ -44,7 +44,7 @@ export const AmountPaidHoverCard: React.FC<{ paymentInfo: ProjectPayments }> = R
               </div>
               <div>
                 <p className="text-xs font-semibold text-right text-green-600">
-                  {formatToIndianRupee(amountPaid)}
+                  {formatToRoundedIndianRupee(amountPaid)}
                 </p>
               </div>
             </div>
