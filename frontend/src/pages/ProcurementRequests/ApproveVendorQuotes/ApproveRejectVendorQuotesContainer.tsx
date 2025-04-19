@@ -132,7 +132,7 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
             prData={prData}
             // Pass any extra props needed only by the view
             prComments={universalComment || []} // Replace with commentsData if fetched separately
-            getUserName={(id: string | undefined) => logicProps.getVendorName(id)} // Adjust if getUserName logic differs
+            // getUserName={(id: string | undefined) => logicProps.getVendorName(id)} // Adjust if getUserName logic differs
             attachment={null} // Pass attachment data if fetched separately
             handleAttachmentClick={() => {}} // Pass attachment click handler if needed
             // Pass delayed items if calculated separately or handle within view/logic hook
