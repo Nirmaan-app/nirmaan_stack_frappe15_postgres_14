@@ -47,6 +47,9 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SelectServiceVendorPage } from "./select-service-vendor";
 import SRAttachments from "./SRAttachments";
+import { useUserData } from "@/hooks/useUserData";
+import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
+import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 
 // const { Sider, Content } = Layout;
 
@@ -58,6 +61,7 @@ interface ApprovedSRProps {
 export const ApprovedSR = ({summaryPage = false, accountsPage = false} : ApprovedSRProps) => {
 
     const params = useParams();
+    const {role, user_id} = useUserData()
   
     const id = accountsPage ? params.id : params.srId;
 
@@ -107,6 +111,19 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     });
     
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+
+    const [deleteDialog, setDeleteDialog] = useState(false)
+    // Use the custom hook for deletion logic
+    const { deleteServiceRequest, isDeleting } = useServiceRequestLogic({
+            onSuccess: (deletedSrName) => {
+                service_request_mutate();
+                setDeleteDialog(false);
+            },
+            onError: (error, srName) => {
+                console.error(`Error deleting SR ${srName} from table view:`, error);
+            },
+            navigateOnSuccessPath: "/service-requests?tab=approved-sr"
+        });
 
     const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
@@ -349,6 +366,13 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
           </div>
         );
 
+    // Handler for the dialog confirmation
+    const handleConfirmDelete = () => {
+        if (orderData) {
+            deleteServiceRequest(orderData.name); // Call the hook's function
+        }
+    }
+
     return (
         <div className="flex-1 space-y-4">
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
@@ -359,6 +383,23 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     <Badge>{orderData?.status}</Badge>
                 </div>
               <div className="flex items-center gap-2">
+
+                                    <Button 
+                                    disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile")} 
+                                    variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete
+                                    </Button>
+
+                                {/* Render the Delete Confirmation Dialog */}
+                                            <SRDeleteConfirmationDialog
+                                                open={deleteDialog}
+                                                onOpenChange={() => setDeleteDialog(false)}
+                                                itemName={orderData?.name}
+                                                itemType="Service Request" // Specific type for this instance
+                                                onConfirm={handleConfirmDelete}
+                                                isDeleting={isDeleting}
+                                            />
                                 {!summaryPage && !accountsPage && (
                                     <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
                                         <PencilRuler className="w-4 h-4" />
