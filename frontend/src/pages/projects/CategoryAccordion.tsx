@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd";
 import { useEffect, useMemo, useState } from "react";
@@ -109,14 +109,14 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       dataIndex: "total_amount",
       key: "total_amount",
       width: "30%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Estd. Amount (exc. GST)",
       dataIndex: "total_estimate_amount",
       key: "total_estimate_amount",
       width: "30%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
   ], [])
 
@@ -169,7 +169,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       key: "amount_spent",
       render: (text) => (
         <span className="italic">
-          {text ? formatToIndianRupee(text) : "--"}
+          {text ? formatToRoundedIndianRupee(text) : "--"}
         </span>
       ),
     },
@@ -179,7 +179,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       render: (text, data) => {
         const { estimateItem } = getItemAttributes(data)
         return <span className="italic">
-          {formatToIndianRupee(
+          {formatToRoundedIndianRupee(
             estimateItem?.rate_estimate *
             estimateItem?.quantity_estimate
           )}
@@ -204,7 +204,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
         >
           {estimateItem?.quantity_estimate !==
             undefined
-            ? formatToIndianRupee(updated_estd_amt)
+            ? formatToRoundedIndianRupee(updated_estd_amt)
             : "--"}
           {!isNaN(percentage_change) && (estimateItem?.quantity_estimate !==
             undefined && ` (${percentage_change}%)`)}

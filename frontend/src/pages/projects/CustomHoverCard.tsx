@@ -1,5 +1,5 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { DownOutlined } from "@ant-design/icons";
 import { Tree } from "antd";
 
@@ -68,7 +68,7 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
     if (totalServiceOrdersAmt) {
       treeData?.push({
         title: `Service Requests Total: ${
-          formatToIndianRupee(totalServiceOrdersAmt)
+          formatToRoundedIndianRupee(totalServiceOrdersAmt)
         }`,
         key: "service-requests-total",
       });
@@ -83,7 +83,7 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
         <div className="underline">
           <span className="whitespace-nowrap">PO Amt (ex. GST): </span>
           <span className="max-sm:text-end max-sm:w-full text-primary">
-            {formatToIndianRupee(totalPosRaised + totalServiceOrdersAmt)}
+            {formatToRoundedIndianRupee(totalPosRaised + totalServiceOrdersAmt)}
           </span>
         </div>
       </HoverCardTrigger>

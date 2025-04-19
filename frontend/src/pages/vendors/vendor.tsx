@@ -33,7 +33,7 @@ import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import { ConfigProvider, Menu, MenuProps } from "antd";
@@ -522,9 +522,9 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
         cell: ({ row }) => {
           return (
             <div className="flex flex-col gap-2 text-[#11050599] min-w-[200px]">
-              <Badge>PO Value (Excl. GST): {formatToIndianRupee(getTotal(row.getValue("order_list"), row.getValue('name'),).poAmountWithoutGST)}</Badge>
-              <Badge>PO Value (Incl. GST): {formatToIndianRupee(getTotal(row.getValue("order_list"), row.getValue("name")).poAmountWithGST)}</Badge>
-              <Badge>Amount Paid: {formatToIndianRupee(getTotal(row.getValue("order_list"), row.getValue("name")).totalAmountPaid)}</Badge>
+              <Badge>PO Value (Excl. GST): {formatToRoundedIndianRupee(getTotal(row.getValue("order_list"), row.getValue('name'),).poAmountWithoutGST)}</Badge>
+              <Badge>PO Value (Incl. GST): {formatToRoundedIndianRupee(getTotal(row.getValue("order_list"), row.getValue("name")).poAmountWithGST)}</Badge>
+              <Badge>Amount Paid: {formatToRoundedIndianRupee(getTotal(row.getValue("order_list"), row.getValue("name")).totalAmountPaid)}</Badge>
             </div>
           );
         },
@@ -607,7 +607,7 @@ const { data: projectPayments, isLoading: projectPaymentsLoading, error: project
             },
             cell: ({ row }) => {
                 return <div className="font-medium">
-                    {formatToIndianRupee(row.getValue("amount"))}
+                    {formatToRoundedIndianRupee(row.getValue("amount"))}
                 </div>
             },
         },

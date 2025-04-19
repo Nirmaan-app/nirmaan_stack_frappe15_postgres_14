@@ -614,11 +614,18 @@ export const ProcurementPackages : React.FC = () => {
 
 interface AddMakeComponentProps {
   makeList? : Makelist[]
-  makeListMutate: any
+  makeListMutate: any;
+  category?: string
+  categoryMakeListMutate?: any;
+  handleMakeChange?: (make: {
+                      label: string;
+                      value: string;
+                      }) => void
+  toggleShowAlert?: () => void
 }
 
 
-const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeListMutate }) => {
+const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeListMutate, category, categoryMakeListMutate, handleMakeChange, toggleShowAlert }) => {
   const [newMake, setNewMake] = useState("");
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [checking, setChecking] = useState(false); // To show loading state for the check
@@ -627,15 +634,25 @@ const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeList
 
   const handleAddNewMake = async () => {
     try {
-      await createDoc("Makelist", {
+      const res = await createDoc("Makelist", {
         make_name: newMake
       })
+
+      if(category) {
+        await createDoc("Category Makelist", {
+          category: category,
+          make: res?.name
+        })
+        handleMakeChange?.({label: res?.name, value: res?.name})
+        await categoryMakeListMutate?.()
+        toggleShowAlert?.()
+      }
 
       await makeListMutate()
 
       toast({
         title: "Success",
-        description: `New make: ${newMake} created successfully!`,
+        description: `New make: ${newMake} created ${category ? "and set" : ""} successfully!`,
         variant: "success",
       });
 

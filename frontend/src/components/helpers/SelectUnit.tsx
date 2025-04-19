@@ -25,6 +25,7 @@ export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, classN
     { value: "LTR", label: "LTR" },
     { value: "BUNDLE", label: "BUNDLE" },
     { value: "FEET", label: "FEET" },
+    { value: "LOT", label: "LOT" },
   ]
     return (
         <Select

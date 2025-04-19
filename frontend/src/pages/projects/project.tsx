@@ -44,7 +44,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
@@ -127,10 +127,10 @@ interface FilterParameters {
 }
 
 export const ProjectQueryKeys = {
-  project: (projectId: string) => ['projects', projectId],
-  customer: (customerId: string) => ['customers', customerId],
-  quotes: (parameters: FilterParameters) => ['Approved Quotations', {...parameters}],
-  estimates: (parameters: FilterParameters) => ['Project Estimates', {...parameters}]
+  project: (projectId: string) => ['projects', 'single', projectId],
+  customer: (customerId: string) => ['customers', 'single', customerId],
+  quotes: (parameters: FilterParameters) => ['Approved Quotations', 'list', {...parameters}],
+  estimates: (parameters: FilterParameters) => ['Project Estimates', 'list', {...parameters}]
 }
 
 const Project : React.FC = () => {
@@ -379,7 +379,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [projectPayments]);
 
 
-  const getUserFullName = useMemo(() => (id: string | undefined) => {
+  const getUserFullName = useCallback(() => (id: string | undefined) => {
     if (id === "Administrator") return id;
     return usersList?.find((user) => user.name === id)?.full_name || "";
   }, [usersList]);
@@ -641,8 +641,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   );
 
 
-  const getTotal = (order_id: string) => {
-    return useMemo(() => {
+  const getTotal = useMemo(() => memoize((order_id: string) => {
     let total = 0;
     const procurementRequest = pr_data?.find((item) => item.name === order_id);
     const orderData = procurementRequest?.procurement_list;
@@ -664,8 +663,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       });
     }
     return total || "N/A";
-    }, [pr_data, po_data, quote_data, statusRender, order_id]);
-  };
+    }, (order_id: string) => order_id),[pr_data, po_data, quote_data, statusRender]);
 
   useEffect(() => {
     if (pr_data) {
@@ -832,7 +830,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         const total = getTotal(row.getValue("name"));
         return (
           <div className="text-[#11050599]">
-            {total === "N/A" ? total : formatToIndianRupee(total)}
+            {total === "N/A" ? total : formatToRoundedIndianRupee(total)}
           </div>
         );
       },
@@ -922,7 +920,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(getSRTotal(row.getValue("name")) || "--")}
+              {formatToRoundedIndianRupee(getSRTotal(row.getValue("name")) || "--")}
             </div>
           );
         },
@@ -934,7 +932,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             const data = row.original
             const amountPaid = getTotalAmountPaidPOWise(data?.name);
             return <div className="font-medium">
-                {formatToIndianRupee(amountPaid || "--")}
+                {formatToRoundedIndianRupee(amountPaid || "--")}
             </div>
         },
     },
@@ -967,12 +965,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }, [po_data_for_posummary, order_id]);
   }
 
-  const getWorkPackageName = (poId: string) => {
-    return useMemo(() => {
+  const getWorkPackageName = useMemo(() => memoize((poId: string) => {
     const po = po_data_for_posummary?.find((j) => j?.name === poId);
     return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
-    }, [po_data_for_posummary, pr_data, poId]);
-  }
+  }, (poId: string) =>  poId),[po_data_for_posummary, pr_data])
 
 
   const wpOptions = useMemo(() => {
@@ -989,12 +985,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [data]);
 
 
-  const getTotalAmountPaidPOWise =(id: string) => {
-    return useMemo(() => {
+  const getTotalAmountPaidPOWise = useMemo(() => memoize((id: string) => {
     const payments = projectPayments?.filter((payment) => payment.document_name === id);
     return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-    }, [projectPayments, id]);
-  }
+    }, (id: string) => id), [projectPayments]);
 
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
@@ -1100,7 +1094,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(
+              {formatToRoundedIndianRupee(
                 getPOTotal(row.getValue("name")).totalWithoutGST
               )}
             </div>
@@ -1117,7 +1111,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(
+              {formatToRoundedIndianRupee(
                 getPOTotal(row.getValue("name")).totalWithGST
               )}
             </div>
@@ -1131,7 +1125,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             const data = row.original
             const amountPaid = getTotalAmountPaidPOWise(data?.name);
             return <div className="font-medium">
-                {formatToIndianRupee(amountPaid)}
+                {formatToRoundedIndianRupee(amountPaid)}
             </div>
         },
       },
@@ -1302,10 +1296,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
   
-  const totalPOAmountWithGST: number = useMemo(memoize(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
+  const totalPOAmountWithGST: number = useMemo(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
       const { amountWithTax } = workPackageTotalAmounts[key];
       return acc + amountWithTax;
-    }, 0), (workPackageTotalAmounts: any) => JSON.stringify(workPackageTotalAmounts)), [workPackageTotalAmounts])
+    }, 0), [workPackageTotalAmounts])
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -1546,13 +1540,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             <div>
               <span className="whitespace-nowrap">Total Estimates: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(estimatesTotal)}
+                {formatToRoundedIndianRupee(estimatesTotal)}
               </span>
             </div>
             <div>
               <span className="whitespace-nowrap">Total Amt Paid: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(getTotalAmountPaid.totalAmount)}
+                {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
               </span>
             </div>
           </div>
@@ -1675,19 +1669,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(totalPOAmountWithGST)}
+                          {formatToRoundedIndianRupee(totalPOAmountWithGST)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(totalPosRaised)}
+                          {formatToRoundedIndianRupee(totalPosRaised)}
                         </span>
                       </p>
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(getTotalAmountPaid.poAmount)}
+                          {formatToRoundedIndianRupee(getTotalAmountPaid.poAmount)}
                         </span>
                       </p>
                     </div>
@@ -1759,7 +1753,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total inc. GST:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(getAllSRsTotalWithGST)}
+                          {formatToRoundedIndianRupee(getAllSRsTotalWithGST)}
                         </span>
                       </p>
                       {/* <p className="text-gray-700">
@@ -1771,7 +1765,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <p className="text-gray-700">
                         <span className="font-bold">Total Amt Paid:</span>{" "}
                         <span className="text-blue-600">
-                          {formatToIndianRupee(getTotalAmountPaid?.srAmount)}
+                          {formatToRoundedIndianRupee(getTotalAmountPaid?.srAmount)}
                         </span>
                       </p>
                     </div>

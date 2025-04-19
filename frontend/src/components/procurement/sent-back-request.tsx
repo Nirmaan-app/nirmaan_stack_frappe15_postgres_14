@@ -6,7 +6,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
@@ -227,7 +227,7 @@ export const SentBackRequest : React.FC<{tab? : string}> = ({tab}) => {
                     const id = row.getValue("name")
                     return (
                         <div className="font-medium">
-                            {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
+                            {getTotal(id) === 0 ? "N/A" : formatToRoundedIndianRupee(getTotal(id))}
                         </div>
                     )
                 }

@@ -13,7 +13,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
@@ -332,7 +332,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab}) => {
             },
             cell: ({ row }) => {
                 return <div className="font-medium">
-                    {formatToIndianRupee(row.original.amount)}
+                    {formatToRoundedIndianRupee(row.original.amount)}
                 </div>
             },
         },
@@ -347,7 +347,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab}) => {
                 cell: ({ row }) => {
                     const data = row.original
                     return <div className="font-medium">
-                        {formatToIndianRupee(parseNumber(data?.amount) - parseNumber(data?.tds))}
+                        {formatToRoundedIndianRupee(parseNumber(data?.amount) - parseNumber(data?.tds))}
                     </div>
                 },
             },
@@ -360,7 +360,7 @@ export const AccountantTabs : React.FC<AccountantTabsProps> = ({tab}) => {
                 },
                 cell: ({ row }) => {
                     return <div className="font-medium">
-                        {row.original?.tds ? formatToIndianRupee(parseNumber(row.original?.tds)) : "--"}
+                        {row.original?.tds ? formatToRoundedIndianRupee(parseNumber(row.original?.tds)) : "--"}
                     </div>
                 },
             },
@@ -433,7 +433,7 @@ if (projectsError || vendorsError || projectPaymentsError) {
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">Requested Amount:</Label>
-                                    <span className="">{formatToIndianRupee(paymentData?.amount)}</span>
+                                    <span className="">{formatToRoundedIndianRupee(paymentData?.amount)}</span>
                                 </div>
 
                                 <div className="flex flex-col gap-4 pt-4">
@@ -458,7 +458,7 @@ if (projectsError || vendorsError || projectPaymentsError) {
                                                     setPaymentData({ ...paymentData, tds: tdsValue })
                                                 }}
                                             />
-                                            {parseNumber(paymentData?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee(parseNumber(paymentData?.amount) - parseNumber(paymentData?.tds))}</span>}
+                                            {parseNumber(paymentData?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(paymentData?.amount) - parseNumber(paymentData?.tds))}</span>}
                                         </div>
                                     </div>
                                     <div className="flex gap-4 w-full" >

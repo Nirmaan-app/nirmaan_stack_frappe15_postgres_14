@@ -112,7 +112,7 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
         {/* <p className="text-left font-bold py-1 text-base text-black underline">{orderData?.owner}</p> */}
         <HoverCard>
           <HoverCardTrigger>
-            <p className="text-left font-bold py-1 text-base text-black underline cursor-pointer">
+            <p className="text-left font-bold py-1 text-base text-black underline cursor-pointer truncate">
               {orderData?.owner}
             </p>
           </HoverCardTrigger>

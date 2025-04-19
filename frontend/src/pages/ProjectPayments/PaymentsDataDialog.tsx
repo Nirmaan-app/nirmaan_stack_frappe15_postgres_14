@@ -6,7 +6,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useMemo } from "react";
 
@@ -91,9 +91,9 @@ export const PaymentsDataDialog = ({
                       <TableCell className="font-medium">
                         {formatDate(payment.payment_date || payment.creation)}
                       </TableCell>
-                      <TableCell>{formatToIndianRupee(payment?.amount - parseNumber(payment?.tds))}</TableCell>
+                      <TableCell>{formatToRoundedIndianRupee(payment?.amount - parseNumber(payment?.tds))}</TableCell>
                       <TableCell className="text-center">
-                        {formatToIndianRupee(parseNumber(payment?.tds) || "N/A")}
+                        {formatToRoundedIndianRupee(parseNumber(payment?.tds) || "N/A")}
                       </TableCell>
                       {payment?.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline">

@@ -7,7 +7,7 @@ import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
@@ -184,7 +184,7 @@ export const ApproveSelectAmendPO : React.FC = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {formatToRoundedIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }

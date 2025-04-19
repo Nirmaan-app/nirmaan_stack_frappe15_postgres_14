@@ -6,7 +6,7 @@ import { parseNumber } from "@/utils/parseNumber"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Steps } from "antd"
 import { format } from "date-fns"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
 import { BadgeIndianRupee, CalendarIcon, CirclePlus, ListChecks, Pencil, Undo2 } from "lucide-react"
 import React, { useCallback, useEffect, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
@@ -180,10 +180,10 @@ interface SelectOption {
 interface wpType {
     work_package_name: string;
 }
-interface sowType {
-    scope_of_work_name: string;
-    work_package: string;
-}
+// interface sowType {
+//     scope_of_work_name: string;
+//     work_package: string;
+// }
 
 export const ProjectForm = () => {
 
@@ -262,8 +262,10 @@ export const ProjectForm = () => {
         limit: 1000
     });
 
-    const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
-    const { deleteDoc } = useFrappeDeleteDoc()
+    const {call : createProjectAndAddress, loading: createProjectAndAddressLoading } = useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address")
+
+    // const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
+    // const { deleteDoc } = useFrappeDeleteDoc()
     const [popoverOpen, setPopoverOpen] = useState(false);
     const [popoverOpen2, setPopoverOpen2] = useState(false);
     const [duration, setDuration] = useState(0)
@@ -321,9 +323,106 @@ export const ProjectForm = () => {
         button?.click()
     };
 
-    async function onSubmit(values: z.infer<typeof projectFormSchema>) {
-        let reformattedWorkPackages = []
+    // async function onSubmit(values: z.infer<typeof projectFormSchema>) {
+    //     let reformattedWorkPackages = []
+    //     try {
+    //         if (values.project_city === "Not Found" || values.project_state === "Not Found") {
+    //             throw new Error('City and State are "Not Found", Please Enter a Valid Pincode!')
+    //         }
+    //         if (!values.project_end_date) {
+    //             throw new Error('Project_End_Date Must not be empty!')
+    //         }
+    //         if (!values.project_work_packages.work_packages.length) {
+    //             throw new Error('Please select atleast one work package associated with this project!')
+    //         } else {
+    //             reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
+    //                 const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
+    //                     name: category.name,
+    //                     makes: category.makes.map((make) => make.label), // Extract only the labels
+    //                 }));
+
+    //                 return {
+    //                     ...workPackage,
+    //                     category_list: {
+    //                         list: updatedCategoriesList,
+    //                     },
+    //                 };
+    //             });
+    //         }
+    //         // Format the dates
+    //         const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
+    //         const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
+
+    //         // Create the address document
+    //         const addressDoc = await createDoc('Address', {
+    //             address_title: values.project_name,
+    //             address_type: "Shipping",
+    //             address_line1: values.address_line_1,
+    //             address_line2: values.address_line_2,
+    //             city: values.project_city,
+    //             state: values.project_state,
+    //             country: "India",
+    //             pincode: values.pin,
+    //             email_id: values.email,
+    //             phone: values.phone
+    //         });
+
+    //         try {
+    //             // Create the project document using the address document reference
+    //             const projectDoc = await createDoc('Projects', {
+    //                 project_name: values.project_name,
+    //                 customer: values.customer,
+    //                 project_type: values.project_type,
+    //                 project_value: parseNumber(values.project_value),
+    //                 project_gst_number: values.project_gst_number,
+    //                 project_start_date: formatted_start_date,
+    //                 project_end_date: formatted_end_date,
+    //                 project_address: addressDoc.name,
+    //                 project_city: values.project_city,
+    //                 project_state: values.project_state,
+    //                 project_lead: values.project_lead,
+    //                 procurement_lead: values.procurement_lead,
+    //                 estimates_exec: values.estimates_exec,
+    //                 design_lead: values.design_lead,
+    //                 accountant: values.accountant,
+    //                 project_manager: values.project_manager,
+    //                 project_work_packages: { work_packages: reformattedWorkPackages },
+    //                 // project_category_list: values.project_category_list,
+    //                 project_scopes: values.project_scopes,
+    //                 subdivisions: values.subdivisions,
+    //                 subdivision_list: {
+    //                     list: areaNames
+    //                 },
+    //                 status: "Created"
+    //             })
+
+    //             // console.log("project", projectDoc)
+    //             toast({
+    //                 title: "Success!",
+    //                 description: `Project ${projectDoc.project_name} created successfully!`,
+    //                 variant: "success"
+    //             })
+    //             setNewProjectId(projectDoc.name)
+    //             handleOpenDialog()
+
+    //         }
+    //         catch (projectError) {
+    //             await deleteDoc('Address', addressDoc.name);
+    //             throw projectError;
+    //         }
+    //     } catch (error) {
+    //         toast({
+    //             title: "Failed!",
+    //             description: `${error?.message}`,
+    //             variant: "destructive"
+    //         })
+    //         console.log("Error:", error);
+    //     }
+    // }
+
+    async function onSubmit(values: ProjectFormValues) {
         try {
+
             if (values.project_city === "Not Found" || values.project_state === "Not Found") {
                 throw new Error('City and State are "Not Found", Please Enter a Valid Pincode!')
             }
@@ -332,81 +431,27 @@ export const ProjectForm = () => {
             }
             if (!values.project_work_packages.work_packages.length) {
                 throw new Error('Please select atleast one work package associated with this project!')
-            } else {
-                reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
-                    const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
-                        name: category.name,
-                        makes: category.makes.map((make) => make.label), // Extract only the labels
-                    }));
-
-                    return {
-                        ...workPackage,
-                        category_list: {
-                            list: updatedCategoriesList,
-                        },
-                    };
-                });
             }
-            // Format the dates
-            const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
-            const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
 
-            // Create the address document
-            const addressDoc = await createDoc('Address', {
-                address_title: values.project_name,
-                address_type: "Shipping",
-                address_line1: values.address_line_1,
-                address_line2: values.address_line_2,
-                city: values.project_city,
-                state: values.project_state,
-                country: "India",
-                pincode: values.pin,
-                email_id: values.email,
-                phone: values.phone
-            });
+            const response = await createProjectAndAddress({
+                            values: {...values, areaNames},
+                          });
 
-            try {
-                // Create the project document using the address document reference
-                const projectDoc = await createDoc('Projects', {
-                    project_name: values.project_name,
-                    customer: values.customer,
-                    project_type: values.project_type,
-                    project_value: parseNumber(values.project_value),
-                    project_gst_number: values.project_gst_number,
-                    project_start_date: formatted_start_date,
-                    project_end_date: formatted_end_date,
-                    project_address: addressDoc.name,
-                    project_city: values.project_city,
-                    project_state: values.project_state,
-                    project_lead: values.project_lead,
-                    procurement_lead: values.procurement_lead,
-                    estimates_exec: values.estimates_exec,
-                    design_lead: values.design_lead,
-                    accountant: values.accountant,
-                    project_manager: values.project_manager,
-                    project_work_packages: { work_packages: reformattedWorkPackages },
-                    // project_category_list: values.project_category_list,
-                    project_scopes: values.project_scopes,
-                    subdivisions: values.subdivisions,
-                    subdivision_list: {
-                        list: areaNames
-                    },
-                    status: "Created"
-                })
-
-                // console.log("project", projectDoc)
+            if (response.message.status === 200) {
                 toast({
                     title: "Success!",
-                    description: `Project ${projectDoc.project_name} created successfully!`,
+                    description: `Project ${response.message.project_name} created successfully!`,
                     variant: "success"
                 })
-                setNewProjectId(projectDoc.name)
+                setNewProjectId(response.message.project_name)
                 handleOpenDialog()
 
-            }
-            catch (projectError) {
-                await deleteDoc('Address', addressDoc.name);
-                throw projectError;
+            } else if (response.message.status === 400) {
+              toast({
+                title: 'Failed!',
+                description: response.message.error,
+                variant: 'destructive',
+              });
             }
         } catch (error) {
             toast({
@@ -1538,7 +1583,7 @@ export const ProjectForm = () => {
                                         setSection("packageSelection")
                                         setCurrentStep(prevStep => prevStep - 1)
                                     }}>Previous</Button>
-                                    {(loading) ?
+                                    {(createProjectAndAddressLoading) ?
                                         <ButtonLoading />
                                         : <Button onClick={() => onSubmit(form.getValues())} className="flex items-center gap-1">
                                             <ListChecks className="h-4 w-4" />
@@ -1878,8 +1923,6 @@ const Section = ({ sectionKey, children }) => {
 
     // Flatten children to handle fragments and arrays of elements
     // const flattenedChildren = React.Children.toArray(children).flat();
-
-    console.log("children", children)
 
     const handleClick = () => {
         setSection(sectionKey);

@@ -7,7 +7,7 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { Filter, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
@@ -34,7 +34,7 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
     fields: ["*"],
     filters: paymentFilters,
     limit: 1000,
-    orderBy: { field: "creation", order: "desc" },
+    orderBy: { field: "payment_date", order: "desc" },
   }, customerId ? `Project Inflows ${customerId}` : "Project Inflows")
 
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
@@ -177,7 +177,7 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
                   },
                   cell: ({ row }) => {
                       return <div className="font-medium text-green-600">
-                          {formatToIndianRupee(row.original?.amount)}
+                          {formatToRoundedIndianRupee(row.original?.amount)}
                       </div>
                   },
               },

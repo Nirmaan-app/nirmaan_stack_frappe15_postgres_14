@@ -9,7 +9,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
@@ -326,7 +326,7 @@ export const ReleasePOSelect : React.FC = () => {
                     const data = row.original;
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getPOTotal(data, parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.totalAmt)}
+                            {formatToRoundedIndianRupee(getPOTotal(data, parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.totalAmt)}
                         </div>
                     )
                 }
@@ -347,7 +347,7 @@ export const ReleasePOSelect : React.FC = () => {
                             className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
                             onClick={() => invoiceAmount && setSelectedInvoice(data)}
                           >
-                            {formatToIndianRupee(invoiceAmount || "N/A")}
+                            {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
                           </div>
                         )
                       }                      
@@ -360,7 +360,7 @@ export const ReleasePOSelect : React.FC = () => {
                     const data = row.original
                     const amountPaid = getAmountPaid(data?.name)
                     return <div className={`font-medium ${amountPaid ? "cursor-pointer underline" : ""}`} onClick={() => amountPaid && setCurrentPaymentsDialog(data)}>
-                        {formatToIndianRupee(amountPaid || "N/A")}
+                        {formatToRoundedIndianRupee(amountPaid || "N/A")}
                     </div>
                 },
             },

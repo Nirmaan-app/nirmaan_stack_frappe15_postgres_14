@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table } from "antd";
 import { useEffect, useMemo, useState } from "react";
@@ -58,21 +58,21 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
       dataIndex: "amountWithoutTax",
       key: "amountWithoutTax",
       width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Estd. Amount (exc. GST)",
       dataIndex: "total_estimated_amount",
       key: "total_estimated_amount",
       width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Amount Paid",
       dataIndex: "total_amount_paid",
       key: "total_amount_paid",
       width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
   ], [totalsAmounts])
 

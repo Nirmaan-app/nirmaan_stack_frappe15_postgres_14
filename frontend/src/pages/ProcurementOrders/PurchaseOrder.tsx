@@ -90,7 +90,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import DeliveryHistory from "../DeliveryNotes/DeliveryHistory";
+import DeliveryHistory from "../DeliveryNotes/components/DeliveryHistory";
 import { InvoiceDialog } from "./InvoiceDialog";
 import POAttachments from "./POAttachments";
 import POPaymentTermsCard from "./POPaymentTermsCard";
@@ -1116,7 +1116,7 @@ export const PurchaseOrder = ({
       {/* Synchronized Table Layout */}
       <div className="overflow-x-auto">
         {/* Header Table */}
-        <table className="w-full border-collapse" id="order-details-table">
+        <table className="w-full border-collapse order-details-table">
           <colgroup>
             <col className="w-[5%]" />
             <col className="w-[50%]" />

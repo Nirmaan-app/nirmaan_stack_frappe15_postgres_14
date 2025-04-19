@@ -6,11 +6,15 @@ export const RenderPurchaseOrdersTab : React.FC = () => {
 
   const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO");
 
-  const ApprovePO = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes"));
+  // const ApprovePO = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes"));
+
+  const ApproveRejectVendorQuotesContainer = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/ApproveRejectVendorQuotesContainer"));
 
   const ApproveAmendedPO = React.lazy(() => import("@/pages/ProcurementOrders/approve-amend-po"));
 
-  const ApproveSentBackPO = React.lazy(() => import("@/pages/Sent Back Requests/ApproveSBVendorQuotes"));
+  // const ApproveSentBackPO = React.lazy(() => import("@/pages/Sent Back Requests/ApproveSBVendorQuotes"));
+
+  const ApproveSBSQuotesContainer = React.lazy(() => import("@/pages/Sent Back Requests/ApproveSBSQuotesContainer"));
 
   const PurchaseOrder = React.lazy(() => import("@/pages/ProcurementOrders/PurchaseOrder"));
 
@@ -21,11 +25,11 @@ export const RenderPurchaseOrdersTab : React.FC = () => {
         </div>
     }>
         {tab === "Approve PO" ? (
-            <ApprovePO />
+            <ApproveRejectVendorQuotesContainer />
           ) : tab === "Approve Amended PO" ? (
             <ApproveAmendedPO />
           ) : tab === "Approve Sent Back PO" ? (
-            <ApproveSentBackPO /> 
+            <ApproveSBSQuotesContainer /> 
           ) : (
             <PurchaseOrder />
           )}

@@ -150,7 +150,8 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
                             {formatDate(row.getValue("creation"))}
                         </div>
                     )
-                }
+                },
+                hide: true
             }, 
             {
                 accessorKey : "item_name",
