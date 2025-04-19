@@ -19,17 +19,18 @@ const TRANSITION_DURATION = 300;
 const MAX_HEIGHT = 1000;
 
 interface DeliveryHistoryTableProps {
-  deliveryData: DeliveryDataType | null;
+  deliveryData: DeliveryDataType;
 }
 
 interface ExpandableRowProps {
+  index: number;
   date: string;
   data: DeliveryDataType[string];
   isExpanded: boolean;
   onToggle: (date: string) => void;
 }
 
-const ExpandableRow: React.FC<ExpandableRowProps> = ({ date, data, isExpanded, onToggle }) => {
+const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpanded, onToggle }) => {
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -73,6 +74,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ date, data, isExpanded, o
           </div>
         </TableCell>
         <TableCell>{data.items.length}</TableCell>
+        <TableCell className={`${index === 0 ? "font-bold" : ""}`}>{index === 0 ? "Create" : "Update"}</TableCell>
         <TableCell>{getUserName(data.updated_by)}</TableCell>
       </TableRow>
       <TableRow aria-hidden={!isExpanded}>
@@ -134,13 +136,15 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
             <TableRow>
               <TableHead className="font-bold w-[50%] min-w-[200px]">Date</TableHead>
               <TableHead className="font-bold w-[25%] min-w-[100px]">No. of Items</TableHead>
+              <TableHead className="font-bold w-[25%] min-w-[100px]">Change Type</TableHead>
               <TableHead className="font-bold">Updated By</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {deliveryData ? (
-              Object.entries(deliveryData).map(([date, data]) => (
+              Object.entries(deliveryData).map(([date, data], index) => (
                 <ExpandableRow
+                  index={index}
                   key={date}
                   date={date}
                   data={data}
