@@ -8,7 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { SelectionState, VendorDataSourceItem, VendorItemDetails } from '../types'; // Assuming types are defined in a shared location
-import formatToIndianRupee from '@/utils/FormatPrice'; // Adjust path
+import formatToIndianRupee, {formatToRoundedIndianRupee} from '@/utils/FormatPrice'; // Adjust path
 
 interface VendorApprovalTableProps {
     dataSource: VendorDataSourceItem[];
@@ -159,7 +159,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                           <div className='flex items-end gap-2'>
                                               <span className='text-gray-500'>Total Value:</span>
                                               <span className="font-semibold text-gray-700">
-                                                  {formatToIndianRupee(totalAmount)}
+                                                  {formatToRoundedIndianRupee(totalAmount)}
                                               </span>
                                           </div>
                                         {/* Icon is handled by AccordionTrigger */}

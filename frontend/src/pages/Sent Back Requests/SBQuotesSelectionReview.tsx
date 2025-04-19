@@ -17,7 +17,7 @@ import { useUserData } from '@/hooks/useUserData';
 import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
@@ -372,7 +372,7 @@ if (sent_back_list_loading || vendor_list_loading) return <div className="flex i
                         </h2> */}
                         {/* <div className="p-6"> */}
                             {/* Approval Items Summary */}
-                            {Object.keys(vendorWiseApprovalItems).length > 0 && (
+                            {/* {Object.keys(vendorWiseApprovalItems).length > 0 && (
                                 <div className="p-6 rounded-lg bg-green-100 opacity-70">
                                     <div className="flex items-center mb-2">
                                         <ListChecks className="h-5 w-5 mr-2 text-green-600" />
@@ -409,7 +409,62 @@ if (sent_back_list_loading || vendor_list_loading) return <div className="flex i
                                     <span className="text-red-700">Overall Total:</span> {formatToIndianRupee(approvalOverallTotal)}
                                     </p>
                                 </div>
-                            )}
+                            )} */}
+                            <div className="flex flex-col gap-4">
+                                {/* Approval Items Summary */}
+                                {Object.keys(vendorWiseApprovalItems).length > 0 && (
+                                    <div className="p-6 rounded-lg bg-green-50 border border-green-200"> {/* Changed background, removed opacity, added border */}
+                                        <div className="flex items-center mb-2">
+                                            <ListChecks className="h-5 w-5 mr-2 text-green-600" />
+                                            <h3 className="text-lg font-semibold text-gray-800">Items for Approval</h3> {/* Slightly bolder heading */}
+                                        </div>
+                                        <p className="text-sm text-gray-600 mb-4"> {/* Adjusted text color and margin */}
+                                            These items have been assigned to vendors and require project lead approval.
+                                        </p>
+                                        {/* Using a definition list style for vendors for better structure */}
+                                        <dl className="space-y-4">
+                                            {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
+                                                <div key={vendor}> {/* Use div instead of li for dl structure */}
+                                                    <dt className="text-sm font-medium text-gray-700">
+                                                        Vendor: <span className="font-semibold text-gray-900">{getVendorName(vendor)}</span>
+                                                    </dt>
+                                                    <dd className="mt-1 pl-5"> {/* Indent item details */}
+                                                        <ul className="list-disc space-y-1 text-gray-800"> {/* Changed text color, list style */}
+                                                            {items.map((item) => (
+                                                                <li key={item.item} className="text-sm"> {/* Standardized text size */}
+                                                                    {item.item}
+                                                                    {/* --- Make Name Added Here --- */}
+                                                                    {item.make && (
+                                                                        <span className="text-gray-500 italic ml-1">({item.make})</span>
+                                                                    )}
+                                                                    {/* --- End Make Name --- */}
+                                                                    <span className="mx-1">-</span> {/* Added separator for clarity */}
+                                                                    {item.quantity} {item.unit}
+                                                                    <span className="mx-1">-</span> {/* Added separator */}
+                                                                    <span className="font-medium">{formatToIndianRupee(item.quantity * (item.quote || 0))}</span>
+                                                                    {item?.potentialLoss && (
+                                                                        <span className="block text-xs text-red-600 mt-0.5"> {/* Changed display and color slightly */}
+                                                                            Potential Loss: {formatToIndianRupee(item.potentialLoss)}
+                                                                        </span>
+                                                                    )}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                        <p className="mt-2 text-sm text-right font-medium text-gray-800"> {/* Aligned right */}
+                                                            Subtotal for {getVendorName(vendor)}: <span className="font-semibold">{formatToIndianRupee(total)}</span>
+                                                        </p>
+                                                    </dd>
+                                                </div>
+                                            ))}
+                                        </dl>
+                                        <div className="mt-4 pt-4 border-t border-green-200 text-right"> {/* Added separator line */}
+                                            <p className="text-sm font-medium text-gray-800">
+                                                Approval Overall Total: <span className="text-base font-semibold text-green-700">{formatToRoundedIndianRupee(approvalOverallTotal)}</span> {/* Made total stand out */}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         {/* </div> */}
                     {/* </div> */}
               {/* <div className='mt-6 overflow-x-auto'>

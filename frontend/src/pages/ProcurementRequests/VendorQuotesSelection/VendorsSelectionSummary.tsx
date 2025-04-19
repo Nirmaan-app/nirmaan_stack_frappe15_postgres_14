@@ -13,14 +13,14 @@ import { COLUMN_WIDTHS } from "@/pages/Sent Back Requests/SBQuotesSelectionRevie
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
+import { ArrowBigUpDash, BookOpenText, Building2, CheckCheck, Clock, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
@@ -29,6 +29,7 @@ import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHe
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { toast } from "../../../components/ui/use-toast";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 
 export interface DataItem extends ProcurementItem {
   amount: number;
@@ -401,7 +402,7 @@ const {
     approvalOverallTotal,
 } = generateActionSummary();
 
-if (procurement_request_list_loading || vendor_list_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+if (procurement_request_list_loading || vendor_list_loading || usersListLoading) return <LoadingFallback />
 
   if (orderData?.workflow_state !== "In Progress") {
     return (
@@ -445,8 +446,7 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
                             <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
                             Actions Summary
                         </h2> */}
-                        <div className="flex flex-col gap-4">
-                            {/* Approval Items Summary */}
+                       {/* <div className="flex flex-col gap-4">
                             {Object.keys(vendorWiseApprovalItems).length > 0 && (
                                 <div className="p-6 rounded-lg bg-green-100 opacity-70">
                                     <div className="flex items-center mb-2">
@@ -487,7 +487,6 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
                                 </div>
                             )}
 
-                            {/* Delayed Items Summary */}
                             {allDelayedItems.length > 0 && (
                                 <div className="p-6 space-y-2 rounded-lg bg-red-100 opacity-70">
                                     <div className="flex items-center mb-2">
@@ -506,7 +505,210 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
                                     </ul>
                                 </div>
                             )}
+                        </div> */}
+
+{/* <div className="flex flex-col gap-6">
+  {Object.keys(vendorWiseApprovalItems).length > 0 && (
+    <div className="p-6 rounded-lg bg-green-50 border border-green-100">
+      <header className="flex items-start mb-4">
+        <div className="bg-green-100 p-2 rounded-lg">
+          <ListChecks className="h-5 w-5 text-green-600" />
+        </div>
+        <div className="ml-3">
+          <h3 className="font-semibold text-gray-800">Approval Products</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            Items pending project lead approval with vendor-specific breakdown
+          </p>
+        </div>
+      </header>
+
+      <div className="space-y-4">
+        {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
+          <div key={vendor} className="bg-white rounded-lg p-4 shadow-xs">
+            <div className="flex items-center mb-3">
+              <Building2 className="h-4 w-4 text-gray-400 mr-2" />
+              <h4 className="font-medium text-gray-700">
+                {getVendorName(vendor)}
+              </h4>
+            </div>
+
+            <div className="space-y-3">
+              {items.map((item) => (
+                <div key={item.name} className="border-b pb-3 last:border-0">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-medium text-gray-900">
+                        {item.item}
+                        {item.make && (
+                          <span className="ml-2 text-sm font-normal text-gray-500">
+                            ({item.make})
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        {item.quantity} {item.unit} • 
+                        {formatToIndianRupee(item.quote)}/unit
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-medium text-gray-900">
+                        {formatToIndianRupee(item.quantity * (item.quote || 0))}
+                      </div>
+                      {item?.potentialLoss && (
+                        <div className="text-xs text-red-600 mt-1">
+                          Potential loss: {formatToIndianRupee(item.potentialLoss)}
                         </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between items-center mt-4 pt-3 border-t">
+              <span className="text-sm font-medium text-gray-600">Vendor Total:</span>
+              <span className="font-semibold text-gray-800">
+                {formatToIndianRupee(total)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 pt-4 border-t border-green-100">
+        <div className="flex justify-between items-center">
+          <span className="font-medium text-gray-700">Overall Total:</span>
+          <span className="font-semibold text-red-700">
+            {formatToIndianRupee(approvalOverallTotal)}
+          </span>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {allDelayedItems.length > 0 && (
+    <div className="p-6 rounded-lg bg-red-50 border border-red-100">
+      <header className="flex items-start mb-4">
+        <div className="bg-red-100 p-2 rounded-lg">
+          <SendToBack className="h-5 w-5 text-red-500" />
+        </div>
+        <div className="ml-3">
+          <h3 className="font-semibold text-gray-800">Delayed Products</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            New Delayed Sent Back will be created for these items
+          </p>
+        </div>
+      </header>
+
+      <div className="space-y-3">
+        {allDelayedItems.map((item) => (
+          <div key={item.name} className="bg-white rounded-lg p-3 shadow-xs">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="font-medium text-gray-900">
+                  {item.item}
+                  {item.make && (
+                    <span className="ml-2 text-sm font-normal text-gray-500">
+                      ({item.make})
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  {item.quantity} {item.unit}
+                </div>
+              </div>
+              <Clock className="h-5 w-5 text-red-400" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )}
+</div> */}
+
+<div className="flex flex-col gap-4">
+    {/* Approval Items Summary */}
+    {Object.keys(vendorWiseApprovalItems).length > 0 && (
+        <div className="p-6 rounded-lg bg-green-50 border border-green-200"> {/* Changed background, removed opacity, added border */}
+            <div className="flex items-center mb-2">
+                <ListChecks className="h-5 w-5 mr-2 text-green-600" />
+                <h3 className="text-lg font-semibold text-gray-800">Items for Approval</h3> {/* Slightly bolder heading */}
+            </div>
+            <p className="text-sm text-gray-600 mb-4"> {/* Adjusted text color and margin */}
+                These items have been assigned to vendors and require project lead approval.
+            </p>
+            {/* Using a definition list style for vendors for better structure */}
+            <dl className="space-y-4">
+                {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
+                    <div key={vendor}> {/* Use div instead of li for dl structure */}
+                        <dt className="text-sm font-medium text-gray-700">
+                            Vendor: <span className="font-semibold text-gray-900">{getVendorName(vendor)}</span>
+                        </dt>
+                        <dd className="mt-1 pl-5"> {/* Indent item details */}
+                            <ul className="list-disc space-y-1 text-gray-800"> {/* Changed text color, list style */}
+                                {items.map((item) => (
+                                    <li key={item.item} className="text-sm"> {/* Standardized text size */}
+                                        {item.item}
+                                        {/* --- Make Name Added Here --- */}
+                                        {item.make && (
+                                            <span className="text-gray-500 italic ml-1">({item.make})</span>
+                                        )}
+                                        {/* --- End Make Name --- */}
+                                        <span className="mx-1">-</span> {/* Added separator for clarity */}
+                                        {item.quantity} {item.unit}
+                                        <span className="mx-1">-</span> {/* Added separator */}
+                                        <span className="font-medium">{formatToIndianRupee(item.quantity * (item.quote || 0))}</span>
+                                        {item?.potentialLoss && (
+                                            <span className="block text-xs text-red-600 mt-0.5"> {/* Changed display and color slightly */}
+                                                Potential Loss: {formatToIndianRupee(item.potentialLoss)}
+                                            </span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                            <p className="mt-2 text-sm text-right font-medium text-gray-800"> {/* Aligned right */}
+                                Subtotal for {getVendorName(vendor)}: <span className="font-semibold">{formatToIndianRupee(total)}</span>
+                            </p>
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+            <div className="mt-4 pt-4 border-t border-green-200 text-right"> {/* Added separator line */}
+                <p className="text-sm font-medium text-gray-800">
+                    Approval Overall Total: <span className="text-base font-semibold text-green-700">{formatToRoundedIndianRupee(approvalOverallTotal)}</span> {/* Made total stand out */}
+                </p>
+            </div>
+        </div>
+    )}
+
+    {/* Delayed Items Summary */}
+    {allDelayedItems.length > 0 && (
+        <div className="p-6 rounded-lg bg-red-50 border border-red-200 space-y-2"> {/* Changed background, removed opacity, added border */}
+            <div className="flex items-center mb-2">
+                <SendToBack className="h-5 w-5 text-red-600 mr-2" /> {/* Adjusted icon color */}
+                <h3 className="text-lg font-semibold text-gray-800">Delayed Items</h3> {/* Slightly bolder heading */}
+            </div>
+            <p className="text-sm text-gray-600"> {/* Adjusted text color */}
+                These items will be moved to a new 'Delayed Sent Back' list:
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-gray-800"> {/* Adjusted text color, list style */}
+                {allDelayedItems.map((item) => (
+                    <li key={item.item} className="text-sm"> {/* Standardized text size */}
+                        {item.item}
+                         {/* --- Also added Make Name here for consistency --- */}
+                         {item.make && (
+                            <span className="text-gray-500 italic ml-1">({item.make})</span>
+                        )}
+                        {/* --- End Make Name --- */}
+                        <span className="mx-1">-</span> {/* Added separator */}
+                        {item.quantity} {item.unit}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    )}
+</div>
+
               {/* </div> */}
               {/* {getFinalVendorQuotesData?.length > 0 ? (
         <div className="overflow-x-auto">

@@ -10,7 +10,7 @@ import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanSta
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { ListChecks } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import ReactSelect, { components } from "react-select"
 
 interface MakesSelectionProps {
@@ -29,50 +29,58 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
     setShowAlert((prevState) => !prevState);
   };
 
-  const [makeOptions, setMakeOptions] = useState([]);
+//   const [makeOptions, setMakeOptions] = useState<{
+//     label: string;
+//     value: string;
+// }[]>([]);
 
-  const [newSelectedMakes, setNewSelectedMakes] = useState([]);
+  // const [newSelectedMakes, setNewSelectedMakes] = useState([]);
 
   const { data: categoryMakeList, mutate: categoryMakeListMutate } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
     fields: ["*"],
+    filters: [["category", "=", item?.category]],
     limit: 100000,
-  })
+  },
+  item?.category ? `Category Makelist_${item?.category}` : null
+)
 
   const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList<Makelist>("Makelist", {
       fields: ["*"],
       limit: 100000,
     })
 
-  useEffect(() => {
-    if ((categoryMakeList || [])?.length > 0) {
-      const categoryMakes = categoryMakeList?.filter((i) => i?.category === item?.category);
-      const makeOptionsList = categoryMakes?.map((i) => ({ label: i?.make, value: i?.make })) || [];
-      // const filteredOptions = makeOptionsList?.filter(i => !formData?.details?.[item?.name]?.makes?.some(j => j === i?.value))
-      // setMakeOptions(filteredOptions)
-      setMakeOptions(makeOptionsList)
-    }
+  const makeOptions: {label: string, value: string }[] = useMemo(() => categoryMakeList?.map((i) => ({ label: i?.make, value: i?.make })) || [], [categoryMakeList, item])
 
-  }, [categoryMakeList, item, formData, orderData])
+  // useEffect(() => {
+  //   if ((categoryMakeList || [])?.length > 0) {
+  //     const categoryMakes = categoryMakeList?.filter((i) => i?.category === item?.category);
+  //     const makeOptionsList = categoryMakes?.map((i) => ({ label: i?.make, value: i?.make })) || [];
+  //     // const filteredOptions = makeOptionsList?.filter(i => !formData?.details?.[item?.name]?.makes?.some(j => j === i?.value))
+  //     // setMakeOptions(filteredOptions)
+  //     setMakeOptions(makeOptionsList)
+  //   }
 
-  const editMakeOptions = formData?.details?.[item?.name]?.makes?.map((i) => ({
-    value: i,
-    label: i,
-  }));
+  // }, [categoryMakeList, item, formData, orderData])
+
+  // const editMakeOptions = formData?.details?.[item?.name]?.makes?.map((i) => ({
+  //   value: i,
+  //   label: i,
+  // }));
 
   // const selectedMake = quotationData?.list
   //   ?.find((j) => j?.qr_id === q?.name)
   //   ?.makes?.find((m) => m?.enabled === "true");
 
-  const selectedMakeName = formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make
+  const selectedMakeName = useMemo(() => formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make, [item, vendor, formData]);
 
-  const selectedVendorMake = { value: selectedMakeName, label: selectedMakeName }
+  const selectedVendorMake = useMemo(() => ({ value: selectedMakeName, label: selectedMakeName }), [selectedMakeName])
   // const selectedMakeValue = selectedMake
   //   ? { value: selectedMake?.make, label: selectedMake?.make }
   //   : selectedMakefromq
   //   ? { value: selectedMakefromq?.make, label: selectedMakefromq?.make }
   //   : null;
 
-  const handleMakeChange = (make) => {
+  const handleMakeChange = (make: {label: string, value: string}) => {
     setFormData((prev) => ({
       ...prev,
       details: {
@@ -88,22 +96,22 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
     }));
   }
 
-  const handleAddNewMakes = () => {
-    const newMakes = newSelectedMakes?.map(i => i?.value)
-    setFormData((prev) => ({
-      ...prev,
-      details: {
-        ...prev.details,
-        [item?.name]: {
-          ...prev.details[item?.name],
-         makes : [...prev.details[item?.name].makes, ...newMakes]
-        },
-      },
-    }));
+  // const handleAddNewMakes = () => {
+  //   const newMakes = newSelectedMakes?.map(i => i?.value)
+  //   setFormData((prev) => ({
+  //     ...prev,
+  //     details: {
+  //       ...prev.details,
+  //       [item?.name]: {
+  //         ...prev.details[item?.name],
+  //        makes : [...prev.details[item?.name].makes, ...newMakes]
+  //       },
+  //     },
+  //   }));
 
-    setNewSelectedMakes([])
-    toggleShowAlert()
-  }
+  //   setNewSelectedMakes([])
+  //   toggleShowAlert()
+  // }
 
   const CustomMenu = (props) => {
     const { MenuList } = components;
@@ -129,6 +137,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
         placeholder="Select Make..."
         value={selectedVendorMake}
         // options={editMakeOptions}
+        isLoading={makeListLoading}
         options={makeOptions}
         onChange={handleMakeChange}
         components={{ MenuList: CustomMenu }}
@@ -141,7 +150,10 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
           <DialogTitle>Add New Makes</DialogTitle>
         </DialogHeader>
         <DialogDescription>
-          <AddMakeComponent category={item?.category} categoryMakeListMutate={categoryMakeListMutate} makeList={makeList} makeListMutate={makeListMutate} />
+          <AddMakeComponent category={item?.category} categoryMakeListMutate={categoryMakeListMutate} makeList={makeList} makeListMutate={makeListMutate}
+            handleMakeChange={handleMakeChange}
+            toggleShowAlert={toggleShowAlert}
+           />
         {/* <div className="flex gap-1 flex-wrap mb-4">
           {editMakeOptions?.length > 0 && (
             <div className="flex flex-col gap-2">
