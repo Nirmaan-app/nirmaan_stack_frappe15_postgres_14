@@ -11,7 +11,7 @@ import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { ListChecks } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import ReactSelect, { components } from "react-select"
+import ReactSelect, { components, StylesConfig, GroupBase, MenuListProps } from "react-select"
 
 interface MakesSelectionProps {
   vendor: Vendor
@@ -113,7 +113,21 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
   //   toggleShowAlert()
   // }
 
-  const CustomMenu = (props) => {
+  // Define the styles for the portal menu
+const portalStyles: StylesConfig<any, false, GroupBase<any>> = { // Use appropriate types for your options
+  menuPortal: base => ({
+    ...base,
+    zIndex: 9999 // A high z-index to ensure it's on top
+  }),
+  // You might need to style the menu itself if its default appearance changes slightly outside the original context
+  menu: base => ({
+    ...base,
+    // Add any specific menu styling overrides if needed
+  }),
+  // Add other style overrides if necessary
+};
+
+  const CustomMenu = (props : MenuListProps) => {
     const { MenuList } = components;
 
     return (
@@ -141,6 +155,9 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
         options={makeOptions}
         onChange={handleMakeChange}
         components={{ MenuList: CustomMenu }}
+        menuPortalTarget={document.body}
+        styles={portalStyles}
+        menuPosition="fixed"
       />
     </div>
 
