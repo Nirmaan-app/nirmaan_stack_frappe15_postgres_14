@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { ConfigProvider, Table } from "antd";
 import { useMemo, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
@@ -43,14 +43,14 @@ export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> 
       dataIndex: "amount",
       key: "amount",
       width: "20%",
-      render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge>{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Estd. Amount (exc. GST)",
       dataIndex: "estimate_total",
       key: "estimate_total",
       width: "25%",
-      render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge>{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
   ], [segregatedData]);
 
@@ -79,7 +79,7 @@ export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> 
       width: "25%",
       render: (text) => (
         <span className="italic">
-          {text ? formatToIndianRupee(text) : "--"}
+          {text ? formatToRoundedIndianRupee(text) : "--"}
         </span>
       ),
     },

@@ -12,7 +12,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { toast } from "@/components/ui/use-toast";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeCreateDoc } from "frappe-react-sdk";
@@ -106,9 +106,9 @@ const RequestPaymentDialog = ({
       const message = `
         Requested amount exceeds the maximum allowable amount:
         
-        • Maximum allowable amount: ${formatToIndianRupee(maxAllowableRequest)}
-        • Current pending balance: ${formatToIndianRupee(amountPending)}
-        • Total paid to date: ${formatToIndianRupee(totalPaid)}
+        • Maximum allowable amount: ${formatToRoundedIndianRupee(maxAllowableRequest)}
+        • Current pending balance: ${formatToRoundedIndianRupee(amountPending)}
+        • Total paid to date: ${formatToRoundedIndianRupee(totalPaid)}
         
         Resolution steps:
         1. Cancel Pending/Approved payment requests
@@ -221,7 +221,7 @@ const RequestPaymentDialog = ({
           {totalPaid > 0 && (
           <div className="flex items-center space-x-2">
             <RadioGroupItem value="due" id="due" />
-            <Label htmlFor="due">Due amount: {formatToIndianRupee((gst ? totalAmount : totalAmountWithoutGST) - (totalPaid + amountPending))}</Label>
+            <Label htmlFor="due">Due amount: {formatToRoundedIndianRupee((gst ? totalAmount : totalAmountWithoutGST) - (totalPaid + amountPending))}</Label>
           </div>
           )}
         </RadioGroup>

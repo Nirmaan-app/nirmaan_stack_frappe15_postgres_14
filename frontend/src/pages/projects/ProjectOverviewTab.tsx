@@ -26,7 +26,7 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks } from "lucide-react";
@@ -267,7 +267,7 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
 
                           <CardDescription className="space-y-2 text-end md:text-center">
                             <span>Project Value</span>
-                            <p className="font-bold text-black">{formatToIndianRupee(projectData?.project_value)}</p>
+                            <p className="font-bold text-black">{formatToRoundedIndianRupee(projectData?.project_value)}</p>
                           </CardDescription>
 
                           <CardDescription className="space-y-2 md:text-end">
@@ -283,17 +283,17 @@ export const ProjectOverviewTab : React.FC<ProjectOverviewTabProps> = ({projectD
 
                           <CardDescription className="space-y-2 max-md:text-end">
                             <span>Total Amount Received</span>
-                            <p className="font-bold text-black">{formatToIndianRupee(totalAmountReceived)}</p>
+                            <p className="font-bold text-black">{formatToRoundedIndianRupee(totalAmountReceived)}</p>
                           </CardDescription>
 
                           <CardDescription className="space-y-2 md:text-center">
                             <span>Total Amount Paid</span>
-                            <p className="font-bold text-black">{formatToIndianRupee(getTotalAmountPaid.totalAmount)}</p>
+                            <p className="font-bold text-black">{formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}</p>
                           </CardDescription>
 
                           <CardDescription className="space-y-2 text-end">
                             <span>Total Amount Due</span>
-                            <p className="font-bold text-black">{formatToIndianRupee((totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
+                            <p className="font-bold text-black">{formatToRoundedIndianRupee((totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
                           </CardDescription>
                           
                           <div className="col-span-3 max-md:col-span-2 flex justify-between">

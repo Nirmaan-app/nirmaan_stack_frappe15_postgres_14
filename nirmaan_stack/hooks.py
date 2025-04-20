@@ -148,7 +148,8 @@ doc_events = {
             "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
             "nirmaan_stack.nirmaan_stack.doctype.projects.projects.generateUserPermissions"
         ],
-        "on_update": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.edit_pwm" 
+        "on_update": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.edit_pwm",
+        "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"  
     },
     "Vendors": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category",

@@ -58,7 +58,6 @@ export const ProcurementOrder : React.FC = () => {
 )
 
   const getFullName = useMemo(() => (id : string | undefined) => {
-    console.log("running getFullName for", id)
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 

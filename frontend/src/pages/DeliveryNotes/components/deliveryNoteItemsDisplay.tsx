@@ -15,17 +15,18 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
-import { DeliveryDataType, PurchaseOrderItem } from '@/types/NirmaanStack/ProcurementOrders';
+import { DeliveryDataType, ProcurementOrder, PurchaseOrderItem } from '@/types/NirmaanStack/ProcurementOrders';
 import { parseNumber } from '@/utils/parseNumber';
-import { useFrappeFileUpload, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappeFileUpload, useFrappePostCall, useSWRConfig, FrappeDoc } from 'frappe-react-sdk';
 import { ArrowDown, ArrowUp, Check, ListChecks, MessageCircleMore, Pencil, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TailSpin } from "react-loader-spinner";
-import { CustomAttachment } from "../../components/helpers/CustomAttachment";
+import { CustomAttachment } from "../../../components/helpers/CustomAttachment";
+import { KeyedMutator } from 'swr';
 
 interface DeliveryNoteItemsDisplayProps {
-  poMutate: () => Promise<void>;
-  data?: any;
+  poMutate: KeyedMutator<FrappeDoc<ProcurementOrder>>;
+  data: ProcurementOrder | null;
   toggleDeliveryNoteSheet?: () => void;
 }
 
@@ -41,7 +42,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 }) => {
   const userData = useUserData();
   const { toast } = useToast();
-  const {mutate} = useSWRConfig()
+  const {mutate} = useSWRConfig();
 
   // State management
   const [originalOrder, setOriginalOrder] = useState<PurchaseOrderItem[]>([]);
@@ -171,7 +172,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 
 
       const payload = {
-        po_id: data.name,
+        po_id: data?.name,
         modified_items: modifiedItemsPayload,
         delivery_data: deliveryData,
         delivery_challan_attachment: attachmentId
@@ -243,20 +244,20 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       <>
       <Input
         type="number"
-        value={modifiedValue ?? ""}
+        value={modifiedValue ?? item.received}
         onChange={(e) => handleReceivedChange(item, e.target.value)}
         // min={0}
         // max={item.quantity * 2} // Allow reasonable over-delivery
         placeholder={`${String(item.received || item.quantity)}`}
         className="w-24"
       />
-      {item.received ? (
+      {/* {item.received ? (
         <span className="text-xs text-gray-400">
           (Ordered: {item.quantity})
         </span>
       ) : (
         <span />
-      )}  
+      )}   */}
       </>
     );
   };
@@ -309,6 +310,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
               <TableRow>
                 <TableHead className="w-[50%] min-w-[200px]">Item Name</TableHead>
                 <TableHead>Unit</TableHead>
+                <TableHead>Ordered</TableHead>
                 <TableHead>Received</TableHead>
               </TableRow>
             </TableHeader>
@@ -336,6 +338,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                     </div>
                   </TableCell>
                   <TableCell>{item.unit}</TableCell>
+                  <TableCell className="text-center">{item.quantity}</TableCell>
                   <TableCell>
                     {renderReceivedCell(item)}
                   </TableCell>

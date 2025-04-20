@@ -91,12 +91,13 @@ export function DataTable<TData, TValue>({
 
   const [searchParams] = useSearchParams();
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ type: false, });
 
   const [rowSelection, setRowSelection] = React.useState({});
 
   const [pageIndex, setPageIndex] = React.useState(0);
   const [pageSize, setPageSize] = React.useState(10);
+
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ type: false, });
 
   // const currentRoute = window.location.pathname;
 
@@ -125,6 +126,22 @@ export function DataTable<TData, TValue>({
 
   //     return combinedString.includes(filterValue.toLowerCase());
   // };
+
+  React.useEffect(() => {
+    if(columns) {
+      columns.forEach(c => {
+        if(c?.hide) {
+          setColumnVisibility(prev => ({...prev, [c?.accessorKey]: false}))
+        }
+        if(c?.accessorKey === "creation") {
+          setSorting([{
+            id: "creation",
+            desc: true,
+          },])
+        }
+      })
+    }
+  }, [columns])
 
   const [globalFilter, setGlobalFilter] = React.useState(searchParams.get("search") || "");
 
@@ -212,14 +229,6 @@ export function DataTable<TData, TValue>({
     },
   });
 
-  React.useEffect(() => {
-    if (columns?.some(i => i?.accessorKey === "creation")) {
-      setSorting([{
-        id: "creation",
-        desc: true,
-      },])
-    }
-  }, [columns])
 
   React.useEffect(() => {
     setSelectedData(table.getSelectedRowModel().rows)

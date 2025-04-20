@@ -8,7 +8,7 @@ import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
 import { formatDate } from "@/utils/FormatDate"
-import formatToIndianRupee from "@/utils/FormatPrice"
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice"
 import { getTotalInflowAmount } from "@/utils/getAmounts"
 import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
@@ -121,7 +121,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                           {item.label}
                         </p>
                         <p onClick={item.onClick} className={`text-sm font-bold text-gray-900 ${item.style}`}>
-                          {formatToIndianRupee(item.value)}
+                          {formatToRoundedIndianRupee(item.value)}
                         </p>
                       </div>
                     ))}
@@ -160,7 +160,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                           </div>
                                           <div className="flex items-center gap-2">
                                               <Label className=" text-red-700">Total Inflow:</Label>
-                                              <span className="text-xs text-green-600">{formatToIndianRupee(totalInflowAmount)}</span>
+                                              <span className="text-xs text-green-600">{formatToRoundedIndianRupee(totalInflowAmount)}</span>
                                           </div>
                                       </div>
               
@@ -187,7 +187,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                                                               ) : (
                                                                   <TableCell className="font-semibold">{payment?.utr}</TableCell>
                                                               )}
-                                                              <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                              <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
                                                           </TableRow>
                                                       )
                                                   })

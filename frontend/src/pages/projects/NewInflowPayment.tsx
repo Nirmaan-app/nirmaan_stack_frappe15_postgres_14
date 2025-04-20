@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -85,6 +85,8 @@ export const NewInflowPayment : React.FC = () => {
 
       await projectInflowsMutate()
 
+      setNewPayment(null)
+
       toggleNewInflowDialog()
 
       toast({
@@ -131,7 +133,7 @@ export const NewInflowPayment : React.FC = () => {
                                   </div>
                                   <div className="flex items-center justify-between">
                                       <Label className=" text-red-700">Total Amount Received:</Label>
-                                      <span className="">{newPayment?.project ? formatToIndianRupee(getAmountReceived(newPayment?.project)) : "--"}</span>
+                                      <span className="">{newPayment?.project ? formatToRoundedIndianRupee(getAmountReceived(newPayment?.project)) : "--"}</span>
                                   </div>
           
                                   <div className="flex flex-col gap-4 pt-4">

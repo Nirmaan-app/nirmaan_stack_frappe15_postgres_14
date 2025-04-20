@@ -134,7 +134,7 @@ const invoiceColumns: ColumnDef<InvoiceItem>[] =
           const amount = row.original.amount;
           return (
             <div className="font-medium text-green-600">
-              {formatToIndianRupee(amount)}
+              {formatToRoundedIndianRupee(amount)}
             </div>
           );
         },

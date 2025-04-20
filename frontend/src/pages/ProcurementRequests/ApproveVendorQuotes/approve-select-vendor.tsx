@@ -7,7 +7,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Category, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
@@ -172,7 +172,7 @@ export const ApproveSelectVendor : React.FC = () => {
                     const id : string = row.getValue("name")
                     return (
                         <p className="font-medium">
-                            {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
+                            {getTotal(id) === 0 ? "N/A" : formatToRoundedIndianRupee(getTotal(id))}
                         </p>
                     )
                 }

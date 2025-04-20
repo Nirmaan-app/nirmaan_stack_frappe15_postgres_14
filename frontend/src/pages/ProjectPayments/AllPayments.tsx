@@ -8,7 +8,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
@@ -211,7 +211,7 @@ export const AllPayments: React.FC<{ tab?: string, projectId?: string, customerI
         },
         cell: ({ row }) => {
           return <div className="font-medium">
-            {formatToIndianRupee(getTotalAmount(row.original.document_name, row.original.document_type)?.totalWithTax)}
+            {formatToRoundedIndianRupee(getTotalAmount(row.original.document_name, row.original.document_type)?.totalWithTax)}
           </div>
         },
       },
@@ -224,7 +224,7 @@ export const AllPayments: React.FC<{ tab?: string, projectId?: string, customerI
         },
         cell: ({ row }) => {
           return <div className="font-medium">
-            {tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={row.original} /> : formatToIndianRupee(row.original?.amount)}
+            {tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={row.original} /> : formatToRoundedIndianRupee(row.original?.amount)}
           </div>
         },
       },
