@@ -222,7 +222,7 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>();
 
-  // const {getItemEstimate} = useItemEstimate()
+  const {getItemEstimate} = useItemEstimate()
 
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: pr_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
       {
@@ -352,6 +352,7 @@ export const VendorsSelectionSummary : React.FC = () => {
     }
   };
 
+
 interface VendorWiseApprovalItems {
   [vendor : string] : {
     items : (ProcurementItem & {potentialLoss? : number})[];
@@ -366,7 +367,8 @@ interface VendorWiseApprovalItems {
 
     orderData?.procurement_list?.list.forEach((item) => {
         const vendor = item?.vendor;
-        const lowestItemPrice = getLowest(item?.name)
+        const targetRate = getItemEstimate(item?.name)
+        const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)
         if (!vendor) {
             // Delayed items
             allDelayedItems.push(item);
@@ -379,7 +381,7 @@ interface VendorWiseApprovalItems {
                     total: 0,
                 };
             }
-            if(lowestItemPrice && lowestItemPrice !== parseNumber(item.quote)) {
+            if(lowestItemPrice && lowestItemPrice !== parseNumber(item.quote) && lowestItemPrice < parseNumber(item?.quote)) {
               vendorWiseApprovalItems[vendor].items.push({...item, potentialLoss : itemTotal - (parseNumber(item.quantity) * lowestItemPrice)});
             } else {
               vendorWiseApprovalItems[vendor].items.push(item);
