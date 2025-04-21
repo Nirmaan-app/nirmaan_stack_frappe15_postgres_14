@@ -5,6 +5,7 @@ export interface VendorItemDetails extends ProcurementItem { // Extend Procureme
     amount: number;
     threeMonthsLowestAmount?: number;
     lowestQuotedAmount: number;
+    targetRate?: number;
     targetAmount?: number; // Add if available for display
     // Calculated fields:
     savingLoss?: number // Optional saving/loss per item

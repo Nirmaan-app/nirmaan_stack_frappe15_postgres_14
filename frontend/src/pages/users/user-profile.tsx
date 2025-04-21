@@ -66,6 +66,8 @@ export default function Profile() {
   const { toast } = useToast();
   const userData = useUserData();
 
+  const [projectSelected, setProjectSelected] = useState<string | null>(null);
+
   const [deleteUserDialog, setDeleteUserDialog] = useState(false);
   const toggleDeleteUserDialog = useCallback(() => {
     setDeleteUserDialog((prevState) => !prevState);
@@ -362,7 +364,10 @@ export default function Profile() {
                       <span className="text-lg">
                         {getProjectAttributes(project.for_value).projectName}
                       </span>
-                        <Button variant="ghost" size="icon" onClick={toggleUnlinkProjectDialog}>
+                        <Button variant="ghost" size="icon" onClick={() => {
+                          setProjectSelected(project.for_value);
+                          toggleUnlinkProjectDialog();
+                        }}>
                             <Trash2 className="h-4 w-4" />
                         </Button>
                       <Dialog open={unlinkProjectDialog} onOpenChange={toggleUnlinkProjectDialog}>
@@ -370,7 +375,7 @@ export default function Profile() {
                           <DialogHeader>
                             <DialogTitle>
                               Delete access to{" "}
-                              {getProjectAttributes(project.for_value).projectName}?
+                              {getProjectAttributes(projectSelected || '')?.projectName}?
                             </DialogTitle>
                           </DialogHeader>
                           <DialogDescription>
@@ -391,7 +396,7 @@ export default function Profile() {
                             </DialogClose>
                               <Button
                                 onClick={() => {
-                                  handleDeleteProject(project.for_value, permission_list, toggleUnlinkProjectDialog)
+                                  handleDeleteProject(projectSelected || '', permission_list, toggleUnlinkProjectDialog)
                                 }
                                 }
                                 className="flex items-center gap-1"

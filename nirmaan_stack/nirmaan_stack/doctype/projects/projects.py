@@ -20,9 +20,12 @@ class Projects(Document):
 def generateUserPermissions(project, method=None):
 	user_permissions = set()
 	current_user = frappe.session.user
+	user = None
+	if current_user != "Administrator":
+		user = frappe.get_doc("Nirmaan Users", current_user)
 	if(project.project_lead!=""):
 		user_permissions.add(project.project_lead)
-	if not project.project_lead or (project.project_lead and project.project_lead != current_user):
+	if user and user.role_profile != "Nirmaan Admin Profile"  and (not project.project_lead or (project.project_lead and project.project_lead != current_user)):
 		user_permissions.add(current_user)
 
 	if(project.procurement_lead!=""):
