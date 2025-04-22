@@ -134,6 +134,7 @@ export const useApproveSBSLogic = ({
                 amount,
                 lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
                 // threeMonthsLowestAmount: threeMonthsLowest * (item.quantity ?? 0),
+                targetRate: threeMonthsLowest,
                 targetAmount: threeMonthsLowest * (item.quantity ?? 0),
                 savingLoss: ((lowestQuoted || threeMonthsLowest) && item.quote) ? (((lowestQuoted && threeMonthsLowest) ? Math.min(lowestQuoted, threeMonthsLowest) : (lowestQuoted || threeMonthsLowest)) - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
             };

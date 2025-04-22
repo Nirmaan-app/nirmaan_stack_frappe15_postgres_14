@@ -33,7 +33,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
   const handleQuoteChange = useCallback((
     itemId: string,
     vendorId: string,
-    quote: string | undefined,
+    quote: string | number | undefined,
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -189,7 +189,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                     <TableBody>
                       {(sentBack ? (orderData as SentBackCategory)?.item_list : (orderData as ProcurementRequest)?.procurement_list)?.list.map((item: any) => {
                         if (item.category === cat.name) {
-                          const minQuote = getItemEstimate(item.name)
+                          const targetQuote = getItemEstimate(item.name) * 0.98
                           return (
                             <TableRow key={`${cat.name}-${item.name}`}>
                               <TableCell className="py-8">
@@ -213,19 +213,19 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                               <TableCell>{item.quantity}</TableCell>
                               {formData?.selectedVendors?.map(v => {
                                 const vendorQuotes = formData?.details?.[item.name]?.vendorQuotes
-                                let lowestQuote = Number.POSITIVE_INFINITY; // Initialize with the highest possible value
-                                let lowestVendorId: string | null = null; // Initialize winner vendor ID as null
+                                // let lowestQuote = Number.POSITIVE_INFINITY; // Initialize with the highest possible value
+                                // let lowestVendorId: string | null = null; // Initialize winner vendor ID as null
 
-                                // 3. Iterate through each [vendorId, quoteData] pair in vendorQuotes
-                                for (const [vendorId, quoteData] of Object.entries(vendorQuotes)) {
-                                  const q = parseNumber(quoteData?.quote)
-                                  if (q < lowestQuote) {
-                                    lowestQuote = parseNumber(q)
-                                    lowestVendorId = vendorId
-                                  }
-                                }
+                                // // 3. Iterate through each [vendorId, quoteData] pair in vendorQuotes
+                                // for (const [vendorId, quoteData] of Object.entries(vendorQuotes)) {
+                                //   const q = parseNumber(quoteData?.quote)
+                                //   if (q < lowestQuote) {
+                                //     lowestQuote = parseNumber(q)
+                                //     lowestVendorId = vendorId
+                                //   }
+                                // }
                                 const data = vendorQuotes?.[v?.value]
-                                const quote = data?.quote
+                                const quote = parseNumber(data?.quote)
                                 const make = data?.make
                                 const isSelected = mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.value;
                                 return (
@@ -253,7 +253,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                         {mode === "edit" ? (
                                            <MakesSelection vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
                                         ) : (
-                                          <p className={`text-sm font-medium text-gray-700 ${lowestVendorId === v?.value ? "text-green-600" : ""}`}>{make || "--"}</p>
+                                          <p className={`text-sm font-medium text-gray-700 ${quote < targetQuote ? "text-green-600" : ""}`}>{make || "--"}</p>
                                         )}
                                       </div>
                                       <div className="flex flex-col gap-1">
@@ -271,7 +271,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                           // />
                                           <QuantityQuoteInput value={quote || ""} onChange={(value) => handleQuoteChange(item.name, v?.value || "", value)} />
                                         ) : (
-                                          <p className={`${lowestVendorId === v?.value ? "text-green-600" : ""}`}>{quote ?  formatToIndianRupee(quote) : "--"}</p>
+                                          <p className={`${quote < targetQuote ? "text-green-600" : ""}`}>{quote ?  formatToIndianRupee(quote) : "--"}</p>
                                         )}
                                       </div>
                                     </div>
@@ -279,7 +279,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                 )
                               })}
                               {!formData?.selectedVendors?.length && <TableCell />}
-                              <TableCell>{minQuote ? formatToIndianRupee(minQuote * 0.98) : "N/A"}</TableCell>
+                              <TableCell>{targetQuote ? formatToIndianRupee(targetQuote) : "N/A"}</TableCell>
                             </TableRow>
                           )
                         }

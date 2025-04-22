@@ -15,10 +15,10 @@ export const useItemEstimate = (threshold: number = 2) => {
   );
 
   const getItemEstimate = useMemo(
-    () => memoize((itemId : string) : number => {
-      return getThreeMonthsLowestFiltered(quote_data, itemId, threshold)
+    () => memoize((itemId : string, data: ApprovedQuotations[] | undefined = quote_data) : number => {
+      return getThreeMonthsLowestFiltered(data, itemId, threshold)
     }
-  , (itemId: string) => itemId),[quote_data]);
+  , (itemId: string, data: ApprovedQuotations[] | undefined) => JSON.stringify(data) + itemId),[quote_data]);
 
   return { getItemEstimate };
 };
