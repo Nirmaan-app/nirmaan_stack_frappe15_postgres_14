@@ -51,6 +51,7 @@ import Vendors from "@/pages/vendors/vendors";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
+import InvoiceReconciliation from "@/pages/tasks/InvoiceReconciliation";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -190,6 +191,10 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <ReleasePOSelect /> },
               { path: ":id", element: <RenderPurchaseOrdersTab /> }, // :poId might be clearer if it's always PO ID
             ],
+          },
+          {
+            path: "invoice-reconciliation",
+            element: <InvoiceReconciliation />
           },
 
           // --- Sent Back Requests ---
