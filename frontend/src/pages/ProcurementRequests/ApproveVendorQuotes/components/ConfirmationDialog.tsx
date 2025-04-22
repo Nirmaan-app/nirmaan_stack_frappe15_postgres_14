@@ -1,4 +1,3 @@
-// src/features/procurement/approve-reject-quotes/components/ConfirmationDialog.tsx
 import React from 'react';
 import {
     AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
