@@ -136,6 +136,7 @@ export const useApproveRejectLogic = ({
                 vendor_name: vendorName,
                 amount,
                 lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
+                targetRate: threeMonthsLowest,
                 targetAmount: threeMonthsLowest * (item.quantity ?? 0),
                 // Calculate saving/loss based on comparison (e.g., lowest vs selected)
                 savingLoss: ((lowestQuoted || threeMonthsLowest) && item.quote) ? (((lowestQuoted && threeMonthsLowest) ? Math.min(lowestQuoted, threeMonthsLowest) : (lowestQuoted || threeMonthsLowest)) - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,

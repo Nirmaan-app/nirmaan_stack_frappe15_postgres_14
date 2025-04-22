@@ -328,7 +328,8 @@ const generateActionSummary = useCallback(() => {
     orderData?.item_list?.list.forEach((item) => {
         const vendor = item?.vendor || "";
             // Approval items segregated by vendor
-          const lowestItemPrice = getLowest(item?.name)
+            const targetRate = getItemEstimate(item?.name)
+          const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)
           const itemTotal = parseNumber(item.quantity * parseNumber(item.quote));
             if (!vendorWiseApprovalItems[vendor]) {
                 vendorWiseApprovalItems[vendor] = {
@@ -336,7 +337,7 @@ const generateActionSummary = useCallback(() => {
                     total: 0,
                 };
             }
-            if(lowestItemPrice && lowestItemPrice !== parseNumber(item.quote)) {
+            if(lowestItemPrice && lowestItemPrice !== parseNumber(item.quote) && lowestItemPrice < parseNumber(item?.quote)) {
                vendorWiseApprovalItems[vendor].items.push({...item, potentialLoss : itemTotal - (parseNumber(item.quantity) * lowestItemPrice)});
             } else {
               vendorWiseApprovalItems[vendor].items.push(item);
