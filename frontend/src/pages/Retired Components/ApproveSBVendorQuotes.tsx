@@ -185,7 +185,7 @@ export const ApproveSBVendorQuotesPage : React.FC<ApproveSBVendorQuotesPageProps
 //   }
 
 const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
-    return getThreeMonthsLowestFiltered(quotes_data, itemId)
+    return getThreeMonthsLowestFiltered(quotes_data, itemId)?.averageRate
   }, [quotes_data]);
 
 

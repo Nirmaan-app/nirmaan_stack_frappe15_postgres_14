@@ -51,6 +51,8 @@ import Vendors from "@/pages/vendors/vendors";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
+import InvoiceReconciliation from "@/pages/tasks/InvoiceReconciliation";
+import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -191,6 +193,10 @@ export const appRoutes: RouteObject[] = [
               { path: ":id", element: <RenderPurchaseOrdersTab /> }, // :poId might be clearer if it's always PO ID
             ],
           },
+          {
+            path: "invoice-reconciliation",
+            element: <InvoiceReconciliationContainer />
+          },
 
           // --- Sent Back Requests ---
            {
@@ -298,7 +304,12 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <Customers /> },
               { path: "new-customer", element: <NewCustomer /> },
-              { path: ":customerId", element: <Customer /> },
+              { path: ":customerId", 
+                children: [
+                  {index: true, element: <Customer />},
+                  { path: ":poId", lazy: () => import("@/components/POSummary") },
+                ]
+               },
             ],
           },
 

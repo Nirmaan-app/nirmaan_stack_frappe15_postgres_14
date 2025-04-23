@@ -57,7 +57,7 @@ export const RequestItemDialog: React.FC<RequestItemDialogProps> = ({
     return (
         <AlertDialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             {/* Increase max width for more content */}
-            <AlertDialogContent className="sm:max-w-2xl">
+            <AlertDialogContent className="sm:max-w-2xl overflow-auto max-h-[90vh]">
                 <AlertDialogHeader>
                     <AlertDialogTitle>Review Requested Product: <span className='text-primary'>{requestItem.item_name}</span></AlertDialogTitle>
                     <AlertDialogDescription>

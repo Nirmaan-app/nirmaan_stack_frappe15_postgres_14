@@ -8,25 +8,29 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { omit } from "lodash";
 import { CheckCheck, CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import React, { useCallback } from "react";
 import { MakesSelection } from "./ItemVendorMakeSelection";
 import { parseNumber } from "@/utils/parseNumber";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { HistoricalQuotesHoverCard } from "./components/HistoricalQuotesHoverCard";
 
-interface SelectVendorQuotesTableProps {
-  sentBack?: boolean
-  orderData : any
-  formData : RFQData
+type DocumentType = ProcurementRequest | SentBackCategory
+
+interface SelectVendorQuotesTableProps<T extends DocumentType> {
+  sentBack?: boolean;
+  orderData : T;
+  formData : RFQData;
   setFormData : React.Dispatch<React.SetStateAction<RFQData>>
   selectedVendorQuotes : Map<any, any>
   setSelectedVendorQuotes : React.Dispatch<React.SetStateAction<Map<any, any>>>
   mode : string
-  setOrderData : any
+  setOrderData : React.Dispatch<React.SetStateAction<T | null>>
 }
 
-export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = ({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}) => {
+export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}: SelectVendorQuotesTableProps<T>) {
 
   const { getItemEstimate } = useItemEstimate()
 
@@ -189,7 +193,12 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                     <TableBody>
                       {(sentBack ? (orderData as SentBackCategory)?.item_list : (orderData as ProcurementRequest)?.procurement_list)?.list.map((item: any) => {
                         if (item.category === cat.name) {
-                          const targetQuote = getItemEstimate(item.name) * 0.98
+                          // const targetQuote: number = (getItemEstimate(item.name)?.averageRate ?? 0) * 0.98
+                          // const contributingQuotes = getItemEstimate(item.name)?.contributingQuotes
+                          const estimate = getItemEstimate(item.name); // Call your function to get data
+                          const targetQuoteValue: number = estimate ? estimate.averageRate * 0.98 : 0; // Calculate target
+                          const contributingQuotes: ApprovedQuotations[] | null = estimate ? estimate.contributingQuotes : null;
+
                           return (
                             <TableRow key={`${cat.name}-${item.name}`}>
                               <TableCell className="py-8">
@@ -253,7 +262,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                         {mode === "edit" ? (
                                            <MakesSelection vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
                                         ) : (
-                                          <p className={`text-sm font-medium text-gray-700 ${quote < targetQuote ? "text-green-600" : ""}`}>{make || "--"}</p>
+                                          <p className={`text-sm font-medium text-gray-700 ${quote < targetQuoteValue ? "text-green-600" : ""}`}>{make || "--"}</p>
                                         )}
                                       </div>
                                       <div className="flex flex-col gap-1">
@@ -271,7 +280,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                           // />
                                           <QuantityQuoteInput value={quote || ""} onChange={(value) => handleQuoteChange(item.name, v?.value || "", value)} />
                                         ) : (
-                                          <p className={`${quote < targetQuote ? "text-green-600" : ""}`}>{quote ?  formatToIndianRupee(quote) : "--"}</p>
+                                          <p className={`${quote < targetQuoteValue ? "text-green-600" : ""}`}>{quote ?  formatToIndianRupee(quote) : "--"}</p>
                                         )}
                                       </div>
                                     </div>
@@ -279,7 +288,19 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                 )
                               })}
                               {!formData?.selectedVendors?.length && <TableCell />}
-                              <TableCell>{targetQuote ? formatToIndianRupee(targetQuote) : "N/A"}</TableCell>
+                              {/* <TableCell>{targetQuoteValue ? formatToIndianRupee(targetQuoteValue) : "N/A"}</TableCell> */}
+                              <TableCell>
+                                  {targetQuoteValue ? (
+                                      // Wrap the formatted rate with the HoverCard component
+                                      <HistoricalQuotesHoverCard quotes={contributingQuotes}>
+                                          {/* This is the trigger element */}
+                                          <span>{formatToRoundedIndianRupee(targetQuoteValue)}</span>
+                                      </HistoricalQuotesHoverCard>
+                                  ) : (
+                                      // Display N/A if no target rate could be calculated
+                                      <span>N/A</span>
+                                  )}
+                              </TableCell>
                             </TableRow>
                           )
                         }

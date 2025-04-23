@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { SelectionState, VendorDataSourceItem, VendorItemDetails } from '../types'; // Assuming types are defined in a shared location
 import formatToIndianRupee, {formatToRoundedIndianRupee} from '@/utils/FormatPrice'; // Adjust path
+import { HistoricalQuotesHoverCard } from '../../VendorQuotesSelection/components/HistoricalQuotesHoverCard';
 
 interface VendorApprovalTableProps {
     dataSource: VendorDataSourceItem[];
@@ -211,7 +212,20 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                          <TableCell className="text-center">{item.unit}</TableCell>
                                                          <TableCell className="text-center">{item.quantity}</TableCell>
                                                          <TableCell className="text-right">{formatToIndianRupee(item.quote)}</TableCell>
-                                                         <TableCell className="text-right">{formatToIndianRupee(item.targetRate)}</TableCell>
+
+                                                         <TableCell className="text-right">
+                                                           {item.targetRate ? (
+                                                               // Wrap the formatted rate with the HoverCard component
+                                                               <HistoricalQuotesHoverCard quotes={item.contributingQuotes}>
+                                                                   {/* This is the trigger element */}
+                                                                   <span>{formatToIndianRupee(item.targetRate)}</span>
+                                                               </HistoricalQuotesHoverCard>
+                                                           ) : (
+                                                               // Display N/A if no target rate could be calculated
+                                                               <span>N/A</span>
+                                                           )}
+                                                        </TableCell>
+                                                         {/* <TableCell className="text-right">{formatToIndianRupee(item.targetRate)}</TableCell> */}
                                                          <TableCell className="text-right">{formatToIndianRupee(item.amount)}</TableCell>
                                                          <TableCell className="text-right">{formatToIndianRupee(item.lowestQuotedAmount || "N/A")}</TableCell>
                                                          <TableCell className="text-right">{formatToIndianRupee(item.targetAmount || "N/A")}</TableCell>

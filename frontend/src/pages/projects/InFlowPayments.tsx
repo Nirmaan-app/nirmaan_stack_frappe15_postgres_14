@@ -143,31 +143,33 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
                       return value.includes(row.getValue(id))
                   },
               },
-              {
-                accessorKey: "customer",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Customer" />
-                    )
+              ...(!customerId ? [
+                {
+                    accessorKey: "customer",
+                    header: ({ column }) => {
+                        return (
+                            <DataTableColumnHeader column={column} title="Customer" />
+                        )
+                    },
+                    cell: ({ row }) => {
+                         const customerId = row.original.customer
+                        return <div className="font-medium text-center">
+                            {getCustomerName(customerId)}
+                            <HoverCard>
+                                <HoverCardTrigger>
+                                    <Info onClick={() => navigate(`/customers/${customerId}`)} className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1" />
+                                </HoverCardTrigger>
+                                <HoverCardContent>
+                                    Click on to navigate to the Customer screen!
+                                </HoverCardContent>
+                            </HoverCard>
+                            </div>;
+                    },
+                    filterFn: (row, id, value) => {
+                        return value.includes(row.getValue(id))
+                    },
                 },
-                cell: ({ row }) => {
-                     const customerId = row.original.customer
-                    return <div className="font-medium text-center">
-                        {getCustomerName(customerId)}
-                        <HoverCard>
-                            <HoverCardTrigger>
-                                <Info onClick={() => navigate(`/customers/${customerId}`)} className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1" />
-                            </HoverCardTrigger>
-                            <HoverCardContent>
-                                Click on to navigate to the Customer screen!
-                            </HoverCardContent>
-                        </HoverCard>
-                        </div>;
-                },
-                filterFn: (row, id, value) => {
-                    return value.includes(row.getValue(id))
-                },
-            },
+              ] : []),
               {
                   accessorKey: "amount",
                   header: ({ column }) => {
@@ -190,7 +192,7 @@ return (
         {projectsLoading || projectInflowsLoading || customersLoading ? (
             <TableSkeleton />
         ) : (
-            <DataTable columns={columns} data={projectInflows || []} project_values={projectValues} inFlowButton={customerId ? false : true} customerOptions={customerValues} />
+            <DataTable columns={columns} data={projectInflows || []} project_values={projectValues} inFlowButton={customerId ? false : true} customerOptions={!customerId ? customerValues : undefined} />
         )}
         <NewInflowPayment />
        </div>

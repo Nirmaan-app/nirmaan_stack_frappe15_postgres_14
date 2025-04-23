@@ -32,7 +32,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
 import SITEURL from "@/constants/siteURL";
-import { InvoiceDialog } from "@/pages/ProcurementOrders/InvoiceDialog";
+import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -50,6 +50,7 @@ import SRAttachments from "./SRAttachments";
 import { useUserData } from "@/hooks/useUserData";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
+import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
 
 // const { Sider, Content } = Layout;
 
@@ -854,10 +855,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     </CardContent>
                 </Card>
             </div>
+            
+            <DocumentAttachments
+                docType="Service Requests"
+                docName={service_request?.name}
+                documentData={orderData}
+                docMutate={service_request_mutate}
+            />
+            {/* <SRAttachments SR={orderData} /> */}
 
-            <SRAttachments SR={orderData} />
-
-            <InvoiceDialog  sr={orderData} poMutate={service_request_mutate} />
+            <InvoiceDialog  docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} />
 
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">

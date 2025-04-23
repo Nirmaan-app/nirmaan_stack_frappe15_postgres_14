@@ -281,15 +281,15 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
         }
       }, 300), [newPayment])
 
-    const getVendorName = useMemo(() => memoize((id: string) => {
-        const vendorName = vendorValues.find((vend) => vend.value === id)?.label;
+    const getVendorName = useMemo(() => memoize((id: string | undefined) => {
+        const vendorName = vendorValues.find((vend) => vend.value === id)?.label || id;
         return vendorName;
-    }, (id: string) => id), [vendorValues])
+    }, (id: string | undefined) => id), [vendorValues])
 
-    const getProjectName = useMemo(() => memoize((id: string) => {
-        const projectName = projectValues.find((proj) => proj.value === id)?.label;
+    const getProjectName = useMemo(() => memoize((id: string | undefined) => {
+        const projectName = projectValues.find((proj) => proj.value === id)?.label || id;
         return projectName;
-    }, (id: string) => id), [vendorValues])
+    }, (id: string | undefined) => id), [vendorValues])
     
       // Handle input change
     const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
@@ -441,7 +441,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                         const vendor = getVendorName(data?.vendor)
                         return <div className="font-medium">
                             <SquarePlus onClick={() => {
-                                setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
+                                setNewPayment({ ...newPayment, project: project!, vendor: vendor!, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
                                 setWarning("")
                                 toggleNewPaymentDialog()
                             }} className="w-5 h-5 text-red-500 cursor-pointer" />

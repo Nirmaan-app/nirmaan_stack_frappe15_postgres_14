@@ -148,7 +148,7 @@ export const getTotalInvoiceAmount = memoize(
     // Calculate total with currency-safe operations
     const total = invoiceItems.reduce((acc: number, item) => {
       // Validate item structure
-      if (!item || typeof item !== 'object') return acc;
+      if (!item || typeof item !== 'object' || item?.status !== "Approved") return acc; 
 
       const amount = item?.amount
       

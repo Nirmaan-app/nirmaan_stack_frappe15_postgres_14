@@ -18,7 +18,8 @@ import {
   BlendIcon,
   ChevronRight,
   CircleDollarSign,
-  HandCoins
+  HandCoins,
+  ReceiptText
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -94,6 +95,7 @@ export function NewSidebar() {
     }
   }, [data]);
 
+
   const {
     updatePRCounts,
     updateSBCounts,
@@ -167,7 +169,7 @@ export function NewSidebar() {
   const { data: poData, mutate: poDataMutate } = useFrappeGetDocList(
     "Procurement Orders",
     {
-      fields: ["status"],
+      fields: ["status", 'invoice_data'],
       filters: [["project", "in", permissionsList || []]],
       limit: 100000,
     },
@@ -177,13 +179,21 @@ export function NewSidebar() {
   const { data: adminPOData, mutate: adminPODataMutate } = useFrappeGetDocList(
     "Procurement Orders",
     {
-      fields: ["status"],
+      fields: ["name", "status", 'invoice_data'],
       limit: 100000,
     },
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
       : null
   );
+
+  console.log("poData", adminPOData)
+
+  const nonEmptyInvoiceData = useMemo(() => adminPOData?.filter(i => Object.keys(i?.invoice_data?.data || [])?.length > 0) || [], [adminPOData])
+
+  console.log("nonEmptyInvoiceData", nonEmptyInvoiceData)
+
+
 
   const { data: prData, mutate: prDataMutate } = useFrappeGetDocList(
     "Procurement Requests",
@@ -736,6 +746,15 @@ export function NewSidebar() {
                 label: 'In-Flow Payments',
             },
         ]
+        : []),
+        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+        ? [
+            {
+                key: '/invoice-reconciliation',
+                icon: ReceiptText,
+                label: 'Invoice Recon',
+            },
+        ]
         : [])
   ], [user_id, role]);
 
@@ -764,7 +783,8 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
-    "in-flow-payments"
+    "in-flow-payments",
+    'invoice-reconciliation',
   ]), [])
 
   const selectedKeys = useMemo(() => {
@@ -784,7 +804,8 @@ export function NewSidebar() {
     "/purchase-orders": ["purchase-orders"],
     // "/sent-back-requests": ["sent-back-requests"],
     "/project-payments": ["project-payments"],
-    "/in-flow-payments": ["in-flow-payments"]
+    "/in-flow-payments": ["in-flow-payments"],
+    "/invoice-reconciliation": ["invoice-reconciliation"]
   }), []);
 
   const openKey = useMemo(() => {
@@ -852,7 +873,7 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
                         ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
