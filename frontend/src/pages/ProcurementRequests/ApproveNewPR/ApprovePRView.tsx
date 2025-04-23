@@ -132,6 +132,8 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
          return map;
      }, [projectDoc]);
 
+     console.log("currentItemOption", currentItemOption)
+
 
     return (
         <>
@@ -281,7 +283,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
 
 
             <AddItemForm
-                showNewItemsCard={showNewItemsCard}
+                  showNewItemsCard={showNewItemsCard}
                  itemOptions={itemOptions}
                  currentItemOption={currentItemOption}
                  setCurrentItemOption={setCurrentItemOption}
@@ -301,6 +303,9 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                  setNewItem={setNewItem} // Allow direct updates if simple
                  // handleNewItemChange={handleNewItemChange} // Or pass handler
                  categoryOptions={categoryList?.map(c => ({ label: c.category_name, value: c.name, tax: parseNumber(c.tax) })) ?? []}
+                 fuzzyMatches={fuzzyMatches}
+                 handleFuzzySearch={handleFuzzySearch}
+                 onAddMatchingItem={setCurrentItemOption}
                  currentCategory={currentCategoryForNewItem}
                  setCurrentCategory={setCurrentCategoryForNewItem}
                  onSubmit={handleCreateAndAddItem}

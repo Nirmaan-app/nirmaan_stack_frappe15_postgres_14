@@ -108,7 +108,8 @@ export const useApproveRejectLogic = ({
 
     // Memoize lowest quote lookups (assuming functions are pure)
     const getLowest = useCallback((itemId: string) => getLowestQuoteFilled(orderData, itemId), [orderData]);
-    const getThreeMonthsLowest = useCallback((itemId: string) => getThreeMonthsLowestFiltered(quotesData, itemId), [quotesData]);
+    
+    const getItemAvgRateAndAttributes = useCallback((itemId: string) => getThreeMonthsLowestFiltered(quotesData, itemId), [quotesData]);
 
     // Memoize vendor totals calculation
     const vendorTotals = useMemo(() => {
@@ -128,7 +129,8 @@ export const useApproveRejectLogic = ({
             const vendorId = item.vendor;
             const vendorName = getVendorName(vendorId);
             const amount = (item.quote ?? 0) * (item.quantity ?? 0);
-            const threeMonthsLowest = (getThreeMonthsLowest(item.name) ?? 0) * 0.98;
+            const threeMonthsLowest = getItemAvgRateAndAttributes(item.name)?.averageRate * 0.98;
+            const contributingQuotes = getItemAvgRateAndAttributes(item.name)?.contributingQuotes;
             const lowestQuoted = getLowest(item.name) ?? 0;
 
             const itemDetails: VendorItemDetails = {
@@ -137,6 +139,7 @@ export const useApproveRejectLogic = ({
                 amount,
                 lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
                 targetRate: threeMonthsLowest,
+                contributingQuotes,
                 targetAmount: threeMonthsLowest * (item.quantity ?? 0),
                 // Calculate saving/loss based on comparison (e.g., lowest vs selected)
                 savingLoss: ((lowestQuoted || threeMonthsLowest) && item.quote) ? (((lowestQuoted && threeMonthsLowest) ? Math.min(lowestQuoted, threeMonthsLowest) : (lowestQuoted || threeMonthsLowest)) - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
@@ -167,7 +170,7 @@ export const useApproveRejectLogic = ({
                 items: groupData.items,
                 potentialSavingLoss: groupData.potentialSavingLoss, // Add calculated total saving/loss
             }));
-    }, [orderData?.procurement_list.list, getVendorName, getLowest, getThreeMonthsLowest, vendorTotals]);
+    }, [orderData?.procurement_list.list, getVendorName, getLowest, getItemAvgRateAndAttributes, vendorTotals]);
 
     // --- Callbacks ---
     const handleSelectionChange = useCallback((newSelection: SelectionState) => {

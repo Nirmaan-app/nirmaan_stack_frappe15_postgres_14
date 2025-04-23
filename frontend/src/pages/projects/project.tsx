@@ -658,7 +658,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       });
     } else {
       orderData?.list.forEach((item) => {
-        const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
+        const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)?.averageRate
         total += parseNumber(minQuote * item.quantity);
       });
     }

@@ -5,8 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import SITEURL from "@/constants/siteURL";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { InvoiceDataType, InvoiceItem } from "@/types/NirmaanStack/ProcurementOrders";
-import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
+import { formatDate } from "date-fns";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import { useMemo } from "react";
@@ -29,6 +29,7 @@ const getInvoiceDetails = (data: InvoiceDataType | string) => {
       isValid: true,
       items: items.map(([date, item]) => ({
         date,
+        status: item.status,
         invoiceNo: item.invoice_no,
         amount: item.amount,
         attachment: item.invoice_attachment_id
@@ -52,7 +53,7 @@ export const InvoiceDataDialog = ({
 
   const {data: attachmentsData, isLoading: attachmentsDataLoading } = useFrappeGetDocList<NirmaanAttachment>("Nirmaan Attachments", {
     fields: ["name", "attachment"],
-    filters: [["associated_docname", "=", poNumber]],
+    filters: [["associated_docname", "=", poNumber!]],
   }, poNumber ? `Nirmaan Attachments ${poNumber}` : null)
 
   const getAttachmentUrl = useMemo(() => memoize((id: string) => {
@@ -98,10 +99,10 @@ export const InvoiceDataDialog = ({
               </TableHeader>
               <TableBody>
                 {isValid && items.length > 0 ? (
-                  items.map((item) => (
-                    <TableRow key={`${item.date}-${item.invoiceNo}`}>
+                  items.map((item) => {
+                    if(item?.status === "Approved") return <TableRow key={`${item.date}-${item.invoiceNo}`}>
                       <TableCell className="font-medium">
-                        {formatDate(item.date)}
+                        {item.date ? formatDate(item.date?.split('_')[0], 'dd-MMM-yyyy') : 'N/A'}
                       </TableCell>
                       <TableCell>{item.invoiceNo}</TableCell>
                       <TableCell className="text-right">
@@ -122,7 +123,7 @@ export const InvoiceDataDialog = ({
                         )}
                       </TableCell>
                     </TableRow>
-                  ))
+                    })
                 ) : (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center h-24">

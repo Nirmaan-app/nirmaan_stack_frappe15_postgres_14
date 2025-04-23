@@ -367,7 +367,7 @@ interface VendorWiseApprovalItems {
 
     orderData?.procurement_list?.list.forEach((item) => {
         const vendor = item?.vendor;
-        const targetRate = getItemEstimate(item?.name)
+        const targetRate = getItemEstimate(item?.name)?.averageRate
         const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)
         if (!vendor) {
             // Delayed items

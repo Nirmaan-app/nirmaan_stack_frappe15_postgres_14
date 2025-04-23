@@ -18,6 +18,7 @@ import {
 import { Projects as Project } from '@/types/NirmaanStack/Projects'; // Import Project type
 import {KeyedMutator } from 'swr'
 import { parseNumber } from '@/utils/parseNumber';
+import { Items } from '@/types/NirmaanStack/Items';
 
 interface UseApprovePRLogicProps {
     prDoc: PRDocType;
@@ -26,7 +27,7 @@ interface UseApprovePRLogicProps {
     categoryList?: Category[];
     itemList?: Item[];
     comments?: Comment[];
-    itemMutate: () => Promise<void>; // Function to refetch items
+    itemMutate:KeyedMutator<Items[]>; // Function to refetch items
     prMutate: KeyedMutator<FrappeDoc<PRDocType>>; // Function to refetch PR
 }
 

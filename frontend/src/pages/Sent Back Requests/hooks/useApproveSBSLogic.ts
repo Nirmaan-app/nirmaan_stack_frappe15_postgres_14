@@ -104,7 +104,7 @@ export const useApproveSBSLogic = ({
     // const getUserName = useCallback((id: string | undefined) => id ? usersList.find(u => u?.name === id)?.full_name || `Unknown (${id.substring(0, 6)})` : "N/A", [usersList]);
 
     const getLowest = useCallback((itemId: string) => getLowestQuoteFilled(sentBackData, itemId), [sentBackData]); // Pass sentBackData
-    const getThreeMonthsLowest = useCallback((itemId: string) => getThreeMonthsLowestFiltered(quotesData, itemId), [quotesData]);
+    const getItemAvgRateAndAttributes = useCallback((itemId: string) => getThreeMonthsLowestFiltered(quotesData, itemId), [quotesData]);
 
     const vendorTotals = useMemo(() => {
         const totals: { [vendorId: string]: number } = {};
@@ -124,7 +124,8 @@ export const useApproveSBSLogic = ({
             const vendorId = item.vendor;
             const vendorName = getVendorName(vendorId);
             const amount = (item.quote ?? 0) * (item.quantity ?? 0);
-            const threeMonthsLowest = (getThreeMonthsLowest(item.name) ?? 0) * 0.98;
+            const threeMonthsLowest = getItemAvgRateAndAttributes(item.name)?.averageRate * 0.98;
+            const contributingQuotes = getItemAvgRateAndAttributes(item.name)?.contributingQuotes;
             const lowestQuoted = getLowest(item.name) ?? 0;
 
             // Assert item as VendorItemDetails - might need adjustments based on SBItem vs ProcurementItem
@@ -135,6 +136,7 @@ export const useApproveSBSLogic = ({
                 lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
                 // threeMonthsLowestAmount: threeMonthsLowest * (item.quantity ?? 0),
                 targetRate: threeMonthsLowest,
+                contributingQuotes,
                 targetAmount: threeMonthsLowest * (item.quantity ?? 0),
                 savingLoss: ((lowestQuoted || threeMonthsLowest) && item.quote) ? (((lowestQuoted && threeMonthsLowest) ? Math.min(lowestQuoted, threeMonthsLowest) : (lowestQuoted || threeMonthsLowest)) - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
             };
@@ -163,7 +165,7 @@ export const useApproveSBSLogic = ({
                 items: groupData.items,
                 potentialSavingLoss: groupData.potentialSavingLoss,
             }));
-    }, [sentBackData?.item_list.list, getVendorName, getLowest, getThreeMonthsLowest, vendorTotals]); // Depend on item_list
+    }, [sentBackData?.item_list.list, getVendorName, getLowest, getItemAvgRateAndAttributes, vendorTotals]); // Depend on item_list
 
     // --- Callbacks ---
     const handleSelectionChange = useCallback((newSelection: SelectionState) => {

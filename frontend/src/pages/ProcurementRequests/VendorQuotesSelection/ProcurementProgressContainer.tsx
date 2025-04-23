@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'; // Adjust path
 import { useProcurementRequestDoc } from './hooks/useProcurementRequestDoc';
 import { useVendorsList } from './hooks/useVendorsList';
 import { useProcurementProgressLogic } from './hooks/useProcurementProgressLogic';
-import { useUsersList } from './hooks/useUsersList';
 import { ProcurementProgressView } from './ProcurementProgressView';
+import { useUsersList } from '../ApproveNewPR/hooks/useUsersList';
 
 export const ProcurementProgressContainer: React.FC = () => {
     const { prId } = useParams<{ prId: string }>();

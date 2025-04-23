@@ -1,3 +1,4 @@
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 
 export interface VendorItemDetails extends ProcurementItem { // Extend ProcurementItem
@@ -10,6 +11,7 @@ export interface VendorItemDetails extends ProcurementItem { // Extend Procureme
     // Calculated fields:
     savingLoss?: number // Optional saving/loss per item
     // Add other fields displayed in the table if needed
+    contributingQuotes?: ApprovedQuotations[]; // Optional contributing quotes
 }
 
 export interface VendorGroup {

@@ -193,7 +193,7 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
   }, [orderData]);
 
   const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
-    return getThreeMonthsLowestFiltered(quotes_data, itemId)
+    return getThreeMonthsLowestFiltered(quotes_data, itemId)?.averageRate
   }, [quotes_data]);
 
   // Calculate totals per VENDOR
