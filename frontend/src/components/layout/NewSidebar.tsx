@@ -95,6 +95,7 @@ export function NewSidebar() {
     }
   }, [data]);
 
+
   const {
     updatePRCounts,
     updateSBCounts,
@@ -168,7 +169,7 @@ export function NewSidebar() {
   const { data: poData, mutate: poDataMutate } = useFrappeGetDocList(
     "Procurement Orders",
     {
-      fields: ["status"],
+      fields: ["status", 'invoice_data'],
       filters: [["project", "in", permissionsList || []]],
       limit: 100000,
     },
@@ -178,13 +179,21 @@ export function NewSidebar() {
   const { data: adminPOData, mutate: adminPODataMutate } = useFrappeGetDocList(
     "Procurement Orders",
     {
-      fields: ["status"],
+      fields: ["name", "status", 'invoice_data'],
       limit: 100000,
     },
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
       : null
   );
+
+  console.log("poData", adminPOData)
+
+  const nonEmptyInvoiceData = useMemo(() => adminPOData?.filter(i => Object.keys(i?.invoice_data?.data || [])?.length > 0) || [], [adminPOData])
+
+  console.log("nonEmptyInvoiceData", nonEmptyInvoiceData)
+
+
 
   const { data: prData, mutate: prDataMutate } = useFrappeGetDocList(
     "Procurement Requests",

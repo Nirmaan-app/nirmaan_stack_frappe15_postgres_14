@@ -1,7 +1,6 @@
 // src/features/procurement/approve-reject-quotes/ApproveRejectVendorQuotesContainer.tsx
 import React, { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { TailSpin } from 'react-loader-spinner';
 import { Button } from '@/components/ui/button'; // Adjust path
 import { useApproveRejectPRDoc } from './hooks/useApproveRejectPRDoc';
 import { useApprovedQuotationsList } from './hooks/useApprovedQuotationsList';
@@ -10,11 +9,11 @@ import { useApprovedQuotationsList } from './hooks/useApprovedQuotationsList';
 import { useApproveRejectLogic } from './hooks/useApproveRejectLogic';
 import { NirmaanComments } from '@/types/NirmaanStack/NirmaanComments'; // Type needed for comments hook if used separately
 import { useVendorsList } from '../VendorQuotesSelection/hooks/useVendorsList';
-import { useUsersList } from '../VendorQuotesSelection/hooks/useUsersList';
 import { ApproveRejectVendorQuotesView } from './ApproveRejectVendorQuotesView';
 import { useFrappeGetDocList } from 'frappe-react-sdk';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { ProcurementItem } from '@/types/NirmaanStack/ProcurementRequests';
+import { useUsersList } from '../ApproveNewPR/hooks/useUsersList';
 
 export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     const { id: prId } = useParams<{ id: string }>();

@@ -156,6 +156,7 @@ export const ApprovePRContainer: React.FC = () => {
         <ApprovePRView
             {...logicProps} // Spread all state and handlers from the logic hook
             projectDoc={projectDoc}
+            categoryList={categoryList}
         />
     );
 };

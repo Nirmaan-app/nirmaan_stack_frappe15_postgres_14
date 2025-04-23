@@ -24,6 +24,8 @@ const SrSummary : React.FC = () => {
 
     const { srId: id } = useParams<{ srId: any }>();
 
+    console.log("srId",)
+
     const { data: sr_data, isLoading: sr_loading, error: sr_error } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null);
 
     const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {

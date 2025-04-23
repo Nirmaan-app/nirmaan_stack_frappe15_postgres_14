@@ -328,7 +328,7 @@ const generateActionSummary = useCallback(() => {
     orderData?.item_list?.list.forEach((item) => {
         const vendor = item?.vendor || "";
             // Approval items segregated by vendor
-            const targetRate = getItemEstimate(item?.name)
+            const targetRate = getItemEstimate(item?.name)?.averageRate
           const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)
           const itemTotal = parseNumber(item.quantity * parseNumber(item.quote));
             if (!vendorWiseApprovalItems[vendor]) {

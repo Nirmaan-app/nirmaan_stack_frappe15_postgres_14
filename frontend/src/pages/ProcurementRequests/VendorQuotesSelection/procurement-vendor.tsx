@@ -156,7 +156,7 @@ export const ProcurementOrder : React.FC = () => {
                     <TableBody>
                       {orderData?.procurement_list.list.map((item: any) => {
                         if (item.category === cat.name) {
-                          const minQuote = getItemEstimate(item.name)
+                          const minQuote = getItemEstimate(item.name)?.averageRate
                           return (
                             <TableRow key={item.item}>
                               <TableCell>
