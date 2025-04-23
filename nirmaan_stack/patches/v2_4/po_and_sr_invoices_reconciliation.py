@@ -65,7 +65,8 @@ def execute():
             #     # Add other filters if needed
             # ],
             # Fetch fields common/needed for processing and task creation
-            fields=["name", "invoice_data", "project"]
+            fields=["name", "invoice_data", "project"],
+            order_by="creation asc"
             # Note: 'vendor' is specific to PO, fetch conditionally if needed later
         )
 
