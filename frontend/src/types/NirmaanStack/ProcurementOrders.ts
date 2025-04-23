@@ -40,6 +40,7 @@ export interface InvoiceItem {
 	amount: number;
 	invoice_attachment_id?: string;
 	updated_by: string;
+	status?: "Pending" | "Approved" | "Rejected";
 }
 
 export interface InvoiceDataType {

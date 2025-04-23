@@ -15,18 +15,20 @@ import React, { useCallback } from "react";
 import { MakesSelection } from "./ItemVendorMakeSelection";
 import { parseNumber } from "@/utils/parseNumber";
 
-interface SelectVendorQuotesTableProps {
-  sentBack?: boolean
-  orderData : any
-  formData : RFQData
+type DocumentType = ProcurementRequest | SentBackCategory
+
+interface SelectVendorQuotesTableProps<T extends DocumentType> {
+  sentBack?: boolean;
+  orderData : T;
+  formData : RFQData;
   setFormData : React.Dispatch<React.SetStateAction<RFQData>>
   selectedVendorQuotes : Map<any, any>
   setSelectedVendorQuotes : React.Dispatch<React.SetStateAction<Map<any, any>>>
   mode : string
-  setOrderData : any
+  setOrderData : React.Dispatch<React.SetStateAction<T | null>>
 }
 
-export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = ({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}) => {
+export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}: SelectVendorQuotesTableProps<T>) {
 
   const { getItemEstimate } = useItemEstimate()
 

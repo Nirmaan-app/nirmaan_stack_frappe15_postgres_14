@@ -91,10 +91,11 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
 import DeliveryHistory from "../DeliveryNotes/components/DeliveryHistory";
-import { InvoiceDialog } from "./InvoiceDialog";
+import { InvoiceDialog } from "./invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./POAttachments";
 import POPaymentTermsCard from "./POPaymentTermsCard";
 import TransactionDetailsCard from "./TransactionDetailsCard";
+import { DocumentAttachments } from "./invoices-and-dcs/DocumentAttachments";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -1049,16 +1050,16 @@ export const PurchaseOrder = ({
             getTotal={getTotal} amountPaid={amountPaid} poMutate={poMutate} />
 
       <Accordion type="multiple" 
-      defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
+      // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
       className="w-full">
         <AccordionItem key="transac&payments" value="transac&payments">
-          {tab === "Delivered PO" && (
+          {/* {tab === "Delivered PO" && ( */}
             <AccordionTrigger>
             <p className="font-semibold text-lg text-red-600 pl-6">
               Payment Details
             </p>
           </AccordionTrigger>
-          )}
+          {/* )} */}
           <AccordionContent>
         <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
           <TransactionDetailsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} amountPaid={amountPaid} poPayments={poPayments} poPaymentsMutate={poPaymentsMutate} AllPoPaymentsListMutate={AllPoPaymentsListMutate} />
@@ -1074,18 +1075,24 @@ export const PurchaseOrder = ({
       {/* PO Attachments Accordion */}
       {PO?.status !== "PO Approved" && (
         <Accordion type="multiple" 
-          defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+          // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
           className="w-full">
           <AccordionItem key="poattachments" value="poattachments">
-            {tab === "Delivered PO" && (
+            {/* {tab === "Delivered PO" && ( */}
               <AccordionTrigger>
               <p className="font-semibold text-lg text-red-600 pl-6">
                 PO Attachments
               </p>
             </AccordionTrigger>
-            )}
+            {/* )} */}
             <AccordionContent> 
-              <POAttachments PO={PO} />
+              <DocumentAttachments 
+                docType="Procurement Orders"
+                docName={poId}
+                documentData={PO}
+                docMutate={poMutate}
+              />
+              {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
             </AccordionContent>
           </AccordionItem>
         </Accordion>
@@ -1093,7 +1100,7 @@ export const PurchaseOrder = ({
 
 
       {/* Invoice Dialog */}
-      <InvoiceDialog  po={PO} poMutate={poMutate} />
+      <InvoiceDialog  docName={PO?.name} docType="Procurement Orders" docMutate={poMutate} />
 
       {/* Order Details */}
 <Card className="rounded-sm shadow-md md:col-span-3">
@@ -1162,7 +1169,8 @@ export const PurchaseOrder = ({
 
       {/* Body Table with Synchronized Columns */}
       <div 
-        className={`overflow-y-auto ${!summaryPage ? 'max-h-32' : ''} border-t border-gray-200`}
+        // className={`overflow-y-auto ${!summaryPage ? 'max-h-32' : ''} border-t border-gray-200`}
+        className={`overflow-y-auto border-t border-gray-200`}
         role="region"
         aria-labelledby="order-details-table"
         tabIndex={0}
