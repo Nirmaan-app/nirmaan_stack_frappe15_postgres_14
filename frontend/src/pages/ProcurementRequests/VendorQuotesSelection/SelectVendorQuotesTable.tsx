@@ -12,7 +12,7 @@ import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatP
 import { omit } from "lodash";
 import { CheckCheck, CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import React, { useCallback } from "react";
-import { MakesSelection } from "./ItemVendorMakeSelection";
+import { MakesSelection } from "./components/ItemVendorMakeSelection";
 import { parseNumber } from "@/utils/parseNumber";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { HistoricalQuotesHoverCard } from "./components/HistoricalQuotesHoverCard";

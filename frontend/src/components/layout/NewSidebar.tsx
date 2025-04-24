@@ -169,7 +169,7 @@ export function NewSidebar() {
   const { data: poData, mutate: poDataMutate } = useFrappeGetDocList(
     "Procurement Orders",
     {
-      fields: ["status", 'invoice_data'],
+      fields: ["status"],
       filters: [["project", "in", permissionsList || []]],
       limit: 100000,
     },
@@ -179,21 +179,13 @@ export function NewSidebar() {
   const { data: adminPOData, mutate: adminPODataMutate } = useFrappeGetDocList(
     "Procurement Orders",
     {
-      fields: ["name", "status", 'invoice_data'],
+      fields: ["status"],
       limit: 100000,
     },
     user_id === "Administrator" || role === "Nirmaan Admin Profile"
       ? undefined
       : null
   );
-
-  console.log("poData", adminPOData)
-
-  const nonEmptyInvoiceData = useMemo(() => adminPOData?.filter(i => Object.keys(i?.invoice_data?.data || [])?.length > 0) || [], [adminPOData])
-
-  console.log("nonEmptyInvoiceData", nonEmptyInvoiceData)
-
-
 
   const { data: prData, mutate: prDataMutate } = useFrappeGetDocList(
     "Procurement Requests",
@@ -747,7 +739,7 @@ export function NewSidebar() {
             },
         ]
         : []),
-        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
         ? [
             {
                 key: '/invoice-reconciliation',

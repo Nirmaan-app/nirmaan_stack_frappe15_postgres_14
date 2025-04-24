@@ -65,6 +65,7 @@ interface DataTableProps<TData, TValue> {
   itemSearch?: boolean;
   isExport?: boolean;
   inFlowButton?: boolean;
+  sortColumn?: string;
 }
 
 export function DataTable<TData, TValue>({
@@ -86,6 +87,7 @@ export function DataTable<TData, TValue>({
   vendorData = undefined,
   customerOptions = undefined,
   inFlowButton = false,
+  sortColumn = undefined,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
 
@@ -133,13 +135,19 @@ export function DataTable<TData, TValue>({
         if(c?.hide) {
           setColumnVisibility(prev => ({...prev, [c?.accessorKey]: false}))
         }
-        if(c?.accessorKey === "creation") {
+        if(c?.accessorKey === "creation" && (!sortColumn || sortColumn === "creation")) {
           setSorting([{
             id: "creation",
             desc: true,
           },])
         }
       })
+      if(sortColumn && sorting.length === 0) {
+        setSorting([{
+          id: sortColumn,
+          desc: true,
+        },])
+      }
     }
   }, [columns])
 
@@ -199,6 +207,7 @@ export function DataTable<TData, TValue>({
   const handlePageSizeChange = React.useCallback((newPageSize: string) => {
     setPageSize(parseInt(newPageSize));
     updateURL("rows", newPageSize);
+    handlePageChange("0");
   }, [pageSize, updateURL]);
 
   const { setSelectedData, selectedData } = useFrappeDataStore()

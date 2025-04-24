@@ -153,7 +153,7 @@ export const InFlowPayments : React.FC<InFlowPaymentsProps> = ({customerId}) => 
                     },
                     cell: ({ row }) => {
                          const customerId = row.original.customer
-                        return <div className="font-medium text-center">
+                        return <div className="font-medium">
                             {getCustomerName(customerId)}
                             <HoverCard>
                                 <HoverCardTrigger>

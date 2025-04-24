@@ -7,7 +7,7 @@ import { CirclePlus, Info, Undo2 } from 'lucide-react';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"; // Adjust path
 import { useProcurementProgressLogic } from './hooks/useProcurementProgressLogic'; // Import hook return type
 import { ModeSwitcher } from './components/ModeSwitcher';
-import GenerateRFQDialog from './GenerateRFQDialog';
+import GenerateRFQDialog from './components/GenerateRFQDialog';
 import { SelectVendorQuotesTable } from './SelectVendorQuotesTable';
 import { AddVendorsDialog } from './components/AddVendorsDialog';
 import { RevertPRDialog } from './components/RevertPRDialog';
