@@ -6,7 +6,7 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
 import React, { Suspense, useCallback, useMemo } from "react";
 
-const ApprovePayments = React.lazy(() => import("./approve-payments"));
+const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./AccountantTabs"));
 const ProjectPaymentsList = React.lazy(() => import("./project-payments-list"));
 const AllPayments = React.lazy(() => import("./AllPayments"));

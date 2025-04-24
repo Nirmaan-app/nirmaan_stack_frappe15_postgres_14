@@ -404,7 +404,7 @@ export function InvoiceDialog<T extends DocumentType>({
           maxFileSize={20 * 1024 * 1024} // 20MB
           selectedFile={selectedAttachment}
           onFileSelect={setSelectedAttachment}
-          label="Attach Invoice (Optional)"
+          label="Attach Invoice"
           className="w-full mt-4"
           disabled={isLoading}
         />
@@ -420,7 +420,7 @@ export function InvoiceDialog<T extends DocumentType>({
               <Button
                 onClick={handleUpdateInvoiceData}
                 // Enable button only when required fields are filled
-                disabled={!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || isLoading}
+                disabled={!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || isLoading || !selectedAttachment}
               >
                 Confirm
               </Button>

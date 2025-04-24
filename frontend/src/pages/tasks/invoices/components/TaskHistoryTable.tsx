@@ -10,7 +10,7 @@ import { useUsersList } from '@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 export const TaskHistoryTable: React.FC = () => {
     const { toast } = useToast();
     // Fetch tasks *not* in Pending status
-    const { tasks, isLoading, error } = useInvoiceTasks('!= Pending');
+    const { tasks, isLoading, error, attachmentsMap } = useInvoiceTasks('!= Pending');
 
     const {data: usersList} = useUsersList()
     
@@ -21,7 +21,7 @@ export const TaskHistoryTable: React.FC = () => {
       }, [usersList])
 
     // Columns don't depend on actions here, so Memo has no dynamic dependencies
-    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName), [usersList]);
+    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName, attachmentsMap), [usersList, attachmentsMap]);
 
     if (error) {
         console.error("Error fetching task history:", error);
@@ -34,7 +34,7 @@ export const TaskHistoryTable: React.FC = () => {
             {isLoading ? (
                 <div className="flex justify-center items-center p-8"><TailSpin color="red" width={50} height={50} /></div>
             ) : (
-                <DataTable columns={columns} data={tasks || []} />
+                <DataTable sortColumn={"modified"} columns={columns} data={tasks || []} />
             )}
         </div>
     );

@@ -14,7 +14,7 @@ export default function InvoiceReconciliationContainer() {
     const {role} = useUserData();
     const [activeTab, setActiveTab] = useStateSyncedWithParams<string>(
         "tab",
-        INVOICE_TASK_TABS.PENDING // Default to pending tab
+        ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? INVOICE_TASK_TABS.PENDING : INVOICE_TASK_TABS.HISTORY // Default to pending tab
     );
 
     const tabs = useMemo(() => [

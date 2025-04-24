@@ -10,7 +10,7 @@ import { ConfirmationDialog } from '@/pages/ProcurementRequests/ApproveVendorQuo
 
 export const PendingTasksTable: React.FC = () => {
     const { toast } = useToast();
-    const { tasks, isLoading, error, mutateTasks } = useInvoiceTasks('Pending');
+    const { tasks, isLoading, error, mutateTasks, attachmentsMap } = useInvoiceTasks('Pending');
 
     const {
         openConfirmationDialog,
@@ -24,8 +24,8 @@ export const PendingTasksTable: React.FC = () => {
     });
 
     const columns = React.useMemo(
-        () => getPendingTaskColumns(openConfirmationDialog, loadingTaskId, isProcessing),
-        [openConfirmationDialog, loadingTaskId, isProcessing] // Dependencies
+        () => getPendingTaskColumns(openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap),
+        [openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap] // Dependencies
     );
 
     if (error) {

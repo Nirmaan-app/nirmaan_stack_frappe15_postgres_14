@@ -9,17 +9,19 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Check, X } from 'lucide-react'; // Adjust path
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice'; // Adjust path
 import { formatDate } from 'date-fns'; // Use date-fns or your preferred library
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import SITEURL from "@/constants/siteURL";
 
 // --- Helper function for common columns ---
-const getCommonColumns = (): ColumnDef<InvoiceApprovalTask>[] => [
+const getCommonColumns = (attachmentsMap? : Record<string, string>): ColumnDef<InvoiceApprovalTask>[] => [
     {
         accessorKey: "task_docname",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Parent Doc" />,
         cell: ({ row }) => {
             const docType = row.original.task_doctype;
-            const docName = row.original.task_docname
-            const isPO = docType === "Procurement Orders"
-            const linkDocName = isPO ? row.original.task_docname.replaceAll("/", "&=") : row.original.task_docname
+            const docName = row.original.task_docname;
+            const isPO = docType === "Procurement Orders";
+            const linkDocName = isPO ? row.original.task_docname.replaceAll("/", "&=") : row.original.task_docname;
             // IMPROVEMENT: Centralize route generation?
             const linkTo = docType === "Procurement Orders" ? `/purchase-orders/${linkDocName}?tab=Dispatched+PO` : `/service-requests/${linkDocName}?tab=approved-sr`;
             return (
@@ -51,13 +53,39 @@ const getCommonColumns = (): ColumnDef<InvoiceApprovalTask>[] => [
     {
         accessorKey: "reference_value_2", // Invoice No
         header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice No." />,
-        cell: ({ row }) => <div className="font-medium">{row.original.reference_value_2 || 'N/A'}</div>,
+        // cell: ({ row }) => <div className="font-medium">{row.original.reference_value_2 || 'N/A'}</div>,
+        cell: ({ row }) => {
+            const invoice_no = row.original.reference_value_2;
+            const attachmentId = row.original.reference_value_4;
+            return (
+                attachmentId ? (
+                  <div className="font-medium text-blue-500">
+                     <HoverCard>
+                          <HoverCardTrigger onClick={() => window.open(`${SITEURL}${attachmentsMap?.[attachmentId]}`, '_blank')}>
+                              {invoice_no}
+                          </HoverCardTrigger>
+                          <HoverCardContent className="w-auto rounded-md shadow-lg">
+                            <img
+                              src={`${SITEURL}${attachmentsMap?.[attachmentId]}`}
+                              alt="Payment Screenshot"
+                              className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
+                            />
+                          </HoverCardContent>
+                     </HoverCard>
+                  </div>
+              ) : (
+                  <div className="font-medium">
+                      {invoice_no}
+                  </div>
+              )
+            );
+        }
     },
     {
         accessorKey: "reference_value_3", // Invoice Amount
         header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
         cell: ({ row }) => (
-            <div className="text-right">
+            <div className="">
                 {formatToRoundedIndianRupee(parseFloat(row.original.reference_value_3 || '0'))}
             </div>
         ),
@@ -89,18 +117,19 @@ const getCommonColumns = (): ColumnDef<InvoiceApprovalTask>[] => [
 export const getPendingTaskColumns = (
     openConfirmationDialog: (task: InvoiceApprovalTask, action: "Approved" | "Rejected") => void,
     loadingTaskId: string | null, // ID of the specific task being processed
-    isProcessing: boolean // Flag if *any* task action is running
+    isProcessing: boolean, // Flag if *any* task action is running
+    attachmentsMap?: Record<string, string>
 ): ColumnDef<InvoiceApprovalTask>[] => [
-    ...getCommonColumns(), // Include common columns
+    ...getCommonColumns(attachmentsMap), // Include common columns
     {
         id: "actions",
-        header: () => <div className="text-right">Actions</div>,
+        header: () => <div className="">Actions</div>,
         cell: ({ row }) => {
             const task = row.original;
             const isThisTaskLoading = loadingTaskId === task.name;
 
             return (
-                <div className="flex items-center justify-end space-x-1">
+                <div className="flex items-center space-x-1">
                     {isThisTaskLoading ? (
                         <span className="px-2 text-xs text-muted-foreground">Processing...</span>
                         // Or use TailSpin here if preferred
@@ -145,10 +174,10 @@ export const getPendingTaskColumns = (
 ];
 
 // --- Columns specific to Task History ---
-export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => string): ColumnDef<InvoiceApprovalTask>[] => {
+export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => string, attachmentsMap?: Record<string, string>): ColumnDef<InvoiceApprovalTask>[] => {
 
   return [
-    ...getCommonColumns(), // Include common columns
+    ...getCommonColumns(attachmentsMap), // Include common columns
     {
         accessorKey: "status",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -164,12 +193,12 @@ export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => s
          filterFn: (row, id, value) => value.includes(row.getValue(id)), // Enable filtering by status
     },
     {
-        accessorKey: "completed_by",
+        accessorKey: "assignee",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned By" />,
         cell: ({ row }) => <div>{row.original.status === "Pending" ? "N/A" : (getUserName(row.original.assignee) || 'Administrator')}</div>,
     },
     {
-        accessorKey: "completion_date", // Or 'modified' if completion_date isn't reliable
+        accessorKey: "modified", // Or 'modified' if completion_date isn't reliable
         header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned Date" />,
         cell: ({ row }) => (
             <div>
