@@ -269,7 +269,7 @@
 // };
 
 
-import React, { useEffect, useState, ReactNode } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Dropdown, MenuProps } from "antd"; // Import MenuProps
 import { useFrappeGetDoc } from "frappe-react-sdk";
@@ -283,12 +283,11 @@ import { RenderRightActionButton } from "../helpers/renderRightActionButton";
 import { Separator } from "../ui/separator";
 import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { NewSidebar } from "./NewSidebar";
-// Assuming these types exist, otherwise define them or import them
-// import { ProcurementRequest } from '@/types/ProcurementRequest';
-// import { ProcurementOrder } from '@/types/ProcurementOrder';
-// import { SentBackCategory } from '@/types/SentBackCategory';
-// import { ServiceRequest } from '@/types/ServiceRequest';
-// import { Project } from '@/types/Project';
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { Project } from "@/pages/ProcurementRequests/ApproveNewPR/types";
 
 // Define type for menu items explicitly matching Ant Design's structure
 type MenuItem = Required<MenuProps>['items'][number];
@@ -310,23 +309,22 @@ export const MainLayout: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<string | null>(null);
 
   // --- Data Fetching Hooks ---
-  // Use { enabled: !!id } pattern for conditional fetching
-  const { data: prData } = useFrappeGetDoc(
+  const { data: prData } = useFrappeGetDoc<ProcurementRequest>(
     "Procurement Requests",
     prId ?? undefined,
     !!prId ? undefined : null
   );
-  const { data: poData } = useFrappeGetDoc(
+  const { data: poData } = useFrappeGetDoc<ProcurementOrder>(
     "Procurement Orders",
     poId ?? undefined,
     !!poId ? undefined : null
   );
-  const { data: sbData } = useFrappeGetDoc(
+  const { data: sbData } = useFrappeGetDoc<SentBackCategory>(
     "Sent Back Category",
     sbId ?? undefined,
     !!sbId ? undefined : null
   );
-  const { data: srData } = useFrappeGetDoc(
+  const { data: srData } = useFrappeGetDoc<ServiceRequests>(
     "Service Requests",
     srId ?? undefined,
     !!srId ? undefined : null
@@ -335,10 +333,10 @@ export const MainLayout: React.FC = () => {
   // Determine the project ID to fetch based on available data
   const derivedProjectId = project || prData?.project || poData?.project || sbData?.project || srData?.project;
 
-  const { data: projectData } = useFrappeGetDoc(
+  const { data: projectData } = useFrappeGetDoc<Project>(
     "Projects",
     derivedProjectId,
-    { enabled: !!derivedProjectId } // Enable only if we have a project ID
+    !!derivedProjectId ? undefined : null
   );
 
   // --- Effect for Processing Location and Setting Breadcrumbs/IDs ---
@@ -437,9 +435,9 @@ export const MainLayout: React.FC = () => {
         {/* Main Content Area */}
         <div className="w-full h-full flex flex-col flex-1 overflow-hidden transition-all duration-200 ease-linear">
           {/* Header */}
-          <header className="flex justify-between h-[53px] shrink-0 items-center pt-2 gap-2 border-b"> {/* Added border */}
+          <header className="flex justify-between h-[53px] shrink-0 items-center pt-2 gap-2"> {/* Added border */}
             {/* Breadcrumb / Navigation Area */}
-            <div className={`${isMobile ? "ml-8" : ""} flex items-center gap-2 px-4 flex-1`}> {/* Adjusted margin */}
+            <div className={`${isMobile ? "ml-4" : ""} flex items-center gap-2 px-4 flex-1`}> {/* Adjusted margin */}
               {/* Back Button */}
               {location.pathname !== "/" && (
                 <>
@@ -479,7 +477,7 @@ export const MainLayout: React.FC = () => {
             </div>
 
             {/* Right Action Button Area */}
-            <div className="px-4 shrink-0"> {/* Prevent shrinking */}
+            <div className="shrink-0"> {/* Prevent shrinking */}
               {RenderRightActionButton({
                 locationPath: location.pathname,
                 projectData,

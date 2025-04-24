@@ -88,9 +88,18 @@
 
 
 
+
+
+
+
+
+
+# ******************************* Version 2 ****************************** #
+
 import frappe
 from frappe.model.document import Document
 from datetime import datetime
+from typing import Optional
 import json # Import json for cleaner handling if needed, though Frappe often handles it
 
 @frappe.whitelist()
@@ -148,7 +157,7 @@ def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str
 
         # 3. Create the associated Task
         try:
-            create_invoice_task(doc, new_invoice_entry_data, date_key_used)
+            create_invoice_task(doc, new_invoice_entry_data, date_key_used, attachment_id)
         except Exception as task_err:
             frappe.log_error(f"Failed to create task for {doctype} {docname}, invoice {new_invoice_entry_data.get('invoice_no')}", str(task_err))
             # Decide if this is critical. For now, we'll throw to ensure consistency.
@@ -245,7 +254,7 @@ def create_attachment_doc(parent_doc: Document, file_url: str, attachment_type: 
     return attachment # Return the created document
 
 
-def create_invoice_task(parent_doc: Document, invoice_entry_data: dict, date_key: str) -> None:
+def create_invoice_task(parent_doc: Document, invoice_entry_data: dict, date_key: str, attachment_id: Optional[str]) -> None:
     """Creates a 'Task' document associated with the new invoice entry."""
     task = frappe.new_doc("Task")
     task.update({
@@ -263,7 +272,11 @@ def create_invoice_task(parent_doc: Document, invoice_entry_data: dict, date_key
 
         # Add amount as reference 3 for easier display in reconciliation table
         "reference_name_3": "invoice_amount",
-        "reference_value_3": invoice_entry_data.get("amount")
+        "reference_value_3": invoice_entry_data.get("amount"),
+
+        # Add attachment ID as reference 4 for easier display in reconciliation table
+        "reference_name_4": "invoice_attachment_id",
+        "reference_value_4": attachment_id
         # Add more references if needed (e.g., amount, status from invoice_entry_data)
     })
     task.insert(ignore_permissions=True) # Consider permissions

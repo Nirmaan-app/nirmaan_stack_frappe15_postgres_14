@@ -225,7 +225,7 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
                                         <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
                                             <div className="border-0 flex flex-col">
                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
-                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation)}</p>
+                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation!)}</p>
                                             </div>
                                             <div className="flex flex-col gap-2">
                                             <div className="border-0 flex flex-col ml-10">

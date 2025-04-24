@@ -14,7 +14,7 @@ import { CirclePlus, Info } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import GenerateRFQDialog from "../ProcurementRequests/VendorQuotesSelection/GenerateRFQDialog";
+import GenerateRFQDialog from "../ProcurementRequests/VendorQuotesSelection/components/GenerateRFQDialog";
 import { SelectVendorQuotesTable } from "../ProcurementRequests/VendorQuotesSelection/SelectVendorQuotesTable";
 import { Vendor } from "../ServiceRequests/service-request/select-service-vendor";
 import { NewVendor } from "../vendors/new-vendor";

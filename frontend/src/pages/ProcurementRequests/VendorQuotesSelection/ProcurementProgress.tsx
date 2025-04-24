@@ -17,7 +17,7 @@ import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHe
 import { VendorsReactMultiSelect } from "../../../components/helpers/VendorsReactSelect"
 import { Button } from "../../../components/ui/button"
 import { toast } from "../../../components/ui/use-toast"
-import GenerateRFQDialog from "./GenerateRFQDialog"
+import GenerateRFQDialog from "./components/GenerateRFQDialog"
 import { SelectVendorQuotesTable } from "./SelectVendorQuotesTable"
 
 // Custom hook to persist state to localStorage
