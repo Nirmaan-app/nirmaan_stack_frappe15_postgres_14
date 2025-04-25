@@ -162,6 +162,7 @@ export const ProcurementProgress : React.FC = () => {
         );
         const defaultMakes = matchingCategory ? matchingCategory.makes : [];
         newDetails[item.name] = {
+          initialMake: item?.make,
           vendorQuotes: {},
           makes: defaultMakes || [],
         };
@@ -204,7 +205,7 @@ const onClick = async (value : string) => {
                 ...item,
                 vendor: vendorId,
                 quote: parseNumber(vendorData.quote),
-                make: vendorData.make,
+                make: vendorData.make || item?.make,
               };
             }
             return { ...item };
@@ -238,7 +239,7 @@ const handleReviewChanges = async () => {
           ...item,
           vendor: vendorId,
           quote: parseNumber(vendorData.quote),
-          make: vendorData.make,
+          make: vendorData.make || item.make,
         };
       }
       return { ...item };

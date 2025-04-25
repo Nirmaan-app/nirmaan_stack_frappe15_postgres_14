@@ -1,50 +1,93 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import { ProcurementRequestItem, CategorySelection } from '../types'; // Define these types
+import { ProcurementRequestItem, CategorySelection, CategoryMakesMap } from '../types';
 
-// Define the shape of your store's state
 interface ProcurementRequestState {
     mode: 'create' | 'edit' | 'resolve';
     projectId: string | null;
-    prId: string | null; // Only for edit/resolve
+    prId: string | null;
     selectedWP: string;
     procList: ProcurementRequestItem[];
-    selectedCategories: CategorySelection[]; // Store derived categories
-    undoStack: ProcurementRequestItem[]; // For undo functionality
+    selectedCategories: CategorySelection[]; // Includes makes managed during the session
+    undoStack: ProcurementRequestItem[];
     newPRComment: string;
-    isInitialized: boolean; // Flag to check if store is loaded from storage
+    isInitialized: boolean;
+    initialCategoryMakes: CategoryMakesMap; // Baseline makes from Project for the selected WP
 
-    // Actions - Functions to modify the state
+    // --- Actions ---
     initialize: (
         mode: 'create' | 'edit' | 'resolve',
-        projectId: string,
-        prId?: string,
-        initialData?: { workPackage: string, procList: ProcurementRequestItem[], categories: CategorySelection[] }
+        projectId?: string,
+        prId: string | undefined, // Only relevant for edit/resolve
+        // Renamed for clarity: this map should be specific to the initial WP if provided
+        wpSpecificInitialMakes: CategoryMakesMap | undefined,
+        initialPrData?: { workPackage: string, procList: ProcurementRequestItem[], categories: CategorySelection[] }
     ) => void;
-    setSelectedWP: (wp: string) => void;
-    addProcItem: (item: ProcurementRequestItem) => boolean; // Returns true if added, false if duplicate
+    // Modified signature: now accepts the makes map for the chosen WP
+    setSelectedWP: (wp: string, wpSpecificMakes: CategoryMakesMap) => void;
+    addProcItem: (item: ProcurementRequestItem) => boolean;
     updateProcItem: (updatedItem: Partial<ProcurementRequestItem> & { name: string }) => void;
     deleteProcItem: (itemName: string) => void;
     undoDelete: () => void;
     setNewPRComment: (comment: string) => void;
-    resetStore: () => void; // To clear state and storage after submission/cancellation
-    _recalculateCategories: () => void; // Internal helper
+    updateCategoryMakes: (categoryName: string, newMake: string) => void;
+    resetStore: () => void;
+    _recalculateCategories: () => void;
 }
 
-// Helper to derive categories from the procList
-const deriveCategories = (procList: ProcurementRequestItem[]): CategorySelection[] => {
-    const categoriesMap = new Map<string, { name: string; status: string }>();
+// Helper to derive categories, incorporating initial makes and user additions
+const deriveCategoriesWithMakes = (
+    procList: ProcurementRequestItem[],
+    currentCategories: CategorySelection[], // Current state including session makes
+    initialMakesMap: CategoryMakesMap    // Baseline makes for the WP from the project doc
+): CategorySelection[] => {
+    const categoriesMap = new Map<string, CategorySelection>();
+
+    // 1. Iterate through procList items to identify active categories and statuses
     procList.forEach(item => {
-        const key = `${item.category}-${item.status}`; // Unique key per category and status
-        if (!categoriesMap.has(key)) {
-            categoriesMap.set(key, { name: item.category, status: item.status });
+        const key = `${item.category}-${item.status}`;
+        let categoryEntry = categoriesMap.get(key);
+
+        // If this category-status combo isn't in our map yet:
+        if (!categoryEntry) {
+            // Find baseline makes for this category from the project definition
+            const baselineMakes = initialMakesMap[item.category] || [];
+            // Find makes from the *current state* if this category existed before (preserves session additions)
+            const sessionCategory = currentCategories.find(c => c.name === item.category && c.status === item.status);
+            const sessionMakes = sessionCategory?.makes || [];
+
+            // Combine baseline and session makes, ensuring uniqueness
+            const initialCombinedMakes = Array.from(new Set([...baselineMakes, ...sessionMakes]));
+
+            // Create the new entry
+            categoryEntry = {
+                name: item.category,
+                status: item.status,
+                makes: initialCombinedMakes // Start with combined baseline/session makes
+            };
+            categoriesMap.set(key, categoryEntry);
+        }
+
+        // 2. Ensure the specific make used by *this item* is included
+        if (item.make && !categoryEntry.makes.includes(item.make)) {
+            categoryEntry.makes.push(item.make);
         }
     });
-    return Array.from(categoriesMap.values());
+
+    // 3. Convert map values to an array
+    const finalCategories = Array.from(categoriesMap.values());
+
+    // 4. Sort categories alphabetically by name (optional)
+    finalCategories.sort((a, b) => a.name.localeCompare(b.name));
+
+    console.log("Derived Categories with Makes:", finalCategories); // Add log for debugging
+    return finalCategories;
 };
 
-// Create the store
+
+
+
 export const useProcurementRequestStore = create<ProcurementRequestState>()(
     persist(
         (set, get) => ({
@@ -58,90 +101,172 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             undoStack: [],
             newPRComment: '',
             isInitialized: false,
+            initialCategoryMakes: {}, // Initialize map
 
             // --- Actions ---
-            initialize: (mode, projectId, prId, initialData) => {
+            initialize: (mode, projectId, prId, wpSpecificInitialMakes = {}, initialPrData) => {
                 const currentState = get();
-                // Only initialize if not already initialized or if project/prId changes
-                if (!currentState.isInitialized || currentState.projectId !== projectId || currentState.prId !== prId) {
-                    console.log("Initializing store for:", { mode, projectId, prId });
+                // Initialize only if not already initialized or if key identifiers change
+                 if (!currentState.isInitialized || currentState.projectId !== projectId || currentState.prId !== prId || currentState.mode !== mode) {
+                     console.log("Initializing store:", { mode, projectId, prId });
+                    const initialProcList = initialPrData?.procList || [];
+                    // Use initial categories from PR data if available, otherwise derive initially
+                    const initialLoadedCategories = initialPrData?.categories || []; // Categories from existing PR
+
+
+                    // If loading existing PR, its 'categories' list should ideally contain the makes used *at that time*.
+                    // We prioritize the loaded categories but still use wpSpecificInitialMakes as the *baseline* for recalculation.
+                    // if (initialSelectedCategories.length === 0 && initialProcList.length > 0) {
+                    //    // If no categories loaded but items exist, derive from items + baseline makes
+                    //    initialSelectedCategories = deriveCategoriesWithMakes(initialProcList, [], wpSpecificInitialMakes);
+                    // } else {
+                    //     // If categories *are* loaded, we still might want to ensure makes are present
+                    //     // For simplicity, assume loaded categories are correct for now. Recalculate below ensures consistency.
+                    // }
+
                     set({
                         mode,
                         projectId,
                         prId: prId || null,
-                        selectedWP: initialData?.workPackage || '',
-                        procList: initialData?.procList || [],
-                        selectedCategories: initialData?.categories || [],
+                        selectedWP: initialPrData?.workPackage || '',
+                        procList: initialProcList,
+                        initialCategoryMakes: wpSpecificInitialMakes, // Set baseline makes
+                        selectedCategories: initialLoadedCategories, // Temporarily set loaded categories
                         undoStack: [],
                         newPRComment: '',
-                        isInitialized: true, // Mark as initialized
+                        isInitialized: true,
                     });
-                    get()._recalculateCategories(); // Recalculate after setting initial data
-                }
+                    // **Crucial:** Recalculate immediately after setting state
+                    // This merges loaded categories, baseline makes, and item makes correctly
+                    get()._recalculateCategories();
+                 } else {
+                    console.log("Store already initialized with same keys, skipping re-initialization.");
+                 }
             },
 
-            setSelectedWP: (wp) => set({ selectedWP: wp, procList: [], selectedCategories: [], undoStack: [] }), // Reset list when WP changes
+            // Modified setSelectedWP: now accepts the makes map for the chosen WP
+            setSelectedWP: (wp, wpSpecificMakes) => {
+                console.log("Store: Setting WP", wp, "with makes:", wpSpecificMakes);
+                set({
+                    selectedWP: wp,
+                    initialCategoryMakes: wpSpecificMakes,
+                    procList: [],
+                    selectedCategories: [], // Reset derived categories
+                    undoStack: [],
+                })
+            },
 
             _recalculateCategories: () => {
-                set(state => ({
-                    selectedCategories: deriveCategories(state.procList)
-                }));
+                console.log("Store: Recalculating categories...");
+                set(state => {
+                    // Ensure all inputs are valid before deriving
+                    const currentProcList = Array.isArray(state.procList) ? state.procList : [];
+                    const currentSelectedCategories = Array.isArray(state.selectedCategories) ? state.selectedCategories : [];
+                    const currentInitialMakes = typeof state.initialCategoryMakes === 'object' && state.initialCategoryMakes !== null ? state.initialCategoryMakes : {};
+
+                    return {
+                        selectedCategories: deriveCategoriesWithMakes(
+                            currentProcList,
+                            currentSelectedCategories,
+                            currentInitialMakes
+                        )
+                    };
+                });
             },
 
+            // addProcItem, updateProcItem, deleteProcItem, undoDelete call _recalculateCategories
             addProcItem: (item) => {
-                const currentList = get().procList;
-                const isDuplicate = currentList.some(i => i.name === item.name);
-                if (isDuplicate) {
-                    return false; // Indicate duplication
-                }
-                // If item was in undo stack, remove it
+                // ... (duplicate check logic) ...
+                if (get().procList.some(i => i.name === item.name)) return false;
                 const stack = get().undoStack.filter(stackItem => stackItem.name !== item.name);
-
                 set(state => ({
-                    procList: [...state.procList, { ...item, uniqueId: item.uniqueId || uuidv4() }], // Ensure uniqueId
+                    procList: [...state.procList, { ...item, uniqueId: item.uniqueId || uuidv4() }],
                     undoStack: stack
                 }));
-                get()._recalculateCategories();
-                return true; // Indicate success
+                get()._recalculateCategories(); // Recalculate after adding
+                return true;
             },
 
-            updateProcItem: (updatedItem) => {
+           updateProcItem: (updatedItem) => {
                 set(state => ({
                     procList: state.procList.map(item =>
-                        item.name === updatedItem.name ? { ...item, ...updatedItem } : item
+                        (item.uniqueId && item.uniqueId === updatedItem.uniqueId) || item.name === updatedItem.name
+                            ? { ...item, ...updatedItem }
+                            : item
                     )
                 }));
-                // Note: Category status might change, recalculate
-                get()._recalculateCategories();
+                get()._recalculateCategories(); // Recalculate after updating
             },
 
-            deleteProcItem: (itemName) => {
-                const itemToDelete = get().procList.find(item => item.name === itemName);
+            deleteProcItem: (itemNameOrUniqueId) => {
+                // ... (find item logic) ...
+                const itemToDelete = get().procList.find(item => item.uniqueId === itemNameOrUniqueId || item.name === itemNameOrUniqueId);
                 if (itemToDelete) {
-                    set(state => ({
-                        procList: state.procList.filter(item => item.name !== itemName),
-                        undoStack: [...state.undoStack, itemToDelete] // Add to undo stack
-                    }));
-                    get()._recalculateCategories();
+                   set(state => ({
+                       procList: state.procList.filter(item => !(item.uniqueId === itemNameOrUniqueId || item.name === itemNameOrUniqueId)),
+                       undoStack: [...state.undoStack, itemToDelete]
+                   }));
+                   get()._recalculateCategories(); // Recalculate after deleting
                 }
-            },
+           },
 
             undoDelete: () => {
+                // ... (restore logic) ...
                 const stack = get().undoStack;
                 if (stack.length > 0) {
-                    const itemToRestore = stack[stack.length - 1]; // Get last item
-                    set(state => ({
-                        procList: [...state.procList, itemToRestore],
-                        undoStack: state.undoStack.slice(0, -1) // Remove last item from stack
-                    }));
-                    get()._recalculateCategories();
+                   const itemToRestore = stack[stack.length - 1];
+                   set(state => ({
+                       procList: [...state.procList, itemToRestore],
+                       undoStack: state.undoStack.slice(0, -1)
+                   }));
+                   get()._recalculateCategories(); // Recalculate after restoring
                 }
             },
 
-            setNewPRComment: (comment) => set({ newPRComment: comment }),
+           setNewPRComment: (comment) => set({ newPRComment: comment }),
 
-            resetStore: () => {
-                console.log("Resetting store and clearing session storage.");
+           // --- *** MODIFIED updateCategoryMakes *** ---
+           updateCategoryMakes: (categoryName, newMake) => {
+            console.log(`Store: Updating makes for ${categoryName}, adding ${newMake}`);
+            set(state => {
+                let categoryFound = false;
+                let needsUpdate = false;
+
+                // 1. Try to update existing category entry
+                const updatedCategories = state.selectedCategories.map(cat => {
+                    if (cat.name === categoryName) {
+                        categoryFound = true;
+                        const makes = Array.isArray(cat.makes) ? cat.makes : [];
+                        if (!makes.includes(newMake)) {
+                            needsUpdate = true; // Mark that state needs changing
+                            return { ...cat, makes: [...makes, newMake] };
+                        }
+                    }
+                    return cat; // Return unchanged category if no match or make exists
+                });
+
+                // 2. If category was NOT found, ADD it to the array
+                if (!categoryFound) {
+                    console.log(`Category ${categoryName} not found, adding it.`);
+                    const baselineMakes = state.initialCategoryMakes[categoryName] || [];
+                    // Add the new category with baseline makes + the new make
+                    updatedCategories.push({
+                        name: categoryName,
+                        status: 'Pending', // Assign a default status (adjust if needed)
+                        makes: Array.from(new Set([...baselineMakes, newMake])) // Combine and ensure unique
+                    });
+                    needsUpdate = true; // Mark that state needs changing
+                }
+
+                // Only return a new state object if something actually changed
+                return needsUpdate ? { selectedCategories: updatedCategories } : {};
+            });
+            // No explicit recalculate needed here, as we directly modified selectedCategories
+        },
+        // --- *** END MODIFICATION *** ---
+
+             resetStore: () => {
+                 console.log("Resetting store...");
                 set({
                     mode: 'create',
                     projectId: null,
@@ -151,41 +276,38 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
                     selectedCategories: [],
                     undoStack: [],
                     newPRComment: '',
-                    isInitialized: false, // Reset initialization flag
+                    isInitialized: false,
+                    initialCategoryMakes: {},
                 });
-                // The `persist` middleware should handle clearing storage on reset if configured correctly.
-                // Manually clear if needed: sessionStorage.removeItem('procurement-request-storage');
-            },
+             },
         }),
         {
-            name: 'procurement-request-storage', // Unique name for storage
-            storage: createJSONStorage(() => sessionStorage), // Use sessionStorage
-            // Only persist parts of the state needed for draft recovery
+            name: 'procurement-request-storage-v3', // <<< Incremented version due to state logic changes
+            storage: createJSONStorage(() => sessionStorage),
             partialize: (state) => ({
                 mode: state.mode,
                 projectId: state.projectId,
                 prId: state.prId,
                 selectedWP: state.selectedWP,
                 procList: state.procList,
-                selectedCategories: state.selectedCategories, // Persist derived categories for faster load
+                selectedCategories: state.selectedCategories,
                 newPRComment: state.newPRComment,
-                // Do NOT persist undoStack or isInitialized usually
+                initialCategoryMakes: state.initialCategoryMakes, // <<< Persist the baseline map
             }),
-            // Custom logic on rehydration (e.g., version migration) if needed
             onRehydrateStorage: (state) => {
-                console.log("Rehydrating state from session storage");
-                return (state, error) => {
+                console.log("Rehydrating state v3");
+                return (_state, error) => { // Renamed internal state variable
                     if (error) {
-                        console.error("Failed to rehydrate state:", error);
-                        // Handle error, maybe clear storage or reset state
-                        state?.resetStore?.();
-                    } else if (state) {
-                        state.isInitialized = true; // Mark as initialized after loading
-                        // state._recalculateCategories(); // Recalculate categories after loading persisted list
+                        console.error("Failed to rehydrate state v3:", error);
+                        _state?.resetStore?.();
+                    } else if (_state) {
+                        _state.isInitialized = true; // Mark as initialized after rehydration
+                        // Optional: Recalculate categories on rehydrate if needed, though derivation logic should handle it
+                        // _state._recalculateCategories();
                     }
                 };
             },
-            version: 1, // Optional: for migrations
+            version: 3, 
         }
     )
 );

@@ -1,6 +1,9 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Category, Item, Quote, User, Comment, PRDocType } from "../types"; // Use types defined above
 import { useMemo } from "react";
+import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
+import { Makelist } from "@/types/NirmaanStack/Makelist";
+import { MakeOption } from "../../NewPR/types";
 
 interface UseRelatedPRDataProps {
     prDoc?: PRDocType; // Make optional to avoid errors before PR loads
@@ -48,8 +51,34 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
         orderBy: { field: "creation", order: "desc" },
     }, prName ? `Nirmaan Comments ${prName}` : null);
 
-    const isLoading = usersLoading || categoriesLoading || itemsLoading || quotesLoading || commentsLoading;
-    const error = usersError || categoriesError || itemsError || quotesError || commentsError;
+
+    const {data: categoryMakelist, isLoading: categoryMakeListLoading, error: categoryMakeListError, mutate: categoryMakeListMutate} = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
+            fields: ["category", "make"],
+            filters: [["category", "in", categoryNames]],
+            orderBy: { field: "category", order: "asc" },
+            limit: 100000,
+        },
+        categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
+        )
+    
+         // --- Fetch Make List ---
+         const { data: make_list, isLoading: makeLoading, error: makeError, mutate: makeListMutate } = useFrappeGetDocList<Makelist>(
+            "Makelist", {
+                fields: ["name", "make_name"],
+                limit: 10000, // Consider if this needs pagination for very large lists
+            }
+        );
+    
+        // --- Derived Make Options ---
+        const allMakeOptions = useMemo<MakeOption[]>(() => {
+            return make_list?.map(make => ({
+                value: make.name, // Use DocType name (which might be same as make_name if not customized)
+                label: make.make_name,
+            })) || [];
+        }, [make_list]);
+
+    const isLoading = usersLoading || categoriesLoading || itemsLoading || quotesLoading || commentsLoading || categoryMakeListLoading || makeLoading;
+    const error = usersError || categoriesError || itemsError || quotesError || commentsError || makeError || categoryMakeListError;
 
     return {
         usersList,
@@ -60,5 +89,10 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
         itemMutate,
         isLoading,
         error,
+        make_list,
+        allMakeOptions,
+        categoryMakelist,
+        categoryMakeListMutate,
+        makeListMutate
     };
 };

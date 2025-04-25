@@ -77,6 +77,7 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 )}
+                                                <p><strong>make: {" "}</strong>{item?.make || "--"}</p>
                                             </TableCell>
                                             <TableCell className="px-3 py-2 text-sm text-center align-middle">{item.unit}</TableCell>
                                             <TableCell className="px-3 py-2 text-sm text-center align-middle">{item.quantity}</TableCell>
@@ -114,13 +115,13 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
     };
 
 
-    if (procList.length === 0) {
-        return (
-            <div className="h-[40vh] flex items-center justify-center text-gray-500 font-semibold">
-                No items added yet.
-            </div>
-        );
-    }
+    // if (procList.length === 0) {
+    //     return (
+    //         <div className="h-[40vh] flex items-center justify-center text-gray-500 font-semibold">
+    //             No items added yet.
+    //         </div>
+    //     );
+    // }
 
     return (
         <div className='mt-4'>
@@ -139,6 +140,8 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
                     </Button>
                 )}
             </div>
+
+            {procList.length === 0 && <div className="h-[40vh] flex items-center justify-center text-gray-500 font-semibold">No items added yet.</div>}
 
             {/* Render Sections */}
             {renderCategorySection(pendingCategories)}

@@ -44,12 +44,13 @@ export const PreviousComments: React.FC<PreviousCommentsProps> = ({ prId, mode }
             ],
             orderBy: { field: "creation", order: "desc" }, // Show newest first or oldest? Desc = newest
         },
-        {
-            // Only run if prId is valid
-             enabled: !!prId,
-             // Add key to refetch if prId changes, although it's unlikely in this component instance
-             // queryKey: ["comments", prId, subjectFilter]
-        }
+        prId ? undefined : null
+        // {
+        //     // Only run if prId is valid
+        //      enabled: !!prId,
+        //      // Add key to refetch if prId changes, although it's unlikely in this component instance
+        //      // queryKey: ["comments", prId, subjectFilter]
+        // }
     );
 
     const getFullName = (id: string): string => {

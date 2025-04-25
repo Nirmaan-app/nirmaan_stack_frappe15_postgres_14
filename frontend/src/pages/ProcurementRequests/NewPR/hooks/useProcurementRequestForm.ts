@@ -125,17 +125,21 @@ import { useCallback, useMemo } from 'react';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
 import Fuse, { FuseResult } from 'fuse.js';
-import { CategorySelection, ProcurementRequestItem } from '../types';
+import { CategoryMakesMap, CategorySelection, MakeOption, ProcurementRequestItem } from '../types';
 import { Items } from '@/types/NirmaanStack/Items';
+import { Makelist } from '@/types/NirmaanStack/Makelist';
 
 interface UseProcurementRequestFormResult {
     selectedWP: string;
     procList: ProcurementRequestItem[];
     selectedCategories: CategorySelection[];
+    updateCategoryMakes: (categoryName: string, newMake: string) => void; // <<< Action to add a make
+    makeListMutate: () => Promise<any>; // <<< Mutator for makes list
+    allMakeOptions: MakeOption[]; // <<< All makes available for selection
     undoStack: ProcurementRequestItem[];
     newPRComment: string;
     isStoreInitialized: boolean;
-    selectWorkPackage: (wp: string) => void;
+    selectWorkPackage: (wp: string, wpSpecificMakes: CategoryMakesMap) => void;
     addOrUpdateItem: (itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest?: boolean) => void; // Renamed for clarity
     updateItemInList: (updatedItem: ProcurementRequestItem) => void; // <-- ADDED THIS
     deleteItemFromList: (itemName: string) => void;
@@ -144,7 +148,7 @@ interface UseProcurementRequestFormResult {
     handleFuzzySearch: (input: string) => FuseResult<Items>[]; // Corrected type Item from Items
 }
 
-export const useProcurementRequestForm = (itemList?: Items[]): UseProcurementRequestFormResult => {
+export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelist[], allMakeOptions: MakeOption[] = [], makeListMutate: () => Promise<any>): UseProcurementRequestFormResult => {
     const { toast } = useToast();
 
     // const {
@@ -184,6 +188,8 @@ export const useProcurementRequestForm = (itemList?: Items[]): UseProcurementReq
     const newPRComment = useProcurementRequestStore(state => state.newPRComment);
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
 
+    console.log("newPrComment", newPRComment)
+
     // Actions are stable references, so selecting them is fine
     const setSelectedWP = useProcurementRequestStore(state => state.setSelectedWP);
     const addProcItem = useProcurementRequestStore(state => state.addProcItem);
@@ -191,11 +197,13 @@ export const useProcurementRequestForm = (itemList?: Items[]): UseProcurementReq
     const deleteProcItem = useProcurementRequestStore(state => state.deleteProcItem);
     const undoDelete = useProcurementRequestStore(state => state.undoDelete);
     const setNewPRComment = useProcurementRequestStore(state => state.setNewPRComment);
+    const updateCategoryMakes = useProcurementRequestStore(state => state.updateCategoryMakes);
     // --- End of individual selection ---
 
-    const selectWorkPackage = useCallback((wp: string) => {
-      // Confirmation logic could be added here before calling setSelectedWP if needed
-      setSelectedWP(wp);
+
+    const selectWorkPackage = useCallback((wp: string, wpSpecificMakes: CategoryMakesMap) => {
+        console.log("Hook: Selecting WP", wp, "with makes:", wpSpecificMakes);
+        setSelectedWP(wp, wpSpecificMakes); // Call store action with both params
   }, [setSelectedWP]);
 
 
@@ -272,8 +280,11 @@ export const useProcurementRequestForm = (itemList?: Items[]): UseProcurementReq
       addOrUpdateItem,
       updateItemInList,
       deleteItemFromList, // Use the memoized callback
-      undoLastDelete: undoLastDelete, // Use the memoized callback
-      setComment: setComment, // Use the memoized callback
+      undoLastDelete, // Use the memoized callback
+      setComment, // Use the memoized callback
       handleFuzzySearch,
+      updateCategoryMakes,
+      makeListMutate,
+      allMakeOptions,
   };
 };

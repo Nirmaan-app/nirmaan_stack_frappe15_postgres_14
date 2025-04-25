@@ -222,6 +222,7 @@ export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = fal
                               <TableCell>{item.quantity}</TableCell>
                               {formData?.selectedVendors?.map(v => {
                                 const vendorQuotes = formData?.details?.[item.name]?.vendorQuotes
+                                const defaultMake = formData?.details?.[item.name]?.initialMake
                                 // let lowestQuote = Number.POSITIVE_INFINITY; // Initialize with the highest possible value
                                 // let lowestVendorId: string | null = null; // Initialize winner vendor ID as null
 
@@ -260,9 +261,9 @@ export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = fal
                                       <div className="flex flex-col gap-1">
                                         <Label className="text-xs font-semibold text-primary">Make</Label>
                                         {mode === "edit" ? (
-                                           <MakesSelection vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
+                                           <MakesSelection defaultMake={defaultMake} vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
                                         ) : (
-                                          <p className={`text-sm font-medium text-gray-700 ${quote < targetQuoteValue ? "text-green-600" : ""}`}>{make || "--"}</p>
+                                          <p className={`text-sm font-medium text-gray-700 ${quote < targetQuoteValue ? "text-green-600" : ""}`}>{make || defaultMake || "--"}</p>
                                         )}
                                       </div>
                                       <div className="flex flex-col gap-1">

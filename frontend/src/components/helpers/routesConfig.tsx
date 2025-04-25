@@ -94,7 +94,7 @@ export const appRoutes: RouteObject[] = [
                     children: [
                        {
                         path: "resolve-pr",
-                        element: <NewProcurementRequest resolve={true} />,
+                        element: <NewProcurementRequestPage resolve={true} />,
                       },
                       {
                         path: "resolve-custom-pr",
@@ -102,7 +102,7 @@ export const appRoutes: RouteObject[] = [
                       },
                       {
                         path: "edit-pr",
-                        element: <NewProcurementRequest edit={true} />,
+                        element: <NewProcurementRequestPage edit={true} />,
                       },
                       { index: true, lazy: () => import("@/components/pr-summary") },
                       {

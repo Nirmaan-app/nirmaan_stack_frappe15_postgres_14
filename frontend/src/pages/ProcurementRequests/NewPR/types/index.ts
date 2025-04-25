@@ -1,5 +1,3 @@
-// src/features/procurement-requests/types/index.ts
-
 // Represents an item within the Procurement Request list (stored in Zustand)
 export interface ProcurementRequestItem {
   uniqueId?: string; // Client-side unique ID for list keys before saving
@@ -10,6 +8,7 @@ export interface ProcurementRequestItem {
   category: string;  // Category DocName (key)
   tax: number;
   comment?: string;
+  make?: string;     // Selected Make DocName for this item
   status: 'Pending' | 'Request' | 'Approved' | 'Rejected'; // Add other relevant statuses if needed
   // Add any other item-specific fields you might need to store
 }
@@ -18,6 +17,7 @@ export interface ProcurementRequestItem {
 export interface CategorySelection {
   name: string;   // Category DocName (key)
   status: string; // Status of items within this category in the list
+  makes: string[]; // List of applicable Make DocNames for this category
   // Add makes if you decide to store/derive them here later
 }
 
@@ -37,6 +37,10 @@ export interface ItemOption extends SelectOption<string> {
   category: string; // Category DocName (key)
   tax: number;
 }
+
+export interface MakeOption extends SelectOption<string> {}
+
+export type CategoryMakesMap = Record<string, string[]>; // Map of category names to applicable makes
 
 // Extend Frappe Types if needed (Example - ensure Category has new_items)
 // Assuming Category type is imported from '@/types/NirmaanStack/Category'

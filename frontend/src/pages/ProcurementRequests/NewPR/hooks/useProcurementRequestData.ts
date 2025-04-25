@@ -4,20 +4,27 @@ import { useProcurementRequestStore } from '../store/useProcurementRequestStore'
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProcurementPackages } from '@/types/NirmaanStack/ProcurementPackages';
 import { Category } from '@/types/NirmaanStack/Category';
-import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers';
 import { Items } from '@/types/NirmaanStack/Items';
+import { ItemOption, MakeOption } from '../types';
+import { Makelist } from '@/types/NirmaanStack/Makelist';
+import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist';
 
 interface UseProcurementRequestDataResult {
     project?: Projects;
     wpList?: ProcurementPackages[];
     categoryList?: Category[];
     itemList?: Items[];
-    usersList?: NirmaanUsers[];
+    // usersList?: NirmaanUsers[];
     itemOptions: { label: string; value: string; unit: string; category: string; tax: number }[];
-    catOptions: { label: string; value: string; tax: number }[];
+    // catOptions: CategoryOption[];
     isLoading: boolean;
     error: Error | null;
     itemMutate: () => Promise<any>; // Expose item mutation if needed (e.g., after creating new item)
+    makeList?: Makelist[];
+    allMakeOptions: MakeOption[];
+    makeListMutate: () => Promise<any>;
+    categoryMakelist?: CategoryMakelist[];
+    categoryMakeListMutate: () => Promise<any>;
 }
 
 export const useProcurementRequestData = (): UseProcurementRequestDataResult => {
@@ -54,6 +61,7 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
 
     // Fetch Items based on fetched categories
     const categoryNames = useMemo(() => category_list?.map((c) => c.name) || [], [category_list]);
+
     const { data: item_list, isLoading: itemLoading, error: itemError, mutate: itemMutate } = useFrappeGetDocList<Items>(
         "Items", {
             fields: ["name", "item_name", "make_name", "unit_name", "category", "creation"],
@@ -64,49 +72,77 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
     );
 
-    // Fetch Users (for comments, etc.) - Consider filtering if needed
-    const { data: usersList, isLoading: usersLoading, error: usersError } = useFrappeGetDocList<NirmaanUsers>(
-        "Nirmaan Users", {
-            fields: ["name", "full_name"], // Only fetch needed fields
-            limit: 1000,
+    const {data: categoryMakelist, isLoading: categoryMakeListLoading, error: categoryMakeListError, mutate: categoryMakeListMutate} = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
+        fields: ["category", "make"],
+        filters: [["category", "in", categoryNames]],
+        orderBy: { field: "category", order: "asc" },
+        limit: 100000,
+    },
+    categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
+    )
+
+     // --- Fetch Make List ---
+     const { data: make_list, isLoading: makeLoading, error: makeError, mutate: makeListMutate } = useFrappeGetDocList<Makelist>(
+        "Makelist", {
+            fields: ["name", "make_name"],
+            limit: 10000, // Consider if this needs pagination for very large lists
         }
     );
 
-    // Memoize derived options for ReactSelect
-    const catOptions = useMemo(() => {
-        return category_list?.map(cat => ({
-            value: cat.name, // Use name (DocType key) as value
-            label: cat.category_name,
-            tax: parseFloat(cat.tax || "0"),
+    // --- Derived Make Options ---
+    const allMakeOptions = useMemo<MakeOption[]>(() => {
+        return make_list?.map(make => ({
+            value: make.name, // Use DocType name (which might be same as make_name if not customized)
+            label: make.make_name,
         })) || [];
-    }, [category_list]);
+    }, [make_list]);
 
-     const itemOptions = useMemo(() => {
-        if (!item_list || !catOptions.length) return [];
-        const categoryTaxMap = new Map(catOptions.map(cat => [cat.value, cat.tax]));
+
+    // --- Derived Options ---
+    //  const catOptions = useMemo(() => {
+    //     // Basic options without makes, makes are handled via the project data separately
+    //     return category_list?.map(cat => ({
+    //         value: cat.name,
+    //         label: cat.category_name,
+    //         tax: parseNumber(cat.tax),
+    //         // newItemsDisabled flag is still useful here
+    //         newItemsDisabled: cat.new_items === "false",
+    //     })) || [];
+    // }, [category_list]);
+
+    const itemOptions = useMemo<ItemOption[]>(() => {
+        if (!item_list || !category_list) return []; // Depend on category_list too
+         // Create a map for quick tax lookup
+        const categoryTaxMap = new Map(category_list.map(cat => [cat.name, parseFloat(cat.tax || "0")]));
         return item_list.map(item => ({
-            value: item.name, // Use name (DocType key) as value
+            value: item.name,
             label: item.item_name,
-            unit: item.unit_name || 'N/A', // Provide default
-            category: item.category, // Store category name (key)
+            unit: item.unit_name || 'N/A',
+            category: item.category,
             tax: categoryTaxMap.get(item.category) || 0,
         }));
-    }, [item_list, catOptions]);
+    }, [item_list, category_list]); // Use category_list dependency
 
 
-    const isLoading = wpLoading || catLoading || itemLoading || usersLoading || (!project && !!projectId); // Include project loading check
-    const error = wpError || catError || itemError || projectError || usersError;
+    // Update isLoading and error aggregation
+    const isLoading = wpLoading || catLoading || itemLoading || makeLoading || categoryMakeListLoading || (!project && !!projectId);
+    const error = wpError || catError || itemError || projectError || makeError || categoryMakeListError;
 
     return {
         project,
         wpList: wp_list,
         categoryList: category_list,
         itemList: item_list,
-        usersList,
+        // usersList,
         itemOptions,
-        catOptions,
+        // catOptions,
         isLoading,
         error: error instanceof Error ? error : null,
         itemMutate, // Return mutate function for items
+        makeList: make_list,
+        allMakeOptions,
+        makeListMutate,
+        categoryMakelist,
+        categoryMakeListMutate
     };
 };

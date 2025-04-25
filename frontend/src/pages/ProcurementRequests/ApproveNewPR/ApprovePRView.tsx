@@ -22,6 +22,8 @@ import { PRCommentsSection } from './components/PRCommentsSection';
 import { Category, Project } from './types';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic'; // Get hook's return type
 import { parseNumber } from '@/utils/parseNumber';
+import { CategoryMakesMap } from '../NewPR/types';
+import { extractMakesForWP } from '../NewPR/NewProcurementRequestPage';
 
 // Props Type for the View Component
 interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
@@ -97,7 +99,20 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
 
         // Additional Props
         projectDoc,
+        makeList,
+        allMakeOptions,
+        categoryMakeListMutate,
+        makeListMutate,
+        handleLocalCategoryMakesUpdate
     } = props;
+
+
+    // Derive the initial makes map for *this PR's work package*
+    const initialCategoryMakes = useMemo<CategoryMakesMap>(() => {
+        if (!orderData?.work_package || !projectDoc) return {}; // Need WP name and project doc
+        return extractMakesForWP(projectDoc, orderData.work_package);
+    }, [projectDoc, orderData?.work_package]); // Recalculate if project or WP changes
+
 
 
     if (!orderData) {
@@ -117,7 +132,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
          const map = new Map<string, string[]>();
          if (projectDoc?.project_work_packages) {
              try {
-                 const workPackages = JSON.parse(projectDoc.project_work_packages)?.work_packages ?? [];
+                 const workPackages = (typeof projectDoc.project_work_packages === "string" ? JSON.parse(projectDoc.project_work_packages) : projectDoc.project_work_packages) ?.work_packages ?? [];
                  workPackages.forEach((wp: any) => {
                      (wp.category_list?.list ?? []).forEach((cat: any) => {
                          if (cat.name && cat.makes && cat.makes.length > 0) {
@@ -131,8 +146,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
          }
          return map;
      }, [projectDoc]);
-
-     console.log("currentItemOption", currentItemOption)
 
 
     return (
@@ -227,57 +240,8 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                              getUserName={getFullName}
                          />
 
-
                     </div>
-                {/* {page === 'summary' && summaryAction && (
-                     <div className="space-y-4">
-                         <div className="flex items-center pt-1">
-                             <Button variant="ghost" size="icon" onClick={navigateToItemList}>
-                                 <ArrowLeft className="h-5 w-5" />
-                             </Button>
-                             <h2 className="text-lg pl-2 font-bold tracking-tight">
-                                 Summary & Confirmation ({summaryAction === 'approve' ? 'Approve' : 'Reject'}) PR: {" "}
-                                  <span className="text-primary">{orderData.name}</span>
-                             </h2>
-                         </div>
-
-                         <ApprovePRHeader orderData={orderData} projectDoc={projectDoc}/>
-
-                         <SummaryView
-                             orderData={orderData}
-                             quoteData={quoteData}
-                             categoryMakesMap={categoryMakesMap}
-                         />
-
-                         <Card>
-                             <CardHeader>
-                                 <CardTitle>Add Comment & Confirm Action</CardTitle>
-                             </CardHeader>
-                             <CardContent className="space-y-4">
-                                 <textarea
-                                      className="w-full p-2 border rounded-md min-h-[80px]"
-                                      placeholder={`Optional: Add a comment before ${summaryAction === 'approve' ? 'approving' : 'rejecting'}...`}
-                                      value={universalComment}
-                                      onChange={handleUniversalCommentChange}
-                                  />
-                                 <div className="flex justify-end gap-2">
-                                     <Button variant="outline" onClick={navigateToItemList} disabled={isLoading}>
-                                         <Undo2 className="h-4 w-4 mr-1" /> Go Back
-                                     </Button>
-                                      <Button
-                                         onClick={() => setIsConfirmActionDialogOpen(true)}
-                                         variant={summaryAction === 'approve' ? 'default' : 'destructive'}
-                                         disabled={isLoading}
-                                     >
-                                         {summaryAction === 'approve' ? <ListChecks className="h-4 w-4 mr-1" /> : <ListX className="h-4 w-4 mr-1" />}
-                                          Confirm {summaryAction === 'approve' ? 'Approval' : 'Rejection'}
-                                     </Button>
-                                 </div>
-                             </CardContent>
-                         </Card>
-                     </div>
-                 )} */}
-            </div>
+                </div>
 
             {/* Dialogs */}
 
@@ -313,15 +277,23 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
             />
 
             <EditItemDialog
-                 isOpen={isEditItemDialogOpen}
-                 onClose={() => setIsEditItemDialogOpen(false)}
-                 editItem={editItem}
-                 // setEditItem={setEditItem} // Allow direct updates
-                 handleEditItemChange={handleEditItemChange} // Or pass handler
-                 onSave={handleSaveEditedItem}
-                 onDelete={handleDeleteItem} // Pass the specific item
-                 isLoading={isLoading}
-             />
+                isOpen={isEditItemDialogOpen}
+                onClose={() => setIsEditItemDialogOpen(false)}
+                editItem={editItem}
+                handleEditItemChange={handleEditItemChange} // Pass handler from hook
+                onSave={handleSaveEditedItem}
+                onDelete={handleDeleteItem}
+                isLoading={isLoading}
+                // --- Pass Make Props ---
+                allMakeOptions={allMakeOptions || []} // Pass fetched/derived data (provide default)
+                initialCategoryMakes={initialCategoryMakes || {}} // Pass derived baseline makes
+                selectedCategories={orderData?.category_list?.list || []} // Pass current derived categories state
+                updateCategoryMakesInStore={handleLocalCategoryMakesUpdate} // Pass store action
+                makeList={makeList}
+                makeListMutate={makeListMutate}
+                categoryMakeListMutate={categoryMakeListMutate}
+                // --- End Make Props ---
+            />
 
              <RequestItemDialog
                  isOpen={isRequestItemDialogOpen}

@@ -130,6 +130,7 @@ export const SentBackVendorQuotes : React.FC = () => {
           );
           const defaultMakes = matchingCategory ? matchingCategory.makes : [];
           newDetails[item.name] = {
+            initialMake: item?.make,
             vendorQuotes: {},
             makes: defaultMakes || [],
           };
@@ -172,7 +173,7 @@ export const SentBackVendorQuotes : React.FC = () => {
                 ...item,
                 vendor: vendorId,
                 quote: parseNumber(vendorData.quote),
-                make: vendorData.make,
+                make: vendorData.make || item.make,
               };
             }
             return { ...item };
@@ -205,7 +206,7 @@ export const SentBackVendorQuotes : React.FC = () => {
             ...item,
             vendor: vendorId,
             quote: parseNumber(vendorData.quote),
-            make: vendorData.make,
+            make: vendorData.make || item.make,,
           };
         }
         return { ...item };
