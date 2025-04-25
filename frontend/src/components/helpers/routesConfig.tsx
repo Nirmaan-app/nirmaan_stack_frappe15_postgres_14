@@ -51,8 +51,8 @@ import Vendors from "@/pages/vendors/vendors";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
-import InvoiceReconciliation from "@/pages/tasks/InvoiceReconciliation";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
+import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -84,7 +84,8 @@ export const appRoutes: RouteObject[] = [
                   {
                     path: ":projectId",
                     children: [
-                      { path: "new-pr", element: <NewProcurementRequest /> },
+                      // { path: "new-pr", element: <NewProcurementRequest /> },
+                      { path: "new-pr", element: <NewProcurementRequestPage /> },
                       { path: "new-custom-pr", element: <NewCustomPR /> },
                     ],
                   },
