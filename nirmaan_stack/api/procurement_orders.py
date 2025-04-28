@@ -123,12 +123,14 @@ def generate_po_summary(project_id: str):
     )
 
     po_items = []
+    custom_items = []
 
     for po in po_records:
         # Parse the order_list JSON field to process individual items
         order_list = frappe.parse_json(po.get("order_list", "{}")).get("list", [])
         is_custom = po.get('custom') == "true"
-        # Fetch the associated Procurement Request to get the work_package
+        
+        # Fetch the associated Procurement Request to get the work_package (only if not custom)
         work_package = None
         if po.get("procurement_request") and not is_custom:
             pr_doc = frappe.get_value("Procurement Requests", po["procurement_request"], "work_package")
@@ -136,7 +138,7 @@ def generate_po_summary(project_id: str):
        
         # Process each item in the order_list
         for item in order_list:
-            po_items.append({
+            item_data = {
                 "po_number": po["name"],
                 "vendor_id": po["vendor"],
                 "vendor_name": po["vendor_name"],
@@ -150,8 +152,15 @@ def generate_po_summary(project_id: str):
                 "unit": item.get("unit"),
                 "item_name": item.get("item"),
                 "work_package": work_package if not is_custom else item.get("procurement_package")
-            })
+            }
+
+            # Append to the correct list
+            if is_custom:
+                custom_items.append(item_data)
+            else:
+                po_items.append(item_data)
 
     return {
-        "po_items": po_items
+        "po_items": po_items,
+        "custom": custom_items
     }
