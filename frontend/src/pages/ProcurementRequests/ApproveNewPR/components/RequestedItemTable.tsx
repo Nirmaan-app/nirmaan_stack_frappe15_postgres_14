@@ -45,6 +45,7 @@ export const RequestedItemTable: React.FC<RequestedItemTableProps> = ({ items, o
                                     <span>{item.comment}</span>
                                 </div>
                             )}
+                            <p className="text-xs"><strong>make: {" "}</strong>{item?.make || "--"}</p>
                         </TableCell>
                         <TableCell className="text-sm text-center py-2 align-top">{item.unit}</TableCell>
                         <TableCell className="text-sm text-center py-2 align-top">{item.quantity}</TableCell>

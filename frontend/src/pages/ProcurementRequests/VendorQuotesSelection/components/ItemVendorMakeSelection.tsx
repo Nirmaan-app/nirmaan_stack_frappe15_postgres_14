@@ -19,10 +19,11 @@ interface MakesSelectionProps {
   formData: RFQData
   orderData: ProcurementRequest | SentBackCategory
   setFormData: React.Dispatch<React.SetStateAction<RFQData>>
+  defaultMake?: string
 }
 
 
-export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, formData, orderData, setFormData }) => {
+export const MakesSelection : React.FC<MakesSelectionProps> = ({defaultMake, vendor, item, formData, orderData, setFormData }) => {
 
   const [showAlert, setShowAlert] = useState(false);
   const toggleShowAlert = () => {
@@ -71,7 +72,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
   //   ?.find((j) => j?.qr_id === q?.name)
   //   ?.makes?.find((m) => m?.enabled === "true");
 
-  const selectedMakeName = useMemo(() => formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make, [item, vendor, formData]);
+  const selectedMakeName = useMemo(() => formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make || defaultMake, [item, vendor, formData, defaultMake]);
 
   const selectedVendorMake = useMemo(() => ({ value: selectedMakeName, label: selectedMakeName }), [selectedMakeName])
   // const selectedMakeValue = selectedMake

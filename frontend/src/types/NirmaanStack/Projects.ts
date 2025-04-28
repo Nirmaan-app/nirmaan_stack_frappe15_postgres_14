@@ -1,3 +1,17 @@
+interface Category {
+	name: string;
+	makes: string[]
+}
+
+interface CategoryList {
+	list: Category[]
+}
+
+export interface WorkPackage {
+	work_package_name: string
+	category_list: CategoryList
+}
+
 
 export interface Projects{
 	name: string
@@ -39,7 +53,9 @@ export interface Projects{
 	/**	Status : Data	*/
 	status?: string
 	/**	Project Work Packages : JSON	*/
-	project_work_packages?: any
+	project_work_packages?: {
+		work_packages: WorkPackage[]
+	}
 	/**	Project Scopes : JSON	*/
 	project_scopes?: any
 	/**	Subdivisions : Data	*/

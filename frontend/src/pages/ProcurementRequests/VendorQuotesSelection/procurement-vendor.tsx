@@ -174,6 +174,7 @@ export const ProcurementOrder : React.FC = () => {
                                       </HoverCardContent>
                                     </HoverCard>
                                   )}
+                                  <p><strong>make: {" "}</strong>{item?.make || "--"}</p>
                                 </div>
                               </TableCell>
                               <TableCell>{item.unit}</TableCell>
