@@ -96,8 +96,8 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
 
 
     // --- Data Hooks ---
-     // Fetch project data FIRST or ensure it's available for initialization
-     const { project, wpList, categoryList, itemList, itemOptions, makeList, allMakeOptions, isLoading: dataLoading, error: dataError, itemMutate, makeListMutate, categoryMakelist, categoryMakeListMutate} = useProcurementRequestData();
+    // Fetch project data FIRST or ensure it's available for initialization
+    const { project, wpList, categoryList, itemList, itemOptions, makeList, allMakeOptions, isLoading: dataLoading, error: dataError, itemMutate, makeListMutate, categoryMakelist, categoryMakeListMutate } = useProcurementRequestData();
 
     // Effect to initialize or re-initialize the store
     useEffect(() => {
@@ -135,7 +135,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
 
                 if (initialData.workPackage) {
                     initialWpMakes = extractMakesForWP(project, initialData.workPackage);
-                 }
+                }
             } catch (e) {
                 console.error("Failed to parse existing PR data:", e);
             }
@@ -158,13 +158,13 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         setComment,
         handleFuzzySearch,
         updateCategoryMakes,
-     } = useProcurementRequestForm(
+    } = useProcurementRequestForm(
         itemList,
         makeList,
         allMakeOptions,
         makeListMutate
     );
-    
+
     const { submitNewPR, resolveOrUpdatePR, cancelDraftPR, isSubmitting } = useSubmitProcurementRequest();
 
     // --- Page State Logic ---
@@ -201,7 +201,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
     }
 
     if (page === 'error') {
-         return <div className="p-4 text-red-500">Error loading procurement request data. Please check URL parameters or try again.</div>;
+        return <div className="p-4 text-red-500">Error loading procurement request data. Please check URL parameters or try again.</div>;
     }
 
     const handleSubmitAction = mode === 'create' ? submitNewPR : resolveOrUpdatePR;
@@ -212,14 +212,14 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                 <WorkPackageSelector
                     // Filter WP list based on project data (ensure project is loaded)
                     wpList={wpList?.filter(item => {
-                         if (!project?.project_work_packages) return item.work_package_name === "Tool & Equipments"; // Default fallback if project data missing
+                        if (!project?.project_work_packages) return item.work_package_name === "Tool & Equipments"; // Default fallback if project data missing
                         let wp_arr = [];
                         try {
-                             if (typeof project.project_work_packages === 'string') {
+                            if (typeof project.project_work_packages === 'string') {
                                 wp_arr = JSON.parse(project.project_work_packages || '[]')?.work_packages?.map((item: any) => item.work_package_name) || [];
-                             } else if (typeof project.project_work_packages === 'object' && project.project_work_packages?.work_packages) {
+                            } else if (typeof project.project_work_packages === 'object' && project.project_work_packages?.work_packages) {
                                 wp_arr = project.project_work_packages.work_packages.map((item: any) => item.work_package_name) || [];
-                             }
+                            }
                         } catch (e) { console.error("Error parsing project_work_packages in filter") }
                         return item.work_package_name === "Tool & Equipments" || wp_arr.includes(item.work_package_name);
                     })}
@@ -263,12 +263,13 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                         categoryList={categoryList} // Pass full category list
                         updateCategoryMakesInStore={updateCategoryMakes}
                         makeListMutate={makeListMutate}
+                        categoryMakelist={categoryMakelist} // Pass if needed by dialog
                         categoryMakeListMutate={categoryMakeListMutate}
                     />
 
-                    <div className="flex flex-col justify-between min-h-[58vh]">
+                    <div className="flex flex-col justify-between min-h-[48vh]">
                         <div className="flex-grow overflow-y-auto pr-2">
-                             <OrderListDisplay
+                            <OrderListDisplay
                                 procList={procList}
                                 selectedCategories={selectedCategories}
                                 onEditItem={(item: ProcurementRequestItem) => setItemToEdit(item)} // Opens Edit Dialog
@@ -279,17 +280,17 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                         </div>
 
                         <div className="mt-4 flex-shrink-0">
-                           {(mode === 'resolve' || mode === 'edit') && prId && (
+                            {(mode === 'resolve' || mode === 'edit') && prId && (
                                 <PreviousComments prId={prId} mode={mode} />
-                           )}
-                           <textarea
+                            )}
+                            {/* <textarea
                                 className="w-full border rounded-lg p-2 min-h-[60px] mt-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary"
                                 placeholder={`${mode === 'resolve' ? "Resolving Comments (Optional)..." : mode === 'edit' ? "Update Comments (Optional)..." : "Comments (Optional)..."}`}
                                 value={newPRComment}
                                 onChange={(e) => setComment(e.target.value)}
                                 disabled={isSubmitting}
-                            />
-                           <ActionButtons
+                            /> */}
+                            <ActionButtons
                                 mode={mode}
                                 onSubmit={handleSubmitAction}
                                 isSubmitting={isSubmitting}
@@ -302,7 +303,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                 </>
             )}
 
-             {/* Dialogs */}
+            {/* Dialogs */}
             <NewItemDialog
                 isOpen={showNewItemDialog}
                 onOpenChange={setShowNewItemDialog}
@@ -328,8 +329,9 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                 updateCategoryMakesInStore={updateCategoryMakes}
                 makeList={makeList}
                 makeListMutate={makeListMutate}
-                // categoryMakeListMutate={categoryMakeListMutate} // Pass if needed by dialog
-                // --- End Make-related Props ---
+                categoryMakelist={categoryMakelist} // Pass if needed by dialog
+                categoryMakeListMutate={categoryMakeListMutate} // Pass if needed by dialog
+            // --- End Make-related Props ---
 
             />
         </div>

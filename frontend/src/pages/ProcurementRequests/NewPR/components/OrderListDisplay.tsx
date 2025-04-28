@@ -42,8 +42,8 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
                         <div key={`${cat.name}-${cat.status}-${index}`} className="mb-4">
                             {/* Category Header */}
                             <div className="flex items-center gap-2 ml-1 mb-1">
-                                <div className="w-1.5 h-1.5 rounded-full bg-gray-600" />
-                                <h3 className="text-base font-semibold text-gray-700">
+                                <div className="w-1 h-1 rounded-full bg-gray-600" />
+                                <h3 className="text-xs font-semibold text-gray-700">
                                     {cat.name}
                                 </h3>
                                 {/* Optional: Display status if needed */}
@@ -64,9 +64,14 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
                                     {itemsInCategory.map((item) => (
                                         <TableRow key={item.uniqueId || item.name} className="hover:bg-gray-50">
                                             <TableCell className="px-3 py-2 text-sm align-top">
+                                                {/* Display Item Name */}
                                                 {item.item}
+                                                {/* Conditionally display Make with specific styling */}
+                                                {item.make && (
+                                                    <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
+                                                )}
                                                 {item.comment && (
-                                                     <HoverCard>
+                                                    <HoverCard>
                                                         <HoverCardTrigger asChild>
                                                             <Button variant="ghost" size="icon" className="h-5 w-5 ml-1 p-0 inline-flex items-center justify-center align-middle text-blue-500 hover:bg-blue-50">
                                                                 <MessageCircleMore className="h-4 w-4" />
@@ -77,7 +82,8 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 )}
-                                                <p><strong>make: {" "}</strong>{item?.make || "--"}</p>
+                                                {/* Remove the old make display paragraph */}
+                                                {/* <p><strong>make: {" "}</strong>{item?.make || "--"}</p> */}
                                             </TableCell>
                                             <TableCell className="px-3 py-2 text-sm text-center align-middle">{item.unit}</TableCell>
                                             <TableCell className="px-3 py-2 text-sm text-center align-middle">{item.quantity}</TableCell>
@@ -127,9 +133,9 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
         <div className='mt-4'>
             {/* Header and Undo Button */}
             <div className="flex justify-between items-center mb-3 px-1">
-                <h2 className="text-lg font-semibold">Order List</h2>
+                <h2 className="text-lg font-semibold">Order Cart</h2>
                 {canUndo && (
-                     <Button
+                    <Button
                         size="sm"
                         variant="outline"
                         onClick={onUndoDelete}

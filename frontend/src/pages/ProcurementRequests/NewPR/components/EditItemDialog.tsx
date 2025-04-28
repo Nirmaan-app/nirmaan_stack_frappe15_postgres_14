@@ -48,6 +48,7 @@ interface EditItemDialogProps {
     updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
     makeList?: Makelist[];
     makeListMutate: () => Promise<any>;
+    categoryMakelist?: Makelist[]; // Optional, if needed for other operations
     categoryMakeListMutate?: () => Promise<any>;
     // --- End Make Props ---
 }
@@ -116,8 +117,8 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
         if (!editState?.makeValue) return null;
         // Search within the available options first, then all options as a fallback
         return availableMakeOptions.find(opt => opt.value === editState.makeValue) ||
-               allMakeOptions.find(opt => opt.value === editState.makeValue) ||
-               null;
+            allMakeOptions.find(opt => opt.value === editState.makeValue) ||
+            null;
     }, [editState?.makeValue, availableMakeOptions, allMakeOptions]);
 
 
@@ -166,13 +167,13 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     const handleUpdateConfirm = () => {
         if (!itemToEdit || !editState) return;
         // ... (existing validation for quantity, category, item name, unit) ...
-         const quantity = parseFloat(editState.quantity);
-         if (isNaN(quantity) || quantity <= 0) {
-             toast({ title: "Invalid Quantity", variant: "destructive" }); return;
-         }
-         if (isRequestItem && (!editState.category || !editState.itemName || !editState.unitName)) {
-              toast({ title: "Missing Information", variant: "destructive" }); return;
-         }
+        const quantity = parseFloat(editState.quantity);
+        if (isNaN(quantity) || quantity <= 0) {
+            toast({ title: "Invalid Quantity", variant: "destructive" }); return;
+        }
+        if (isRequestItem && (!editState.category || !editState.itemName || !editState.unitName)) {
+            toast({ title: "Missing Information", variant: "destructive" }); return;
+        }
 
         const updatedItemData: ProcurementRequestItem = {
             ...itemToEdit,
@@ -224,11 +225,11 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
 
         // Auto-select the first newly added/associated make
         if (makeToSelectAfterwards) {
-             // Need the full option object, find it in allMakeOptions
-             const fullOption = allMakeOptions.find(opt => opt.value === makeToSelectAfterwards!.value);
-             if (fullOption) {
+            // Need the full option object, find it in allMakeOptions
+            const fullOption = allMakeOptions.find(opt => opt.value === makeToSelectAfterwards!.value);
+            if (fullOption) {
                 handleMakeChange(fullOption); // Use the state update handler
-             }
+            }
         }
     }, [currentItemCategoryName, updateCategoryMakesInStore, allMakeOptions, handleMakeChange]); // Add handleMakeChange dependency
 
@@ -249,53 +250,53 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
             <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
                 <AlertDialogContent className="sm:max-w-[600px]">
                     <AlertDialogHeader>
-                         <AlertDialogTitle className="flex justify-between items-center">
+                        <AlertDialogTitle className="flex justify-between items-center">
                             <span>Edit {isRequestItem ? 'Requested' : ''} Item</span>
-                             <AlertDialogCancel className="border-none shadow-none p-0 h-6 w-6 relative -top-2 -right-2">
-                                 X
-                             </AlertDialogCancel>
-                         </AlertDialogTitle>
-                         <AlertDialogDescription className="pt-1">
+                            <AlertDialogCancel className="border-none shadow-none p-0 h-6 w-6 relative -top-2 -right-2">
+                                X
+                            </AlertDialogCancel>
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="pt-1">
                             Modify the details below or delete the item from the list.
-                         </AlertDialogDescription>
+                        </AlertDialogDescription>
                     </AlertDialogHeader>
 
                     <div className="space-y-4 py-3">
                         {/* Row 1: Item Name */}
                         <div className="grid grid-cols-4 gap-x-4 items-center">
-                             <Label htmlFor='editItemNameDisplay' className={labelClass}>Item Name</Label>
-                             <div className="col-span-3">
+                            <Label htmlFor='editItemNameDisplay' className={labelClass}>Item Name</Label>
+                            <div className="col-span-3">
                                 {/* ... (Item Name Input/Display) ... */}
-                                {isRequestItem ? ( <Input id='editItemNameDisplay' value={editState.itemName ?? ''} onChange={(e) => handleInputChange('itemName', e.target.value)} placeholder="Enter Item Name"/>
-                                ) : ( <p className="font-medium text-gray-800 py-2">{itemToEdit.item}</p> )}
-                             </div>
+                                {isRequestItem ? (<Input id='editItemNameDisplay' value={editState.itemName ?? ''} onChange={(e) => handleInputChange('itemName', e.target.value)} placeholder="Enter Item Name" />
+                                ) : (<p className="font-medium text-gray-800 py-2">{itemToEdit.item}</p>)}
+                            </div>
                         </div>
 
-                    {/* Row 2: Category (Conditional) */}
-                     {isRequestItem && (
-                          <div className="grid grid-cols-4 gap-x-4 items-center">
-                               <Label className={labelClass}>Category</Label>
-                               <div className="col-span-3">
-                                   <Select value={editState.category ?? ''} onValueChange={handleCategoryChange}>
-                                       <SelectTrigger>
-                                           <SelectValue placeholder="Select Category..." />
-                                       </SelectTrigger>
-                                       <SelectContent>
-                                           {catOptions.map((cat) => (
-                                               <SelectItem key={cat.value} value={cat.value}>
-                                                   {cat.label}
-                                               </SelectItem>
-                                           ))}
-                                       </SelectContent>
-                                   </Select>
-                               </div>
-                          </div>
-                     )}
+                        {/* Row 2: Category (Conditional) */}
+                        {isRequestItem && (
+                            <div className="grid grid-cols-4 gap-x-4 items-center">
+                                <Label className={labelClass}>Category</Label>
+                                <div className="col-span-3">
+                                    <Select value={editState.category ?? ''} onValueChange={handleCategoryChange}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select Category..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {catOptions.map((cat) => (
+                                                <SelectItem key={cat.value} value={cat.value}>
+                                                    {cat.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        )}
 
-                         {/* --- Row X: Make Selector --- */}
-                         <div className="grid grid-cols-4 gap-x-4 items-center">
-                             <Label htmlFor='editMake' className={labelClass}>Make</Label>
-                             <div className="col-span-3">
+                        {/* --- Row X: Make Selector --- */}
+                        <div className="grid grid-cols-4 gap-x-4 items-center">
+                            <Label htmlFor='editMake' className={labelClass}>Make</Label>
+                            <div className="col-span-3">
                                 <ReactSelect
                                     inputId='editMake'
                                     placeholder="Select or Add Make..."
@@ -308,53 +309,53 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
                                     selectProps={{ customProps: makeSelectCustomProps }} // Pass dialog opener
                                     isClearable
                                 />
-                             </div>
-                         </div>
-                         {/* --- End Make Selector --- */}
+                            </div>
+                        </div>
+                        {/* --- End Make Selector --- */}
 
                         {/* Row 3: Unit & Quantity */}
                         <div className="grid grid-cols-4 gap-x-4 items-start">
-                             <div className={labelClass}>Unit / Qty *</div>
-                             <div className="col-span-3 grid grid-cols-2 gap-4">
+                            <div className={labelClass}>Unit / Qty *</div>
+                            <div className="col-span-3 grid grid-cols-2 gap-4">
                                 {/* Unit */}
                                 <div className='space-y-1'>
                                     {/* ... (Unit Select/Display) ... */}
-                                     <Label htmlFor="editUnit" className='text-xs text-gray-500 pl-1'>Unit</Label>
-                                     {isRequestItem ? (<SelectUnit value={editState.unitName ?? ''} onChange={handleUnitChange} />
-                                     ) : ( <p className="font-medium text-gray-800 h-9 flex items-center px-1">{itemToEdit.unit}</p> )}
+                                    <Label htmlFor="editUnit" className='text-xs text-gray-500 pl-1'>Unit</Label>
+                                    {isRequestItem ? (<SelectUnit value={editState.unitName ?? ''} onChange={handleUnitChange} />
+                                    ) : (<p className="font-medium text-gray-800 h-9 flex items-center px-1">{itemToEdit.unit}</p>)}
                                 </div>
                                 {/* Quantity */}
                                 <div className='space-y-1'>
-                                     <Label htmlFor="editQuantity" className='text-xs text-gray-500 pl-1'>Quantity <sup className='text-red-500'>*</sup></Label>
-                                     <Input id="editQuantity" type="number" inputMode='decimal' min="0" step="any" value={editState.quantity} onChange={(e) => handleInputChange('quantity', e.target.value)} placeholder="0.00" className="h-9"/>
+                                    <Label htmlFor="editQuantity" className='text-xs text-gray-500 pl-1'>Quantity <sup className='text-red-500'>*</sup></Label>
+                                    <Input id="editQuantity" type="number" inputMode='decimal' min="0" step="any" value={editState.quantity} onChange={(e) => handleInputChange('quantity', e.target.value)} placeholder="0.00" className="h-9" />
                                 </div>
-                             </div>
+                            </div>
                         </div>
 
                         {/* Row 4: Comment */}
                         <div className="grid grid-cols-4 gap-x-4 items-start">
-                             <Label htmlFor="editComment" className={`${labelClass} pt-2`}>Comment</Label>
-                             <div className="col-span-3">
+                            <Label htmlFor="editComment" className={`${labelClass} pt-2`}>Comment</Label>
+                            <div className="col-span-3">
                                 {/* ... (Comment Textarea) ... */}
-                                 <textarea id="editComment" className="block p-2 border-gray-300 border rounded-md w-full min-h-[70px] text-sm focus:ring-1 focus:ring-primary focus:border-primary" placeholder="Add comment (optional)..." value={editState.comment} onChange={(e) => handleInputChange('comment', e.target.value)}/>
-                             </div>
+                                <textarea id="editComment" className="block p-2 border-gray-300 border rounded-md w-full min-h-[70px] text-sm focus:ring-1 focus:ring-primary focus:border-primary" placeholder="Add comment (optional)..." value={editState.comment} onChange={(e) => handleInputChange('comment', e.target.value)} />
+                            </div>
                         </div>
                     </div>
 
                     <AlertDialogFooter className="flex flex-row justify-between items-center sm:justify-between pt-4 mt-2 border-t">
-                         {/* ... (Delete and Update Buttons) ... */}
-                          <Button variant="outline" onClick={handleDeleteConfirm} className='text-red-600 border-red-300 hover:bg-red-50'> <Trash2 className="h-4 w-4 mr-1.5" /> Delete Item </Button>
-                         <div className="flex gap-3">
-                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                             <Button onClick={handleUpdateConfirm}> <ListChecks className="h-4 w-4 mr-1.5" /> Update Item </Button>
-                         </div>
+                        {/* ... (Delete and Update Buttons) ... */}
+                        <Button variant="outline" onClick={handleDeleteConfirm} className='text-red-600 border-red-300 hover:bg-red-50'> <Trash2 className="h-4 w-4 mr-1.5" /> Delete Item </Button>
+                        <div className="flex gap-3">
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <Button onClick={handleUpdateConfirm}> <ListChecks className="h-4 w-4 mr-1.5" /> Update Item </Button>
+                        </div>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
 
             {/* --- Manage Makes Dialog Instance (Rendered conditionally but outside main dialog) --- */}
             {currentItemCategoryName && (
-                 <ManageCategoryMakesDialog
+                <ManageCategoryMakesDialog
                     isOpen={isManageMakesDialogOpen}
                     onOpenChange={setIsManageMakesDialogOpen}
                     categoryName={currentItemCategoryName}

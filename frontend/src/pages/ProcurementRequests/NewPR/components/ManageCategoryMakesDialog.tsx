@@ -9,7 +9,8 @@ import { TailSpin } from 'react-loader-spinner'; // Or your preferred loader
 import { MakeOption } from '../types';
 import { Makelist } from '@/types/NirmaanStack/Makelist'; // Import Makelist type
 import AddMakeComponent from '@/components/procurement-packages';
-import { AlertDialog , AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter } from '@/components/ui/alert-dialog';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter } from '@/components/ui/alert-dialog';
+import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist';
 
 interface ManageCategoryMakesDialogProps {
     isOpen: boolean;
@@ -25,6 +26,7 @@ interface ManageCategoryMakesDialogProps {
     makeList?: Makelist[];
     makeListMutate: () => Promise<any>;
     // Optional: Mutate for CategoryMakelist if direct creation happens here
+    categoryMakelist?: CategoryMakelist[];
     categoryMakeListMutate?: () => Promise<any>;
 }
 
@@ -37,6 +39,7 @@ export const ManageCategoryMakesDialog: React.FC<ManageCategoryMakesDialogProps>
     onMakesAssociated,
     makeList,
     makeListMutate,
+    categoryMakelist,
     categoryMakeListMutate // Not used directly here, but passed to AddMakeComponent
 }) => {
     // State for makes selected from the existing list dropdown
@@ -52,6 +55,36 @@ export const ManageCategoryMakesDialog: React.FC<ManageCategoryMakesDialogProps>
         const associatedSet = new Set(associatedMakes);
         return allMakeOptions.filter(opt => !associatedSet.has(opt.value));
     }, [allMakeOptions, associatedMakes]);
+
+    // // --- MODIFIED LOGIC ---
+    // const availableExistingMakesOptions = useMemo(() => {
+    //     // Ensure categoryMakelist is available and is an array
+    //     // If categoryMakelist is undefined, it might still be loading in the parent.
+    //     // Return empty array or handle loading state if passed down.
+    //     if (!Array.isArray(categoryMakelist)) {
+    //         return [];
+    //     }
+
+    //     // 1. Get make names specifically defined for this category from the prop
+    //     //    (Adjust 'make' field name if different in your CategoryMakelist type)
+    //     const categorySpecificMakeNames = new Set(
+    //         categoryMakelist
+    //             .filter(doc => doc.category === categoryName) // Filter by category name
+    //             .map(doc => doc.make) // Extract the make name/value
+    //     );
+
+    //     // 2. Get makes already associated in the current session/parent component
+    //     const associatedSet = new Set(associatedMakes);
+
+    //     // 3. Filter allMakeOptions:
+    //     //    - Must be in the categorySpecificMakeNames set
+    //     //    - Must NOT be in the associatedSet
+    //     return allMakeOptions.filter(opt =>
+    //         categorySpecificMakeNames.has(opt.value) && // Check if make is defined for the category in the Doctype data
+    //         !associatedSet.has(opt.value)              // Check if not already associated in the parent component's state
+    //     );
+    // }, [allMakeOptions, associatedMakes, categoryMakelist, categoryName]); // Added categoryMakelist and categoryName dependencies
+    // // --- END MODIFIED LOGIC ---
 
     // Handler for when makes are selected/deselected in the multi-select
     const handleAssociateExistingMakesChange = (selectedOptions: MultiValue<MakeOption>) => {
@@ -120,7 +153,7 @@ export const ManageCategoryMakesDialog: React.FC<ManageCategoryMakesDialogProps>
 
                     {/* Select Existing Makes */}
                     <div>
-                        <Label htmlFor="associate-makes" className="font-semibold text-gray-700">Associate Existing Makes:</Label>
+                        <Label htmlFor="associate-makes" className="font-semibold text-gray-700">Select Existing Makes:</Label>
                         <ReactSelect
                             inputId="associate-makes"
                             isMulti
@@ -137,7 +170,7 @@ export const ManageCategoryMakesDialog: React.FC<ManageCategoryMakesDialogProps>
 
                     {/* Create New Make */}
                     <div>
-                        <Label className="font-semibold text-gray-700">Create & Associate New Make:</Label>
+                        <Label className="font-semibold text-gray-700 text-center">OR</Label>
                         {/* Pass the new callback to AddMakeComponent */}
                         <AddMakeComponent
                             makeList={makeList}
@@ -150,9 +183,9 @@ export const ManageCategoryMakesDialog: React.FC<ManageCategoryMakesDialogProps>
                 </div>
 
                 <AlertDialogFooter>
-                     <AlertDialogCancel asChild>
+                    <AlertDialogCancel asChild>
                         <Button variant="outline" disabled={isConfirming}>
-                           <X className="h-4 w-4 mr-1" /> Cancel
+                            <X className="h-4 w-4 mr-1" /> Cancel
                         </Button>
                     </AlertDialogCancel>
                     <Button
@@ -160,11 +193,11 @@ export const ManageCategoryMakesDialog: React.FC<ManageCategoryMakesDialogProps>
                         disabled={isConfirming || (selectedExistingMakes.length === 0 && newlyCreatedMakes.length === 0)} // Disable if nothing selected/created
                     >
                         {isConfirming ? (
-                           <TailSpin color="white" height={20} width={20} />
+                            <TailSpin color="white" height={20} width={20} />
                         ) : (
-                           <CheckCheck className="h-4 w-4 mr-1" />
+                            <CheckCheck className="h-4 w-4 mr-1" />
                         )}
-                        Confirm Associations
+                        Confirm
                     </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>
