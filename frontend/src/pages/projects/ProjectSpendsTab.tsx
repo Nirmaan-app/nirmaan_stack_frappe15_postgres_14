@@ -52,51 +52,52 @@ export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, cat
     projectId ? undefined : null
   );
 
-  const segregateServiceOrderData = (serviceRequestsData: ServiceRequests[] | undefined) => {
-    return useMemo(() => {
-      const result: { [category: string]: { key: string; unit: string; quantity: number; amount: number; children: any[]; estimate_total: number } }[] = [];
-      const servicesEstimates = project_estimates?.filter(
-        (p) => p?.work_package === "Services"
-      );
+  const segregatedServiceOrderData = useMemo(() => {
+    if (!approvedServiceRequestsData) return [];
 
-      serviceRequestsData?.forEach((serviceRequest) => {
-        serviceRequest.service_order_list.list?.forEach((item) => {
-          const { category, uom, quantity, rate } = item;
-          const amount = (parseNumber(quantity) || 1) * parseNumber(rate);
+    const result: { [category: string]: { key: string; unit: string; quantity: number; amount: number; children: any[]; estimate_total: number } }[] = [];
 
-          const existingCategory = result.find((entry) => entry[category]);
+    const servicesEstimates = project_estimates?.filter(
+      (p) => p?.work_package === "Services"
+    );
 
-          const estimateItem = servicesEstimates?.filter(
-            (i) => i?.category === category
-          );
+    approvedServiceRequestsData?.forEach((serviceRequest) => {
+      serviceRequest.service_order_list.list?.forEach((item) => {
+        const { category, uom, quantity, rate } = item;
+        const amount = (parseNumber(quantity) || 1) * parseNumber(rate);
 
-          const estimate_total = estimateItem?.reduce(
-            (acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)),
-            0
-          ) || 0;
+        const existingCategory = result.find((entry) => entry[category]);
 
-          if (existingCategory) {
-            existingCategory[category].quantity += parseNumber(quantity);
-            existingCategory[category].amount += amount;
-            existingCategory[category].children.push({ ...item, amount: amount });
-          } else {
-            result.push({
-              [category]: {
-                key: uuidv4(),
-                unit: uom,
-                quantity: parseNumber(quantity),
-                amount: amount,
-                children: [{ ...item, amount: amount }],
-                estimate_total: estimate_total,
-              },
-            });
-          }
-        });
+        const estimateItem = servicesEstimates?.filter(
+          (i) => i?.category === category
+        );
+
+        const estimate_total = estimateItem?.reduce(
+          (acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)),
+          0
+        ) || 0;
+
+        if (existingCategory) {
+          existingCategory[category].quantity += parseNumber(quantity);
+          existingCategory[category].amount += amount;
+          existingCategory[category].children.push({ ...item, amount: amount });
+        } else {
+          result.push({
+            [category]: {
+              key: uuidv4(),
+              unit: uom,
+              quantity: parseNumber(quantity),
+              amount: amount,
+              children: [{ ...item, amount: amount }],
+              estimate_total: estimate_total,
+            },
+          });
+        }
       });
+    });
 
-      return result;
-    }, [project_estimates, serviceRequestsData]);
-  }
+    return result;
+  }, [approvedServiceRequestsData, project_estimates]);
 
   const finalOptions = useMemo(() => {
     if (!options) return [];
@@ -121,7 +122,6 @@ export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, cat
 
   }, [options]);
 
-  const segregatedServiceOrderData = segregateServiceOrderData(approvedServiceRequestsData)
 
   const setProjectSpendsTab = useCallback(
     (tab: string) => {
