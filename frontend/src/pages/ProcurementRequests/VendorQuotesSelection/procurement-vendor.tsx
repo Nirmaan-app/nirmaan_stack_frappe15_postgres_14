@@ -141,13 +141,14 @@ export const ProcurementOrder: React.FC = () => {
                     <TableHead className="w-[50%]">
                       <span className="font-extrabold text-red-700">{cat.name}</span>
                       <div className="text-xs font-bold text-gray-500">
-                        {cat?.makes?.length > 0 ? (
+                        {/*PLEASE RESOLVE THIS LATER/*}
+                        {/* {cat?.makes?.length > 0 ? (
                           <>
                             <span>Makelist: </span>
                             {cat?.makes?.map((i, index: number, arr: any[]) => (
                               <i>{i}{index < arr.length - 1 && ", "}</i>
                             ))}
-                          </>) : ""}
+                          </>) : ""} */}
                       </div>
                     </TableHead>
                     <TableHead className="w-[10%] text-red-700">UOM</TableHead>
