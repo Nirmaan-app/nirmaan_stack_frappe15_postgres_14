@@ -45,7 +45,6 @@ export const RequestedItemTable: React.FC<RequestedItemTableProps> = ({ items, o
                                     <span>{item.comment}</span>
                                 </div>
                             )}
-                            <p className="text-xs"><strong>make: {" "}</strong>{item?.make || "--"}</p>
                         </TableCell>
                         <TableCell className="text-sm text-center py-2 align-top">{item.unit}</TableCell>
                         <TableCell className="text-sm text-center py-2 align-top">{item.quantity}</TableCell>
@@ -57,28 +56,28 @@ export const RequestedItemTable: React.FC<RequestedItemTableProps> = ({ items, o
                                 </Button>
 
                                 <AlertDialog>
-                                     <AlertDialogTrigger asChild>
+                                    <AlertDialogTrigger asChild>
                                         <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700">
-                                             <Trash className="w-4 h-4" />
-                                             <span className="sr-only">Reject Request</span>
-                                         </Button>
-                                     </AlertDialogTrigger>
-                                     <AlertDialogContent>
-                                         <AlertDialogHeader>
-                                             <AlertDialogTitle>Reject Requested Product?</AlertDialogTitle>
-                                             <AlertDialogDescription>
-                                                 Are you sure you want to reject the request for product "{item.item}"? This will remove it from the PR permanently.
-                                             </AlertDialogDescription>
-                                         </AlertDialogHeader>
-                                         <AlertDialogFooter>
-                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                             {/* Pass the specific item to onDelete */}
-                                             <AlertDialogAction onClick={() => onDelete(item)} className='bg-destructive hover:bg-destructive/90'>
-                                                 Confirm Rejection
-                                             </AlertDialogAction>
-                                         </AlertDialogFooter>
-                                     </AlertDialogContent>
-                                 </AlertDialog>
+                                            <Trash className="w-4 h-4" />
+                                            <span className="sr-only">Reject Request</span>
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Reject Requested Product?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                Are you sure you want to reject the request for product "{item.item}"? This will remove it from the PR permanently.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            {/* Pass the specific item to onDelete */}
+                                            <AlertDialogAction onClick={() => onDelete(item)} className='bg-destructive hover:bg-destructive/90'>
+                                                Confirm Rejection
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
 
                             </div>
                         </TableCell>
