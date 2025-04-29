@@ -36,6 +36,35 @@ export const ProcurementOrder: React.FC = () => {
     orderId ? `Procurement Requests ${orderId}` : null
   );
 
+  const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Project>("Projects", {
+    fields: ["*"],
+    filters: [["name", "=", procurement_request_list?.[0]?.project]],
+    limit: 1,
+  }, procurement_request_list?.[0]?.project ? `Projects ${procurement_request_list?.[0]?.project}` : null);
+
+  const categoryMakesMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (projectDoc?.[0]?.project_work_packages) {
+      try {
+        const workPackages = (typeof projectDoc[0].project_work_packages === "string"
+          ? JSON.parse(projectDoc[0].project_work_packages)
+          : projectDoc[0].project_work_packages
+        )?.work_packages ?? [];
+
+        workPackages.forEach((wp: any) => {
+          (wp.category_list?.list ?? []).forEach((cat: any) => {
+            if (cat.name && cat.makes?.length > 0) {
+              map.set(cat.name, cat.makes);
+            }
+          });
+        });
+      } catch (e) {
+        console.error("Failed to parse project work packages for makes:", e);
+      }
+    }
+    return map;
+  }, [projectDoc]);
+
 
   const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
 
@@ -92,7 +121,7 @@ export const ProcurementOrder: React.FC = () => {
     }
   }
 
-  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   if (orderData?.workflow_state !== "Approved") {
     return (
@@ -141,14 +170,14 @@ export const ProcurementOrder: React.FC = () => {
                     <TableHead className="w-[50%]">
                       <span className="font-extrabold text-red-700">{cat.name}</span>
                       <div className="text-xs font-bold text-gray-500">
-                        {/*PLEASE RESOLVE THIS LATER/*}
-                        {/* {cat?.makes?.length > 0 ? (
+                        {categoryMakesMap.get(cat.name)?.length ? (
                           <>
                             <span>Makelist: </span>
-                            {cat?.makes?.map((i, index: number, arr: any[]) => (
-                              <i>{i}{index < arr.length - 1 && ", "}</i>
+                            {categoryMakesMap.get(cat.name)?.map((make, index, arr) => (
+                              <i key={make}>{make}{index < arr.length - 1 && ", "}</i>
                             ))}
-                          </>) : ""} */}
+                          </>
+                        ) : ""}
                       </div>
                     </TableHead>
                     <TableHead className="w-[10%] text-red-700">UOM</TableHead>
