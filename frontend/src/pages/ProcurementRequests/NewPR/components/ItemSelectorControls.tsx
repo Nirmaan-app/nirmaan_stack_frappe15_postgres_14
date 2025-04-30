@@ -121,7 +121,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     const [isManageMakesDialogOpen, setIsManageMakesDialogOpen] = useState(false);
     const userData = useUserData();
 
-    console.log("selectedCategories", selectedCategories)
+    // console.log("selectedCategories", selectedCategories)
 
     // --- Memos and Derived State ---
     const currentItemCategoryName = curItem?.category;
@@ -129,35 +129,74 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     // --- *** UPDATED LOGIC for availableMakeOptions *** ---
     const availableMakeOptions = useMemo(() => {
         if (!currentItemCategoryName) {
-            console.log("No item selected, no make options.");
+            // console.log("No item selected, no make options.");
             return [];
         }
 
-        let makesForCategory: string[] = [];
+        let primaryMakesSet = new Set<string>();
 
-        // 1. Try to find the category in the derived `selectedCategories` (includes session changes)
+        // 1. Primary Source Logic (Project WP Config / Session State)
+        // Try to find the category in the derived `selectedCategories` first
         const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
 
         if (derivedCategoryDetails && Array.isArray(derivedCategoryDetails.makes)) {
-            console.log(`Using makes from derived selectedCategories for ${currentItemCategoryName}:`, derivedCategoryDetails.makes);
-            makesForCategory = derivedCategoryDetails.makes;
+            // console.log(`Using makes from derived selectedCategories for ${currentItemCategoryName}:`, derivedCategoryDetails.makes);
+            derivedCategoryDetails.makes.forEach(make => primaryMakesSet.add(make));
         }
-        // 2. If not found in derived state, fall back to the initial baseline makes for the WP
+        // If not found in derived state, fall back to the initial baseline makes for the WP
         else if (initialCategoryMakes && initialCategoryMakes[currentItemCategoryName]) {
-            console.log(`Falling back to initialCategoryMakes for ${currentItemCategoryName}:`, initialCategoryMakes[currentItemCategoryName]);
-            makesForCategory = initialCategoryMakes[currentItemCategoryName];
+            // console.log(`Falling back to initialCategoryMakes for ${currentItemCategoryName}:`, initialCategoryMakes[currentItemCategoryName]);
+            const initialMakes = initialCategoryMakes[currentItemCategoryName];
+            // Ensure it's an array before iterating
+            if (Array.isArray(initialMakes)) {
+                initialMakes.forEach(make => primaryMakesSet.add(make));
+            }
         } else {
-            console.log(`No makes found for category ${currentItemCategoryName} in selectedCategories or initialCategoryMakes.`);
+            // console.log(`No primary makes found for category ${currentItemCategoryName} in selectedCategories or initialCategoryMakes.`);
         }
 
-        // Ensure it's an array
-        const makesSet = new Set(Array.isArray(makesForCategory) ? makesForCategory : []);
+        // Filter allMakeOptions based on the primary set
+        const primaryMakeOptions = allMakeOptions.filter(opt => primaryMakesSet.has(opt.value));
 
-        // 3. Filter all system makes based on the determined set
-        const filteredOptions = allMakeOptions.filter(opt => makesSet.has(opt.value));
+        // 2. Fallback Check & Logic (if primary list is empty)
+        if (primaryMakeOptions.length === 0 && categoryMakelist) {
+            // console.log(`Primary makes empty for ${currentItemCategoryName}. Falling back to CategoryMakelist.`);
 
-        return filteredOptions;
-    }, [currentItemCategoryName, selectedCategories, initialCategoryMakes, allMakeOptions]); // <<< Add initialCategoryMakes dependency
+            const fallbackMakeNamesSet = new Set<string>();
+            categoryMakelist
+                // Filter CategoryMakelist for the current item's category
+                .filter(entry => entry.category === currentItemCategoryName)
+                // Add the 'make' (which is the make docname/value) to the set
+                .forEach(entry => {
+                    if (entry.make) { // Ensure make property exists
+                        fallbackMakeNamesSet.add(entry.make);
+                    }
+                });
+
+            if (fallbackMakeNamesSet.size > 0) {
+                // If fallback makes were found, filter allMakeOptions based on them
+                const fallbackMakeOptions = allMakeOptions.filter(opt => fallbackMakeNamesSet.has(opt.value));
+                // console.log(`Found fallback makes for ${currentItemCategoryName}:`, fallbackMakeOptions);
+                return fallbackMakeOptions; // Return the fallback options
+            } else {
+                // console.log(`No fallback makes found in CategoryMakelist for ${currentItemCategoryName}.`);
+                // If primary was empty AND fallback was empty, return empty
+                return [];
+            }
+        }
+
+        // 3. Default Case: Return primary options if they were found
+        // console.log(`Using primary make options for ${currentItemCategoryName}:`, primaryMakeOptions);
+        return primaryMakeOptions;
+
+    }, [
+        currentItemCategoryName,
+        selectedCategories,
+        initialCategoryMakes,
+        allMakeOptions,
+        categoryMakelist // <<< Add categoryMakelist as a dependency
+    ]);
+    // --- End UPDATED LOGIC ---
 
 
     const isNewItemsDisabled = useMemo(() => {
@@ -198,16 +237,25 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
 
     const handleMakesManaged = useCallback((newlyAssociatedMakes: MakeOption[]) => {
         if (!currentItemCategoryName) return;
+        let makeToSelectAfterwards: MakeOption | null = null; // To auto-select the first added make
         newlyAssociatedMakes.forEach(make => {
             updateCategoryMakesInStore(currentItemCategoryName, make.value);
+            if (!makeToSelectAfterwards) { // Keep track of the first one added
+                makeToSelectAfterwards = make;
+            }
         });
-        // Optional: Auto-select the first new make
-        // if (newlyAssociatedMakes.length > 0) {
-        //    const firstNewMake = allMakeOptions.find(opt => opt.value === newlyAssociatedMakes[0].value);
-        //    if (firstNewMake) setCurMake(firstNewMake);
-        // }
+
         setIsManageMakesDialogOpen(false);
-    }, [currentItemCategoryName, updateCategoryMakesInStore, allMakeOptions]); // Dependencies needed
+
+        // Auto-select the first newly added make if available
+        if (makeToSelectAfterwards) {
+            const fullOption = allMakeOptions.find(opt => opt.value === makeToSelectAfterwards!.value);
+            if (fullOption) {
+                setCurMake(fullOption); // Update local state
+            }
+        }
+
+    }, [currentItemCategoryName, updateCategoryMakesInStore, allMakeOptions]);
 
     // --- Custom Props for Select ---
     const itemSelectCustomProps = { onOpenNewItemDialog, isNewItemsDisabled };
@@ -274,7 +322,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
                     <Label htmlFor="make-select" className="block text-sm font-medium text-gray-700 mb-1">Make</Label>
                     <ReactSelect
                         inputId='make-select'
-                        placeholder={!curItem ? "NA" : "Add Make..."}
+                        placeholder={!curItem ? "NA" : "Select Make..."} // Changed placeholder slightly
                         value={curMake}
                         isDisabled={disabled || !curItem}
                         options={availableMakeOptions}
