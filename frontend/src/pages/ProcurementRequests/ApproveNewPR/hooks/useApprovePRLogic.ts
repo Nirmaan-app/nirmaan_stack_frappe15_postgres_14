@@ -483,10 +483,16 @@ export const useApprovePRLogic = ({
 
     // --- New Item Creation ---
     const handleOpenNewItemDialog = useCallback(() => {
-        setNewItem({}); // Reset form
-        setCurrentCategoryForNewItem(null);
-        setIsNewItemDialogOpen(true);
-    }, []);
+        // --- ADD THIS LINE ---
+        setShowNewItemsCard(false); // Close the AddItemForm dialog
+
+        // --- Keep existing logic ---
+        setNewItem({}); // Reset new item form state
+        setCurrentCategoryForNewItem(null); // Reset category for new item
+        setFuzzyMatches([]); // Clear fuzzy matches from previous searches
+        setIsNewItemDialogOpen(true); // Open the NewItemDialog
+
+    }, [setShowNewItemsCard, setNewItem, setCurrentCategoryForNewItem, setIsNewItemDialogOpen]); // Add dependencies
 
     const handleNewItemChange = useCallback((field: keyof NewItemState, value: string) => {
         setNewItem(prev => ({ ...prev, [field]: value }));
