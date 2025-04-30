@@ -333,7 +333,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             <div className="flex flex-row items-baseline gap-2 sm:gap-4">
                 {/* Make Selector (Flexible width) */}
                 <div className="w-2/3"> {/* Allow grow/shrink, base width ~160px */}
-                    <Label htmlFor="make-select" className="block text-sm font-medium text-gray-700 mb-1">Make</Label>
+                    <Label htmlFor="make-select" className="block text-sm font-medium text-gray-700 mb-1">Make<sup className="text-red-500">*</sup></Label>
                     <ReactSelect
                         inputId='make-select'
                         placeholder={!curItem ? "NA" : "Select Make..."} // Changed placeholder slightly
@@ -386,7 +386,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             {/* --- Add Item Button (Full Width) --- */}
             <Button
                 onClick={handleAddItemClick}
-                disabled={disabled || !curItem || !curQuantity || parseFloat(curQuantity) <= 0}
+                disabled={disabled || !curItem || !curQuantity || !curMake || parseFloat(curQuantity) <= 0}
                 variant={"outline"}
                 className="w-full border border-primary text-primary hover:bg-primary/5"
             >
