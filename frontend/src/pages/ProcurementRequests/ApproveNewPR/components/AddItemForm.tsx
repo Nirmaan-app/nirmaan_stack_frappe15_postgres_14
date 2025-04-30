@@ -9,9 +9,10 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, 
 import { parseNumber } from '@/utils/parseNumber';
 import { MakeOption, CategoryMakesMap } from '../../NewPR/types'; // Added Make types
 import { Makelist } from '@/types/NirmaanStack/Makelist'; // Added Makelist type
-import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import CategoryMakelist
+import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import CategoryMakelist
 import { ManageCategoryMakesDialog } from '../../NewPR/components/ManageCategoryMakesDialog'; // Added Manage Makes Dialog
 import { CustomMakeMenuList } from '../../NewPR/components/ItemSelectorControls'; // Added Custom Menu List
+
 
 
 interface AddItemFormProps {
@@ -35,34 +36,42 @@ interface AddItemFormProps {
     updateCategoryMakesInStore: (categoryName: string, newMake: string) => void; // Function to update local state in hook
     makeList?: Makelist[];
     makeListMutate: () => Promise<any>;
-    categoryMakelist?: CategoryMakelist[]; // <<< Add prop
+    categoryMakelist?: CategoryMakelistType[]; // <<< Add prop
     categoryMakeListMutate?: () => Promise<any>;
     // --- End Make Props ---
 }
 
 
-export const AddItemForm: React.FC<AddItemFormProps> = ({
-    itemOptions,
-    currentItemOption,
-    setCurrentItemOption,
-    quantity,
-    handleQuantityChange,
-    onAdd,
-    onClose,
-    onToggleNewItemDialog,
-    canCreateItem,
-    isLoading,
-    showNewItemsCard,
-    // Make Props
-    allMakeOptions,
-    initialCategoryMakes,
-    orderDataCategoryList, // Use this prop
-    updateCategoryMakesInStore,
-    makeList,
-    makeListMutate,
-    categoryMakelist, // <<< Destructure
-    categoryMakeListMutate,
-}) => {
+export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
+
+    // useEffect(() => {
+    //     console.log("ADD_ITEM_FORM: Received props object:", props);
+    //     // Log the specific prop after checking the object
+    //     console.log("ADD_ITEM_FORM: Received categoryMakelist prop:", props.categoryMakelist ? `Count=${props.categoryMakelist.length}` : props.categoryMakelist);
+    // }, [props]); // Dependency on the whole props object
+
+    const {
+        itemOptions,
+        currentItemOption,
+        setCurrentItemOption,
+        quantity,
+        handleQuantityChange,
+        onAdd,
+        onClose,
+        onToggleNewItemDialog,
+        canCreateItem,
+        isLoading,
+        showNewItemsCard,
+        // Make Props
+        allMakeOptions,
+        initialCategoryMakes,
+        orderDataCategoryList, // Use this prop
+        updateCategoryMakesInStore,
+        makeList,
+        makeListMutate,
+        categoryMakelist, // <<< Destructure
+        categoryMakeListMutate,
+    } = props;
     // --- State for Makes ---
     const [currentMakeOption, setCurrentMakeOption] = useState<MakeOption | null>(null);
     const [isManageMakesDialogOpen, setIsManageMakesDialogOpen] = useState(false);
@@ -71,18 +80,91 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
     // --- Memos for Makes ---
     const currentItemCategoryName = currentItemOption?.category;
 
+    // --- *** REVISED availableMakeOptions Logic *** ---
     const availableMakeOptions = useMemo(() => {
-        if (!currentItemCategoryName) return [];
-        let makesForCategory: string[] = [];
-        const derivedCategoryDetails = orderDataCategoryList.find(c => c.name === currentItemCategoryName);
-        if (derivedCategoryDetails?.makes) {
-            makesForCategory = derivedCategoryDetails.makes;
-        } else if (initialCategoryMakes?.[currentItemCategoryName]) {
-            makesForCategory = initialCategoryMakes[currentItemCategoryName];
+        // console.log(`------- Calculating availableMakeOptions for Category: ${currentItemCategoryName || 'None'} -------`);
+
+        // Guard Clause Check
+        if (!currentItemCategoryName) {
+            // console.log("Step 0: No currentItemCategoryName selected.");
+            return [];
         }
-        const makesSet = new Set(Array.isArray(makesForCategory) ? makesForCategory : []);
-        return allMakeOptions.filter(opt => makesSet.has(opt.value));
-    }, [currentItemCategoryName, orderDataCategoryList, initialCategoryMakes, allMakeOptions]);
+        if (!categoryMakelist) {
+            // console.log("Step 0: categoryMakelist prop is missing or undefined.");
+            return [];
+        }
+        if (!allMakeOptions) {
+            // console.log("Step 0: allMakeOptions prop is missing or undefined.");
+            return [];
+        }
+        // console.log(`Step 0: Inputs seem valid. Category: ${currentItemCategoryName}, categoryMakelist count: ${categoryMakelist.length}, allMakeOptions count: ${allMakeOptions.length}`);
+
+        // Step 1: Find the relevant entry in categoryMakelist
+        const categoryMakesData = categoryMakelist.filter(cm => cm.category === currentItemCategoryName);
+        // console.log("CategoryMakesData: ", categoryMakesData);
+        // console.log(`Step 1: Found categoryMakesData for [${currentItemCategoryName}]:`, JSON.stringify(categoryMakesData, null, 2)); // Stringify for structure
+
+        // Step 2: Extract global make values
+        const globalCategoryMakeValues = categoryMakesData?.map(childRow => {
+            // Log each child row and the extracted make
+            // console.log("Step 2a: Processing childRow:", JSON.stringify(childRow), " -> Extracted make:", childRow?.make);
+            return childRow?.make;
+        })
+            .filter(makeValue => {
+                // Log which makes are kept after filtering nulls/undefined
+                const keep = Boolean(makeValue);
+                // console.log(`Step 2b: Filtering makeValue: '${makeValue}', Keeping: ${keep}`);
+                return keep;
+            }) as string[] ?? []; // Provide default empty array
+
+        // Log the final extracted list and the set created from it
+        // console.log(`Step 2c: Final globalCategoryMakeValues for [${currentItemCategoryName}]:`, globalCategoryMakeValues);
+        if (!Array.isArray(globalCategoryMakeValues)) {
+            // console.error(`Step 2 ERROR: globalCategoryMakeValues is NOT an array! Value:`, globalCategoryMakeValues);
+            return [];
+        }
+        const globalCategoryMakesSet = new Set(globalCategoryMakeValues);
+        // console.log(`Step 2d: Created globalCategoryMakesSet:`, globalCategoryMakesSet);
+
+        // Step 3: Get project-specific makes values
+        const projectSpecificMakes = initialCategoryMakes?.[currentItemCategoryName] ?? [];
+        // console.log(`Step 3a: Project specific makes (initialCategoryMakes) for [${currentItemCategoryName}]:`, projectSpecificMakes);
+        if (!Array.isArray(projectSpecificMakes)) {
+            // console.error(`Step 3 ERROR: projectSpecificMakes is NOT an array! Value:`, projectSpecificMakes);
+            // Decide how to handle this, maybe proceed with empty set?
+        }
+        const projectSpecificMakesSet = new Set(projectSpecificMakes);
+        // console.log(`Step 3b: Created projectSpecificMakesSet:`, projectSpecificMakesSet);
+
+
+        // Step 4: Filter allMakeOptions and map/mark
+        // console.log(`Step 4: Filtering allMakeOptions (${allMakeOptions.length} items)...`);
+        const finalOptions = allMakeOptions
+            .filter(option => {
+                // Log each option being considered for filtering
+                const isIncluded = globalCategoryMakesSet.has(option?.value);
+                // console.log(`Step 4a: Filtering option: { label: '${option?.label}', value: '${option?.value}' } -> Included by global set? ${isIncluded}`);
+                return isIncluded;
+            })
+            .map(option => {
+                // Log each option being considered for marking
+                const isProjectSpecific = projectSpecificMakesSet.has(option.value);
+                const newLabel = isProjectSpecific ? `${option.label} (Project Makelist)` : option.label;
+                // console.log(`Step 4b: Mapping option: { label: '${option.label}', value: '${option.value}' } -> Is project specific? ${isProjectSpecific} -> New Label: '${newLabel}'`);
+                return {
+                    ...option,
+                    label: newLabel,
+                };
+            })
+            .sort((a, b) => a.label.localeCompare(b.label)); // Optional: sort alphabetically
+
+        // console.log(`Step 5: Final calculated availableMakeOptions (${finalOptions.length} items):`, finalOptions);
+        // console.log(`--------------------------------------------------------------------`);
+        return finalOptions;
+
+    }, [currentItemCategoryName, categoryMakelist, allMakeOptions, initialCategoryMakes]);
+    // --- *** END REVISED Logic *** ---
+    // --- *** END REVISED Logic *** ---
 
     // --- Effect to reset make when item changes ---
     useEffect(() => {
@@ -105,25 +187,22 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
         setIsManageMakesDialogOpen(true);
     }, [currentItemCategoryName]);
 
-    // *** MODIFIED handleMakesManaged ***
     const handleMakesManaged = useCallback((newlyAssociatedMakes: MakeOption[]) => {
+        // This logic might need adjustment depending on whether Manage Makes
+        // should now update Category Makelist or the Project's makes.
+        // Assuming it still updates the *PR's local state* for now via updateCategoryMakesInStore
         if (!currentItemCategoryName || newlyAssociatedMakes.length === 0) {
-            setIsManageMakesDialogOpen(false); // Close dialog even if error/empty
+            setIsManageMakesDialogOpen(false);
             return;
         }
-        const makeToSelect = newlyAssociatedMakes[0]; // Get the single make passed back
-
-        // 1. Update central store state via hook prop
+        const makeToSelect = newlyAssociatedMakes[0];
         updateCategoryMakesInStore(currentItemCategoryName, makeToSelect.value);
-
-        // 2. Close the dialog
         setIsManageMakesDialogOpen(false);
+        // Find the potentially updated option (with or without M) to select it
+        const optionToSelect = availableMakeOptions.find(opt => opt.value === makeToSelect.value) || makeToSelect;
+        setCurrentMakeOption(optionToSelect);
 
-        // 3. Set the current make selection directly in this component's state
-        setCurrentMakeOption(makeToSelect);
-
-    }, [currentItemCategoryName, updateCategoryMakesInStore, setCurrentMakeOption]); // Added setCurrentMakeOption dependency
-
+    }, [currentItemCategoryName, updateCategoryMakesInStore, setCurrentMakeOption, availableMakeOptions]); // Added availableMakeOptions dependency
     // Custom props for the Make ReactSelect
     const makeSelectCustomProps = {
         onManageMakesClick: handleOpenManageMakesDialog,

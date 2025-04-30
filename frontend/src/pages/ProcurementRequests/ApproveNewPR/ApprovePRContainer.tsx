@@ -34,7 +34,7 @@ export const ApprovePRContainer: React.FC = () => {
         prQueryKey
     );
 
-    const {make_list, makeListMutate, allMakeOptions, categoryMakeListMutate} = useRelatedPRData({ prDoc });
+    const { make_list, makeListMutate, allMakeOptions, categoryMakelist, categoryMakeListMutate } = useRelatedPRData({ prDoc });
 
     // --- 2. Fetch Project Document (conditional) ---
     const projectQueryKey = prDoc?.project ? queryKeys.projects.doc(prDoc.project) : null;
@@ -77,6 +77,7 @@ export const ApprovePRContainer: React.FC = () => {
         allMakeOptions,
         makeList: make_list,
         makeListMutate,
+        categoryMakelist: categoryMakelist,
         categoryMakeListMutate
     });
 
@@ -112,11 +113,11 @@ export const ApprovePRContainer: React.FC = () => {
     // If prDoc hasn't loaded (after loading finishes without error)
     if (!prDoc) {
         return (
-             <div className="flex items-center justify-center h-[90vh]">
-                 Procurement Request <span className='font-mono mx-1'>{prId}</span> not found.
-                 <Button onClick={() => navigate("/procurement-requests?tab=Approve PR")} className="ml-4">Go Back</Button>
-             </div>
-         );
+            <div className="flex items-center justify-center h-[90vh]">
+                Procurement Request <span className='font-mono mx-1'>{prId}</span> not found.
+                <Button onClick={() => navigate("/procurement-requests?tab=Approve PR")} className="ml-4">Go Back</Button>
+            </div>
+        );
     }
 
     // --- Workflow State Check ---
@@ -126,35 +127,35 @@ export const ApprovePRContainer: React.FC = () => {
         return (
             <div className="flex items-center justify-center h-[90vh]">
                 {/* ... (Workflow state message remains the same) ... */}
-                 <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
-                     <h2 className="text-2xl font-semibold text-gray-800">Heads Up!</h2>
-                     <p className="text-gray-600 text-lg">
-                         The PR: <span className="font-medium text-gray-900">{prDoc.name}</span> is no longer
-                         in the <span className="italic">Pending</span> state. The current state is{" "}
-                         <span className="font-semibold text-blue-600">{prDoc.workflow_state}</span>.
-                         Last modified by{" "}
-                         <span className="font-medium text-gray-900">{modifierName}</span>.
-                     </p>
-                     <Button
-                         onClick={() => navigate("/procurement-requests?tab=Approve PR")}
-                         className="mt-4"
-                     >
-                         Go Back to PR List
-                     </Button>
-                 </div>
+                <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                    <h2 className="text-2xl font-semibold text-gray-800">Heads Up!</h2>
+                    <p className="text-gray-600 text-lg">
+                        The PR: <span className="font-medium text-gray-900">{prDoc.name}</span> is no longer
+                        in the <span className="italic">Pending</span> state. The current state is{" "}
+                        <span className="font-semibold text-blue-600">{prDoc.workflow_state}</span>.
+                        Last modified by{" "}
+                        <span className="font-medium text-gray-900">{modifierName}</span>.
+                    </p>
+                    <Button
+                        onClick={() => navigate("/procurement-requests?tab=Approve PR")}
+                        className="mt-4"
+                    >
+                        Go Back to PR List
+                    </Button>
+                </div>
             </div>
         );
     }
 
-     // Show loading indicator if PR is loaded but related data is still fetching
-     if (isDataLoading) {
-         return (
-             <div className="flex items-center justify-center h-[90vh]">
-                 <TailSpin color="red" height={50} width={50} />
-                 <span className='ml-2'>Loading details...</span>
-             </div>
-         );
-     }
+    // Show loading indicator if PR is loaded but related data is still fetching
+    if (isDataLoading) {
+        return (
+            <div className="flex items-center justify-center h-[90vh]">
+                <TailSpin color="red" height={50} width={50} />
+                <span className='ml-2'>Loading details...</span>
+            </div>
+        );
+    }
 
 
     // --- Render View ---

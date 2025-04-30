@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { Undo } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -19,19 +19,17 @@ import { PRCommentsSection } from './components/PRCommentsSection';
 
 
 // Import types
-import { Category, Project } from './types';
+import { Project } from './types';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic'; // Get hook's return type
 import { parseNumber } from '@/utils/parseNumber';
 import { CategoryMakesMap } from '../NewPR/types';
 import { extractMakesForWP } from '../NewPR/NewProcurementRequestPage';
-import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
+// import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
 
 // Props Type for the View Component
 interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
     // Add any additional props needed specifically for rendering that are NOT in the logic hook
     projectDoc?: Project; // Pass project details if needed
-    categoryList?: Category[]
-    categoryMakelist?: CategoryMakelist[]; // <<< Add categoryMakelist prop
 }
 
 export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
@@ -108,6 +106,12 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         makeListMutate,
         handleLocalCategoryMakesUpdate
     } = props;
+
+    // // *** Add console log HERE to verify ***
+    // useEffect(() => {
+    //     console.log("VIEW: Received props.categoryMakelist:", categoryMakelist ? `Count=${categoryMakelist.length}` : 'undefined/null');
+    // }, [categoryMakelist]);
+
 
 
     // Derive the initial makes map for *this PR's work package*
@@ -251,7 +255,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
 
             {/* Dialogs */}
 
-
+            {/* {console.log("VIEW: Rendering AddItemForm, categoryMakelist is:", categoryMakelist ? `Count=${categoryMakelist.length}` : categoryMakelist)} */}
             <AddItemForm
                 showNewItemsCard={showNewItemsCard}
                 itemOptions={itemOptions}
@@ -291,7 +295,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 onSubmit={handleCreateAndAddItem}
                 isLoading={isLoading}
             />
-
+            {/* {console.log("VIEW: Rendering AddItemForm, categoryMakelist is:", categoryMakelist ? `Count=${categoryMakelist.length}` : categoryMakelist)} */}
             <EditItemDialog
                 isOpen={isEditItemDialogOpen}
                 onClose={() => setIsEditItemDialogOpen(false)}
