@@ -19,20 +19,21 @@ interface MakesSelectionProps {
   formData: RFQData
   orderData: ProcurementRequest | SentBackCategory
   setFormData: React.Dispatch<React.SetStateAction<RFQData>>
+  defaultMake?: string
 }
 
 
-export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, formData, orderData, setFormData }) => {
+export const MakesSelection: React.FC<MakesSelectionProps> = ({ defaultMake, vendor, item, formData, orderData, setFormData }) => {
 
   const [showAlert, setShowAlert] = useState(false);
   const toggleShowAlert = () => {
     setShowAlert((prevState) => !prevState);
   };
 
-//   const [makeOptions, setMakeOptions] = useState<{
-//     label: string;
-//     value: string;
-// }[]>([]);
+  //   const [makeOptions, setMakeOptions] = useState<{
+  //     label: string;
+  //     value: string;
+  // }[]>([]);
 
   // const [newSelectedMakes, setNewSelectedMakes] = useState([]);
 
@@ -41,15 +42,15 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
     filters: [["category", "=", item?.category]],
     limit: 100000,
   },
-  item?.category ? `Category Makelist_${item?.category}` : null
-)
+    item?.category ? `Category Makelist_${item?.category}` : null
+  )
 
   const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList<Makelist>("Makelist", {
-      fields: ["*"],
-      limit: 100000,
-    })
+    fields: ["*"],
+    limit: 100000,
+  })
 
-  const makeOptions: {label: string, value: string }[] = useMemo(() => categoryMakeList?.map((i) => ({ label: i?.make, value: i?.make })) || [], [categoryMakeList, item])
+  const makeOptions: { label: string, value: string }[] = useMemo(() => categoryMakeList?.map((i) => ({ label: i?.make, value: i?.make })) || [], [categoryMakeList, item])
 
   // useEffect(() => {
   //   if ((categoryMakeList || [])?.length > 0) {
@@ -71,7 +72,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
   //   ?.find((j) => j?.qr_id === q?.name)
   //   ?.makes?.find((m) => m?.enabled === "true");
 
-  const selectedMakeName = useMemo(() => formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make, [item, vendor, formData]);
+  const selectedMakeName = useMemo(() => formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make || defaultMake, [item, vendor, formData, defaultMake]);
 
   const selectedVendorMake = useMemo(() => ({ value: selectedMakeName, label: selectedMakeName }), [selectedMakeName])
   // const selectedMakeValue = selectedMake
@@ -80,7 +81,7 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
   //   ? { value: selectedMakefromq?.make, label: selectedMakefromq?.make }
   //   : null;
 
-  const handleMakeChange = (make: {label: string, value: string}) => {
+  const handleMakeChange = (make: { label: string, value: string }) => {
     setFormData((prev) => ({
       ...prev,
       details: {
@@ -95,6 +96,12 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
       },
     }));
   }
+
+  useEffect(() => {
+    if (defaultMake && !formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make) {
+      handleMakeChange({ label: defaultMake, value: defaultMake });
+    }
+  }, [defaultMake, formData, item?.name, vendor?.value]);
 
   // const handleAddNewMakes = () => {
   //   const newMakes = newSelectedMakes?.map(i => i?.value)
@@ -114,20 +121,20 @@ export const MakesSelection : React.FC<MakesSelectionProps> = ({ vendor, item, f
   // }
 
   // Define the styles for the portal menu
-const portalStyles: StylesConfig<any, false, GroupBase<any>> = { // Use appropriate types for your options
-  menuPortal: base => ({
-    ...base,
-    zIndex: 9999 // A high z-index to ensure it's on top
-  }),
-  // You might need to style the menu itself if its default appearance changes slightly outside the original context
-  menu: base => ({
-    ...base,
-    // Add any specific menu styling overrides if needed
-  }),
-  // Add other style overrides if necessary
-};
+  const portalStyles: StylesConfig<any, false, GroupBase<any>> = { // Use appropriate types for your options
+    menuPortal: base => ({
+      ...base,
+      zIndex: 9999 // A high z-index to ensure it's on top
+    }),
+    // You might need to style the menu itself if its default appearance changes slightly outside the original context
+    menu: base => ({
+      ...base,
+      // Add any specific menu styling overrides if needed
+    }),
+    // Add other style overrides if necessary
+  };
 
-  const CustomMenu = (props : MenuListProps) => {
+  const CustomMenu = (props: MenuListProps) => {
     const { MenuList } = components;
 
     return (
@@ -145,33 +152,33 @@ const portalStyles: StylesConfig<any, false, GroupBase<any>> = { // Use appropri
 
   return (
     <>
-    <div className="w-full">
-      <ReactSelect
-        className="w-full"
-        placeholder="Select Make..."
-        value={selectedVendorMake}
-        // options={editMakeOptions}
-        isLoading={makeListLoading}
-        options={makeOptions}
-        onChange={handleMakeChange}
-        components={{ MenuList: CustomMenu }}
-        menuPortalTarget={document.body}
-        styles={portalStyles}
-        menuPosition="fixed"
-      />
-    </div>
+      <div className="w-full">
+        <ReactSelect
+          className="w-full"
+          placeholder="Select Make..."
+          value={selectedVendorMake}
+          // options={editMakeOptions}
+          isLoading={makeListLoading}
+          options={makeOptions}
+          onChange={handleMakeChange}
+          components={{ MenuList: CustomMenu }}
+          menuPortalTarget={document.body}
+          styles={portalStyles}
+          menuPosition="fixed"
+        />
+      </div>
 
-    <Dialog open={showAlert} onOpenChange={toggleShowAlert}>
-      <DialogContent className="text-start">
-        <DialogHeader>
-          <DialogTitle>Add New Makes</DialogTitle>
-        </DialogHeader>
-        <DialogDescription>
-          <AddMakeComponent category={item?.category} categoryMakeListMutate={categoryMakeListMutate} makeList={makeList} makeListMutate={makeListMutate}
-            handleMakeChange={handleMakeChange}
-            toggleShowAlert={toggleShowAlert}
-           />
-        {/* <div className="flex gap-1 flex-wrap mb-4">
+      <Dialog open={showAlert} onOpenChange={toggleShowAlert}>
+        <DialogContent className="text-start">
+          <DialogHeader>
+            <DialogTitle>Add New Makes</DialogTitle>
+          </DialogHeader>
+          <DialogDescription>
+            <AddMakeComponent category={item?.category} categoryMakeListMutate={categoryMakeListMutate} makeList={makeList} makeListMutate={makeListMutate}
+              handleMakeChange={handleMakeChange}
+              toggleShowAlert={toggleShowAlert}
+            />
+            {/* <div className="flex gap-1 flex-wrap mb-4">
           {editMakeOptions?.length > 0 && (
             <div className="flex flex-col gap-2">
               <h2 className="font-semibold">Existing Makes for this item:</h2>
@@ -200,9 +207,9 @@ const portalStyles: StylesConfig<any, false, GroupBase<any>> = { // Use appropri
             Confirm
           </Button>
         </div> */}
-        </DialogDescription>
-      </DialogContent>
-    </Dialog>
+          </DialogDescription>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

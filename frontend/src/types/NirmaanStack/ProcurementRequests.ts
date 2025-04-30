@@ -23,6 +23,7 @@ export interface RFQData {
 	selectedVendors: Vendor[];
 	details: {
 		[itemId: string]: {
+			initialMake?: string;
 			vendorQuotes: { [vendorId: string]: { quote?: string ; make?: string } };
 			makes: string[];
 		};

@@ -18,9 +18,16 @@ def after_insert(doc, method):
     project_data = frappe.get_doc("Projects", doc.project)
     if len(last_prs)>1 and doc.work_package is not None:
         last_pr = last_prs[1]
-        new_item_ids = [item['name'] for item in doc.procurement_list['list']]
-        new_procurement_list = doc.procurement_list
-        for item in last_pr.procurement_list['list']:
+        procurement_list = doc.procurement_list
+        if isinstance(procurement_list, str):
+            procurement_list = json.loads(procurement_list)
+        new_item_ids = [item['name'] for item in procurement_list['list']]
+        new_procurement_list = procurement_list
+
+        last_procurement_list = last_pr.procurement_list
+        if isinstance(last_procurement_list, str):
+            last_procurement_list = json.loads(last_procurement_list)
+        for item in last_procurement_list['list']:
             if item['name'] in new_item_ids:
                 update_quantity(new_procurement_list, item['name'], item['quantity'])
             else:
@@ -33,7 +40,7 @@ def after_insert(doc, method):
         # for item in last_pr.category_list['list']:
         #     if item['name'] not in existing_names:
         #         new_category_list['list'].append(item)
-        combined_request = last_pr.procurement_list['list'] + new_procurement_list['list']
+        combined_request = last_procurement_list['list'] + new_procurement_list['list']
         new_categories = []
 
         for item in combined_request:

@@ -92,26 +92,26 @@ export const useProcurementProgressLogic = ({
     useEffect(() => {
         if (initialProcurementRequest) {
             setOrderData({
-              ...initialProcurementRequest,
-              procurement_list: typeof initialProcurementRequest.procurement_list === "string" ?  JSON.parse(initialProcurementRequest.procurement_list) : initialProcurementRequest.procurement_list,
+                ...initialProcurementRequest,
+                procurement_list: typeof initialProcurementRequest.procurement_list === "string" ? JSON.parse(initialProcurementRequest.procurement_list) : initialProcurementRequest.procurement_list,
             });
 
             // Initialize selectedVendorQuotes Map from initial PR data if not already set by draft
             const initialSelectionMap = new Map<string, string>();
             let draftUsedSelection = false;
             initialProcurementRequest.procurement_list?.list?.forEach(item => {
-                 // Check if this item exists in the draft's selectedVendorQuotes logic (if applicable)
-                 // For now, directly use the vendor field from the fetched data
+                // Check if this item exists in the draft's selectedVendorQuotes logic (if applicable)
+                // For now, directly use the vendor field from the fetched data
                 if (item.vendor) {
                     initialSelectionMap.set(item.name, item.vendor);
-                     // If you want draft to override fetched, load draft's selections here
-                     // draftUsedSelection = true; // Flag if draft selections were loaded
+                    // If you want draft to override fetched, load draft's selections here
+                    // draftUsedSelection = true; // Flag if draft selections were loaded
                 }
             });
-             // Only set if draft didn't populate it OR if you always want fetched data to initialize it
-             if (selectedVendorQuotes.size === 0) { // Initialize only if empty
-                 setSelectedVendorQuotes(initialSelectionMap);
-             }
+            // Only set if draft didn't populate it OR if you always want fetched data to initialize it
+            if (selectedVendorQuotes.size === 0) { // Initialize only if empty
+                setSelectedVendorQuotes(initialSelectionMap);
+            }
 
 
             // Initialize formData from fetched RFQ data if draft is empty
@@ -125,7 +125,7 @@ export const useProcurementProgressLogic = ({
     // Initialize formData details if empty after orderData is available
     useEffect(() => {
         if (orderData && orderData.procurement_list?.list?.length > 0 && Object.keys(formData.details || {}).length === 0) {
-             console.log("Initializing formData details...");
+            console.log("Initializing formData details...");
             const newDetails: RFQData['details'] = {};
             const categoryMap = new Map(orderData.category_list?.list?.map(cat => [cat.name, cat.makes || []]));
 
@@ -191,36 +191,36 @@ export const useProcurementProgressLogic = ({
             const hasChanges = JSON.stringify(formData) !== JSON.stringify(currentOrderData.rfq_data || { selectedVendors: [], details: {} });
 
             if (hasChanges) {
-                 setIsRedirecting("view_save"); // Indicate saving before view
-                 try {
-                     // Recalculate updatedOrderList based on selections *before* saving
-                     const updatedOrderList = currentOrderData.procurement_list?.list?.map((item) => {
-                         const selectedVendorId = selectedVendorQuotes.get(item.name);
-                         if (selectedVendorId) {
-                             const vendorData = formData.details?.[item.name]?.vendorQuotes?.[selectedVendorId];
-                             if (vendorData) {
-                                 return { ...item, vendor: selectedVendorId, quote: parseNumber(vendorData.quote), make: vendorData.make };
-                             }
-                             return { ...item };
-                         } else {
-                             const { vendor, quote, make, ...rest } = item;
-                             return rest;
-                         }
-                     }) || [];
+                setIsRedirecting("view_save"); // Indicate saving before view
+                try {
+                    // Recalculate updatedOrderList based on selections *before* saving
+                    const updatedOrderList = currentOrderData.procurement_list?.list?.map((item) => {
+                        const selectedVendorId = selectedVendorQuotes.get(item.name);
+                        if (selectedVendorId) {
+                            const vendorData = formData.details?.[item.name]?.vendorQuotes?.[selectedVendorId];
+                            if (vendorData) {
+                                return { ...item, vendor: selectedVendorId, quote: parseNumber(vendorData.quote), make: vendorData.make };
+                            }
+                            return { ...item };
+                        } else {
+                            const { vendor, quote, make, ...rest } = item;
+                            return rest;
+                        }
+                    }) || [];
 
                     // Update local state immediately BEFORE saving for responsiveness
                     setOrderData(prev => prev ? { ...prev, procurement_list: { list: updatedOrderList } } : undefined);
                     await updateProcurementData(formData, updatedOrderList, "view"); // Save draft
                     toast({ title: "Draft Saved", description: "Changes saved successfully.", variant: "success" });
-                 } catch (error) {
-                     toast({ title: "Save Failed", description: "Could not save changes before switching mode.", variant: "destructive" });
-                     setIsRedirecting("");
-                     return; // Prevent mode switch if save fails
-                 } finally {
-                     setIsRedirecting("");
-                 }
-             }
-         }
+                } catch (error) {
+                    toast({ title: "Save Failed", description: "Could not save changes before switching mode.", variant: "destructive" });
+                    setIsRedirecting("");
+                    return; // Prevent mode switch if save fails
+                } finally {
+                    setIsRedirecting("");
+                }
+            }
+        }
 
         setMode(newMode);
         updateURL("mode", newMode);
@@ -243,30 +243,30 @@ export const useProcurementProgressLogic = ({
     }, [selectedVendorsForDialog, setFormData]);
 
     // Handle deleting a vendor from the selected list in formData
-     const handleDeleteVendor = useCallback((vendorIdToDelete: string) => {
-         setFormData(prev => {
-             const newSelectedVendors = prev.selectedVendors.filter(v => v.value !== vendorIdToDelete);
-             // Also remove quotes associated with this vendor from details
-             const newDetails = { ...prev.details };
-             Object.keys(newDetails).forEach(itemId => {
-                 if (newDetails[itemId]?.vendorQuotes?.[vendorIdToDelete]) {
-                     delete newDetails[itemId].vendorQuotes[vendorIdToDelete];
-                 }
-             });
-             return { ...prev, selectedVendors: newSelectedVendors, details: newDetails };
-         });
-         // Also remove from selectedVendorQuotes map if this vendor was selected for any item
-         setSelectedVendorQuotes(prevMap => {
-             const newMap = new Map(prevMap);
-             newMap.forEach((vendorId, itemId) => {
-                 if (vendorId === vendorIdToDelete) {
-                     newMap.delete(itemId);
-                 }
-             });
-             return newMap;
-         });
+    const handleDeleteVendor = useCallback((vendorIdToDelete: string) => {
+        setFormData(prev => {
+            const newSelectedVendors = prev.selectedVendors.filter(v => v.value !== vendorIdToDelete);
+            // Also remove quotes associated with this vendor from details
+            const newDetails = { ...prev.details };
+            Object.keys(newDetails).forEach(itemId => {
+                if (newDetails[itemId]?.vendorQuotes?.[vendorIdToDelete]) {
+                    delete newDetails[itemId].vendorQuotes[vendorIdToDelete];
+                }
+            });
+            return { ...prev, selectedVendors: newSelectedVendors, details: newDetails };
+        });
+        // Also remove from selectedVendorQuotes map if this vendor was selected for any item
+        setSelectedVendorQuotes(prevMap => {
+            const newMap = new Map(prevMap);
+            newMap.forEach((vendorId, itemId) => {
+                if (vendorId === vendorIdToDelete) {
+                    newMap.delete(itemId);
+                }
+            });
+            return newMap;
+        });
 
-     }, [setFormData, setSelectedVendorQuotes]);
+    }, [setFormData, setSelectedVendorQuotes]);
 
 
     // Update specific quote in formData
@@ -309,6 +309,12 @@ export const useProcurementProgressLogic = ({
         }));
     }, [setFormData]);
 
+    useEffect(() => {
+        if (defaultMake && !formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make) {
+            handleMakeChange({ label: defaultMake, value: defaultMake });
+        }
+    }, [defaultMake, formData, item?.name, vendor?.value]);
+
     // Select/Deselect a vendor's quote for a specific item
     const handleVendorQuoteSelection = useCallback((itemId: string, vendorId: string | null) => {
         setSelectedVendorQuotes(prevMap => {
@@ -332,18 +338,18 @@ export const useProcurementProgressLogic = ({
         setIsRedirecting("review_save"); // Indicate saving before navigating
 
         const updatedOrderList = currentOrderData.procurement_list?.list?.map((item) => {
-             const selectedVendorId = selectedVendorQuotes.get(item.name);
-             if (selectedVendorId) {
-                 const vendorData = formData.details?.[item.name]?.vendorQuotes?.[selectedVendorId];
-                 if (vendorData) {
-                     return { ...item, vendor: selectedVendorId, quote: parseNumber(vendorData.quote), make: vendorData.make };
-                 }
-                 return { ...item };
-             } else {
-                 const { vendor, quote, make, ...rest } = item;
-                 return rest;
-             }
-         }) || [];
+            const selectedVendorId = selectedVendorQuotes.get(item.name);
+            if (selectedVendorId) {
+                const vendorData = formData.details?.[item.name]?.vendorQuotes?.[selectedVendorId];
+                if (vendorData) {
+                    return { ...item, vendor: selectedVendorId, quote: parseNumber(vendorData.quote), make: vendorData.make };
+                }
+                return { ...item };
+            } else {
+                const { vendor, quote, make, ...rest } = item;
+                return rest;
+            }
+        }) || [];
 
         try {
             // Update local state first for perceived speed (optional)
@@ -376,29 +382,29 @@ export const useProcurementProgressLogic = ({
         }) || [];
 
         try {
-             // Update local state optimistically
-             setOrderData(prev => prev ? {
-                 ...prev,
-                 procurement_list: { list: updatedOrderList },
-                 rfq_data: { selectedVendors: [], details: {} } // Reset RFQ data locally
-             } : undefined);
-             setFormData({ selectedVendors: [], details: {} }); // Reset draft
-             setSelectedVendorQuotes(new Map()); // Reset selections
+            // Update local state optimistically
+            setOrderData(prev => prev ? {
+                ...prev,
+                procurement_list: { list: updatedOrderList },
+                rfq_data: { selectedVendors: [], details: {} } // Reset RFQ data locally
+            } : undefined);
+            setFormData({ selectedVendors: [], details: {} }); // Reset draft
+            setSelectedVendorQuotes(new Map()); // Reset selections
 
             await updateProcurementData(null, updatedOrderList, "revert"); // Pass null for RFQ data
 
             // Navigate AFTER successful update
-             localStorage.removeItem(`procurementDraft_${prId}`); // Clear draft
-             toast({ title: "Reverted", description: `PR ${prId} reverted successfully.`, variant: "success" });
-             toggleRevertDialog(); // Close dialog on success
-             // Navigate back to a suitable previous state/list page
-             navigate(`/procurement-requests?tab=New%20PR%20Request`); // Or appropriate tab
+            localStorage.removeItem(`procurementDraft_${prId}`); // Clear draft
+            toast({ title: "Reverted", description: `PR ${prId} reverted successfully.`, variant: "success" });
+            toggleRevertDialog(); // Close dialog on success
+            // Navigate back to a suitable previous state/list page
+            navigate(`/procurement-requests?tab=New%20PR%20Request`); // Or appropriate tab
 
         } catch (error) {
             toast({ title: "Revert Failed", description: "Could not revert PR changes.", variant: "destructive" });
-             // Optionally revert local state changes if API call fails
-             setOrderData(currentOrderData); // Restore previous orderData
-             // Consider reloading formData/selectedVendorQuotes from currentOrderData if needed
+            // Optionally revert local state changes if API call fails
+            setOrderData(currentOrderData); // Restore previous orderData
+            // Consider reloading formData/selectedVendorQuotes from currentOrderData if needed
         } finally {
             setIsRedirecting("");
         }

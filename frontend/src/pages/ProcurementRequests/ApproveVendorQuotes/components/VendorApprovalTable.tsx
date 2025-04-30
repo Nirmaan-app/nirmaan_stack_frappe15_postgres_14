@@ -8,7 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { SelectionState, VendorDataSourceItem, VendorItemDetails } from '../types'; // Assuming types are defined in a shared location
-import formatToIndianRupee, {formatToRoundedIndianRupee} from '@/utils/FormatPrice'; // Adjust path
+import formatToIndianRupee, { formatToRoundedIndianRupee } from '@/utils/FormatPrice'; // Adjust path
 import { HistoricalQuotesHoverCard } from '../../VendorQuotesSelection/components/HistoricalQuotesHoverCard';
 
 interface VendorApprovalTableProps {
@@ -124,7 +124,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
                     return (
                         <AccordionItem value={vendorId} key={key} className="border rounded-md overflow-hidden bg-white shadow-sm">
-                             {/* Custom Trigger using CardHeader structure */}
+                            {/* Custom Trigger using CardHeader structure */}
                             <AccordionTrigger className={`!py-0 !px-0 hover:!no-underline focus-visible:!ring-1 focus-visible:!ring-ring focus-visible:!ring-offset-1 rounded-t-md ${vendorState.isFullySelected ? "bg-primary/10" : ""}`}>
                                 <CardHeader className="flex flex-row items-center justify-between p-3 w-full cursor-pointer hover:bg-muted/50 transition-colors">
                                     {/* Left Side: Checkbox and Vendor Name */}
@@ -140,33 +140,33 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                             aria-label={`Select all items for ${vendorName}`}
                                             className="ml-1"
                                         />
-                                         <CardTitle className={cn("text-base font-medium", 'text-primary')}>
-                                             {vendorName}
-                                         </CardTitle>
+                                        <CardTitle className={cn("text-base font-medium", 'text-primary')}>
+                                            {vendorName}
+                                        </CardTitle>
                                     </div>
-                                     {/* Right Side: Totals and Savings */}
-                                     <div className="flex flex-col items-end gap-2 text-xs">
-                                         {potentialSavingLoss !== undefined && (
-                                              <div className='flex gap-2 items-end'>
-                                                  <span className='text-gray-500'>Potential Saving/Loss:</span>
-                                                  <span className={cn(
-                                                      "font-semibold",
-                                                      potentialSavingLoss > 0 ? "text-green-600" : potentialSavingLoss < 0 ? "text-red-600" : "text-gray-600"
-                                                  )}>
-                                                      {formatToIndianRupee(potentialSavingLoss || "N/A")} {potentialSavingLoss > 0 ? '(S)' : potentialSavingLoss < 0 ? '(L)' : ''}
-                                                  </span>
-                                             </div>
-                                          )}
-                                          <div className='flex items-end gap-2'>
-                                              <span className='text-gray-500'>Total Value:</span>
-                                              <span className="font-semibold text-gray-700">
-                                                  {formatToRoundedIndianRupee(totalAmount)}
-                                              </span>
-                                          </div>
+                                    {/* Right Side: Totals and Savings */}
+                                    <div className="flex flex-col items-end gap-2 text-xs">
+                                        {potentialSavingLoss !== undefined && (
+                                            <div className='flex gap-2 items-end'>
+                                                <span className='text-gray-500'>Potential Saving/Loss:</span>
+                                                <span className={cn(
+                                                    "font-semibold",
+                                                    potentialSavingLoss > 0 ? "text-green-600" : potentialSavingLoss < 0 ? "text-red-600" : "text-gray-600"
+                                                )}>
+                                                    {formatToIndianRupee(potentialSavingLoss || "N/A")} {potentialSavingLoss > 0 ? '(S)' : potentialSavingLoss < 0 ? '(L)' : ''}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <div className='flex items-end gap-2'>
+                                            <span className='text-gray-500'>Total Value:</span>
+                                            <span className="font-semibold text-gray-700">
+                                                {formatToRoundedIndianRupee(totalAmount)}
+                                            </span>
+                                        </div>
                                         {/* Icon is handled by AccordionTrigger */}
                                         {/* Remove manual icon if AccordionTrigger provides one */}
                                         {/* <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", isExpanded ? "rotate-180" : "")} /> */}
-                                     </div>
+                                    </div>
                                 </CardHeader>
                             </AccordionTrigger>
 
@@ -176,17 +176,17 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                     <Table>
                                         <TableHeader className="bg-primary/20">
                                             <TableRow>
-                                                 <TableHead className="w-10 px-2"> {/* Checkbox column */} </TableHead>
-                                                 <TableHead className="w-[25%] text-primary">Item Name</TableHead>
-                                                 <TableHead className="w-[8%] text-center">UOM</TableHead>
-                                                 <TableHead className="w-[8%] text-center">Qty</TableHead>
-                                                 <TableHead className="w-[8%] text-right">Rate</TableHead>
-                                                 <TableHead className="w-[8%] text-right">Target Rate</TableHead>
-                                                 <TableHead className="w-[12%] text-right">Amount</TableHead>
-                                                 <TableHead className="w-[12%] text-right">Lowest Quoted</TableHead>
-                                                 <TableHead className="w-[12%] text-right">Target Amount</TableHead>
-                                                 <TableHead className="w-[13%] text-right pr-4">Savings/Loss</TableHead>
-                                             </TableRow>
+                                                <TableHead className="w-10 px-2"> {/* Checkbox column */} </TableHead>
+                                                <TableHead className="w-[25%] text-primary">Item Name</TableHead>
+                                                <TableHead className="w-[8%] text-center">UOM</TableHead>
+                                                <TableHead className="w-[8%] text-center">Qty</TableHead>
+                                                <TableHead className="w-[8%] text-right">Rate</TableHead>
+                                                <TableHead className="w-[8%] text-right">Target Rate</TableHead>
+                                                <TableHead className="w-[12%] text-right">Amount</TableHead>
+                                                <TableHead className="w-[12%] text-right">Lowest Quoted</TableHead>
+                                                <TableHead className="w-[12%] text-right">Target Amount</TableHead>
+                                                <TableHead className="w-[13%] text-right pr-4">Savings/Loss</TableHead>
+                                            </TableRow>
                                         </TableHeader>
                                         <TableBody>
                                             {items.map((item) => {
@@ -207,38 +207,44 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                                 aria-label={`Select item ${item.item}`}
                                                             />
                                                         </TableCell>
-                                                         {/* ... rest of the TableCells ... */}
-                                                         <TableCell className="font-medium text-gray-900">{item.item}</TableCell>
-                                                         <TableCell className="text-center">{item.unit}</TableCell>
-                                                         <TableCell className="text-center">{item.quantity}</TableCell>
-                                                         <TableCell className="text-right">{formatToIndianRupee(item.quote)}</TableCell>
-
-                                                         <TableCell className="text-right">
-                                                           {item.targetRate ? (
-                                                               // Wrap the formatted rate with the HoverCard component
-                                                               <HistoricalQuotesHoverCard quotes={item.contributingQuotes}>
-                                                                   {/* This is the trigger element */}
-                                                                   <span>{formatToIndianRupee(item.targetRate)}</span>
-                                                               </HistoricalQuotesHoverCard>
-                                                           ) : (
-                                                               // Display N/A if no target rate could be calculated
-                                                               <span>N/A</span>
-                                                           )}
+                                                        {/* ... rest of the TableCells ... */}
+                                                        <TableCell className="font-medium text-gray-900">
+                                                            {item.item}
+                                                            {/* Conditionally display Make with specific styling */}
+                                                            {item.make && (
+                                                                <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
+                                                            )}
                                                         </TableCell>
-                                                         {/* <TableCell className="text-right">{formatToIndianRupee(item.targetRate)}</TableCell> */}
-                                                         <TableCell className="text-right">{formatToIndianRupee(item.amount)}</TableCell>
-                                                         <TableCell className="text-right">{formatToIndianRupee(item.lowestQuotedAmount || "N/A")}</TableCell>
-                                                         <TableCell className="text-right">{formatToIndianRupee(item.targetAmount || "N/A")}</TableCell>
-                                                         <TableCell className={cn(
-                                                             "text-right font-semibold pr-4",
-                                                             itemSavingLoss === undefined ? "text-gray-500" :
-                                                             itemSavingLoss > 0 ? "text-green-600" :
-                                                             itemSavingLoss < 0 ? "text-red-600" :
-                                                             "text-gray-600"
-                                                         )}>
-                                                             {formatToIndianRupee(itemSavingLoss || "N/A")}
-                                                             {itemSavingLoss !== undefined && itemSavingLoss > 0 ? ' (S)' : itemSavingLoss !== undefined && itemSavingLoss < 0 ? ' (L)' : ''}
-                                                         </TableCell>
+                                                        <TableCell className="text-center">{item.unit}</TableCell>
+                                                        <TableCell className="text-center">{item.quantity}</TableCell>
+                                                        <TableCell className="text-right">{formatToIndianRupee(item.quote)}</TableCell>
+
+                                                        <TableCell className="text-right">
+                                                            {item.targetRate ? (
+                                                                // Wrap the formatted rate with the HoverCard component
+                                                                <HistoricalQuotesHoverCard quotes={item.contributingQuotes}>
+                                                                    {/* This is the trigger element */}
+                                                                    <span>{formatToIndianRupee(item.targetRate)}</span>
+                                                                </HistoricalQuotesHoverCard>
+                                                            ) : (
+                                                                // Display N/A if no target rate could be calculated
+                                                                <span>N/A</span>
+                                                            )}
+                                                        </TableCell>
+                                                        {/* <TableCell className="text-right">{formatToIndianRupee(item.targetRate)}</TableCell> */}
+                                                        <TableCell className="text-right">{formatToIndianRupee(item.amount)}</TableCell>
+                                                        <TableCell className="text-right">{formatToIndianRupee(item.lowestQuotedAmount || "N/A")}</TableCell>
+                                                        <TableCell className="text-right">{formatToIndianRupee(item.targetAmount || "N/A")}</TableCell>
+                                                        <TableCell className={cn(
+                                                            "text-right font-semibold pr-4",
+                                                            itemSavingLoss === undefined ? "text-gray-500" :
+                                                                itemSavingLoss > 0 ? "text-green-600" :
+                                                                    itemSavingLoss < 0 ? "text-red-600" :
+                                                                        "text-gray-600"
+                                                        )}>
+                                                            {formatToIndianRupee(itemSavingLoss || "N/A")}
+                                                            {itemSavingLoss !== undefined && itemSavingLoss > 0 ? ' (S)' : itemSavingLoss !== undefined && itemSavingLoss < 0 ? ' (L)' : ''}
+                                                        </TableCell>
                                                     </TableRow>
                                                 );
                                             })}

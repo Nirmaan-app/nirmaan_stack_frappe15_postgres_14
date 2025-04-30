@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'; // Added useMemo
 import { useParams, useNavigate } from 'react-router-dom';
-import { useFrappeGetDoc } from 'frappe-react-sdk';
+import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 import { TailSpin } from 'react-loader-spinner';
 
 import { ApprovePRView } from './ApprovePRView';
@@ -15,6 +15,7 @@ import { useUsersList } from './hooks/useUsersList';
 import { useCategoryList } from './hooks/useCategoryList';
 import { useItemList } from './hooks/useItemList';
 import { usePRComments } from './hooks/usePRComments';
+import { useRelatedPRData } from './hooks/useRelatedPRData';
 
 export const ApprovePRContainer: React.FC = () => {
     const { prId } = useParams<{ prId: string }>();
@@ -32,6 +33,8 @@ export const ApprovePRContainer: React.FC = () => {
         prId,
         prQueryKey
     );
+
+    const {make_list, makeListMutate, allMakeOptions, categoryMakeListMutate} = useRelatedPRData({ prDoc });
 
     // --- 2. Fetch Project Document (conditional) ---
     const projectQueryKey = prDoc?.project ? queryKeys.projects.doc(prDoc.project) : null;
@@ -71,6 +74,10 @@ export const ApprovePRContainer: React.FC = () => {
         comments: universalComments || [], // Provide default empty array
         itemMutate: itemMutate!, // Assert mutate is available when needed
         prMutate: prMutate!,     // Assert mutate is available when needed
+        allMakeOptions,
+        makeList: make_list,
+        makeListMutate,
+        categoryMakeListMutate
     });
 
     // --- Combined Loading State ---

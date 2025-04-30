@@ -16,9 +16,12 @@ import {
     Category
 } from '../types';
 import { Projects as Project } from '@/types/NirmaanStack/Projects'; // Import Project type
-import {KeyedMutator } from 'swr'
+import { KeyedMutator } from 'swr'
 import { parseNumber } from '@/utils/parseNumber';
 import { Items } from '@/types/NirmaanStack/Items';
+import { MakeOption } from '../../NewPR/types';
+import { Makelist } from '@/types/NirmaanStack/Makelist';
+import { extractMakesForWP } from '../../NewPR/NewProcurementRequestPage';
 
 interface UseApprovePRLogicProps {
     prDoc: PRDocType;
@@ -27,8 +30,14 @@ interface UseApprovePRLogicProps {
     categoryList?: Category[];
     itemList?: Item[];
     comments?: Comment[];
-    itemMutate:KeyedMutator<Items[]>; // Function to refetch items
+    itemMutate: KeyedMutator<Items[]>; // Function to refetch items
     prMutate: KeyedMutator<FrappeDoc<PRDocType>>; // Function to refetch PR
+    // Make related data from container (keep these)
+    allMakeOptions: MakeOption[];
+    makeList?: Makelist[];
+    makeListMutate: () => Promise<any>;
+    categoryMakeListMutate?: () => Promise<any>;
+    // initialCategoryMakes: CategoryMakesMap; // No longer needed from props if derived locally
 }
 
 export const useApprovePRLogic = ({
@@ -39,7 +48,11 @@ export const useApprovePRLogic = ({
     itemList = [],
     comments = [],
     itemMutate,
-    prMutate
+    prMutate,
+    allMakeOptions,
+    makeList,
+    makeListMutate,
+    categoryMakeListMutate
 }: UseApprovePRLogicProps) => {
     const navigate = useNavigate();
     const { toast } = useToast();
@@ -106,7 +119,7 @@ export const useApprovePRLogic = ({
 
     const getFullName = useCallback((id: string | undefined): string => {
         if (!id) return 'N/A';
-        if(id === "Administrator") return "Administrator"
+        if (id === "Administrator") return "Administrator"
         return usersList?.find(user => user.name === id)?.full_name || id; // Fallback to id if not found
     }, [usersList]);
 
@@ -125,59 +138,6 @@ export const useApprovePRLogic = ({
         distance: 100,
         includeScore: true,
     }), [itemList]);
-
-    // --- Effects ---
-    // Initialize orderData from prDoc and parse JSON safely
-    // useEffect(() => {
-    //     if (prDoc && !orderData) { // Initialize only once
-    //         try {
-    //             const parsedList = typeof prDoc.procurement_list === 'string'
-    //                 ? JSON.parse(prDoc.procurement_list)
-    //                 : prDoc.procurement_list;
-
-    //             // const parsedCategories = typeof prDoc.category_list === 'string'
-    //             //     ? JSON.parse(prDoc.category_list)
-    //             //     : prDoc.category_list;
-
-    //             // Ensure list properties exist
-    //             const procurementList = parsedList?.list ?? [];
-    //             // const categoryListParsed = parsedCategories?.list ?? [];
-
-    //             // Derive categories from the *actual* items in the list, including makes
-    //             const derivedCategories: PRCategory[] = [];
-    //             procurementList.forEach((item: PRItem) => {
-    //                 const existingCategoryIndex = derivedCategories.findIndex(cat => cat.name === item.category && cat.status === item.status);
-    //                 if (existingCategoryIndex === -1) {
-    //                      // Find makes from project data if available
-    //                      const makes = projectDoc?.project_work_packages
-    //                         ? JSON.parse(projectDoc.project_work_packages)?.work_packages
-    //                             .flatMap((wp: any) => wp.category_list?.list || [])
-    //                             .filter((cat: any) => cat.name === item.category)
-    //                             .flatMap((cat: any) => cat.makes || []) ?? []
-    //                         : [];
-    //                     derivedCategories.push({ name: item.category, status: item.status, makes });
-    //                 }
-    //             });
-
-    //             // Deduplicate categories (keeping distinct name/status pairs)
-    //              const uniqueDerivedCategories = derivedCategories.filter((category, index, self) =>
-    //                 index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
-    //             );
-
-
-    //             setOrderData({
-    //                 ...prDoc,
-    //                 procurement_list: { list: procurementList },
-    //                 // Use derived categories based on actual items and project data
-    //                 category_list: { list: uniqueDerivedCategories },
-    //             });
-    //         } catch (error) {
-    //             console.error("Error parsing PR data:", error);
-    //             toast({ title: "Error", description: "Failed to load PR details.", variant: "destructive" });
-    //             // Handle error appropriately, maybe navigate back or show error state
-    //         }
-    //     }
-    // }, [prDoc, projectDoc, orderData, toast]); // Add projectDoc dependency
 
 
     useEffect(() => {
@@ -207,55 +167,7 @@ export const useApprovePRLogic = ({
             }
 
         }
-      }, [prDoc, orderData, toast]);
-    
-    //   useEffect(() => {
-    //     const newCategories : {name: string, status?: string, makes? : string[]}[] = [];
-    //     if (orderData && orderData.procurement_list.list.some((i) => i.status === "Request")) {
-    //       orderData.procurement_list.list.map((item) => {
-    //         const isDuplicate = newCategories.some(
-    //           (category) =>
-    //             category.name === item.category && category?.status === item.status
-    //         );
-    //         if (!isDuplicate) {
-    //           if (item.status === "Pending") {
-    //             const makes = projectDoc?.project_work_packages
-    //             ? JSON.parse(projectDoc.project_work_packages).work_packages
-    //                 .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-    //                 .filter((cat) => cat.name === item.category) // Filter categories matching item.category
-    //                 .flatMap((cat) => cat.makes || []) // Extract and flatten makes
-    //             : []; // Return an empty array if project_work_packages is not defined 
-    //             newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
-    //           } else {
-    //             newCategories.push({ name: item.category, status: item.status });
-    //           }
-    //         }
-    //       });
-    //     } else {
-    //       orderData?.procurement_list.list.map((item) => {
-    //         const isDuplicate = newCategories.some(
-    //           (category) => category.name === item.category
-    //         );
-    //         if (!isDuplicate) {
-    //           const makes = projectDoc?.project_work_packages
-    //           ? JSON.parse(projectDoc.project_work_packages).work_packages
-    //               .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-    //               .filter((cat) => cat.name === item.category) // Filter categories matching item.category
-    //               .flatMap((cat) => cat.makes || []) // Extract and flatten makes
-    //           : []; // Return an empty array if project_work_packages is not defined
-    //           newCategories.push({ name: item.category, makes: makes || [] });
-    //         }
-    //       });
-    //     }
-    //     setOrderData((prevState) => ({
-    //       ...prevState,
-    //       category_list: {
-    //         list: newCategories,
-    //       },
-    //     }));
-    //   }, [orderData?.procurement_list]);
-    // --- Event Handlers ---
-
+    }, [prDoc, orderData, toast]);
 
     useEffect(() => {
         // Only run if orderData is initialized
@@ -273,56 +185,57 @@ export const useApprovePRLogic = ({
             );
 
             if (!existingCategory) {
-                let makes: string[] = [];
+                // let makes: string[] = [];
+                let makes: string[] = orderData?.category_list?.list?.find(cat => cat.name === item.category)?.makes || [];
                 // Calculate makes if project data is available (use optional chaining)
-                 if (item.status !== 'Request' && projectDoc?.project_work_packages) { // Example: Calc makes only for non-requested, adjust if needed
-                     try {
-                         // Use optional chaining and nullish coalescing for safety
-                         const wpData = JSON.parse(projectDoc.project_work_packages);
-                         makes = wpData?.work_packages
-                             ?.flatMap((wp: any) => wp.category_list?.list || [])
-                             ?.find((cat: any) => cat?.name === item.category)
-                             ?.makes || [];
-                     } catch (e) {
-                         console.error("Error parsing makes in useEffect:", e);
-                         // Decide how to handle parse error, maybe log or default to empty makes
-                         makes = [];
-                     }
-                 }
+                if (makes?.length === 0 && item.status !== 'Request' && projectDoc?.project_work_packages) { // Example: Calc makes only for non-requested, adjust if needed
+                    try {
+                        // Use optional chaining and nullish coalescing for safety
+                        const wpData = typeof projectDoc.project_work_packages === 'string' ? JSON.parse(projectDoc.project_work_packages) : projectDoc.project_work_packages;
+                        makes = wpData?.work_packages
+                            ?.flatMap((wp: any) => wp.category_list?.list || [])
+                            ?.find((cat: any) => cat?.name === item.category)
+                            ?.makes || [];
+                    } catch (e) {
+                        console.error("Error parsing makes in useEffect:", e);
+                        // Decide how to handle parse error, maybe log or default to empty makes
+                        makes = [];
+                    }
+                }
 
-                 derivedCategories.push({
-                     name: item.category,
-                     status: item.status,
-                     makes: makes.length > 0 ? makes : undefined, // Add makes only if they exist
-                 });
+                derivedCategories.push({
+                    name: item.category,
+                    status: item.status,
+                    makes: makes.length > 0 ? makes : undefined, // Add makes only if they exist
+                });
             }
         });
 
         // Deduplicate just in case (though the logic above should handle it)
         const uniqueDerivedCategories = derivedCategories.filter((category, index, self) =>
-             index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
-         );
+            index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
+        );
 
 
         // Only update state if the derived list is different from the current one
         // This prevents infinite loops if compares shallowly (deep compare might be needed if makes object references change)
         if (JSON.stringify(uniqueDerivedCategories) !== JSON.stringify(orderData.category_list.list)) {
-             console.log("Updating derived categories..."); // For debugging
-             setOrderData((prevState) => {
-                 // Need to check if prevState is null OR if the procurement list itself changed concurrently
-                 if (!prevState || prevState.procurement_list.list !== currentProcurementList) {
-                      console.warn("Skipping category update due to concurrent procurement_list change or null state.");
-                     return prevState; // Avoid inconsistent state update
-                 }
-                 return {
-                     ...prevState, // Keep all other properties
-                     // procurement_list: prevState.procurement_list, // Keep the existing procurement list
-                     category_list: { list: uniqueDerivedCategories }, // Update only the category list
-                 };
-             });
-         }
+            console.log("Updating derived categories..."); // For debugging
+            setOrderData((prevState) => {
+                // Need to check if prevState is null OR if the procurement list itself changed concurrently
+                if (!prevState || prevState.procurement_list.list !== currentProcurementList) {
+                    console.warn("Skipping category update due to concurrent procurement_list change or null state.");
+                    return prevState; // Avoid inconsistent state update
+                }
+                return {
+                    ...prevState, // Keep all other properties
+                    // procurement_list: prevState.procurement_list, // Keep the existing procurement list
+                    category_list: { list: uniqueDerivedCategories }, // Update only the category list
+                };
+            });
+        }
 
-    // DEPENDENCIES: Run when orderData.procurement_list changes OR when projectDoc becomes available/changes
+        // DEPENDENCIES: Run when orderData.procurement_list changes OR when projectDoc becomes available/changes
     }, [orderData?.procurement_list.list, projectDoc, orderData]); // orderData is needed for the comparison check
 
     const toggleNewItemsCard = useCallback(() => {
@@ -343,7 +256,7 @@ export const useApprovePRLogic = ({
 
     // --- Item Management Actions ---
 
-    const handleAddItemToList = useCallback(() => {
+    const handleAddItemToList = useCallback((selectedMake?: string) => {
         if (!currentItemOption || !currentQuantity || !orderData) return;
 
         const quantityValue = parseNumber(currentQuantity);
@@ -362,6 +275,9 @@ export const useApprovePRLogic = ({
                 description: `Item "${currentItemOption.label}" is already in the list. Edit the quantity instead.`,
                 variant: "destructive",
             });
+            setCurrentItemOption(null);
+            setCurrentQuantity('');
+            setShowNewItemsCard(false);
             return;
         }
         const newItem: PRItem = {
@@ -372,6 +288,7 @@ export const useApprovePRLogic = ({
             category: currentItemOption.category, // category docname
             tax: currentItemOption.tax,
             status: "Pending", // New items are pending
+            make: selectedMake, // <<< Add the selected make here
             // Ensure other mandatory fields from PRItem are included if any (doctype, parentfield etc. might be handled by Frappe)
         };
 
@@ -384,17 +301,58 @@ export const useApprovePRLogic = ({
         }
 
         const updatedList = [...currentList, newItem];
-        setOrderData(prev => prev ? { ...prev, procurement_list: { list: updatedList } } : null);
+        // --- IMPORTANT: Update Category List with Makes if necessary ---
+        // Check if the category exists in the current list and if the new make needs adding
+        let categoryNeedsUpdate = false;
+        const updatedCategoryList = orderData.category_list.list.map(cat => {
+            if (cat.name === newItem.category && selectedMake) {
+                const makes = Array.isArray(cat.makes) ? cat.makes : [];
+                if (!makes.includes(selectedMake)) {
+                    categoryNeedsUpdate = true;
+                    // console.log(`Hook: Adding make ${selectedMake} to existing category ${cat.name} in orderData`);
+                    return { ...cat, makes: [...makes, selectedMake] };
+                }
+            }
+            return cat;
+        });
+
+        // If the category didn't exist at all in the derived list, add it now.
+        const categoryExists = orderData.category_list.list.some(c => c.name === newItem.category && c.status === newItem.status);
+        if (!categoryExists) {
+            categoryNeedsUpdate = true;
+            // Get baseline makes for the truly new category entry
+            const initialMakesMap = extractMakesForWP(projectDoc, orderData?.work_package || "");
+            const baselineMakes = initialMakesMap[newItem.category] || [];
+            const newCategoryMakes = selectedMake ? Array.from(new Set([...baselineMakes, selectedMake])) : baselineMakes;
+            //  console.log(`Hook: Adding new category ${newItem.category} with makes ${newCategoryMakes.join(', ')} to orderData`);
+            updatedCategoryList.push({
+                name: newItem.category,
+                status: newItem.status, // Use status from the added item
+                makes: newCategoryMakes.length > 0 ? newCategoryMakes : undefined,
+            });
+        }
+
+        setOrderData(prev => {
+            if (!prev) return null;
+            const newState = {
+                ...prev,
+                procurement_list: { list: updatedList }
+            };
+            // Only update category_list if it actually changed
+            if (categoryNeedsUpdate) {
+                newState.category_list = { list: updatedCategoryList };
+            }
+            return newState;
+        });
 
         // Reset form
         setCurrentItemOption(null);
         setCurrentQuantity('');
-        // Maybe close the add item card?
-        setShowNewItemsCard(false);
+        setShowNewItemsCard(false); // Close the add item card
 
         toast({ title: "Item Added", description: `"${newItem.item}" added successfully.`, variant: "success" });
 
-    }, [currentItemOption, currentQuantity, orderData, undoStack, toast]);
+    }, [currentItemOption, currentQuantity, orderData, undoStack, toast, setShowNewItemsCard, projectDoc]);
 
 
     const handleOpenEditDialog = useCallback((item: PRItem) => {
@@ -406,6 +364,52 @@ export const useApprovePRLogic = ({
         setEditItem(prev => prev ? { ...prev, [field]: value } : null);
     }, []);
 
+    // --- **NEW LOCAL HANDLER for updating makes in orderData** ---
+    const handleLocalCategoryMakesUpdate = useCallback((categoryName: string, newMake: string) => {
+        console.log(`Hook: Updating LOCAL makes for ${categoryName}, adding ${newMake}`);
+        setOrderData(prevOrderData => {
+            if (!prevOrderData) return null; // Should not happen if called correctly
+
+            let categoryFound = false;
+            let needsUpdate = false;
+
+            const updatedCategoryList = prevOrderData.category_list.list.map(cat => {
+                if (cat.name === categoryName) {
+                    categoryFound = true;
+                    const makes = Array.isArray(cat.makes) ? cat.makes : [];
+                    if (!makes.includes(newMake)) {
+                        needsUpdate = true;
+                        return { ...cat, makes: [...makes, newMake] };
+                    }
+                }
+                return cat;
+            });
+
+            // If category wasn't found in the *local* list, add it
+            if (!categoryFound) {
+                // Need to get baseline makes again if category is truly new to this PR session
+                const initialMakesMap = extractMakesForWP(projectDoc, prevOrderData?.work_package || "");
+                const baselineMakes = initialMakesMap[categoryName] || [];
+                updatedCategoryList.push({
+                    name: categoryName,
+                    // Determine appropriate status - maybe find from an item? Or default?
+                    status: prevOrderData.procurement_list.list.find(i => i.category === categoryName)?.status || 'Pending',
+                    makes: Array.from(new Set([...baselineMakes, newMake]))
+                });
+                needsUpdate = true;
+            }
+
+            if (needsUpdate) {
+                return {
+                    ...prevOrderData,
+                    category_list: { list: updatedCategoryList }
+                };
+            }
+            return prevOrderData; // No change needed
+        });
+    }, [projectDoc]); // projectDoc needed for fallback baseline makes
+
+
 
     const handleSaveEditedItem = useCallback(() => {
         if (!editItem || !editItem.name || !orderData) return;
@@ -413,15 +417,16 @@ export const useApprovePRLogic = ({
         const quantityValue = parseNumber(editItem.quantity)
 
         if (quantityValue === undefined || isNaN(quantityValue) || quantityValue <= 0) {
-             toast({ title: "Invalid Quantity", description: "Please enter a valid positive number for quantity.", variant: "destructive" });
+            toast({ title: "Invalid Quantity", description: "Please enter a valid positive number for quantity.", variant: "destructive" });
             return;
         }
 
         const updatedList = orderData.procurement_list.list.map(item =>
             item.name === editItem.name
-                ? { ...item, quantity: quantityValue, comment: editItem.comment?.trim() || undefined } // Update quantity and comment
+                ? { ...item, quantity: quantityValue, comment: editItem.comment?.trim() || undefined, make: editItem?.make } // Update quantity and comment
                 : item
         );
+
 
         setOrderData(prev => prev ? { ...prev, procurement_list: { list: updatedList } } : null);
         setIsEditItemDialogOpen(false);
@@ -462,11 +467,11 @@ export const useApprovePRLogic = ({
         const newStack = undoStack.slice(0, -1); // Remove last item from stack
 
         // Check if item already exists (e.g., user added it back manually)
-         if (orderData.procurement_list.list.some(i => i.name === itemToRestore.name)) {
-             toast({ title: "Undo Failed", description: `"${itemToRestore.item}" is already back in the list.`, variant: "destructive" });
-             setUndoStack(newStack); // Still remove from stack as it's resolved
-             return;
-         }
+        if (orderData.procurement_list.list.some(i => i.name === itemToRestore.name)) {
+            toast({ title: "Undo Failed", description: `"${itemToRestore.item}" is already back in the list.`, variant: "destructive" });
+            setUndoStack(newStack); // Still remove from stack as it's resolved
+            return;
+        }
 
 
         const updatedList = [...orderData.procurement_list.list, itemToRestore];
@@ -484,7 +489,7 @@ export const useApprovePRLogic = ({
     }, []);
 
     const handleNewItemChange = useCallback((field: keyof NewItemState, value: string) => {
-         setNewItem(prev => ({ ...prev, [field]: value }));
+        setNewItem(prev => ({ ...prev, [field]: value }));
     }, []);
 
     const handleCreateAndAddItem = useCallback(async () => {
@@ -494,10 +499,10 @@ export const useApprovePRLogic = ({
         }
 
         const quantityValue = parseNumber(newItem.quantity);
-         if (isNaN(quantityValue) || quantityValue <= 0) {
-             toast({ title: "Invalid Quantity", description: "Please enter a valid positive quantity.", variant: "destructive" });
-             return;
-         }
+        if (isNaN(quantityValue) || quantityValue <= 0) {
+            toast({ title: "Invalid Quantity", description: "Please enter a valid positive quantity.", variant: "destructive" });
+            return;
+        }
 
         try {
             // 1. Create the Item Doc
@@ -508,8 +513,8 @@ export const useApprovePRLogic = ({
                 // Add other necessary fields for Item doctype if any
             });
 
-             // 2. Refetch item list to include the new item (important for subsequent adds/lookups)
-             await itemMutate();
+            // 2. Refetch item list to include the new item (important for subsequent adds/lookups)
+            await itemMutate();
 
             // 3. Add the newly created item to the PR list
             const itemToAdd: PRItem = {
@@ -523,8 +528,8 @@ export const useApprovePRLogic = ({
                 status: "Pending",
             };
 
-             const updatedList = [...orderData.procurement_list.list, itemToAdd];
-             setOrderData(prev => prev ? { ...prev, procurement_list: { list: updatedList } } : null);
+            const updatedList = [...orderData.procurement_list.list, itemToAdd];
+            setOrderData(prev => prev ? { ...prev, procurement_list: { list: updatedList } } : null);
 
 
             toast({ title: "Success", description: `Item "${createdItemDoc.item_name}" created and added to PR.`, variant: "success" });
@@ -555,31 +560,31 @@ export const useApprovePRLogic = ({
     }, [fuseInstance]);
 
     const handleOpenRequestItemDialog = useCallback((item: PRItem) => {
-         setRequestItem({
-             item_name: item.item,
-             name: item.name, // Original name/id from PR list
-             unit: item.unit,
-             quantity: item.quantity ?? '',
-             category: item.category,
-             // Initialize form fields with current values
-             newItemName: item.item,
-             newUnit: item.unit,
-             newCategory: item.category,
-         });
-         handleFuzzySearch(item.item); // Trigger search immediately
+        setRequestItem({
+            item_name: item.item,
+            name: item.name, // Original name/id from PR list
+            unit: item.unit,
+            quantity: item.quantity ?? '',
+            category: item.category,
+            // Initialize form fields with current values
+            newItemName: item.item,
+            newUnit: item.unit,
+            newCategory: item.category,
+        });
+        handleFuzzySearch(item.item); // Trigger search immediately
         setIsRequestItemDialogOpen(true);
     }, [handleFuzzySearch]);
 
-     const handleRequestItemFormChange = useCallback((field: keyof RequestItemState, value: string) => {
-         setRequestItem(prev => prev ? { ...prev, [field]: value } : null);
-         // Optional: Re-run fuzzy search if newItemName changes significantly
-         if (field === 'newItemName') {
-             handleFuzzySearch(value);
-         }
-     }, [handleFuzzySearch]);
+    const handleRequestItemFormChange = useCallback((field: keyof RequestItemState, value: string) => {
+        setRequestItem(prev => prev ? { ...prev, [field]: value } : null);
+        // Optional: Re-run fuzzy search if newItemName changes significantly
+        if (field === 'newItemName') {
+            handleFuzzySearch(value);
+        }
+    }, [handleFuzzySearch]);
 
 
-     const handleApproveRequestedItemAsNew = useCallback(async () => {
+    const handleApproveRequestedItemAsNew = useCallback(async () => {
         // --- Initial Checks ---
         if (!requestItem || !requestItem.newItemName || !requestItem.newUnit || !requestItem.newCategory || !requestItem.quantity || !orderData) {
             toast({ title: "Missing Information", description: "Please ensure all fields are filled to approve/create.", variant: "destructive" });
@@ -595,7 +600,7 @@ export const useApprovePRLogic = ({
             toast({ title: "Invalid Category", description: "Selected category not found.", variant: "destructive" });
             return;
         }
-    
+
         try {
             // --- Create New Item Master ---
             const createdItemDoc = await createDoc("Items", {
@@ -603,7 +608,7 @@ export const useApprovePRLogic = ({
                 unit_name: requestItem.newUnit,
                 category: requestItem.newCategory, // category docname
             });
-    
+
             // --- Prepare Updated Procurement List ---
             // Map over the *current* list from state to create the new list
             const updatedProcurementList = orderData.procurement_list.list.map(listItem => {
@@ -621,7 +626,7 @@ export const useApprovePRLogic = ({
                 }
                 return listItem; // Return other items unchanged
             });
-    
+
             // --- Prepare Updated Category List (Based on the *new* procurement list) ---
             const newCategories: PRCategory[] = [];
             updatedProcurementList.forEach((item) => { // Use forEach for clarity
@@ -630,8 +635,9 @@ export const useApprovePRLogic = ({
                 );
                 if (!existingCategory) {
                     // Find makes only if status is Pending (or based on your logic)
-                    let makes: string[] = [];
-                    if (item.status === "Pending" && projectDoc?.project_work_packages) {
+                    // let makes: string[] = [];
+                    let makes = orderData?.category_list?.list?.find(c => c.name === item.category)?.makes || [];
+                    if (makes?.length === 0 && item.status === "Pending" && projectDoc?.project_work_packages) {
                         try {
                             makes = JSON.parse(projectDoc.project_work_packages).work_packages
                                 .flatMap((wp: any) => wp.category_list?.list || [])
@@ -646,12 +652,12 @@ export const useApprovePRLogic = ({
                     });
                 }
             });
-             // Deduplicate categories if needed (though the above logic should prevent duplicates)
-             const uniqueNewCategories = newCategories.filter((category, index, self) =>
-                 index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
-             );
-    
-    
+            // Deduplicate categories if needed (though the above logic should prevent duplicates)
+            const uniqueNewCategories = newCategories.filter((category, index, self) =>
+                index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
+            );
+
+
             // --- Update Local State ---
             // IMPORTANT: Update state with BOTH lists
             setOrderData((prevState) => {
@@ -662,83 +668,83 @@ export const useApprovePRLogic = ({
                     category_list: { list: uniqueNewCategories }, // Use the newly calculated categories
                 };
             });
-    
+
             // --- Update Database ---
             await updateDoc("Procurement Requests", orderData.name, { // Use orderData.name safely here
                 procurement_list: { list: updatedProcurementList }, // Send the final list
                 category_list: { list: uniqueNewCategories }, // Send the final category list
                 // No need to update workflow_state here, only when approving/rejecting the whole PR
             });
-    
+
             // --- Post-Update Actions ---
             await prMutate(); // Refetch PR data to confirm backend state (optional but good)
             await itemMutate(); // Refetch item list as a new item was created
-    
+
             toast({ title: "Success", description: `Requested item approved as "${createdItemDoc.item_name}".`, variant: "success" });
             setIsRequestItemDialogOpen(false);
             setRequestItem(null);
             setFuzzyMatches([]);
-    
+
         } catch (error: any) {
             console.error("Error approving requested item:", error);
             toast({ title: "Approval Failed", description: error?.message || "Could not approve the requested item.", variant: "destructive" });
         }
-    
+
     }, [requestItem, orderData, categoryList, projectDoc, createDoc, updateDoc, itemMutate, prMutate, toast, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches]); // Added projectDoc, updateDoc, prMutate dependencies
 
 
     const handleAddMatchingItem = useCallback((match: Item, originalRequest: RequestItemState) => {
-         if (!match || !originalRequest || !orderData) return;
+        if (!match || !originalRequest || !orderData) return;
 
-         const quantityValue = parseNumber(originalRequest.quantity);
-          if (isNaN(quantityValue) || quantityValue <= 0) {
-              toast({ title: "Invalid Quantity", description: "Original request quantity is invalid.", variant: "destructive" });
-              return;
-          }
+        const quantityValue = parseNumber(originalRequest.quantity);
+        if (isNaN(quantityValue) || quantityValue <= 0) {
+            toast({ title: "Invalid Quantity", description: "Original request quantity is invalid.", variant: "destructive" });
+            return;
+        }
 
-          const categoryDoc = categoryList.find(c => c.name === match.category);
-           if (!categoryDoc) {
-               toast({ title: "Item Category Error", description: `Category for "${match.item_name}" not found.`, variant: "destructive" });
-               return;
-           }
+        const categoryDoc = categoryList.find(c => c.name === match.category);
+        if (!categoryDoc) {
+            toast({ title: "Item Category Error", description: `Category for "${match.item_name}" not found.`, variant: "destructive" });
+            return;
+        }
 
-          const currentList = orderData.procurement_list.list;
+        const currentList = orderData.procurement_list.list;
 
-         // Check if the *matching* item is already in the list (excluding the original request itself)
-         const isDuplicate = currentList.some(item => item.name === match.name && item.name !== originalRequest.name);
-          if (isDuplicate) {
-              toast({
-                  title: "Duplicate Item",
-                  description: `Item "${match.item_name}" is already in the list.`,
-                  variant: "destructive",
-              });
-              return;
-          }
+        // Check if the *matching* item is already in the list (excluding the original request itself)
+        const isDuplicate = currentList.some(item => item.name === match.name && item.name !== originalRequest.name);
+        if (isDuplicate) {
+            toast({
+                title: "Duplicate Item",
+                description: `Item "${match.item_name}" is already in the list.`,
+                variant: "destructive",
+            });
+            return;
+        }
 
-          // 1. Remove the original 'Request' item
-          let updatedList = currentList.filter(item => item.name !== originalRequest.name);
+        // 1. Remove the original 'Request' item
+        let updatedList = currentList.filter(item => item.name !== originalRequest.name);
 
-          // 2. Add the matching item
-           const itemToAdd: PRItem = {
-               item: match.item_name,
-               name: match.name, // docname of the matching item
-               unit: match.unit_name,
-               quantity: quantityValue, // Use quantity from original request
-               category: match.category,
-               tax: parseNumber(categoryDoc.tax),
-               status: "Pending",
-               // comment: originalRequest.comment // Carry over comment? Decide policy.
-           };
-           updatedList.push(itemToAdd);
+        // 2. Add the matching item
+        const itemToAdd: PRItem = {
+            item: match.item_name,
+            name: match.name, // docname of the matching item
+            unit: match.unit_name,
+            quantity: quantityValue, // Use quantity from original request
+            category: match.category,
+            tax: parseNumber(categoryDoc.tax),
+            status: "Pending",
+            // comment: originalRequest.comment // Carry over comment? Decide policy.
+        };
+        updatedList.push(itemToAdd);
 
 
         setOrderData(prev => prev ? { ...prev, procurement_list: { list: updatedList } } : null);
 
-         toast({
-             title: "Success",
-             description: `"${match.item_name}" added, replacing requested item "${originalRequest.item_name}".`,
-             variant: "success"
-         });
+        toast({
+            title: "Success",
+            description: `"${match.item_name}" added, replacing requested item "${originalRequest.item_name}".`,
+            variant: "success"
+        });
 
         setIsRequestItemDialogOpen(false);
         setRequestItem(null);
@@ -746,7 +752,7 @@ export const useApprovePRLogic = ({
 
     }, [orderData, categoryList, toast]);
 
-     // --- PR Actions (Approve, Reject, Delete) ---
+    // --- PR Actions (Approve, Reject, Delete) ---
 
     const saveUniversalComment = async (prName: string, subject: string) => {
         if (universalComment.trim() && userData?.user_id) {
@@ -759,35 +765,35 @@ export const useApprovePRLogic = ({
                     content: universalComment.trim(),
                     subject: subject,
                 });
-                 // No toast needed here, part of larger action
+                // No toast needed here, part of larger action
             } catch (error) {
                 console.error("Error saving comment:", error);
-                 // Show toast for comment failure? Or let main action handle overall success/failure?
-                 toast({ title: "Comment Warning", description: "Could not save comment, but proceeding with PR action.", variant: "destructive" });
+                // Show toast for comment failure? Or let main action handle overall success/failure?
+                toast({ title: "Comment Warning", description: "Could not save comment, but proceeding with PR action.", variant: "destructive" });
             }
         }
     };
 
     const handlePrepareAction = useCallback((action: 'approve' | 'reject') => {
-         // Check if there are still requested items before approving
-         if (action === 'approve' && orderData?.procurement_list.list.some(item => item.status === 'Request')) {
-             toast({
-                 title: "Action Required",
-                 description: "Please resolve all 'Requested' items before approving the PR.",
-                 variant: "destructive",
-             });
-             return;
-         }
+        // Check if there are still requested items before approving
+        if (action === 'approve' && orderData?.procurement_list.list.some(item => item.status === 'Request')) {
+            toast({
+                title: "Action Required",
+                description: "Please resolve all 'Requested' items before approving the PR.",
+                variant: "destructive",
+            });
+            return;
+        }
 
-         // Check if list is empty
-         if (!orderData?.procurement_list.list.length) {
-             toast({
-                 title: "Cannot Proceed",
-                 description: "Cannot approve or reject an empty PR list.",
-                 variant: "destructive"
-             });
-             return;
-         }
+        // Check if list is empty
+        if (!orderData?.procurement_list.list.length) {
+            toast({
+                title: "Cannot Proceed",
+                description: "Cannot approve or reject an empty PR list.",
+                variant: "destructive"
+            });
+            return;
+        }
 
 
         // setPage('summary');
@@ -818,14 +824,14 @@ export const useApprovePRLogic = ({
             await saveUniversalComment(updatedPR.name, subjectText);
 
             // 3. Invalidate Cache & Navigate
-             await prMutate(); // Refetch this specific PR (might show updated state)
-             await globalMutate("ApprovePR,PRListMutate"); // Invalidate list view cache keys
+            await prMutate(); // Refetch this specific PR (might show updated state)
+            await globalMutate("ApprovePR,PRListMutate"); // Invalidate list view cache keys
 
-             toast({
-                 title: `PR ${actionText}`,
-                 description: `PR ${updatedPR.name} successfully ${actionText}.`,
-                 variant: "success",
-             });
+            toast({
+                title: `PR ${actionText}`,
+                description: `PR ${updatedPR.name} successfully ${actionText}.`,
+                variant: "success",
+            });
 
             setIsConfirmActionDialogOpen(false); // Close confirmation dialog
             navigate("/procurement-requests?tab=Approve PR"); // Navigate back to list
@@ -837,56 +843,51 @@ export const useApprovePRLogic = ({
                 description: error?.message || `Could not ${summaryAction} PR ${orderData.name}.`,
                 variant: "destructive",
             });
-             setIsConfirmActionDialogOpen(false); // Close dialog even on failure
+            setIsConfirmActionDialogOpen(false); // Close dialog even on failure
         }
-    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast]);
+    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, saveUniversalComment]);
 
 
-     const handleOpenDeletePRDialog = useCallback(() => {
-         setIsDeletePRDialogOpen(true);
-     }, []);
+    const handleOpenDeletePRDialog = useCallback(() => {
+        setIsDeletePRDialogOpen(true);
+    }, []);
 
 
     const handleDeletePR = useCallback(async () => {
-         if (!orderData || !orderData.name) return;
+        if (!orderData || !orderData.name) return;
 
-         try {
-             await deleteDoc("Procurement Requests", orderData.name);
+        try {
+            await deleteDoc("Procurement Requests", orderData.name);
 
-             // Invalidate relevant caches
-              await globalMutate((key: any) => typeof key === 'string' && key.startsWith('Procurement Requests')); // Invalidate lists
-              await globalMutate("ApprovePR,PRListMutate");
+            // Invalidate relevant caches
+            await globalMutate((key: any) => typeof key === 'string' && key.startsWith('Procurement Requests')); // Invalidate lists
+            await globalMutate("ApprovePR,PRListMutate");
 
-              toast({
-                  title: "PR Deleted",
-                  description: `PR ${orderData.name} deleted successfully.`,
-                  variant: "success",
-              });
+            toast({
+                title: "PR Deleted",
+                description: `PR ${orderData.name} deleted successfully.`,
+                variant: "success",
+            });
 
-             setIsDeletePRDialogOpen(false); // Close confirmation dialog
-             navigate("/procurement-requests?tab=Approve PR");
+            setIsDeletePRDialogOpen(false); // Close confirmation dialog
+            navigate("/procurement-requests?tab=Approve PR");
 
-         } catch (error: any) {
-             console.error("Error deleting PR:", error);
-             toast({
-                 title: "Deletion Failed",
-                 description: error?.message || `Could not delete PR ${orderData.name}.`,
-                 variant: "destructive",
-             });
-             setIsDeletePRDialogOpen(false); // Close dialog even on failure
-         }
+        } catch (error: any) {
+            console.error("Error deleting PR:", error);
+            toast({
+                title: "Deletion Failed",
+                description: error?.message || `Could not delete PR ${orderData.name}.`,
+                variant: "destructive",
+            });
+            setIsDeletePRDialogOpen(false); // Close dialog even on failure
+        }
     }, [orderData, deleteDoc, globalMutate, navigate, toast]);
 
 
     // --- Navigation ---
-     const navigateBackToList = useCallback(() => {
-         navigate("/procurement-requests?tab=Approve PR");
-     }, [navigate]);
-
-    //  const navigateToItemList = useCallback(() => {
-    //     //  setPage('itemlist');
-    //      setSummaryAction(null);
-    //  }, []);
+    const navigateBackToList = useCallback(() => {
+        navigate("/procurement-requests?tab=Approve PR");
+    }, [navigate]);
 
     // --- Loading States ---
     const isLoading = createLoading || updateLoading || deleteLoading;
@@ -949,6 +950,8 @@ export const useApprovePRLogic = ({
         navigateBackToList,
         // navigateToItemList,
 
+        handleLocalCategoryMakesUpdate, // <<< Return the new local handler
+
         // Dialog Visibility Setters
         setIsNewItemDialogOpen,
         setIsEditItemDialogOpen,
@@ -960,5 +963,9 @@ export const useApprovePRLogic = ({
         getFullName,
         managersIdList, // If needed in UI
         userData, // Pass user data if needed for permissions etc. in View
+        allMakeOptions,
+        makeList,
+        makeListMutate,
+        categoryMakeListMutate
     };
 };

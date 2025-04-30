@@ -68,7 +68,6 @@ interface NewCustomPRProps {
 export const NewCustomPR : React.FC<NewCustomPRProps> = ({resolve = false}) => {
 
   const navigate = useNavigate();
-  const userData = useUserData();
 
   const {prId} = useParams<{ prId: string }>();
 
@@ -385,8 +384,6 @@ const handleResolvePR = async () => {
     }
   }, [order]);
 
-  console.log("order", order)
-
   if (prListLoading || vendorListLoading || procurementPackagesLoading || categoryDataLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   return (
@@ -404,7 +401,7 @@ const handleResolvePR = async () => {
       </div>
       )}
 
-      <ProcurementHeaderCard orderData={{project : projectId, owner : userData?.user_id}} customPr />
+      <ProcurementHeaderCard orderData={prList?.[0]} customPr />
 
       {section === "choose-vendor" && (
         <>

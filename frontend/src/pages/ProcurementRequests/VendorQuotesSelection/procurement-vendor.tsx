@@ -18,7 +18,7 @@ import { Button } from "../../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
 import { toast } from "../../../components/ui/use-toast";
 
-export const ProcurementOrder : React.FC = () => {
+export const ProcurementOrder: React.FC = () => {
 
   const { prId: orderId } = useParams<{ prId: string }>()
   const navigate = useNavigate();
@@ -36,10 +36,39 @@ export const ProcurementOrder : React.FC = () => {
     orderId ? `Procurement Requests ${orderId}` : null
   );
 
+  const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Project>("Projects", {
+    fields: ["*"],
+    filters: [["name", "=", procurement_request_list?.[0]?.project]],
+    limit: 1,
+  }, procurement_request_list?.[0]?.project ? `Projects ${procurement_request_list?.[0]?.project}` : null);
 
-  const {deleteDialog, toggleDeleteDialog} = useContext(UserContext);
-  
-  const {handleDeletePR, deleteLoading} = usePRorSBDelete(prMutate);
+  const categoryMakesMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (projectDoc?.[0]?.project_work_packages) {
+      try {
+        const workPackages = (typeof projectDoc[0].project_work_packages === "string"
+          ? JSON.parse(projectDoc[0].project_work_packages)
+          : projectDoc[0].project_work_packages
+        )?.work_packages ?? [];
+
+        workPackages.forEach((wp: any) => {
+          (wp.category_list?.list ?? []).forEach((cat: any) => {
+            if (cat.name && cat.makes?.length > 0) {
+              map.set(cat.name, cat.makes);
+            }
+          });
+        });
+      } catch (e) {
+        console.error("Failed to parse project work packages for makes:", e);
+      }
+    }
+    return map;
+  }, [projectDoc]);
+
+
+  const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
+
+  const { handleDeletePR, deleteLoading } = usePRorSBDelete(prMutate);
 
   const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
     fields: ["*"],
@@ -47,17 +76,17 @@ export const ProcurementOrder : React.FC = () => {
     orderBy: { field: "creation", order: "desc" },
     limit: 1000,
   },
-  orderId ? undefined : null
+    orderId ? undefined : null
   )
 
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
   },
-  `Nirmaan Users`
-)
+    `Nirmaan Users`
+  )
 
-  const getFullName = useMemo(() => (id : string | undefined) => {
+  const getFullName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 
@@ -81,7 +110,7 @@ export const ProcurementOrder : React.FC = () => {
       await prMutate()
 
       navigate(`/procurement-requests/${orderId}?tab=In Progress`);
-      
+
     } catch (error) {
       console.error("Error while updating the status of PR:", error);
       toast({
@@ -92,7 +121,7 @@ export const ProcurementOrder : React.FC = () => {
     }
   }
 
-  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   if (orderData?.workflow_state !== "Approved") {
     return (
@@ -127,112 +156,120 @@ export const ProcurementOrder : React.FC = () => {
 
   return (
     <>
-        <div className="flex-1 space-y-4">
-          <div className="space-y-2">
-            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
-            <ProcurementHeaderCard orderData={orderData} />
-          </div>
-          <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
-              {orderData?.category_list.list.map((cat) => {
-                return <div className="min-w-[400px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-red-100">
-                        <TableHead className="w-[50%]">
-                          <span className="font-extrabold text-red-700">{cat.name}</span>
-                          <div className="text-xs font-bold text-gray-500">
-                            {cat?.makes?.length > 0 ? (
-                              cat?.makes?.map((i, index : number, arr : any[]) => (
-                                <i>{i}{index < arr.length - 1 && ", "}</i>
-                              ))
-                            ) : "--"}
-                          </div>
-                        </TableHead>
-                        <TableHead className="w-[10%] text-red-700">UOM</TableHead>
-                        <TableHead className="w-[10%] text-red-700">Qty</TableHead>
-                        <TableHead className="w-[20%] text-red-700">Target Rate</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {orderData?.procurement_list.list.map((item: any) => {
-                        if (item.category === cat.name) {
-                          const minQuote = getItemEstimate(item.name)?.averageRate
-                          return (
-                            <TableRow key={item.item}>
-                              <TableCell>
-                                <div className="inline items-baseline">
-                                  <span>{item.item}</span>
-                                  {item.comment && (
-                                    <HoverCard>
-                                      <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                                      <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                        <div className="relative pb-4">
-                                          <span className="block">{item.comment}</span>
-                                          <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
-                                        </div>
-
-                                      </HoverCardContent>
-                                    </HoverCard>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell>{item.unit}</TableCell>
-                              <TableCell>{item.quantity}</TableCell>
-                              <TableCell>{minQuote ? formatToIndianRupee(minQuote * 0.98) : "N/A"}</TableCell>
-                            </TableRow>
-                          )
-                        }
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              })}
-          </div>
-
-          <div className="space-y-2">
-            <h2 className="text-base pl-2 font-bold tracking-tight">PR Comments</h2>
-            <RenderPRorSBComments  universalComment={universalComments} getUserName={getFullName} />
-          </div>
-          <div className="flex justify-between items-end">
-            <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
-                <AlertDialogTrigger asChild>
-                  <Button className="flex items-center gap-1">
-                    <Trash2 className="w-4 h-4" />
-                    Delete PR
-                  </Button>
-                </AlertDialogTrigger>
-                  <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                      <AlertDialogHeader className="text-start">
-                          <AlertDialogTitle className="text-center">
-                              Delete Procurement Request
-                          </AlertDialogTitle>
-                              <AlertDialogDescription>Are you sure you want to delete this PR?</AlertDialogDescription>
-                          <div className="flex gap-2 items-center pt-4 justify-center">
-                              {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
-                                  <>
-                                      <AlertDialogCancel className="flex-1" asChild>
-                                          <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                      </AlertDialogCancel>
-                                       <Button
-                                          onClick={() => handleDeletePR(orderData?.name, true)}
-                                          className="flex-1">
-                                              Confirm
-                                      </Button>
-                                  </>
-                              )}
-                          </div>
-  
-                      </AlertDialogHeader>
-                  </AlertDialogContent>
-              </AlertDialog>
-            {update_loading ? <TailSpin color="red" height={30} width={30} /> : (
-              <Button onClick={handleStartProcuring} className="flex items-center gap-1">
-                Continue
-                <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
-              </Button>
-            )}
-          </div>
+      <div className="flex-1 space-y-4">
+        <div className="space-y-2">
+          <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
+          <ProcurementHeaderCard orderData={orderData} />
         </div>
+        <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
+          {orderData?.category_list.list.map((cat) => {
+            return <div className="min-w-[400px]">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-red-100">
+                    <TableHead className="w-[50%]">
+                      <span className="font-extrabold text-red-700">{cat.name}</span>
+                      <div className="text-xs font-bold text-gray-500">
+                        {categoryMakesMap.get(cat.name)?.length ? (
+                          <>
+                            <span>Makelist: </span>
+                            {categoryMakesMap.get(cat.name)?.map((make, index, arr) => (
+                              <i key={make}>{make}{index < arr.length - 1 && ", "}</i>
+                            ))}
+                          </>
+                        ) : ""}
+                      </div>
+                    </TableHead>
+                    <TableHead className="w-[10%] text-red-700">UOM</TableHead>
+                    <TableHead className="w-[10%] text-red-700">Qty</TableHead>
+                    <TableHead className="w-[20%] text-red-700">Target Rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {orderData?.procurement_list.list.map((item: any) => {
+                    if (item.category === cat.name) {
+                      const minQuote = getItemEstimate(item.name)?.averageRate
+                      return (
+                        <TableRow key={item.item}>
+                          <TableCell>
+                            <div className="inline items-baseline">
+                              <span>{item.item}</span>
+                              {/* Conditionally display Make with specific styling */}
+                              {item.make && (
+                                <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
+                              )}
+                              {item.comment && (
+                                <HoverCard>
+                                  <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                  <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                    <div className="relative pb-4">
+                                      <span className="block">{item.comment}</span>
+                                      <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                    </div>
+
+                                  </HoverCardContent>
+                                </HoverCard>
+                              )}
+                              {/* <p><strong>make: {" "}</strong>{item?.make || "--"}</p> */}
+                            </div>
+                          </TableCell>
+                          <TableCell>{item.unit}</TableCell>
+                          <TableCell>{item.quantity}</TableCell>
+                          <TableCell>{minQuote ? formatToIndianRupee(minQuote * 0.98) : "N/A"}</TableCell>
+                        </TableRow>
+                      )
+                    }
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          })}
+        </div>
+
+        <div className="space-y-2">
+          <h2 className="text-base pl-2 font-bold tracking-tight">PR Comments</h2>
+          <RenderPRorSBComments universalComment={universalComments} getUserName={getFullName} />
+        </div>
+        <div className="flex justify-between items-end">
+          <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+            <AlertDialogTrigger asChild>
+              <Button className="flex items-center gap-1">
+                <Trash2 className="w-4 h-4" />
+                Delete PR
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+              <AlertDialogHeader className="text-start">
+                <AlertDialogTitle className="text-center">
+                  Delete Procurement Request
+                </AlertDialogTitle>
+                <AlertDialogDescription>Are you sure you want to delete this PR?</AlertDialogDescription>
+                <div className="flex gap-2 items-center pt-4 justify-center">
+                  {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                    <>
+                      <AlertDialogCancel className="flex-1" asChild>
+                        <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                      </AlertDialogCancel>
+                      <Button
+                        onClick={() => handleDeletePR(orderData?.name, true)}
+                        className="flex-1">
+                        Confirm
+                      </Button>
+                    </>
+                  )}
+                </div>
+
+              </AlertDialogHeader>
+            </AlertDialogContent>
+          </AlertDialog>
+          {update_loading ? <TailSpin color="red" height={30} width={30} /> : (
+            <Button onClick={handleStartProcuring} className="flex items-center gap-1">
+              Continue
+              <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
     </>
   )
 }
