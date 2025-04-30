@@ -1,31 +1,27 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import ReactSelect, { MultiValue } from 'react-select';
+// src/features/procurement-requests/components/ManageCategoryMakesDialog.tsx
+import React, { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { X, CheckCheck } from 'lucide-react';
-import { TailSpin } from 'react-loader-spinner'; // Or your preferred loader
+import { TailSpin } from 'react-loader-spinner';
 
 import { MakeOption } from '../types';
-import { Makelist } from '@/types/NirmaanStack/Makelist'; // Import Makelist type
-import AddMakeComponent from '@/components/procurement-packages';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter } from '@/components/ui/alert-dialog';
+import { Makelist } from '@/types/NirmaanStack/Makelist';
 import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter } from '@/components/ui/alert-dialog';
+import { useFrappeCreateDoc } from 'frappe-react-sdk';
+import { useToast } from '@/components/ui/use-toast';
 
 interface ManageCategoryMakesDialogProps {
     isOpen: boolean;
     onOpenChange: (isOpen: boolean) => void;
     categoryName: string;
-    /** Array of make names (strings) currently associated with the category */
     associatedMakes: string[];
-    /** Array of all available make options in the system */
-    allMakeOptions: MakeOption[];
-    /** Callback function when user confirms adding makes. Returns an array of MakeOption objects that were newly selected or created. */
+    // allMakeOptions removed as prop as it's not used here anymore
     onMakesAssociated: (newlyAssociatedMakes: MakeOption[]) => void;
-    // Mutate functions and makeList needed by AddMakeComponent
     makeList?: Makelist[];
     makeListMutate: () => Promise<any>;
-    // Optional: Mutate for CategoryMakelist if direct creation happens here
     categoryMakelist?: CategoryMakelist[];
     categoryMakeListMutate?: () => Promise<any>;
 }
@@ -35,169 +31,160 @@ export const ManageCategoryMakesDialog: React.FC<ManageCategoryMakesDialogProps>
     onOpenChange,
     categoryName,
     associatedMakes,
-    allMakeOptions,
     onMakesAssociated,
     makeList,
     makeListMutate,
     categoryMakelist,
-    categoryMakeListMutate // Not used directly here, but passed to AddMakeComponent
+    categoryMakeListMutate
 }) => {
-    // State for makes selected from the existing list dropdown
-    const [selectedExistingMakes, setSelectedExistingMakes] = useState<MultiValue<MakeOption>>([]);
-    // State for makes newly created within this dialog session
-    const [newlyCreatedMakes, setNewlyCreatedMakes] = useState<MakeOption[]>([]);
-    // Loading state for the confirm button (optional, AddMakeComponent has its own)
-    const [isConfirming, setIsConfirming] = useState(false);
+    // --- Hooks ---
+    const { createDoc } = useFrappeCreateDoc();
+    const { toast } = useToast();
 
-    // Calculate options for the multi-select dropdown:
-    // Show only makes that are NOT already associated with this category.
-    const availableExistingMakesOptions = useMemo(() => {
-        const associatedSet = new Set(associatedMakes);
-        return allMakeOptions.filter(opt => !associatedSet.has(opt.value));
-    }, [allMakeOptions, associatedMakes]);
+    // --- State ---
+    const [newMakeInput, setNewMakeInput] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(false);
 
-    // // --- MODIFIED LOGIC ---
-    // const availableExistingMakesOptions = useMemo(() => {
-    //     // Ensure categoryMakelist is available and is an array
-    //     // If categoryMakelist is undefined, it might still be loading in the parent.
-    //     // Return empty array or handle loading state if passed down.
-    //     if (!Array.isArray(categoryMakelist)) {
-    //         return [];
-    //     }
-
-    //     // 1. Get make names specifically defined for this category from the prop
-    //     //    (Adjust 'make' field name if different in your CategoryMakelist type)
-    //     const categorySpecificMakeNames = new Set(
-    //         categoryMakelist
-    //             .filter(doc => doc.category === categoryName) // Filter by category name
-    //             .map(doc => doc.make) // Extract the make name/value
-    //     );
-
-    //     // 2. Get makes already associated in the current session/parent component
-    //     const associatedSet = new Set(associatedMakes);
-
-    //     // 3. Filter allMakeOptions:
-    //     //    - Must be in the categorySpecificMakeNames set
-    //     //    - Must NOT be in the associatedSet
-    //     return allMakeOptions.filter(opt =>
-    //         categorySpecificMakeNames.has(opt.value) && // Check if make is defined for the category in the Doctype data
-    //         !associatedSet.has(opt.value)              // Check if not already associated in the parent component's state
-    //     );
-    // }, [allMakeOptions, associatedMakes, categoryMakelist, categoryName]); // Added categoryMakelist and categoryName dependencies
-    // // --- END MODIFIED LOGIC ---
-
-    // Handler for when makes are selected/deselected in the multi-select
-    const handleAssociateExistingMakesChange = (selectedOptions: MultiValue<MakeOption>) => {
-        setSelectedExistingMakes(selectedOptions);
+    // --- Handlers ---
+    const handleNewMakeInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setNewMakeInput(event.target.value);
     };
 
-    // Callback passed to AddMakeComponent when a new make is successfully created
-    const handleNewMakeCreated = useCallback((newMake: MakeOption) => {
-        // Add the newly created make to our local state for this dialog session
-        setNewlyCreatedMakes(prev => {
-            // Avoid adding duplicates if component somehow calls it twice
-            if (!prev.some(m => m.value === newMake.value)) {
-                return [...prev, newMake];
+    const handleConfirmCreateAndAssociate = useCallback(async () => {
+        if (!newMakeInput.trim() || !categoryName) return;
+
+        const newMakeName = newMakeInput.trim();
+        setIsLoading(true);
+
+        try {
+            // 1. Check Makelist
+            const existingMake = makeList?.find(m => m.make_name.toLowerCase() === newMakeName.toLowerCase());
+            let makeDocName: string;
+            let createdNewMakeInList = false;
+
+            if (existingMake) {
+                makeDocName = existingMake.name;
+                // Check if already associated *based on parent's state passed via props*
+                if (associatedMakes.includes(makeDocName)) {
+                    toast({ title: "Already Associated", description: `Make "${existingMake.make_name}" is already associated with this category.`, variant: "info" });
+                    setIsLoading(false);
+                    // Optionally keep the dialog open and clear input or let parent handle closing
+                    // setNewMakeInput('');
+                    return; // Stop processing, nothing new to associate *now*
+                }
+                // If make exists but isn't associated yet, proceed.
+            } else {
+                // 2. Create in Makelist if new
+                const newMakeDoc = await createDoc("Makelist", { make_name: newMakeName });
+                makeDocName = newMakeDoc.name;
+                createdNewMakeInList = true;
             }
-            return prev;
-        });
-        setSelectedExistingMakes(prev => ([...prev, newMake]));
-        // Optional: Maybe automatically select it in the other dropdown?
-        // For now, just track it separately.
-    }, []);
 
-    // Handler for the main Confirm button of the dialog
-    const handleConfirm = () => {
-        setIsConfirming(true); // Show loading on confirm button if needed
+            // --- Refined Association Logic ---
+            // 3. Check if the association *already exists in the backend data* BEFORE creating
+            const existingAssociation = categoryMakelist?.find(
+                cm => cm.category === categoryName && cm.make === makeDocName
+            );
+            let createdNewAssociation = false;
 
-        // Combine makes selected from the dropdown and those newly created
-        const newlyAssociated = [
-            ...selectedExistingMakes,
-            ...newlyCreatedMakes
-        ];
+            if (!existingAssociation) {
+                // 4. Create association in Category Makelist ONLY if it doesn't exist
+                await createDoc("Category Makelist", {
+                    category: categoryName,
+                    make: makeDocName
+                });
+                createdNewAssociation = true;
+            }
+            // --- End Refined Association Logic ---
 
-        // Remove potential duplicates just in case (e.g., created then selected)
-        const uniqueNewlyAssociated = Array.from(new Map(newlyAssociated.map(item => [item.value, item])).values());
+            // 5. Prepare the MakeOption to be returned
+            const newMakeOption: MakeOption = { value: makeDocName, label: newMakeName };
 
+            // 6. Call the parent callback with the newly created/associated make
+            onMakesAssociated([newMakeOption]); // Pass as single-item array
 
-        // Call the callback passed from the parent component
-        onMakesAssociated(uniqueNewlyAssociated);
+            // 7. Show success toast
+            toast({ title: "Make Associated", description: `"${newMakeName}" processed for association.`, variant: "success" });
 
-        // Reset local state after confirmation (dialog will close via onOpenChange)
-        setSelectedExistingMakes([]);
-        setNewlyCreatedMakes([]);
-        setIsConfirming(false);
-    };
+            // 8. Mutate backend data lists
+            if (createdNewMakeInList) await makeListMutate();
+            if (createdNewAssociation) await categoryMakeListMutate?.(); // Only mutate if a *new* doc was created
 
-    // Reset local state when dialog closes
+            // Closing is handled by parent
+
+        } catch (error: any) {
+            console.error("Error creating/associating make:", error);
+            toast({ title: "Error", description: `Failed to process make: ${error.message || 'Unknown error'}`, variant: "destructive" });
+        } finally {
+            setIsLoading(false);
+        }
+    }, [
+        newMakeInput,
+        categoryName,
+        makeList,
+        associatedMakes,
+        categoryMakelist,
+        createDoc,
+        onMakesAssociated,
+        makeListMutate,
+        categoryMakeListMutate,
+        toast
+    ]);
+
+    // Reset handler remains the same
     const handleOpenChange = (open: boolean) => {
         if (!open) {
-            setSelectedExistingMakes([]);
-            setNewlyCreatedMakes([]);
-            setIsConfirming(false); // Reset loading state
+            setNewMakeInput('');
+            setIsLoading(false);
         }
         onOpenChange(open);
     }
 
+    const isConfirmDisabled = isLoading || !newMakeInput.trim();
+
     return (
         <AlertDialog open={isOpen} onOpenChange={handleOpenChange}>
-            <AlertDialogContent className="sm:max-w-[550px]"> {/* Adjust width if needed */}
+            <AlertDialogContent className="sm:max-w-[450px]">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Manage Makes for: <span className="text-primary">{categoryName}</span></AlertDialogTitle>
+                    <AlertDialogTitle>Add New Make for: <span className="text-primary">{categoryName}</span></AlertDialogTitle>
                     <AlertDialogDescription>
-                        Associate existing makes or create new ones for this category. Associated makes will be available in the "Make" dropdown.
+                        Enter a new make name. It will be created (if needed) and associated upon confirmation.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 
-                <div className="py-4 space-y-4">
-
-                    {/* Select Existing Makes */}
+                <div className="py-4 space-y-2">
                     <div>
-                        <Label htmlFor="associate-makes" className="font-semibold text-gray-700">Select Existing Makes:</Label>
-                        <ReactSelect
-                            inputId="associate-makes"
-                            isMulti
-                            placeholder="Select makes to associate..."
-                            options={availableExistingMakesOptions}
-                            value={selectedExistingMakes}
-                            onChange={handleAssociateExistingMakesChange}
-                            className="mt-2"
-                            closeMenuOnSelect={false} // Keep menu open for multi-select
-                        />
-                    </div>
-
-                    <Separator />
-
-                    {/* Create New Make */}
-                    <div>
-                        <Label className="font-semibold text-gray-700 text-center">OR</Label>
-                        {/* Pass the new callback to AddMakeComponent */}
-                        <AddMakeComponent
-                            makeList={makeList}
-                            makeListMutate={makeListMutate}
-                            category={categoryName}
-                            categoryMakeListMutate={categoryMakeListMutate}
-                            handleMakeChange={handleNewMakeCreated} // Pass the callback
+                        <Label htmlFor="new-make-input" className="font-semibold text-gray-700 block mb-2">
+                            New Make Name: <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                            id="new-make-input"
+                            type="text"
+                            placeholder="Enter make name..."
+                            value={newMakeInput}
+                            onChange={handleNewMakeInputChange}
+                            className="h-9"
+                            disabled={isLoading}
+                            autoFocus // Good practice to add autofocus
                         />
                     </div>
                 </div>
 
                 <AlertDialogFooter>
-                    <AlertDialogCancel asChild>
-                        <Button variant="outline" disabled={isConfirming}>
-                            <X className="h-4 w-4 mr-1" /> Cancel
-                        </Button>
+                    <AlertDialogCancel disabled={isLoading}>
+                        Cancel
                     </AlertDialogCancel>
                     <Button
-                        onClick={handleConfirm}
-                        disabled={isConfirming || (selectedExistingMakes.length === 0 && newlyCreatedMakes.length === 0)} // Disable if nothing selected/created
+                        type="button"
+                        onClick={handleConfirmCreateAndAssociate}
+                        disabled={isConfirmDisabled}
                     >
-                        {isConfirming ? (
+                        {isLoading ? (
                             <TailSpin color="white" height={20} width={20} />
                         ) : (
                             <CheckCheck className="h-4 w-4 mr-1" />
                         )}
-                        Confirm
+                        Confirm & Associate
                     </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>
