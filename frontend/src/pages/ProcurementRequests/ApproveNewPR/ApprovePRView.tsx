@@ -24,12 +24,14 @@ import { useApprovePRLogic } from './hooks/useApprovePRLogic'; // Get hook's ret
 import { parseNumber } from '@/utils/parseNumber';
 import { CategoryMakesMap } from '../NewPR/types';
 import { extractMakesForWP } from '../NewPR/NewProcurementRequestPage';
+import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
 
 // Props Type for the View Component
 interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
     // Add any additional props needed specifically for rendering that are NOT in the logic hook
     projectDoc?: Project; // Pass project details if needed
     categoryList?: Category[]
+    categoryMakelist?: CategoryMakelist[]; // <<< Add categoryMakelist prop
 }
 
 export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
@@ -101,6 +103,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         projectDoc,
         makeList,
         allMakeOptions,
+        categoryMakelist,
         categoryMakeListMutate,
         makeListMutate,
         handleLocalCategoryMakesUpdate
@@ -257,7 +260,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 quantity={currentQuantity}
                 handleQuantityChange={handleQuantityChange}
                 onAdd={handleAddItemToList}
-                onClose={toggleNewItemsCard} // Use onClose to hide
+                onClose={() => toggleNewItemsCard()} // Use onClose to hide
                 onToggleNewItemDialog={handleOpenNewItemDialog} // Pass handler
                 canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')} // Example permission check
                 isLoading={isLoading}
@@ -268,6 +271,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 updateCategoryMakesInStore={handleLocalCategoryMakesUpdate} // Pass the specific handler
                 makeList={makeList}
                 makeListMutate={makeListMutate}
+                categoryMakelist={categoryMakelist} // <<< Pass categoryMakelist
                 categoryMakeListMutate={categoryMakeListMutate}
             // --- End Make Props ---
             />
@@ -303,6 +307,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 updateCategoryMakesInStore={handleLocalCategoryMakesUpdate} // Pass store action
                 makeList={makeList}
                 makeListMutate={makeListMutate}
+                categoryMakelist={categoryMakelist} // <<< Pass categoryMakelist
                 categoryMakeListMutate={categoryMakeListMutate}
             // --- End Make Props ---
             />

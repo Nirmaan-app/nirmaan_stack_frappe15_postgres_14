@@ -9,6 +9,7 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, 
 import { parseNumber } from '@/utils/parseNumber';
 import { MakeOption, CategoryMakesMap } from '../../NewPR/types'; // Added Make types
 import { Makelist } from '@/types/NirmaanStack/Makelist'; // Added Makelist type
+import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import CategoryMakelist
 import { ManageCategoryMakesDialog } from '../../NewPR/components/ManageCategoryMakesDialog'; // Added Manage Makes Dialog
 import { CustomMakeMenuList } from '../../NewPR/components/ItemSelectorControls'; // Added Custom Menu List
 
@@ -34,6 +35,7 @@ interface AddItemFormProps {
     updateCategoryMakesInStore: (categoryName: string, newMake: string) => void; // Function to update local state in hook
     makeList?: Makelist[];
     makeListMutate: () => Promise<any>;
+    categoryMakelist?: CategoryMakelist[]; // <<< Add prop
     categoryMakeListMutate?: () => Promise<any>;
     // --- End Make Props ---
 }
@@ -58,6 +60,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
     updateCategoryMakesInStore,
     makeList,
     makeListMutate,
+    categoryMakelist, // <<< Destructure
     categoryMakeListMutate,
 }) => {
     // --- State for Makes ---
@@ -70,26 +73,16 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
 
     const availableMakeOptions = useMemo(() => {
         if (!currentItemCategoryName) return [];
-
         let makesForCategory: string[] = [];
-        // 1. Check the current derived category list in the orderData state
         const derivedCategoryDetails = orderDataCategoryList.find(c => c.name === currentItemCategoryName);
-        if (derivedCategoryDetails && Array.isArray(derivedCategoryDetails.makes)) {
+        if (derivedCategoryDetails?.makes) {
             makesForCategory = derivedCategoryDetails.makes;
-        }
-        // 2. If not found or no makes there, check the initial baseline makes
-        else if (initialCategoryMakes && initialCategoryMakes[currentItemCategoryName]) {
+        } else if (initialCategoryMakes?.[currentItemCategoryName]) {
             makesForCategory = initialCategoryMakes[currentItemCategoryName];
         }
-
-        // Use a Set for efficient lookup and deduplication
         const makesSet = new Set(Array.isArray(makesForCategory) ? makesForCategory : []);
-
-        // Filter allMakeOptions based on the makes associated with the category
         return allMakeOptions.filter(opt => makesSet.has(opt.value));
-
     }, [currentItemCategoryName, orderDataCategoryList, initialCategoryMakes, allMakeOptions]);
-    // --- End Memos for Makes ---
 
     // --- Effect to reset make when item changes ---
     useEffect(() => {
@@ -112,30 +105,24 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
         setIsManageMakesDialogOpen(true);
     }, [currentItemCategoryName]);
 
+    // *** MODIFIED handleMakesManaged ***
     const handleMakesManaged = useCallback((newlyAssociatedMakes: MakeOption[]) => {
-        if (!currentItemCategoryName) return;
-        let makeToSelectAfterwards: MakeOption | null = null;
+        if (!currentItemCategoryName || newlyAssociatedMakes.length === 0) {
+            setIsManageMakesDialogOpen(false); // Close dialog even if error/empty
+            return;
+        }
+        const makeToSelect = newlyAssociatedMakes[0]; // Get the single make passed back
 
-        // Update the local state cache in the hook for each newly associated make
-        newlyAssociatedMakes.forEach(make => {
-            updateCategoryMakesInStore(currentItemCategoryName, make.value);
-            // Prepare to auto-select the first one added
-            if (!makeToSelectAfterwards) {
-                makeToSelectAfterwards = make;
-            }
-        });
+        // 1. Update central store state via hook prop
+        updateCategoryMakesInStore(currentItemCategoryName, makeToSelect.value);
 
+        // 2. Close the dialog
         setIsManageMakesDialogOpen(false);
 
-        // Auto-select the first newly added/associated make
-        if (makeToSelectAfterwards) {
-            // Find the full option object from allMakeOptions to ensure label is included
-            const fullOption = allMakeOptions.find(opt => opt.value === makeToSelectAfterwards!.value);
-            if (fullOption) {
-                setCurrentMakeOption(fullOption); // Update local state directly
-            }
-        }
-    }, [currentItemCategoryName, updateCategoryMakesInStore, allMakeOptions]);
+        // 3. Set the current make selection directly in this component's state
+        setCurrentMakeOption(makeToSelect);
+
+    }, [currentItemCategoryName, updateCategoryMakesInStore, setCurrentMakeOption]); // Added setCurrentMakeOption dependency
 
     // Custom props for the Make ReactSelect
     const makeSelectCustomProps = {
@@ -151,23 +138,36 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
     };
     // --- End Modified Add Handler ---
 
-    // --- Modified Close Handler ---
-    const handleCloseDialog = () => {
-        // Reset make state when dialog closes
-        setCurrentMakeOption(null);
-        onClose(); // Call original close handler
+    // --- *** REVISED Close Handler - Only resets local state *** ---
+    // This function will be called by onOpenChange when closing
+    const cleanupOnClose = useCallback(() => {
+        setCurrentMakeOption(null); // Reset local make state
+        // DO NOT call onClose() here - onOpenChange will trigger the parent's onClose
+    }, [setCurrentMakeOption]);
+
+
+    // --- *** REVISED onOpenChange Handler *** ---
+    // This connects the dialog's internal state changes to the parent's state control
+    const handleOpenChange = (isOpen: boolean) => {
+        if (!isOpen) {
+            // Perform cleanup when the dialog is about to close
+            cleanupOnClose();
+            // Call the actual onClose prop passed from the parent,
+            // which is responsible for setting showNewItemsCard to false
+            onClose();
+        }
+        // If opening (isOpen is true), we don't need to do anything extra here,
+        // as the open state is controlled by the showNewItemsCard prop.
     };
-    // --- End Modified Close Handler ---
     return (
         <>
-            <AlertDialog open={showNewItemsCard} onOpenChange={(open) => !open && handleCloseDialog()}>
+            <AlertDialog open={showNewItemsCard} onOpenChange={handleOpenChange}>
                 <AlertDialogContent className="sm:max-w-[750px]"> {/* Wider content for more fields */}
                     <AlertDialogHeader>
                         <AlertDialogTitle className="flex justify-between items-center">
                             <span>Add Missing Product</span>
                             {/* Use standard AlertDialogCancel for consistent closing */}
                             <AlertDialogCancel
-                                onClick={handleCloseDialog}
                                 className="border-none shadow-none p-0 h-6 w-6 relative -top-2 -right-2"
                             >
                                 X
@@ -201,7 +201,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
                                         isDisabled={isLoading || !currentItemOption} // Disable if no item selected
                                         options={availableMakeOptions}
                                         onChange={handleMakeChange}
-                                        // Pass custom props/handlers for "Manage Makes"
+                                        // // Pass custom props/handlers for "Manage Makes"
                                         onManageMakesClick={handleOpenManageMakesDialog} // Prop expected by CustomMakeMenuList
                                         components={{ MenuList: CustomMakeMenuList }} // Use custom menu list
                                         selectProps={{ customProps: makeSelectCustomProps }} // Pass custom data via selectProps
@@ -239,27 +239,16 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
                             </div>
                         </div>
 
-                        <div className="flex justify-between items-center mt-4 pt-4 border-t"> {/* Added border */}
-                            {canCreateItem ? (
-                                <Button
-                                    variant="link"
-                                    className="text-sm p-0 h-auto text-blue-600 hover:text-blue-800"
-                                    onClick={onToggleNewItemDialog}
-                                    disabled={isLoading}
-                                >
-                                    <CirclePlus className="w-4 h-4 mr-1" /> Create New Product
-                                </Button>
-                            ) : <div />} {/* Placeholder */}
-
+                        {/* Footer */}
+                        <div className="flex justify-between items-center mt-4 pt-4 border-t">
+                            {/* Create New Product Button */}
+                            {canCreateItem ? (<Button variant="link" className="text-sm p-0 h-auto text-blue-600 hover:text-blue-800" onClick={onToggleNewItemDialog} disabled={isLoading}> <CirclePlus className="w-4 h-4 mr-1" /> Create New Product </Button>) : <div />}
+                            {/* Cancel/Add Buttons */}
                             <div className='flex items-center gap-2'>
-                                <AlertDialogCancel onClick={handleCloseDialog}>Cancel</AlertDialogCancel>
-                                <Button
-                                    onClick={handleAddClick} // Use the modified handler
-                                    disabled={!currentItemOption || !quantity || parseNumber(quantity) <= 0 || isLoading}
-                                    size="sm"
-                                >
-                                    {isLoading ? "Adding..." : "Add Product"}
-                                </Button>
+                                {/* --- *** REMOVE onClick from footer AlertDialogCancel *** --- */}
+                                {/* It will trigger onOpenChange automatically */}
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <Button onClick={handleAddClick} disabled={!currentItemOption || !quantity || parseNumber(quantity) <= 0 || isLoading} size="sm"> {isLoading ? "Adding..." : "Add Product"} </Button>
                             </div>
                         </div>
                     </AlertDialogHeader>
@@ -278,10 +267,11 @@ export const AddItemForm: React.FC<AddItemFormProps> = ({
                         (initialCategoryMakes[currentItemCategoryName]) ??
                         []
                     }
-                    allMakeOptions={allMakeOptions}
+                    // allMakeOptions={allMakeOptions}
                     onMakesAssociated={handleMakesManaged} // Use the handler defined above
                     makeList={makeList}
                     makeListMutate={makeListMutate}
+                    categoryMakelist={categoryMakelist} // <<< Pass prop
                     categoryMakeListMutate={categoryMakeListMutate}
                 />
             )}
