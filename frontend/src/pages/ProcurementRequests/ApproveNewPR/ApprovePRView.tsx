@@ -51,6 +51,11 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         relevantComments,
         isLoading, // Loading state for actions
         categoryList, // Need categoryList for NewItemDialog options
+        addedItems,
+        requestedItems,
+        addedCategories,
+        requestedCategories,
+        currentOrderDataCategoryList,
 
         // Dialog Visibility States
         isNewItemDialogOpen,
@@ -121,12 +126,12 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     }, [projectDoc, orderData?.work_package]); // Recalculate if project or WP changes
 
 
-    const addedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [], [orderData]);
-    const requestedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status === 'Request') ?? [], [orderData]);
+    // const addedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [], [orderData]);
+    // const requestedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status === 'Request') ?? [], [orderData]);
 
-    const addedCategories = useMemo(() => orderData.category_list?.list?.filter(c => addedItems.some(item => item.category === c.name && item.status === (c.status || "Pending"))) ?? [], [orderData, addedItems]);
+    // const addedCategories = useMemo(() => orderData.category_list?.list?.filter(c => addedItems.some(item => item.category === c.name && item.status === (c.status || "Pending"))) ?? [], [orderData, addedItems]);
 
-    const requestedCategories = useMemo(() => orderData.category_list?.list?.filter(c => requestedItems.some(item => item.category === c.name && item.status === c.status)) ?? [], [addedItems, orderData]);
+    // const requestedCategories = useMemo(() => orderData.category_list?.list?.filter(c => requestedItems.some(item => item.category === c.name && item.status === c.status)) ?? [], [addedItems, orderData]);
 
     // Derive makes mapping for categories
     const categoryMakesMap = useMemo(() => {
@@ -149,7 +154,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     }, [projectDoc]);
 
     // Derive the current category list from orderData state for passing to AddItemForm
-    const currentOrderDataCategoryList = useMemo(() => orderData.category_list?.list ?? [], [orderData?.category_list]);
+    // const currentOrderDataCategoryList = useMemo(() => orderData.category_list?.list ?? [], [orderData?.category_list]);
 
     if (!orderData) {
         // Should be handled by Container, but good practice

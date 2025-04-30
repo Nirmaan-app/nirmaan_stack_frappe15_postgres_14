@@ -148,6 +148,30 @@ export const useApprovePRLogic = ({
         includeScore: true,
     }), [itemList]);
 
+    const addedItems = useMemo((): PRItem[] => {
+        return orderData?.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [];
+    }, [orderData?.procurement_list?.list]);
+
+    const requestedItems = useMemo((): PRItem[] => {
+        return orderData?.procurement_list?.list?.filter(i => i.status === 'Request') ?? [];
+    }, [orderData?.procurement_list?.list]);
+
+    const addedCategories = useMemo((): PRCategory[] => {
+        return orderData?.category_list?.list
+            ?.filter(c => addedItems.some(item => item.category === c.name && item.status === (c.status || "Pending")))
+            ?? [];
+    }, [orderData?.category_list?.list, addedItems]);
+
+    const requestedCategories = useMemo((): PRCategory[] => {
+        return orderData?.category_list?.list
+            ?.filter(c => requestedItems.some(item => item.category === c.name && item.status === c.status))
+            ?? [];
+    }, [orderData?.category_list?.list, requestedItems]);
+
+    const currentOrderDataCategoryList = useMemo((): PRCategory[] => {
+        return orderData?.category_list?.list ?? [];
+    }, [orderData?.category_list?.list]); // Dependency corrected
+
 
     useEffect(() => {
         if (!orderData && prDoc) {
@@ -973,7 +997,11 @@ export const useApprovePRLogic = ({
         setIsRequestItemDialogOpen,
         setIsDeletePRDialogOpen,
         setIsConfirmActionDialogOpen,
-
+        addedItems,
+        requestedItems,
+        addedCategories,
+        requestedCategories,
+        currentOrderDataCategoryList,
         // Helpers/Derived Data
         getFullName,
         managersIdList, // If needed in UI
