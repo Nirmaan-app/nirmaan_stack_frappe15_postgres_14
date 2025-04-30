@@ -121,12 +121,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     }, [projectDoc, orderData?.work_package]); // Recalculate if project or WP changes
 
 
-
-    if (!orderData) {
-        // Should be handled by Container, but good practice
-        return <div>Loading PR data...</div>;
-    }
-
     const addedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [], [orderData]);
     const requestedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status === 'Request') ?? [], [orderData]);
 
@@ -156,6 +150,11 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
 
     // Derive the current category list from orderData state for passing to AddItemForm
     const currentOrderDataCategoryList = useMemo(() => orderData.category_list?.list ?? [], [orderData?.category_list]);
+
+    if (!orderData) {
+        // Should be handled by Container, but good practice
+        return <div>Loading PR data...</div>;
+    }
 
 
     return (

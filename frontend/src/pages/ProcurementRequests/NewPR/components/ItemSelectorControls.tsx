@@ -28,20 +28,29 @@ const CustomMenuList = (props: MenuListProps<ItemOption, false>) => {
             <components.MenuList {...props}>
                 <div>{children}</div>
             </components.MenuList>
-            <div className="sticky bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
-                <Button
-                    variant="ghost"
-                    className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
-                    onClick={onAddItemClick}
-                    onTouchStart={onAddItemClick}
-                >
-                    <CirclePlus className="w-4 h-4" />
-                    Create/Request New Item
-                </Button>
-            </div>
+            {onAddItemClick && (
+                <div className="bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
+                    <Button
+                        variant="ghost"
+                        className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
+                        onClick={onAddItemClick}
+                        onTouchStart={onAddItemClick}
+                    >
+                        <CirclePlus className="mr-2 h-4 w-4" />
+                        Create/Request New Item
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };
+
+// Define the expected structure of custom props passed via selectProps
+interface CustomMakeMenuListSelectProps {
+    customProps?: {
+        onManageMakesClick?: () => void; // The handler for the button
+    };
+}
 
 // Custom MenuList for Make Select
 export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
@@ -52,13 +61,18 @@ export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
         } // Access custom props passed via selectProps
     } = props;
 
+    // Use type assertion for safer access to customProps
+    // const typedSelectProps = selectProps as CustomMakeMenuListSelectProps;
+    // const onManageMakesClick = typedSelectProps?.customProps?.onManageMakesClick;
+
     return (
+
         <div>
             <components.MenuList {...props}>
                 <div>{children}</div>
             </components.MenuList>
             {onManageMakesClick && (
-                <div className="sticky bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
+                <div className="bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
                     <Button
                         variant="ghost"
                         className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
