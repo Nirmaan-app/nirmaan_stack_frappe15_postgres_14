@@ -11,6 +11,7 @@ export const PAYMENT_STATUS = {
   REQUESTED: "Requested" as const,
   APPROVED: "Approved" as const,
   REJECTED: "Rejected" as const,
+  PAID: "Paid" as const,
 };
 
 export const DIALOG_ACTION_TYPES = {
