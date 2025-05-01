@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table"; // Keep ColumnDef
 import {
     FrappeConfig,
@@ -195,7 +195,7 @@ export const ApprovePayments: React.FC = () => {
                             const tab = po?.status ? tabMap[po.status] || "Approved PO" : "Approved PO";
                             navigate(`/purchase-orders/${data.document_name.replaceAll("/", "&=")}?tab=${tab}`);
                         } else if (data.document_type === DOC_TYPES.SERVICE_REQUESTS) {
-                             navigate(`/service-requests/${data.document_name}?tab=approved-sr`);
+                            navigate(`/service-requests/${data.document_name}?tab=approved-sr`);
                         }
                     }
 
@@ -205,12 +205,13 @@ export const ApprovePayments: React.FC = () => {
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-5 animate-pulse" title="New Payment Request" />
                             )}
                             <span className="max-w-[150px]">{data.document_name}</span>
-                             <HoverCard>
+                            <HoverCard>
                                 <HoverCardTrigger asChild>
-                                    <Info
-                                        onClick={handleNavigate}
-                                        className="w-4 h-4 text-blue-600 cursor-pointer flex-shrink-0 opacity-70 group-hover:opacity-100 transition-opacity"
-                                     />
+                                    <Link to={data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? `${data.document_name.replaceAll("/", "&=")}` : `${data.document_name.replaceAll("/", "&=")}`} >
+                                        <Info
+                                            className="w-4 h-4 text-blue-600 cursor-pointer flex-shrink-0 opacity-70 group-hover:opacity-100 transition-opacity"
+                                        />
+                                    </Link>
                                 </HoverCardTrigger>
                                 <HoverCardContent className="text-xs w-auto p-2">
                                     View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"} details
@@ -295,7 +296,7 @@ export const ApprovePayments: React.FC = () => {
                                 </HoverCardTrigger>
                                 <HoverCardContent className="text-xs w-auto p-1.5">Approve</HoverCardContent>
                             </HoverCard>
-                             <HoverCard>
+                            <HoverCard>
                                 <HoverCardTrigger asChild>
                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => openDialog(data, DIALOG_ACTION_TYPES.REJECT)}>
                                         <CircleX className="h-5 w-5" />
@@ -305,7 +306,7 @@ export const ApprovePayments: React.FC = () => {
                             </HoverCard>
                             <HoverCard>
                                 <HoverCardTrigger asChild>
-                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(data, DIALOG_ACTION_TYPES.EDIT)}>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(data, DIALOG_ACTION_TYPES.EDIT)}>
                                         <SquarePen className="h-4 w-4" />
                                     </Button>
                                 </HoverCardTrigger>
@@ -329,7 +330,7 @@ export const ApprovePayments: React.FC = () => {
 
     // Optional: Display a more specific error message if needed
     if (combinedError && !projectPayments) {
-         return <div className="p-4 text-red-600">Failed to load essential payment data. Please try again later.</div>;
+        return <div className="p-4 text-red-600">Failed to load essential payment data. Please try again later.</div>;
     }
 
     return (
@@ -351,7 +352,7 @@ export const ApprovePayments: React.FC = () => {
                 data={projectPayments || []} // Provide empty array fallback
                 project_values={projectValues} // Pass lookup data if needed by DataTable (e.g., for filters)
                 approvedQuotesVendors={vendorValues} // Pass lookup data if needed by DataTable
-                // Add other necessary props to DataTable
+            // Add other necessary props to DataTable
             />
         </div>
     );
