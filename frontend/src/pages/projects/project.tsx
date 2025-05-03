@@ -1120,7 +1120,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         },
         cell: ({ row }) => {
           const data = row.original
-          const ownerUser = usersList?.data?.find((entry) => data?.owner === entry.name)
+          const ownerUser = usersList?.find((entry) => data?.owner === entry.name)
           return (
             <div className="font-medium">
               {ownerUser?.full_name || data?.owner || "--"}
@@ -1164,7 +1164,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => <span className="hidden">hh</span>
       }
     ],
-    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal]
+    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal, usersList]
   );
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});

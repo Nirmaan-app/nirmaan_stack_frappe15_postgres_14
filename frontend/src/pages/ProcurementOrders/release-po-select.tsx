@@ -358,7 +358,8 @@ export const ReleasePOSelect: React.FC = () => {
                     header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
                     cell: ({ row }) => {
                         const data = row.original
-                        const ownerUser = userList?.data?.find((entry) => data?.owner === entry.name)
+                        const ownerUser = userList?.find((entry) => data?.owner === entry.name)
+                        // console.log("Owner User", ownerUser)
                         return (
                             <div className="font-medium">
                                 {ownerUser?.full_name || data?.owner || "--"}
@@ -375,7 +376,7 @@ export const ReleasePOSelect: React.FC = () => {
                     cell: ({ row }) => {
                         const data = row.original;
                         // Safely find the user
-                        const modifierUser = userList?.data?.find(user => user.name === data?.modified_by);
+                        const modifierUser = userList?.find(user => user.name === data?.modified_by);
                         return (
                             <div className="font-medium">
                                 {/* Display full name, fallback to modifier ID, then to '--' */}
@@ -458,7 +459,7 @@ export const ReleasePOSelect: React.FC = () => {
                 cell: ({ row }) => <span className="hidden">hh</span>
             }
         ],
-        [project_values, procurement_order_list, projectPayments, tab, notifications, getAmountPaid, getPOTotal, handleNewPRSeen]
+        [project_values, procurement_order_list, projectPayments, tab, notifications, getAmountPaid, getPOTotal, handleNewPRSeen, userList]
     )
 
     const { toast } = useToast()
