@@ -1094,19 +1094,36 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           );
         },
       },
+      // {
+      //   id: "totalWithoutGST",
+      //   header: ({ column }) => {
+      //     return (
+      //       <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+      //     );
+      //   },
+      //   cell: ({ row }) => {
+      //     return (
+      //       <div className="font-medium">
+      //         {formatToRoundedIndianRupee(
+      //           getPOTotal(row.getValue("name")).totalWithoutGST
+      //         )}
+      //       </div>
+      //     );
+      //   },
+      // },
       {
-        id: "totalWithoutGST",
+        accessorKey: "owner",
         header: ({ column }) => {
           return (
-            <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+            <DataTableColumnHeader column={column} title="Approved By" />
           );
         },
         cell: ({ row }) => {
+          const data = row.original
+          const ownerUser = usersList?.data?.find((entry) => data?.owner === entry.name)
           return (
             <div className="font-medium">
-              {formatToRoundedIndianRupee(
-                getPOTotal(row.getValue("name")).totalWithoutGST
-              )}
+              {ownerUser?.full_name || data?.owner || "--"}
             </div>
           );
         },
