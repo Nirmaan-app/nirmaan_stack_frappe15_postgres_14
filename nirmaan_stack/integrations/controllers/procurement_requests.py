@@ -517,6 +517,7 @@ def after_insert(doc, method):
     if doc.work_package is not None and validate_procurement_request(doc):
         doc.workflow_state = "Approved"
         doc.save(ignore_permissions=True)
+        doc.db_set("modified_by", "Administrator", update_modified=False)
          
     elif doc.work_package is not None:
         lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
@@ -587,6 +588,7 @@ def on_update(doc, method):
         if validate_procurement_request_for_po(doc):
             doc.workflow_state = "Vendor Approved"
             doc.save(ignore_permissions=True)
+            doc.db_set("modified_by", "Administrator", update_modified=False)
 
             # Generate POs (Ensure data is prepared correctly)
             procurement_list_data = doc.get("procurement_list") # Get potentially updated data
@@ -598,7 +600,10 @@ def on_update(doc, method):
                 items_arr = [item.get("name") for item in items_list if item.get("status") == "Pending"]
                 selected_vendors = {item["name"]: item["vendor"] for item in items_list if item.get("status") == "Pending" and item.get("vendor")}
 
-            generate_pos_from_selection(doc.project, doc.name, items_arr, selected_vendors, False )
+            po = generate_pos_from_selection(doc.project, doc.name, items_arr, selected_vendors, False )
+            print(f"PO generated: {po}")
+            po_doc = frappe.get_doc("Procurement Orders", po['po'])
+            po_doc.db_set("owner", "Administrator", update_modified=False)
         else:
             lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
             if lead_admin_users:
