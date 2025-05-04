@@ -135,82 +135,81 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     const [isManageMakesDialogOpen, setIsManageMakesDialogOpen] = useState(false);
     const userData = useUserData();
 
+    const [resetFlag, setResetFlag] = useState(false);
+
     // console.log("selectedCategories", selectedCategories)
 
     // --- Memos and Derived State ---
     const currentItemCategoryName = curItem?.category;
 
-    // --- *** UPDATED LOGIC for availableMakeOptions *** ---
+    // --- *** FINAL REVISED LOGIC for availableMakeOptions *** ---
     const availableMakeOptions = useMemo(() => {
+        // --- Logging Start ---
+        console.log("--- ISC useMemo Start ---");
+        console.log("currentItemCategoryName:", currentItemCategoryName);
+        console.log("selectedCategories (prop):", JSON.stringify(selectedCategories));
+        console.log("initialCategoryMakes (prop):", JSON.stringify(initialCategoryMakes));
+        // --- Logging End ---
+
         if (!currentItemCategoryName) {
-            // console.log("No item selected, no make options.");
+            console.log("ISC useMemo: No category, returning []");
             return [];
         }
 
-        let primaryMakesSet = new Set<string>();
+        // Use a Set to automatically handle unique make names (values)
+        const applicableMakeValues = new Set<string>();
 
-        // 1. Primary Source Logic (Project WP Config / Session State)
-        // Try to find the category in the derived `selectedCategories` first
-        const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
+        // 1. Determine the BASE list (Initial Config OR Fallback)
+        const initialMakes = initialCategoryMakes?.[currentItemCategoryName];
+        const hasInitialMakes = Array.isArray(initialMakes) && initialMakes.length > 0;
 
-        if (derivedCategoryDetails && Array.isArray(derivedCategoryDetails.makes)) {
-            // console.log(`Using makes from derived selectedCategories for ${currentItemCategoryName}:`, derivedCategoryDetails.makes);
-            derivedCategoryDetails.makes.forEach(make => primaryMakesSet.add(make));
-        }
-        // If not found in derived state, fall back to the initial baseline makes for the WP
-        else if (initialCategoryMakes && initialCategoryMakes[currentItemCategoryName]) {
-            // console.log(`Falling back to initialCategoryMakes for ${currentItemCategoryName}:`, initialCategoryMakes[currentItemCategoryName]);
-            const initialMakes = initialCategoryMakes[currentItemCategoryName];
-            // Ensure it's an array before iterating
-            if (Array.isArray(initialMakes)) {
-                initialMakes.forEach(make => primaryMakesSet.add(make));
-            }
-        } else {
-            // console.log(`No primary makes found for category ${currentItemCategoryName} in selectedCategories or initialCategoryMakes.`);
-        }
-
-        // Filter allMakeOptions based on the primary set
-        const primaryMakeOptions = allMakeOptions.filter(opt => primaryMakesSet.has(opt.value));
-
-        // 2. Fallback Check & Logic (if primary list is empty)
-        if (primaryMakeOptions.length === 0 && categoryMakelist) {
-            // console.log(`Primary makes empty for ${currentItemCategoryName}. Falling back to CategoryMakelist.`);
-
-            const fallbackMakeNamesSet = new Set<string>();
+        if (hasInitialMakes) {
+            // Use initial makes from the WP Project config as the base
+            console.log(`ISC useMemo: Using initialMakes as base:`, initialMakes);
+            initialMakes!.forEach(makeValue => applicableMakeValues.add(makeValue));
+        } else if (categoryMakelist) {
+            // Fallback to CategoryMakelist if initial makes are empty/not defined
+            console.log(`ISC useMemo: Initial makes empty, using CategoryMakelist fallback as base.`);
             categoryMakelist
-                // Filter CategoryMakelist for the current item's category
-                .filter(entry => entry.category === currentItemCategoryName)
-                // Add the 'make' (which is the make docname/value) to the set
-                .forEach(entry => {
-                    if (entry.make) { // Ensure make property exists
-                        fallbackMakeNamesSet.add(entry.make);
-                    }
-                });
+                .filter(entry => entry.category === currentItemCategoryName && entry.make)
+                .forEach(entry => applicableMakeValues.add(entry.make!)); // Add makes from fallback
+        } else {
+            console.log(`ISC useMemo: No initial makes and no categoryMakelist provided for base.`);
+        }
+        console.log(`ISC useMemo: Makes after base determination:`, Array.from(applicableMakeValues));
 
-            if (fallbackMakeNamesSet.size > 0) {
-                // If fallback makes were found, filter allMakeOptions based on them
-                const fallbackMakeOptions = allMakeOptions.filter(opt => fallbackMakeNamesSet.has(opt.value));
-                // console.log(`Found fallback makes for ${currentItemCategoryName}:`, fallbackMakeOptions);
-                return fallbackMakeOptions; // Return the fallback options
-            } else {
-                // console.log(`No fallback makes found in CategoryMakelist for ${currentItemCategoryName}.`);
-                // If primary was empty AND fallback was empty, return empty
-                return [];
-            }
+
+        // 2. ADD makes from Session/procList (selectedCategories)
+        // Ensure makes used in items or explicitly added this session (via Manage Makes)
+        // are *always* included in the available options.
+        const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
+        if (derivedCategoryDetails?.makes && Array.isArray(derivedCategoryDetails.makes)) {
+            console.log(`ISC useMemo: Adding makes from selectedCategories:`, derivedCategoryDetails.makes);
+            derivedCategoryDetails.makes.forEach(makeValue => applicableMakeValues.add(makeValue));
+        } else {
+            console.log(`ISC useMemo: No additional makes found in selectedCategories.`);
         }
 
-        // 3. Default Case: Return primary options if they were found
-        // console.log(`Using primary make options for ${currentItemCategoryName}:`, primaryMakeOptions);
-        return primaryMakeOptions;
+        console.log(`ISC useMemo: Final applicable make values set:`, Array.from(applicableMakeValues));
+
+        // 3. Filter allMakeOptions based on the final applicable set of make values
+        let potentialMakeOptions = allMakeOptions.filter(opt => applicableMakeValues.has(opt.value));
+
+        // 4. Sort the final list alphabetically by label for consistent display
+        potentialMakeOptions.sort((a, b) => a.label.localeCompare(b.label));
+
+        console.log("ISC useMemo: Final potentialMakeOptions (before return):", JSON.stringify(potentialMakeOptions));
+        console.log("--- ISC useMemo End ---");
+        return potentialMakeOptions;
 
     }, [
         currentItemCategoryName,
-        selectedCategories,
-        initialCategoryMakes,
-        allMakeOptions,
-        categoryMakelist // <<< Add categoryMakelist as a dependency
+        selectedCategories,      // Derived makes from store (items + session adds)
+        initialCategoryMakes,    // Baseline makes from project WP config
+        allMakeOptions,          // The complete list of make options
+        categoryMakelist         // Fallback list if initial is empty
     ]);
-    // --- End UPDATED LOGIC ---
+    // --- End FINAL REVISED LOGIC ---
 
 
     const isNewItemsDisabled = useMemo(() => {
@@ -314,6 +313,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             {/* --- Item Selector --- */}
             <div>
                 <Label htmlFor="item-select" className="block text-sm font-medium text-gray-700 mb-1">Item <sup className="text-red-500">*</sup></Label>
+                <>{console.log("Item Options", itemOptions)}</>
                 <ReactSelect
                     inputId='item-select'
                     placeholder={"Select or Create/Request Item..."}
