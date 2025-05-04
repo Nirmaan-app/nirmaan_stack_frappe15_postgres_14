@@ -1241,8 +1241,8 @@ export const PurchaseOrder = ({
                       {/* OD (Conditional) */}
                       {tab === "Delivered PO" && (
                         <td className={`text-center py-2 align-top ${item?.received === item?.quantity
-                            ? 'text-green-600'
-                            : 'text-red-700'
+                          ? 'text-green-600'
+                          : 'text-red-700'
                           }`}>
                           {item?.received || 0}
                         </td>
@@ -1776,7 +1776,7 @@ export const PurchaseOrder = ({
 
       {/* PO Pdf  */}
       <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
-      +     {/* Render RequestPaymentDialog here, outside the Accordion */}
+      {/* Render RequestPaymentDialog here, outside the Accordion */}
       <RequestPaymentDialog
         amountPending={amountPending}
         totalAmount={getTotal?.totalAmt || 0}
