@@ -239,7 +239,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                     {/* Added Items Section */}
                     {/* {addedItems.length > 0 && ( */}
                     <ItemListSection
-                        canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')}
+                        canCreateItem={["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role ?? '')}
                         toggleNewItemsCard={toggleNewItemsCard}
                         categories={addedCategories}
                         items={addedItems}
