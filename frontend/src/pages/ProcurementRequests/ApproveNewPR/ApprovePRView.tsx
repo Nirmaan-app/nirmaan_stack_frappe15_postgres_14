@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { Undo } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -19,17 +19,17 @@ import { PRCommentsSection } from './components/PRCommentsSection';
 
 
 // Import types
-import { Category, Project } from './types';
+import { Project } from './types';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic'; // Get hook's return type
 import { parseNumber } from '@/utils/parseNumber';
 import { CategoryMakesMap } from '../NewPR/types';
 import { extractMakesForWP } from '../NewPR/NewProcurementRequestPage';
+// import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
 
 // Props Type for the View Component
 interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
     // Add any additional props needed specifically for rendering that are NOT in the logic hook
     projectDoc?: Project; // Pass project details if needed
-    categoryList?: Category[]
 }
 
 export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
@@ -51,6 +51,11 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         relevantComments,
         isLoading, // Loading state for actions
         categoryList, // Need categoryList for NewItemDialog options
+        addedItems,
+        requestedItems,
+        addedCategories,
+        requestedCategories,
+        currentOrderDataCategoryList,
 
         // Dialog Visibility States
         isNewItemDialogOpen,
@@ -101,10 +106,17 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         projectDoc,
         makeList,
         allMakeOptions,
+        categoryMakelist,
         categoryMakeListMutate,
         makeListMutate,
         handleLocalCategoryMakesUpdate
     } = props;
+
+    // // *** Add console log HERE to verify ***
+    // useEffect(() => {
+    //     console.log("VIEW: Received props.categoryMakelist:", categoryMakelist ? `Count=${categoryMakelist.length}` : 'undefined/null');
+    // }, [categoryMakelist]);
+
 
 
     // Derive the initial makes map for *this PR's work package*
@@ -114,18 +126,12 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     }, [projectDoc, orderData?.work_package]); // Recalculate if project or WP changes
 
 
+    // const addedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [], [orderData]);
+    // const requestedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status === 'Request') ?? [], [orderData]);
 
-    if (!orderData) {
-        // Should be handled by Container, but good practice
-        return <div>Loading PR data...</div>;
-    }
+    // const addedCategories = useMemo(() => orderData.category_list?.list?.filter(c => addedItems.some(item => item.category === c.name && item.status === (c.status || "Pending"))) ?? [], [orderData, addedItems]);
 
-    const addedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [], [orderData]);
-    const requestedItems = useMemo(() => orderData.procurement_list?.list?.filter(i => i.status === 'Request') ?? [], [orderData]);
-
-    const addedCategories = useMemo(() => orderData.category_list?.list?.filter(c => addedItems.some(item => item.category === c.name && item.status === (c.status || "Pending"))) ?? [], [orderData, addedItems]);
-
-    const requestedCategories = useMemo(() => orderData.category_list?.list?.filter(c => requestedItems.some(item => item.category === c.name && item.status === c.status)) ?? [], [addedItems, orderData]);
+    // const requestedCategories = useMemo(() => orderData.category_list?.list?.filter(c => requestedItems.some(item => item.category === c.name && item.status === c.status)) ?? [], [addedItems, orderData]);
 
     // Derive makes mapping for categories
     const categoryMakesMap = useMemo(() => {
@@ -148,7 +154,12 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     }, [projectDoc]);
 
     // Derive the current category list from orderData state for passing to AddItemForm
-    const currentOrderDataCategoryList = useMemo(() => orderData.category_list?.list ?? [], [orderData?.category_list]);
+    // const currentOrderDataCategoryList = useMemo(() => orderData.category_list?.list ?? [], [orderData?.category_list]);
+
+    if (!orderData) {
+        // Should be handled by Container, but good practice
+        return <div>Loading PR data...</div>;
+    }
 
 
     return (
@@ -228,7 +239,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                     {/* Added Items Section */}
                     {/* {addedItems.length > 0 && ( */}
                     <ItemListSection
-                        canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')}
+                        canCreateItem={["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role ?? '')}
                         toggleNewItemsCard={toggleNewItemsCard}
                         categories={addedCategories}
                         items={addedItems}
@@ -248,7 +259,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
 
             {/* Dialogs */}
 
-
+            {/* {console.log("VIEW: Rendering AddItemForm, categoryMakelist is:", categoryMakelist ? `Count=${categoryMakelist.length}` : categoryMakelist)} */}
             <AddItemForm
                 showNewItemsCard={showNewItemsCard}
                 itemOptions={itemOptions}
@@ -257,7 +268,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 quantity={currentQuantity}
                 handleQuantityChange={handleQuantityChange}
                 onAdd={handleAddItemToList}
-                onClose={toggleNewItemsCard} // Use onClose to hide
+                onClose={() => toggleNewItemsCard()} // Use onClose to hide
                 onToggleNewItemDialog={handleOpenNewItemDialog} // Pass handler
                 canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')} // Example permission check
                 isLoading={isLoading}
@@ -268,6 +279,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 updateCategoryMakesInStore={handleLocalCategoryMakesUpdate} // Pass the specific handler
                 makeList={makeList}
                 makeListMutate={makeListMutate}
+                categoryMakelist={categoryMakelist} // <<< Pass categoryMakelist
                 categoryMakeListMutate={categoryMakeListMutate}
             // --- End Make Props ---
             />
@@ -287,7 +299,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 onSubmit={handleCreateAndAddItem}
                 isLoading={isLoading}
             />
-
+            {/* {console.log("VIEW: Rendering AddItemForm, categoryMakelist is:", categoryMakelist ? `Count=${categoryMakelist.length}` : categoryMakelist)} */}
             <EditItemDialog
                 isOpen={isEditItemDialogOpen}
                 onClose={() => setIsEditItemDialogOpen(false)}
@@ -303,6 +315,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 updateCategoryMakesInStore={handleLocalCategoryMakesUpdate} // Pass store action
                 makeList={makeList}
                 makeListMutate={makeListMutate}
+                categoryMakelist={categoryMakelist} // <<< Pass categoryMakelist
                 categoryMakeListMutate={categoryMakeListMutate}
             // --- End Make Props ---
             />

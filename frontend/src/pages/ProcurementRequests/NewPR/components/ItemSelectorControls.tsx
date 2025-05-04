@@ -28,20 +28,29 @@ const CustomMenuList = (props: MenuListProps<ItemOption, false>) => {
             <components.MenuList {...props}>
                 <div>{children}</div>
             </components.MenuList>
-            <div className="sticky bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
-                <Button
-                    variant="ghost"
-                    className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
-                    onClick={onAddItemClick}
-                    onTouchStart={onAddItemClick}
-                >
-                    <CirclePlus className="w-4 h-4" />
-                    Create/Request New Item
-                </Button>
-            </div>
+            {onAddItemClick && (
+                <div className="bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
+                    <Button
+                        variant="ghost"
+                        className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
+                        onClick={onAddItemClick}
+                        onTouchStart={onAddItemClick}
+                    >
+                        <CirclePlus className="mr-2 h-4 w-4" />
+                        Create/Request New Item
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };
+
+// Define the expected structure of custom props passed via selectProps
+interface CustomMakeMenuListSelectProps {
+    customProps?: {
+        onManageMakesClick?: () => void; // The handler for the button
+    };
+}
 
 // Custom MenuList for Make Select
 export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
@@ -52,13 +61,18 @@ export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
         } // Access custom props passed via selectProps
     } = props;
 
+    // Use type assertion for safer access to customProps
+    // const typedSelectProps = selectProps as CustomMakeMenuListSelectProps;
+    // const onManageMakesClick = typedSelectProps?.customProps?.onManageMakesClick;
+
     return (
+
         <div>
             <components.MenuList {...props}>
                 <div>{children}</div>
             </components.MenuList>
             {onManageMakesClick && (
-                <div className="sticky bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
+                <div className="bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
                     <Button
                         variant="ghost"
                         className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
@@ -121,43 +135,81 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     const [isManageMakesDialogOpen, setIsManageMakesDialogOpen] = useState(false);
     const userData = useUserData();
 
-    console.log("selectedCategories", selectedCategories)
+    const [resetFlag, setResetFlag] = useState(false);
+
+    // console.log("selectedCategories", selectedCategories)
 
     // --- Memos and Derived State ---
     const currentItemCategoryName = curItem?.category;
 
-    // --- *** UPDATED LOGIC for availableMakeOptions *** ---
+    // --- *** FINAL REVISED LOGIC for availableMakeOptions *** ---
     const availableMakeOptions = useMemo(() => {
+        // --- Logging Start ---
+        console.log("--- ISC useMemo Start ---");
+        console.log("currentItemCategoryName:", currentItemCategoryName);
+        console.log("selectedCategories (prop):", JSON.stringify(selectedCategories));
+        console.log("initialCategoryMakes (prop):", JSON.stringify(initialCategoryMakes));
+        // --- Logging End ---
+
         if (!currentItemCategoryName) {
-            console.log("No item selected, no make options.");
+            console.log("ISC useMemo: No category, returning []");
             return [];
         }
 
-        let makesForCategory: string[] = [];
+        // Use a Set to automatically handle unique make names (values)
+        const applicableMakeValues = new Set<string>();
 
-        // 1. Try to find the category in the derived `selectedCategories` (includes session changes)
-        const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
+        // 1. Determine the BASE list (Initial Config OR Fallback)
+        const initialMakes = initialCategoryMakes?.[currentItemCategoryName];
+        const hasInitialMakes = Array.isArray(initialMakes) && initialMakes.length > 0;
 
-        if (derivedCategoryDetails && Array.isArray(derivedCategoryDetails.makes)) {
-            console.log(`Using makes from derived selectedCategories for ${currentItemCategoryName}:`, derivedCategoryDetails.makes);
-            makesForCategory = derivedCategoryDetails.makes;
-        }
-        // 2. If not found in derived state, fall back to the initial baseline makes for the WP
-        else if (initialCategoryMakes && initialCategoryMakes[currentItemCategoryName]) {
-            console.log(`Falling back to initialCategoryMakes for ${currentItemCategoryName}:`, initialCategoryMakes[currentItemCategoryName]);
-            makesForCategory = initialCategoryMakes[currentItemCategoryName];
+        if (hasInitialMakes) {
+            // Use initial makes from the WP Project config as the base
+            console.log(`ISC useMemo: Using initialMakes as base:`, initialMakes);
+            initialMakes!.forEach(makeValue => applicableMakeValues.add(makeValue));
+        } else if (categoryMakelist) {
+            // Fallback to CategoryMakelist if initial makes are empty/not defined
+            console.log(`ISC useMemo: Initial makes empty, using CategoryMakelist fallback as base.`);
+            categoryMakelist
+                .filter(entry => entry.category === currentItemCategoryName && entry.make)
+                .forEach(entry => applicableMakeValues.add(entry.make!)); // Add makes from fallback
         } else {
-            console.log(`No makes found for category ${currentItemCategoryName} in selectedCategories or initialCategoryMakes.`);
+            console.log(`ISC useMemo: No initial makes and no categoryMakelist provided for base.`);
+        }
+        console.log(`ISC useMemo: Makes after base determination:`, Array.from(applicableMakeValues));
+
+
+        // 2. ADD makes from Session/procList (selectedCategories)
+        // Ensure makes used in items or explicitly added this session (via Manage Makes)
+        // are *always* included in the available options.
+        const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
+        if (derivedCategoryDetails?.makes && Array.isArray(derivedCategoryDetails.makes)) {
+            console.log(`ISC useMemo: Adding makes from selectedCategories:`, derivedCategoryDetails.makes);
+            derivedCategoryDetails.makes.forEach(makeValue => applicableMakeValues.add(makeValue));
+        } else {
+            console.log(`ISC useMemo: No additional makes found in selectedCategories.`);
         }
 
-        // Ensure it's an array
-        const makesSet = new Set(Array.isArray(makesForCategory) ? makesForCategory : []);
+        console.log(`ISC useMemo: Final applicable make values set:`, Array.from(applicableMakeValues));
 
-        // 3. Filter all system makes based on the determined set
-        const filteredOptions = allMakeOptions.filter(opt => makesSet.has(opt.value));
+        // 3. Filter allMakeOptions based on the final applicable set of make values
+        let potentialMakeOptions = allMakeOptions.filter(opt => applicableMakeValues.has(opt.value));
 
-        return filteredOptions;
-    }, [currentItemCategoryName, selectedCategories, initialCategoryMakes, allMakeOptions]); // <<< Add initialCategoryMakes dependency
+        // 4. Sort the final list alphabetically by label for consistent display
+        potentialMakeOptions.sort((a, b) => a.label.localeCompare(b.label));
+
+        console.log("ISC useMemo: Final potentialMakeOptions (before return):", JSON.stringify(potentialMakeOptions));
+        console.log("--- ISC useMemo End ---");
+        return potentialMakeOptions;
+
+    }, [
+        currentItemCategoryName,
+        selectedCategories,      // Derived makes from store (items + session adds)
+        initialCategoryMakes,    // Baseline makes from project WP config
+        allMakeOptions,          // The complete list of make options
+        categoryMakelist         // Fallback list if initial is empty
+    ]);
+    // --- End FINAL REVISED LOGIC ---
 
 
     const isNewItemsDisabled = useMemo(() => {
@@ -198,16 +250,25 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
 
     const handleMakesManaged = useCallback((newlyAssociatedMakes: MakeOption[]) => {
         if (!currentItemCategoryName) return;
+        let makeToSelectAfterwards: MakeOption | null = null; // To auto-select the first added make
         newlyAssociatedMakes.forEach(make => {
             updateCategoryMakesInStore(currentItemCategoryName, make.value);
+            if (!makeToSelectAfterwards) { // Keep track of the first one added
+                makeToSelectAfterwards = make;
+            }
         });
-        // Optional: Auto-select the first new make
-        // if (newlyAssociatedMakes.length > 0) {
-        //    const firstNewMake = allMakeOptions.find(opt => opt.value === newlyAssociatedMakes[0].value);
-        //    if (firstNewMake) setCurMake(firstNewMake);
-        // }
+
         setIsManageMakesDialogOpen(false);
-    }, [currentItemCategoryName, updateCategoryMakesInStore, allMakeOptions]); // Dependencies needed
+
+        // Auto-select the first newly added make if available
+        if (makeToSelectAfterwards) {
+            const fullOption = allMakeOptions.find(opt => opt.value === makeToSelectAfterwards!.value);
+            if (fullOption) {
+                setCurMake(fullOption); // Update local state
+            }
+        }
+
+    }, [currentItemCategoryName, updateCategoryMakesInStore, allMakeOptions]);
 
     // --- Custom Props for Select ---
     const itemSelectCustomProps = { onOpenNewItemDialog, isNewItemsDisabled };
@@ -252,6 +313,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             {/* --- Item Selector --- */}
             <div>
                 <Label htmlFor="item-select" className="block text-sm font-medium text-gray-700 mb-1">Item <sup className="text-red-500">*</sup></Label>
+                <>{console.log("Item Options", itemOptions)}</>
                 <ReactSelect
                     inputId='item-select'
                     placeholder={"Select or Create/Request Item..."}
@@ -271,10 +333,10 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             <div className="flex flex-row items-baseline gap-2 sm:gap-4">
                 {/* Make Selector (Flexible width) */}
                 <div className="w-2/3"> {/* Allow grow/shrink, base width ~160px */}
-                    <Label htmlFor="make-select" className="block text-sm font-medium text-gray-700 mb-1">Make</Label>
+                    <Label htmlFor="make-select" className="block text-sm font-medium text-gray-700 mb-1">Make<sup className="text-red-500">*</sup></Label>
                     <ReactSelect
                         inputId='make-select'
-                        placeholder={!curItem ? "NA" : "Add Make..."}
+                        placeholder={!curItem ? "NA" : "Select Make..."} // Changed placeholder slightly
                         value={curMake}
                         isDisabled={disabled || !curItem}
                         options={availableMakeOptions}
@@ -324,7 +386,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             {/* --- Add Item Button (Full Width) --- */}
             <Button
                 onClick={handleAddItemClick}
-                disabled={disabled || !curItem || !curQuantity || parseFloat(curQuantity) <= 0}
+                disabled={disabled || !curItem || !curQuantity || !curMake || parseFloat(curQuantity) <= 0}
                 variant={"outline"}
                 className="w-full border border-primary text-primary hover:bg-primary/5"
             >

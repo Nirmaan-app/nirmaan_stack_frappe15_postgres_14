@@ -22,6 +22,7 @@ import { Items } from '@/types/NirmaanStack/Items';
 import { MakeOption } from '../../NewPR/types';
 import { Makelist } from '@/types/NirmaanStack/Makelist';
 import { extractMakesForWP } from '../../NewPR/NewProcurementRequestPage';
+import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import the type
 
 interface UseApprovePRLogicProps {
     prDoc: PRDocType;
@@ -36,6 +37,7 @@ interface UseApprovePRLogicProps {
     allMakeOptions: MakeOption[];
     makeList?: Makelist[];
     makeListMutate: () => Promise<any>;
+    categoryMakelist?: CategoryMakelistType[];
     categoryMakeListMutate?: () => Promise<any>;
     // initialCategoryMakes: CategoryMakesMap; // No longer needed from props if derived locally
 }
@@ -52,8 +54,15 @@ export const useApprovePRLogic = ({
     allMakeOptions,
     makeList,
     makeListMutate,
+    categoryMakelist,
     categoryMakeListMutate
 }: UseApprovePRLogicProps) => {
+
+    // // *** Add console log HERE ***
+    // useEffect(() => {
+    //     console.log("HOOK: Received categoryMakelist:", categoryMakelist ? JSON.stringify(categoryMakelist.slice(0, 5), null, 2) + "..." : 'undefined/null'); // Log first few items
+    // }, [categoryMakelist]);
+
     const navigate = useNavigate();
     const { toast } = useToast();
     const userData = useUserData();
@@ -138,6 +147,30 @@ export const useApprovePRLogic = ({
         distance: 100,
         includeScore: true,
     }), [itemList]);
+
+    const addedItems = useMemo((): PRItem[] => {
+        return orderData?.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [];
+    }, [orderData?.procurement_list?.list]);
+
+    const requestedItems = useMemo((): PRItem[] => {
+        return orderData?.procurement_list?.list?.filter(i => i.status === 'Request') ?? [];
+    }, [orderData?.procurement_list?.list]);
+
+    const addedCategories = useMemo((): PRCategory[] => {
+        return orderData?.category_list?.list
+            ?.filter(c => addedItems.some(item => item.category === c.name && item.status === (c.status || "Pending")))
+            ?? [];
+    }, [orderData?.category_list?.list, addedItems]);
+
+    const requestedCategories = useMemo((): PRCategory[] => {
+        return orderData?.category_list?.list
+            ?.filter(c => requestedItems.some(item => item.category === c.name && item.status === c.status))
+            ?? [];
+    }, [orderData?.category_list?.list, requestedItems]);
+
+    const currentOrderDataCategoryList = useMemo((): PRCategory[] => {
+        return orderData?.category_list?.list ?? [];
+    }, [orderData?.category_list?.list]); // Dependency corrected
 
 
     useEffect(() => {
@@ -483,10 +516,16 @@ export const useApprovePRLogic = ({
 
     // --- New Item Creation ---
     const handleOpenNewItemDialog = useCallback(() => {
-        setNewItem({}); // Reset form
-        setCurrentCategoryForNewItem(null);
-        setIsNewItemDialogOpen(true);
-    }, []);
+        // --- ADD THIS LINE ---
+        setShowNewItemsCard(false); // Close the AddItemForm dialog
+
+        // --- Keep existing logic ---
+        setNewItem({}); // Reset new item form state
+        setCurrentCategoryForNewItem(null); // Reset category for new item
+        setFuzzyMatches([]); // Clear fuzzy matches from previous searches
+        setIsNewItemDialogOpen(true); // Open the NewItemDialog
+
+    }, [setShowNewItemsCard, setNewItem, setCurrentCategoryForNewItem, setIsNewItemDialogOpen]); // Add dependencies
 
     const handleNewItemChange = useCallback((field: keyof NewItemState, value: string) => {
         setNewItem(prev => ({ ...prev, [field]: value }));
@@ -958,7 +997,11 @@ export const useApprovePRLogic = ({
         setIsRequestItemDialogOpen,
         setIsDeletePRDialogOpen,
         setIsConfirmActionDialogOpen,
-
+        addedItems,
+        requestedItems,
+        addedCategories,
+        requestedCategories,
+        currentOrderDataCategoryList,
         // Helpers/Derived Data
         getFullName,
         managersIdList, // If needed in UI
@@ -966,6 +1009,7 @@ export const useApprovePRLogic = ({
         allMakeOptions,
         makeList,
         makeListMutate,
+        categoryMakelist,
         categoryMakeListMutate
     };
 };

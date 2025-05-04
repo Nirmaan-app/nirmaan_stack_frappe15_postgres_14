@@ -9,7 +9,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
@@ -25,12 +25,13 @@ import { TableSkeleton } from "../../components/ui/skeleton";
 import { useToast } from "../../components/ui/use-toast";
 import { PaymentsDataDialog } from "../ProjectPayments/PaymentsDataDialog";
 import { InvoiceDataDialog } from "./InvoiceDataDialog";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 const ApproveSelectVendor = React.lazy(() => import("../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../Sent Back Requests/approve-select-sent-back"));
 const ApproveSelectAmendPO = React.lazy(() => import("./approve-select-amend-po"));
 
-export const ReleasePOSelect : React.FC = () => {
+export const ReleasePOSelect: React.FC = () => {
 
     const { role } = useUserData()
 
@@ -38,19 +39,54 @@ export const ReleasePOSelect : React.FC = () => {
     const [selectedInvoice, setSelectedInvoice] = useState<ProcurementOrdersType>();
     const [currentPaymentsDialog, setCurrentPaymentsDialog] = useState()
 
+    // --- Helper function to determine filters based on tab ---
+    const getStatusFilters = useCallback((currentTab: string) => {
+        const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
+        const isAdminOrLead = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
+
+        // Handle special roles first
+        if (isEstimatesExec) {
+            return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+        }
+
+        // Handle Approve tabs for Admin/Lead
+        if (isAdminOrLead) {
+            if (currentTab === "Approve PO") return [["status", "=", "PR Approved"]]; // Assuming this is the status before PO Approved
+            if (currentTab === "Approve Amended PO") return [["status", "=", "PO Amendment"]];
+            if (currentTab === "Approve Sent Back PO") return [["status", "=", "Sent Back Request"]]; // Assuming this status
+        }
+
+        // Handle regular PO status tabs
+        switch (currentTab) {
+            case "Approved PO":
+                return [["status", "=", "PO Approved"]];
+            case "Dispatched PO":
+                return [["status", "=", "Dispatched"]];
+            case "Partially Delivered PO": // New Tab
+                return [["status", "=", "Partially Delivered"]];
+            case "Delivered PO": // Updated Tab
+                return [["status", "=", "Delivered"]];
+            default:
+                // Fallback or default filter if needed, maybe show approved?
+                return [["status", "=", "Approved PO"]];
+        }
+    }, [role]);
+    // --- End Helper Function ---
+
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", (tab === "Dispatched PO" || role === "Nirmaan Estimates Executive Profile") ? "not in" : "in", tab === "Dispatched PO" ? ["PO Approved", "PO Amendment", "Merged", "Partially Delivered", "Delivered"] : (role === "Nirmaan Estimates Executive Profile" ? ["PO Amendment", "Merged"] : tab === "Approved PO" ? ["PO Approved"] : ["Partially Delivered", "Delivered"])]],
+            filters: getStatusFilters(tab),
             limit: 10000,
             orderBy: { field: "modified", order: "desc" }
         },
+        `po_list_${tab}` // Add tab to query key for better caching/refetching on tab change
     );
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-            fields: ["*"],
-            limit: 100000
-        })
+        fields: ["*"],
+        limit: 100000
+    })
 
     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
         await mutate()
@@ -64,40 +100,46 @@ export const ReleasePOSelect : React.FC = () => {
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["vendor_name", 'vendor_type'],
         filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
-        limit: 1000
+        limit: 10000
     },
         "Material Vendors"
+    )
+
+    const { data: userList, isLoading: userListLoading, error: userError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+        fields: ["name", 'full_name'],
+        limit: 1000
+    },
+        "Nirmaan Users"
     )
 
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getAmountPaid = useMemo(() => memoize((id : string) => {
+    const getAmountPaid = useMemo(() => memoize((id: string) => {
         const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
         return getTotalAmountPaid(payments);
-    }, (id: string) => id),[projectPayments])
+    }, (id: string) => id), [projectPayments])
 
-    const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount } = useDocCountStore()
-
+    const { newPOCount, adminNewPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount, partiallyDeliveredPOCount, adminPartiallyDeliveredPOCount, deliveredPOCount, adminDeliveredPOCount } = useDocCountStore()
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
 
-    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification: NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
     }, [db, mark_seen_notification])
 
-    const onClick = useCallback((value : string) => {
+    const onClick = useCallback((value: string) => {
         if (tab === value) return; // Prevent redundant updates
         setTab(value);
-    }, [tab]);
+    }, [tab, setTab]);
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
             role
-          ) ? [
+        ) ? [
             {
                 label: (
                     <div className="flex items-center">
@@ -128,13 +170,13 @@ export const ReleasePOSelect : React.FC = () => {
                         <span>Approve Sent Back PO</span>
                         <span className="ml-2 text-xs font-bold">
                             {role === "Nirmaan Admin Profile" ? adminNewApproveSBCount
-                    : newSBApproveCount}
+                                : newSBApproveCount}
                         </span>
                     </div>
                 ),
                 value: "Approve Sent Back PO",
             },
-          ] : []),
+        ] : []),
     ], [role, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount])
 
     const items = useMemo(() => [
@@ -160,18 +202,29 @@ export const ReleasePOSelect : React.FC = () => {
             ),
             value: "Dispatched PO",
         },
-        {
+        { // Use the new state variable here
+            label: (
+                <div className="flex items-center">
+                    <span>Partially Delivered PO</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {role === "Nirmaan Admin Profile" ? adminPartiallyDeliveredPOCount : partiallyDeliveredPOCount}
+                    </span>
+                </div>
+            ),
+            value: "Partially Delivered PO",
+        },
+        { // Use the renamed state variable here
             label: (
                 <div className="flex items-center">
                     <span>Delivered PO</span>
                     <span className="ml-2 rounded text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminOtherPOCount : otherPOCount}
+                        {role === "Nirmaan Admin Profile" ? adminDeliveredPOCount : deliveredPOCount}
                     </span>
                 </div>
             ),
             value: "Delivered PO",
         },
-    ], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminOtherPOCount, otherPOCount])
+    ], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPartiallyDeliveredPOCount, partiallyDeliveredPOCount, adminDeliveredPOCount, deliveredPOCount])
 
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
@@ -195,23 +248,23 @@ export const ReleasePOSelect : React.FC = () => {
                             {isNew && (
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
-                                <div className="flex gap-1 items-center">
-                                    <Link
-                                      className="underline hover:underline-offset-2"
-                                      to={`${poId}?tab=${tab}`}
-                                      onClick={() => handleNewPRSeen(isNew)}
-                                    >
-                                      {id?.toUpperCase()}
-                                    </Link>
-                                    <ItemsHoverCard order_list={data?.order_list?.list} />
-                                </div>
-                            
-                                    {data?.custom === "true" && (
-                                        <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
-                                    )}
+                            <div className="flex gap-1 items-center">
+                                <Link
+                                    className="underline hover:underline-offset-2"
+                                    to={`${poId}?tab=${tab}`}
+                                    onClick={() => handleNewPRSeen(isNew)}
+                                >
+                                    {id?.toUpperCase()}
+                                </Link>
+                                <ItemsHoverCard order_list={data?.order_list?.list} />
+                            </div>
+
+                            {data?.custom === "true" && (
+                                <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
+                            )}
                         </div>
-                        )
-                    }
+                    )
+                }
             },
             // {
             //     accessorKey: "procurement_request",
@@ -286,19 +339,53 @@ export const ReleasePOSelect : React.FC = () => {
                     return value.includes(row.getValue(id))
                 }
             },
-            {
-                accessorKey: "status",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Status" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <Badge variant={row.getValue("status") === "PO Approved" ? "default" : row.getValue("status") === "Dispatched" ? "orange" : "green"}>{row.getValue("status")}</Badge>
-                    )
+            // {
+            //     accessorKey: "status",
+            //     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            //     cell: ({ row }) => {
+            //         const status = row.getValue("status") as string;
+            //         let variant: "default" | "orange" | "green" | "blue" = "default"; // Use 'blue' for Partially Delivered
+            //         if (status === "Dispatched") variant = "orange";
+            //         else if (status === "Delivered") variant = "green";
+            //         else if (status === "Partially Delivered") variant = "blue";
+
+            //         return <Badge variant={variant}>{status}</Badge>;
+            //     }
+            // },
+            ...(tab === "Approved PO" ? [
+                {
+                    accessorKey: "owner",
+                    header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
+                    cell: ({ row }) => {
+                        const data = row.original
+                        const ownerUser = userList?.find((entry) => data?.owner === entry.name)
+                        // console.log("Owner User", ownerUser)
+                        return (
+                            <div className="font-medium">
+                                {ownerUser?.full_name || data?.owner || "--"}
+                            </div>
+                        );
+                    }
                 }
-            },
+            ] : []),
+            // "Modified By" Column - Conditional
+            ...(tab !== "Approved PO" ? [ // Show on all tabs *except* Approved PO
+                {
+                    accessorKey: "modified_by",
+                    header: ({ column }) => <DataTableColumnHeader column={column} title="Last Modified By" />,
+                    cell: ({ row }) => {
+                        const data = row.original;
+                        // Safely find the user
+                        const modifierUser = userList?.find(user => user.name === data?.modified_by);
+                        return (
+                            <div className="font-medium">
+                                {/* Display full name, fallback to modifier ID, then to '--' */}
+                                {modifierUser?.full_name || data?.modified_by || '--'}
+                            </div>
+                        );
+                    }
+                }
+            ] : []),
             // {
             //     id: "totalWithoutGST",
             //     header: ({ column }) => {
@@ -331,7 +418,7 @@ export const ReleasePOSelect : React.FC = () => {
                     )
                 }
             },
-            ...(["Dispatched PO", "Delivered PO"].includes(tab) ? [
+            ...(["Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab) ? [
                 {
                     id: "invoices_amount",
                     header: ({ column }) => {
@@ -343,14 +430,14 @@ export const ReleasePOSelect : React.FC = () => {
                         const data = row.original;
                         const invoiceAmount = getTotalInvoiceAmount(data?.invoice_data)
                         return (
-                          <div 
-                            className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
-                            onClick={() => invoiceAmount && setSelectedInvoice(data)}
-                          >
-                            {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
-                          </div>
+                            <div
+                                className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
+                                onClick={() => invoiceAmount && setSelectedInvoice(data)}
+                            >
+                                {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
+                            </div>
                         )
-                      }                      
+                    }
                 },
             ] : []),
             {
@@ -372,7 +459,7 @@ export const ReleasePOSelect : React.FC = () => {
                 cell: ({ row }) => <span className="hidden">hh</span>
             }
         ],
-        [project_values, procurement_order_list, projectPayments, tab, notifications, getAmountPaid, getPOTotal]
+        [project_values, procurement_order_list, projectPayments, tab, notifications, getAmountPaid, getPOTotal, handleNewPRSeen, userList]
     )
 
     const { toast } = useToast()
@@ -386,25 +473,44 @@ export const ReleasePOSelect : React.FC = () => {
         })
     }
 
+    // --- Determine which view to render based on tab ---
+    const renderTabView = () => {
+        // Render specific components for approval tabs
+        if (tab === "Approve PO") return <ApproveSelectVendor />;
+        if (tab === "Approve Amended PO") return <ApproveSelectAmendPO />;
+        if (tab === "Approve Sent Back PO") return <ApproveSelectSentBack />;
+
+        // Render DataTable for PO status tabs
+        if (procurement_order_list_loading || projects_loading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
+            return <TableSkeleton />;
+        }
+        if (procurement_order_list_error || projects_error || vendorsError || userError || projectPaymentsError) {
+            // Optionally show an error message within the table area
+            return <div className="text-red-600 text-center p-4">Failed to load purchase orders for this tab.</div>;
+        }
+        return <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />;
+    };
+    // --- End Render View Logic ---
+
     return (
-            <>
+        <>
             <InvoiceDataDialog
-              open={!!selectedInvoice}
-              onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
-              invoiceData={selectedInvoice?.invoice_data}
-              project={selectedInvoice?.project_name}
-              poNumber={selectedInvoice?.name}
-              vendor={selectedInvoice?.vendor_name}
+                open={!!selectedInvoice}
+                onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
+                invoiceData={selectedInvoice?.invoice_data}
+                project={selectedInvoice?.project_name}
+                poNumber={selectedInvoice?.name}
+                vendor={selectedInvoice?.vendor_name}
             />
 
             <PaymentsDataDialog
-              open={!!currentPaymentsDialog}
-              onOpenChange={(open) => !open && setCurrentPaymentsDialog(undefined)}
-              payments={projectPayments}
-              data={currentPaymentsDialog}
-              projects={projects}
-              vendors={vendorsList}
-              isPO
+                open={!!currentPaymentsDialog}
+                onOpenChange={(open) => !open && setCurrentPaymentsDialog(undefined)}
+                payments={projectPayments}
+                data={currentPaymentsDialog}
+                projects={projects}
+                vendors={vendorsList}
+                isPO
             />
             <div className="flex-1 space-y-4">
                 {role !== "Nirmaan Estimates Executive Profile" && (
@@ -436,23 +542,11 @@ export const ReleasePOSelect : React.FC = () => {
                     </div>
                 )}
 
-                <Suspense fallback={
-                    <LoadingFallback />
-                }>
-                    {tab === "Approve PO" ? (
-                        <ApproveSelectVendor />
-                    ) : tab === "Approve Amended PO" ? (
-                        <ApproveSelectAmendPO />
-                    ) : 
-                    tab === "Approve Sent Back PO" ? (
-                        <ApproveSelectSentBack />
-                    ) :
-                    (procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
-                        <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
-                    )}
+                <Suspense fallback={<LoadingFallback />}>
+                    {renderTabView()} {/* Use the render function */}
                 </Suspense>
 
-                
+
                 {/* {["Approve PO", "Approve Amended PO", "Approve Sent Back PO"].includes(tab) ? (
                     tab === "Approve PO" ? (
                         <ApproveSelectVendor />

@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table"; // Keep ColumnDef
 import {
     FrappeConfig,
@@ -31,12 +31,13 @@ import { DOC_TYPES, PAYMENT_STATUS, DIALOG_ACTION_TYPES, DialogActionType } from
 
 
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
+import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 
 // Zustand Store
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { formatDate } from "date-fns";
+import { memoize } from "lodash";
 
 // Helper Type for simplified value/label pairs
 interface SelectOption {
@@ -61,13 +62,20 @@ export const ApprovePayments: React.FC = () => {
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
         DOC_TYPES.VENDORS, { fields: ["name", "vendor_name"], limit: 10000 }, 'Vendors'
     );
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>(
+    // Fetch BOTH Requested and Paid payments (or remove filter entirely if safe)
+    const { data: allProjectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>(
         DOC_TYPES.PROJECT_PAYMENTS, {
-        fields: ["*"], // Consider specifying only needed fields if possible
-        filters: [["status", "=", PAYMENT_STATUS.REQUESTED]],
-        limit: 100000, // Be mindful of large limits
+        fields: ["*"], // Still consider specifying fields: name, status, amount, document_name, document_type
+        // Option A: Filter for relevant statuses
+        filters: [["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.PAID]]],
+        // Option B: No status filter (if other statuses are few or also needed)
+        // filters: [],
+        limit: 100000, // Keep being mindful of this limit
         orderBy: { field: "creation", order: "desc" }
-    });
+    },
+        // Add a unique query key suffix if needed, though often not necessary if filters change
+        // 'ProjectPayments_AllRelevant'
+    );
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
         DOC_TYPES.PROCUREMENT_ORDERS, {
         fields: ["*"], // Specify fields needed for getPOTotal and navigation logic
@@ -109,6 +117,22 @@ export const ApprovePayments: React.FC = () => {
     // --- Memoized Lookups ---
     const projectValues = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
     const vendorValues = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
+
+    // Filtered list for the DataTable display
+    const requestedPaymentsForTable = useMemo(() => {
+        return allProjectPayments?.filter(p => p.status === PAYMENT_STATUS.REQUESTED) || [];
+    }, [allProjectPayments]);
+
+    // --- Calculation for "Amt Paid" ---
+    // This needs to operate on the FULL list containing "Paid" entries
+    const getAmountPaid = useMemo(() => memoize((documentName: string) => {
+        const paymentsForDocument = allProjectPayments?.filter(
+            (payment) => payment?.document_name === documentName && payment?.status === PAYMENT_STATUS.PAID
+        ) || [];
+        return getTotalAmountPaid(paymentsForDocument);
+        // Depend on the full list
+    }, (documentName: string) => documentName), [allProjectPayments]);
+
 
     // --- Callbacks ---
     const handleNewPRSeen = useCallback((notification: NotificationType | undefined) => {
@@ -182,22 +206,22 @@ export const ApprovePayments: React.FC = () => {
                         (item) => item.docname === paymentId && item.seen === "false" && item.event_id === "payment:new"
                     ); // Check boolean false
 
-                    const handleNavigate = () => {
-                        if (!data.document_name) return;
-                        if (data.document_type === DOC_TYPES.PROCUREMENT_ORDERS) {
-                            const po = purchaseOrders?.find(i => i.name === data.document_name);
-                            // Simplified tab logic (example, adjust as needed)
-                            const tabMap: { [key: string]: string } = {
-                                "PO Approved": "Approved PO",
-                                "Dispatched": "Dispatched PO",
-                                "Delivered": "Delivered PO"
-                            };
-                            const tab = po?.status ? tabMap[po.status] || "Approved PO" : "Approved PO";
-                            navigate(`/purchase-orders/${data.document_name.replaceAll("/", "&=")}?tab=${tab}`);
-                        } else if (data.document_type === DOC_TYPES.SERVICE_REQUESTS) {
-                             navigate(`/service-requests/${data.document_name}?tab=approved-sr`);
-                        }
-                    }
+                    // const handleNavigate = () => {
+                    //     if (!data.document_name) return;
+                    //     if (data.document_type === DOC_TYPES.PROCUREMENT_ORDERS) {
+                    //         const po = purchaseOrders?.find(i => i.name === data.document_name);
+                    //         // Simplified tab logic (example, adjust as needed)
+                    //         const tabMap: { [key: string]: string } = {
+                    //             "PO Approved": "Approved PO",
+                    //             "Dispatched": "Dispatched PO",
+                    //             "Delivered": "Delivered PO"
+                    //         };
+                    //         const tab = po?.status ? tabMap[po.status] || "Approved PO" : "Approved PO";
+                    //         navigate(`/purchase-orders/${data.document_name.replaceAll("/", "&=")}?tab=${tab}`);
+                    //     } else if (data.document_type === DOC_TYPES.SERVICE_REQUESTS) {
+                    //         navigate(`/service-requests/${data.document_name}?tab=approved-sr`);
+                    //     }
+                    // }
 
                     return (
                         <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative flex items-center gap-1.5 min-w-[170px] cursor-default group">
@@ -205,12 +229,13 @@ export const ApprovePayments: React.FC = () => {
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-5 animate-pulse" title="New Payment Request" />
                             )}
                             <span className="max-w-[150px]">{data.document_name}</span>
-                             <HoverCard>
+                            <HoverCard>
                                 <HoverCardTrigger asChild>
-                                    <Info
-                                        onClick={handleNavigate}
-                                        className="w-4 h-4 text-blue-600 cursor-pointer flex-shrink-0 opacity-70 group-hover:opacity-100 transition-opacity"
-                                     />
+                                    <Link to={data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? `${data.document_name.replaceAll("/", "&=")}` : `${data.document_name.replaceAll("/", "&=")}`} >
+                                        <Info
+                                            className="w-4 h-4 text-blue-600 cursor-pointer flex-shrink-0 opacity-70 group-hover:opacity-100 transition-opacity"
+                                        />
+                                    </Link>
                                 </HoverCardTrigger>
                                 <HoverCardContent className="text-xs w-auto p-2">
                                     View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"} details
@@ -220,14 +245,14 @@ export const ApprovePayments: React.FC = () => {
                     );
                 }
             },
-            {
-                accessorKey: "creation", // or payment_date if preferred
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Date Req." />,
-                cell: ({ row }) => {
-                    const dateValue = row.original.creation || row.original.payment_date;
-                    return <div className="font-medium min-w-[90px]">{formatDate(new Date(dateValue!), 'dd-MMM-yyyy')}</div>;
-                },
-            },
+            // {
+            //     accessorKey: "creation", // or payment_date if preferred
+            //     header: ({ column }) => <DataTableColumnHeader column={column} title="Date Req." />,
+            //     cell: ({ row }) => {
+            //         const dateValue = row.original.creation || row.original.payment_date;
+            //         return <div className="font-medium min-w-[90px]">{formatDate(new Date(dateValue!), 'dd-MMM-yyyy')}</div>;
+            //     },
+            // },
             {
                 accessorKey: "vendor",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
@@ -273,6 +298,36 @@ export const ApprovePayments: React.FC = () => {
                 },
             },
             {
+                id: "Amount_paid",
+                header: "Amt Paid",
+                cell: ({ row }) => {
+                    const data = row.original;
+                    // IMPORTANT: Use document_name (PO/SR ID) for the calculation
+                    const amountPaid = getAmountPaid(data?.document_name);
+                    // Decide what setCurrentPaymentsDialog should do. Does it show the details
+                    // of the *request* (data) or the *past paid* amounts?
+                    // If it's for past paid amounts, you'll need a different function/state.
+                    // const handleClick = () => {
+                    //     if (amountPaid > 0) {
+                    //         // TODO: Implement logic to show details of PAST paid payments
+                    //         // for data.document_name. This might involve fetching them again
+                    //         // or filtering `allProjectPayments`.
+                    //         console.log("Show paid history for:", data.document_name);
+                    //         // Example: Find paid payments and open a different dialog/modal
+                    //         const paidHistory = allProjectPayments?.filter(p => p.document_name === data.document_name && p.status === PAYMENT_STATUS.PAID);
+                    //         // openPaidHistoryDialog(paidHistory); // A hypothetical function
+                    //     }
+                    // };
+                    return (
+                        <div
+                            className={`font-medium min-w-[100px]}`}
+                        >
+                            {formatToRoundedIndianRupee(amountPaid || 0)} {/* Default to 0 if null/undefined */}
+                        </div>
+                    );
+                },
+            },
+            {
                 accessorKey: "amount",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amt" />, // Shortened
                 cell: ({ row }) => {
@@ -295,7 +350,7 @@ export const ApprovePayments: React.FC = () => {
                                 </HoverCardTrigger>
                                 <HoverCardContent className="text-xs w-auto p-1.5">Approve</HoverCardContent>
                             </HoverCard>
-                             <HoverCard>
+                            <HoverCard>
                                 <HoverCardTrigger asChild>
                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => openDialog(data, DIALOG_ACTION_TYPES.REJECT)}>
                                         <CircleX className="h-5 w-5" />
@@ -305,7 +360,7 @@ export const ApprovePayments: React.FC = () => {
                             </HoverCard>
                             <HoverCard>
                                 <HoverCardTrigger asChild>
-                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(data, DIALOG_ACTION_TYPES.EDIT)}>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(data, DIALOG_ACTION_TYPES.EDIT)}>
                                         <SquarePen className="h-4 w-4" />
                                     </Button>
                                 </HoverCardTrigger>
@@ -318,7 +373,10 @@ export const ApprovePayments: React.FC = () => {
             // Removed separate editOption column as it's combined into 'actions'
         ],
         // Ensure all *stable* dependencies used inside columns are listed
-        [projectValues, vendorValues, notifications, purchaseOrders, serviceOrders, handleNewPRSeen, navigate, openDialog]
+        [
+            // Dependencies updated
+            projectValues, vendorValues, notifications, purchaseOrders, serviceOrders, handleNewPRSeen, navigate, openDialog, getAmountPaid, allProjectPayments /* Add dependency */
+        ]
     );
 
 
@@ -328,8 +386,8 @@ export const ApprovePayments: React.FC = () => {
     }
 
     // Optional: Display a more specific error message if needed
-    if (combinedError && !projectPayments) {
-         return <div className="p-4 text-red-600">Failed to load essential payment data. Please try again later.</div>;
+    if (combinedError && !allProjectPayments) {
+        return <div className="p-4 text-red-600">Failed to load essential payment data. Please try again later.</div>;
     }
 
     return (
@@ -348,10 +406,10 @@ export const ApprovePayments: React.FC = () => {
             {/* Data Table */}
             <DataTable
                 columns={columns}
-                data={projectPayments || []} // Provide empty array fallback
+                data={requestedPaymentsForTable || []} // Provide empty array fallback
                 project_values={projectValues} // Pass lookup data if needed by DataTable (e.g., for filters)
                 approvedQuotesVendors={vendorValues} // Pass lookup data if needed by DataTable
-                // Add other necessary props to DataTable
+            // Add other necessary props to DataTable
             />
         </div>
     );

@@ -1094,19 +1094,36 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           );
         },
       },
+      // {
+      //   id: "totalWithoutGST",
+      //   header: ({ column }) => {
+      //     return (
+      //       <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+      //     );
+      //   },
+      //   cell: ({ row }) => {
+      //     return (
+      //       <div className="font-medium">
+      //         {formatToRoundedIndianRupee(
+      //           getPOTotal(row.getValue("name")).totalWithoutGST
+      //         )}
+      //       </div>
+      //     );
+      //   },
+      // },
       {
-        id: "totalWithoutGST",
+        accessorKey: "owner",
         header: ({ column }) => {
           return (
-            <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+            <DataTableColumnHeader column={column} title="Approved By" />
           );
         },
         cell: ({ row }) => {
+          const data = row.original
+          const ownerUser = usersList?.find((entry) => data?.owner === entry.name)
           return (
             <div className="font-medium">
-              {formatToRoundedIndianRupee(
-                getPOTotal(row.getValue("name")).totalWithoutGST
-              )}
+              {ownerUser?.full_name || data?.owner || "--"}
             </div>
           );
         },
@@ -1147,7 +1164,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => <span className="hidden">hh</span>
       }
     ],
-    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal]
+    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal, usersList]
   );
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});

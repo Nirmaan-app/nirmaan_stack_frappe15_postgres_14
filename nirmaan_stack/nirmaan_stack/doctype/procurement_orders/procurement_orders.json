@@ -145,7 +145,7 @@
   },
   {
    "fieldname": "notes",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Notes"
   },
   {
@@ -181,7 +181,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-03-27 15:33:52.999749",
+ "modified": "2025-04-30 23:09:54.938814",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
