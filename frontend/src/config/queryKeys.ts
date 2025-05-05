@@ -1,7 +1,16 @@
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { Filter } from "frappe-react-sdk";
+
 // Define interfaces for filter objects to ensure consistency
 interface ListParams {
   fields?: string[];
-  filters?: (string | number | boolean | string[])[][];
+  // filters?: (string | number | boolean | string[])[][];
+  filters?: Filter<any>[];
   orderBy?: { field: string; order: 'asc' | 'desc' };
   limit?: number;
   // Add other potential list options if needed
@@ -23,6 +32,23 @@ interface CommentListParams extends ListParams {
 interface VendorListParams extends ListParams {
   vendorType?: string[]; // Example filter param
 }
+
+// Interface for report-specific list fetching
+interface ProjectListParams extends ListParams {}
+interface POListParams extends ListParams {}
+interface SRListParams extends ListParams {}
+interface PaymentListParams extends ListParams {}
+interface InflowListParams extends ListParams {}
+
+
+// --- Define Fields Constants (Good Practice) ---
+const PROJECT_REPORT_FIELDS: (keyof Projects)[] = ['name', 'project_name', 'project_value', 'creation', 'modified'];
+const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'order_list', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name'];
+const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'service_order_list', 'gst', 'invoice_data', 'status', 'modified'];
+const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status']; // Added 'project'
+const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date']; // Add fields as needed
+const PROJECT_MINIMAL_FIELDS: (keyof Projects)[] = ['name', 'project_name'];
+const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name']; // Assuming this type/field exists
 
 // Main query key generator object
 export const queryKeys = {
@@ -62,10 +88,11 @@ export const queryKeys = {
       // list: (params?: ListParams) => ['Procurement Requests', 'list', params ?? {}] as const, // Example for list view
   },
 
-  // For Projects (used in Container)
+  // For Projects (Refined)
   projects: {
-      doc: (docId: string) => ['Projects', docId] as const,
-  },
+    doc: (docId: string) => ['Projects', docId] as const,
+    list: (params?: ProjectListParams) => ['Projects', 'list', params ?? {}] as const,
+},
 
   vendors: {
     list: (params?: VendorListParams) => ['Vendors', 'list', params ?? {}] as const,
@@ -77,7 +104,111 @@ sentBackCategory: {
   // list: (params?: ListParams) => ['Sent Back Category', 'list', params ?? {}] as const, // Example
 },
 
+// For Procurement Orders
+procurementOrders: {
+  doc: (docId: string) => ['Procurement Orders', docId] as const,
+  list: (params?: POListParams) => ['Procurement Orders', 'list', params ?? {}] as const,
+},
+
+// For Service Requests
+serviceRequests: {
+  doc: (docId: string) => ['Service Requests', docId] as const,
+  list: (params?: SRListParams) => ['Service Requests', 'list', params ?? {}] as const,
+},
+
+// For Project Payments
+projectPayments: {
+  list: (params?: PaymentListParams) => ['Project Payments', 'list', params ?? {}] as const,
+  // Add doc if needed later
+},
+
+// For Project Inflows
+projectInflows: {
+   list: (params?: InflowListParams) => ['Project Inflows', 'list', params ?? {}] as const,
+   // Add doc if needed later
+},
+
 };
+
+// --- Helper Functions for Report Options ---
+
+// PO Reports Tab Options
+export const getPOReportListOptions = (): POListParams => ({
+  fields: PO_REPORT_FIELDS,
+  filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment"]]],
+  limit: 100000, // Consider pagination in future if needed
+  orderBy: { field: 'modified', order: 'desc' },
+});
+
+export const getSRReportListOptions = (): SRListParams => ({
+  fields: SR_REPORT_FIELDS,
+  filters: [['status', '=', "Approved"]], // Only approved SRs for PO report
+  limit: 100000,
+  orderBy: { field: 'modified', order: 'desc' },
+});
+
+export const getPaymentReportListOptions = (): PaymentListParams => ({
+  fields: PAYMENT_REPORT_FIELDS,
+  // Fetch payments related to POs/SRs and are marked 'Paid' for the PO Report context
+  filters: [
+      ['document_type', 'in', ['Procurement Orders', 'Service Requests']],
+      ['status', '=', 'Paid'], // Status relevant for PO Report 'Amt Paid'
+  ],
+  limit: 100000,
+});
+
+export const getProjectMinimalListOptions = (projectIds: string[]): ProjectListParams => ({
+  fields: PROJECT_MINIMAL_FIELDS,
+  filters: projectIds.length > 0 ? [['name', 'in', projectIds]] : [],
+  limit: projectIds.length || 1, // Fetch only needed, prevent fetching 0
+});
+
+export const getVendorMinimalListOptions = (vendorIds: string[]): VendorListParams => ({
+  fields: VENDOR_MINIMAL_FIELDS,
+  filters: vendorIds.length > 0 ? [['name', 'in', vendorIds]] : [],
+  limit: vendorIds.length || 1,
+});
+
+
+// Project Reports Tab Options
+export const getProjectReportListOptions = (): ProjectListParams => ({
+  fields: PROJECT_REPORT_FIELDS,
+  limit: 10000,
+  orderBy: { field: "modified", order: "desc" },
+   // Add global filters if needed, e.g., only 'Active' projects
+  // filters: [['status', '=', 'Active']]
+});
+
+export const getPOForProjectInvoiceOptions = (): POListParams => ({
+  fields: ['name', 'project', "order_list", 'loading_charges', 'freight_charges'], // Only fields needed for invoice calc
+  filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment"]]], // Match PO report filters
+  limit: 100000,
+});
+
+export const getSRForProjectInvoiceOptions = (): SRListParams => ({
+  fields: ['name', 'project', 'gst', "service_order_list"], // Only fields needed for invoice calc
+  filters: [['status', '=', "Approved"]], // Match SR report filters
+  limit: 100000,
+});
+
+export const getInflowReportListOptions = (): InflowListParams => ({
+  fields: INFLOW_REPORT_FIELDS,
+  // No project filter here, fetch all and group in the hook
+  limit: 100000,
+});
+
+export const getPaidPaymentReportListOptions = (): PaymentListParams => ({
+  fields: PAYMENT_REPORT_FIELDS, // Includes 'project' and 'amount'
+  // Filter specifically for 'Paid' status for accurate outflow calculation
+  filters: [['status', '=', 'Paid']],
+  limit: 100000,
+});
+
+
+
+
+
+// --------------------------------------------------------------------------------
 
 // Helper function to generate standardized Frappe options for reuse
 export const getCategoryListOptions = (workPackage?: string): CategoryListParams => ({
