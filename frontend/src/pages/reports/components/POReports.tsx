@@ -1,6 +1,6 @@
 import { DataTable } from "@/components/data-table/data-table";
 import { POReportRowData, usePOReportsData } from "../hooks/usePOReportsData";
-import React from "react";
+import React, { useMemo } from "react";
 import { poColumns } from "./columns/poColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -24,8 +24,8 @@ export default function POReports() {
 
         switch (reportType) {
             case 'Pending Invoices':
-                // Amount Paid is less than Total PO/SR Amount (use small tolerance for floating point)
-                return allData.filter(row => parseNumber(row.amountPaid) < parseNumber(row.totalAmount) - 0.001);
+                // Total Invoice Amount is less than Total PO/SR Amount (use small tolerance for floating point)
+                return allData.filter(row => parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - 0.001);
             case 'Pending Amendments':
                  // Amount Paid is greater than Total PO/SR Amount (use small tolerance)
                 return allData.filter(row => parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + 0.001);
@@ -34,6 +34,8 @@ export default function POReports() {
                 return allData;
         }
     };
+
+    const filteredReportData = useMemo(() => getPOExportData(selectedReportType, reportData || []), [reportData, selectedReportType]);
 
     const exportFileNamePrefix = `po_report`; // Base prefix
 
@@ -59,7 +61,7 @@ export default function POReports() {
             ) : (
                 <DataTable
                     columns={columns}
-                    data={reportData || []} // Ensure data is always an array
+                    data={filteredReportData || []} // Ensure data is always an array
                     // Add features like filtering, search, pagination if needed
                     loading={isLoading}
                     exportFileNamePrefix={exportFileNamePrefix}
