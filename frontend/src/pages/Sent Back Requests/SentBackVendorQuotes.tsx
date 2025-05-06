@@ -178,7 +178,7 @@ export const SentBackVendorQuotes: React.FC = () => {
           }
           return { ...item };
         } else {
-          const { vendor, quote, make, ...rest } = item;
+          const { vendor, quote, ...rest } = item;
           return rest;
         }
       }) || [];
@@ -211,7 +211,7 @@ export const SentBackVendorQuotes: React.FC = () => {
         }
         return { ...item };
       } else {
-        const { vendor, quote, make, ...rest } = item;
+        const { vendor, quote, ...rest } = item;
         return rest;
       }
     }) || [];

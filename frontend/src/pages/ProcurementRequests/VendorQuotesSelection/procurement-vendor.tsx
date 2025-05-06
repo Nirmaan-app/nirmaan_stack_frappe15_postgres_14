@@ -17,6 +17,7 @@ import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHe
 import { Button } from "../../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
 import { toast } from "../../../components/ui/use-toast";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 export const ProcurementOrder: React.FC = () => {
 
@@ -36,7 +37,7 @@ export const ProcurementOrder: React.FC = () => {
     orderId ? `Procurement Requests ${orderId}` : null
   );
 
-  const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Project>("Projects", {
+  const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["*"],
     filters: [["name", "=", procurement_request_list?.[0]?.project]],
     limit: 1,
@@ -53,7 +54,10 @@ export const ProcurementOrder: React.FC = () => {
 
         workPackages.forEach((wp: any) => {
           (wp.category_list?.list ?? []).forEach((cat: any) => {
-            if (cat.name && cat.makes?.length > 0) {
+            const catInOrder = orderData?.category_list?.list.find(i => i.name === cat.name);
+            if (cat.name && catInOrder && catInOrder?.makes?.length > 0) {
+              map.set(cat.name, catInOrder?.makes);
+            } else if (cat.name && cat.makes?.length > 0) {
               map.set(cat.name, cat.makes);
             }
           });
@@ -63,7 +67,7 @@ export const ProcurementOrder: React.FC = () => {
       }
     }
     return map;
-  }, [projectDoc]);
+  }, [projectDoc, orderData]);
 
 
   const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
