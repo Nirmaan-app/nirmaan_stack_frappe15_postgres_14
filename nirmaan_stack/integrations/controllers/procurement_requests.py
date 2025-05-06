@@ -415,6 +415,11 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
         # Decide if this state passes or fails. Usually, if no items, amounts are 0, so it might pass checks below.
         # Let's assume it should fail if the intent requires items.
         return False
+    
+    if total_actual_amount <= 5000.0:
+        # If total actual amount is less than 5000, we can skip the rest of the checks
+        frappe.msgprint(f"Procurement Request {doc.name} has total actual amount ({total_actual_amount:.2f}) less than 5000. Skipping further checks.", indicator="green", title="Validation Passed")
+        return True
 
     # --- Check 2: Actual Amount Threshold ---
     actual_amount_threshold = 20000.0
