@@ -23,6 +23,9 @@ export const poColumns: ColumnDef<POReportRowData>[] = [
             const date = row.original.creation;
             return <div>{formatDate(date)}</div>;
         },
+        meta: {
+            exportValue: (row: POReportRowData) => formatDate(row.creation),
+        }
     },
     {
         accessorKey: "projectName",

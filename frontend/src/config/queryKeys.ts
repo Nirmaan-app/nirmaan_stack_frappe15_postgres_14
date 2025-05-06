@@ -137,14 +137,14 @@ export const getPOReportListOptions = (): POListParams => ({
   fields: PO_REPORT_FIELDS,
   filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment"]]],
   limit: 100000, // Consider pagination in future if needed
-  orderBy: { field: 'modified', order: 'desc' },
+  orderBy: { field: 'creation', order: 'desc' },
 });
 
 export const getSRReportListOptions = (): SRListParams => ({
   fields: SR_REPORT_FIELDS,
   filters: [['status', '=', "Approved"]], // Only approved SRs for PO report
   limit: 100000,
-  orderBy: { field: 'modified', order: 'desc' },
+  orderBy: { field: 'creation', order: 'desc' },
 });
 
 export const getPaymentReportListOptions = (): PaymentListParams => ({
@@ -174,7 +174,7 @@ export const getVendorMinimalListOptions = (vendorIds: string[]): VendorListPara
 export const getProjectReportListOptions = (): ProjectListParams => ({
   fields: PROJECT_REPORT_FIELDS,
   limit: 10000,
-  orderBy: { field: "modified", order: "desc" },
+  orderBy: { field: "creation", order: "desc" },
    // Add global filters if needed, e.g., only 'Active' projects
   // filters: [['status', '=', 'Active']]
 });

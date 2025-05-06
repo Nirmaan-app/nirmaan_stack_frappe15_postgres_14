@@ -3,6 +3,7 @@ import { ProcessedProject } from "../../hooks/useProjectReportsData"; // Adjust 
 import { parseNumber } from "@/utils/parseNumber"; // Adjust path
 import { Link } from "react-router-dom"; // Or your router's Link component
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatDate } from "@/utils/FormatDate";
 
 // Helper function FOR EXPORTING LAKHS (returns string like "1.23 L")
 // We don't include the Rupee symbol here for cleaner CSV data, but you can add it if needed.
@@ -38,6 +39,18 @@ export const projectColumns: ColumnDef<ProcessedProject>[] = [
         },
         // Enable sorting/filtering if needed using tanstack table features
     },
+
+    {
+            accessorKey: "creation",
+            header: "Date Created",
+            cell: ({ row }) => {
+                const date = row.original.creation;
+                return <div>{formatDate(date)}</div>;
+            },
+            meta: {
+                exportValue: (row: ProcessedProject) => formatDate(row.creation),
+            }
+      },
     {
         accessorKey: "project_value",
         header: "Value (Lakhs)",
