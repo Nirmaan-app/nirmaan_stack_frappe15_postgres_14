@@ -16,7 +16,7 @@ import NewMilestones from "@/components/updates/NewMilestones";
 import { ApprovedQuotationsTable } from "@/pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
 import DeliveryNote from "@/pages/DeliveryNotes/deliverynote";
 import DeliveryNotes from "@/pages/DeliveryNotes/deliverynotes";
-import Items from "@/pages/Items/items";
+import ItemsTesting from "@/pages/Items/ItemsTableTesting";
 import { RenderPurchaseOrdersTab } from "@/pages/ProcurementOrders/RenderPurchaseOrdersTab";
 import { ReleasePOSelect } from "@/pages/ProcurementOrders/release-po-select";
 import { NewCustomPR } from "@/pages/ProcurementRequests/NewPR/NewCustomPR";
@@ -287,7 +287,7 @@ export const appRoutes: RouteObject[] = [
           {
             path: "products",
             children: [
-              { index: true, element: <Items /> },
+              { index: true, element: <ItemsTesting /> },
               { path: ":productId", lazy: () => import("@/pages/Items/item") },
             ],
           },

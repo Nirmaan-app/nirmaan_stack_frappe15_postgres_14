@@ -119,11 +119,12 @@ interface po_item_data_item {
   work_package: string
 }
 
-interface FilterParameters {
+export interface FilterParameters {
   fields?: string[]
   filters?: any
   limit?: number
   orderBy?: { field: string, order: string }
+  limit_start?: number
 }
 
 export const ProjectQueryKeys = {
