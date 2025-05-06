@@ -352,40 +352,38 @@ export const ReleasePOSelect: React.FC = () => {
             //         return <Badge variant={variant}>{status}</Badge>;
             //     }
             // },
-            ...(tab === "Approved PO" ? [
-                {
-                    accessorKey: "owner",
-                    header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
-                    cell: ({ row }) => {
-                        const data = row.original
-                        const ownerUser = userList?.find((entry) => data?.owner === entry.name)
-                        // console.log("Owner User", ownerUser)
-                        return (
-                            <div className="font-medium">
-                                {ownerUser?.full_name || data?.owner || "--"}
-                            </div>
-                        );
-                    }
+            {
+                accessorKey: "owner",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
+                cell: ({ row }) => {
+                    const data = row.original
+                    const ownerUser = userList?.find((entry) => data?.owner === entry.name)
+                    // console.log("Owner User", ownerUser)
+                    return (
+                        <div className="font-medium">
+                            {ownerUser?.full_name || data?.owner || "--"}
+                        </div>
+                    );
                 }
-            ] : []),
-            // "Modified By" Column - Conditional
-            ...(tab !== "Approved PO" ? [ // Show on all tabs *except* Approved PO
-                {
-                    accessorKey: "modified_by",
-                    header: ({ column }) => <DataTableColumnHeader column={column} title="Last Modified By" />,
-                    cell: ({ row }) => {
-                        const data = row.original;
-                        // Safely find the user
-                        const modifierUser = userList?.find(user => user.name === data?.modified_by);
-                        return (
-                            <div className="font-medium">
-                                {/* Display full name, fallback to modifier ID, then to '--' */}
-                                {modifierUser?.full_name || data?.modified_by || '--'}
-                            </div>
-                        );
-                    }
-                }
-            ] : []),
+            },
+            // // "Modified By" Column - Conditional
+            // ...(tab !== "Approved PO" ? [ // Show on all tabs *except* Approved PO
+            //     {
+            //         accessorKey: "modified_by",
+            //         header: ({ column }) => <DataTableColumnHeader column={column} title="Last Modified By" />,
+            //         cell: ({ row }) => {
+            //             const data = row.original;
+            //             // Safely find the user
+            //             const modifierUser = userList?.find(user => user.name === data?.modified_by);
+            //             return (
+            //                 <div className="font-medium">
+            //                     {/* Display full name, fallback to modifier ID, then to '--' */}
+            //                     {modifierUser?.full_name || data?.modified_by || '--'}
+            //                 </div>
+            //             );
+            //         }
+            //     }
+            // ] : []),
             // {
             //     id: "totalWithoutGST",
             //     header: ({ column }) => {
