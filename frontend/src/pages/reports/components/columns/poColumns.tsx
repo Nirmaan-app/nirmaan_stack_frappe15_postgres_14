@@ -2,6 +2,8 @@ import { ColumnDef } from "@tanstack/react-table";
 import { POReportRowData } from "../../hooks/usePOReportsData"; // Adjust path
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
+import { Info } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export const poColumns: ColumnDef<POReportRowData>[] = [
     {
@@ -13,7 +15,7 @@ export const poColumns: ColumnDef<POReportRowData>[] = [
             // Optional: Link to PO/SR document page
             // const doctypeLink = type === 'PO' ? 'procurement-orders' : 'service-requests';
             // return <Link href={`/${doctypeLink}/${name}`}>{name}</Link>;
-             return <div>{name}</div>;
+            return <div className="flex">{name}<Link to={`/project-payments/${name.replaceAll("/", "&=")}`}><Info className="text-blue-500 h-3 w-3 ml-1 mt-1" /></Link></div>;
         },
     },
     {
@@ -37,7 +39,7 @@ export const poColumns: ColumnDef<POReportRowData>[] = [
     {
         accessorKey: "vendorName",
         header: "Vendor",
-         cell: ({ row }) => {
+        cell: ({ row }) => {
             return <div>{row.original.vendorName || row.original.vendor}</div>;
         },
     },
@@ -49,12 +51,12 @@ export const poColumns: ColumnDef<POReportRowData>[] = [
             return <div className="">{formatToRoundedIndianRupee(amount)}</div>;
         },
         meta: {
-          // Use the SAME formatter for export (remove Rupee symbol if desired for CSV)
-             // Assuming formatToRoundedIndianRupee returns "₹X,XX,XXX"
-             // Option 1: Keep Rupee symbol in CSV
-             exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.totalAmount)
-             // Option 2: Remove Rupee symbol for CSV (cleaner for data analysis)
-             // exportValue: (row) => formatToRoundedIndianRupee(row.original.totalAmount).replace('₹', '').trim()
+            // Use the SAME formatter for export (remove Rupee symbol if desired for CSV)
+            // Assuming formatToRoundedIndianRupee returns "₹X,XX,XXX"
+            // Option 1: Keep Rupee symbol in CSV
+            exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.totalAmount)
+            // Option 2: Remove Rupee symbol for CSV (cleaner for data analysis)
+            // exportValue: (row) => formatToRoundedIndianRupee(row.original.totalAmount).replace('₹', '').trim()
         }
     },
     {
@@ -62,31 +64,31 @@ export const poColumns: ColumnDef<POReportRowData>[] = [
         header: "Total Invoice Amt",
         cell: ({ row }) => {
             const amount = row.original.invoiceAmount;
-             return <div className="">{formatToRoundedIndianRupee(amount)}</div>;
+            return <div className="">{formatToRoundedIndianRupee(amount)}</div>;
         },
         meta: {
-          // Use the SAME formatter for export (remove Rupee symbol if desired for CSV)
-             // Assuming formatToRoundedIndianRupee returns "₹X,XX,XXX"
-             // Option 1: Keep Rupee symbol in CSV
-             exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.invoiceAmount)
-             // Option 2: Remove Rupee symbol for CSV (cleaner for data analysis)
-             // exportValue: (row) => formatToRoundedIndianRupee(row.original.totalAmount).replace('₹', '').trim()
+            // Use the SAME formatter for export (remove Rupee symbol if desired for CSV)
+            // Assuming formatToRoundedIndianRupee returns "₹X,XX,XXX"
+            // Option 1: Keep Rupee symbol in CSV
+            exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.invoiceAmount)
+            // Option 2: Remove Rupee symbol for CSV (cleaner for data analysis)
+            // exportValue: (row) => formatToRoundedIndianRupee(row.original.totalAmount).replace('₹', '').trim()
         }
     },
     {
         accessorKey: "amountPaid",
         header: "Amt Paid",
-         cell: ({ row }) => {
+        cell: ({ row }) => {
             const amount = row.original.amountPaid;
-             return <div className="">{formatToRoundedIndianRupee(amount)}</div>;
+            return <div className="">{formatToRoundedIndianRupee(amount)}</div>;
         },
         meta: {
-          // Use the SAME formatter for export (remove Rupee symbol if desired for CSV)
-             // Assuming formatToRoundedIndianRupee returns "₹X,XX,XXX"
-             // Option 1: Keep Rupee symbol in CSV
-             exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.amountPaid)
-             // Option 2: Remove Rupee symbol for CSV (cleaner for data analysis)
-             // exportValue: (row) => formatToRoundedIndianRupee(row.original.totalAmount).replace('₹', '').trim()
+            // Use the SAME formatter for export (remove Rupee symbol if desired for CSV)
+            // Assuming formatToRoundedIndianRupee returns "₹X,XX,XXX"
+            // Option 1: Keep Rupee symbol in CSV
+            exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.amountPaid)
+            // Option 2: Remove Rupee symbol for CSV (cleaner for data analysis)
+            // exportValue: (row) => formatToRoundedIndianRupee(row.original.totalAmount).replace('₹', '').trim()
         }
     },
 ];
