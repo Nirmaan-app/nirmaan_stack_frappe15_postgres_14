@@ -54,6 +54,7 @@ import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
 import ReportsContainer from "@/pages/reports/ReportsContainer";
+import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -192,6 +193,7 @@ export const appRoutes: RouteObject[] = [
             path: "purchase-orders",
             children: [
               { index: true, element: <ReleasePOSelect /> },
+              // { index : true, element: <ProcurementOrdersTesting />},
               { path: ":id", element: <RenderPurchaseOrdersTab /> }, // :poId might be clearer if it's always PO ID
             ],
           },

@@ -454,6 +454,7 @@ export function DataTable<TData, TValue>({
 
           {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
         </div>
+        
         {totalPOsRaised && (
           <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
             <span className=" whitespace-nowrap">Total PO's raised</span>

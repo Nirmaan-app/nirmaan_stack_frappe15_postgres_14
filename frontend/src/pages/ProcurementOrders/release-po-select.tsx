@@ -1,96 +1,115 @@
-import { DataTable } from "@/components/data-table/data-table";
+// import { DataTable } from "@/components/data-table/data-table";
+import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import React, { Suspense, useCallback, useContext, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
-import { useToast } from "../../components/ui/use-toast";
 import { PaymentsDataDialog } from "../ProjectPayments/PaymentsDataDialog";
 import { InvoiceDataDialog } from "./InvoiceDataDialog";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
+import { urlStateManager } from "@/utils/urlStateManager";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useUsersList } from '../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 
 const ApproveSelectVendor = React.lazy(() => import("../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../Sent Back Requests/approve-select-sent-back"));
 const ApproveSelectAmendPO = React.lazy(() => import("./approve-select-amend-po"));
 
+const DOCTYPE = 'Procurement Orders';
+const URL_SYNC_KEY = 'po'; // Unique key for URL state for this table instance
+
 export const ReleasePOSelect: React.FC = () => {
 
     const { role } = useUserData()
 
-    const [tab, setTab] = useStateSyncedWithParams<string>("tab", (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : "Approved PO"));
-    const [selectedInvoice, setSelectedInvoice] = useState<ProcurementOrdersType>();
-    const [currentPaymentsDialog, setCurrentPaymentsDialog] = useState()
+    // --- State for Dialogs ---
+    const [selectedInvoicePO, setSelectedInvoicePO] = useState<ProcurementOrdersType | undefined>();
+    const [selectedPaymentPO, setSelectedPaymentPO] = useState<ProcurementOrdersType | undefined>();
+
+
+    // --- Tab State Management ---
+    const initialTab = useMemo(() => {
+        // Determine initial tab based on role, default to "Approved PO" if not admin/lead
+        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : "Approved PO";
+        return getUrlStringParam("tab", defaultTab);
+    }, [role]); // Calculate only once based on role
+
+    const [tab, setTab] = useState<string>(initialTab);
+
+    // Effect to sync tab state TO URL
+    useEffect(() => {
+        // Only update URL if the state `tab` is different from the URL's current 'tab' param
+        if (urlStateManager.getParam("tab") !== tab) {
+            urlStateManager.updateParam("tab", tab);
+        }
+    }, [tab]);
+
+    // Effect to sync URL state TO tab state (for popstate/direct URL load)
+    useEffect(() => {
+        const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
+            // Update state only if the new URL value is different from current state
+            const newTab = value || initialTab; // Fallback to initial if param removed
+            if (tab !== newTab) {
+                setTab(newTab);
+            }
+        });
+        return unsubscribe; // Cleanup subscription
+    }, [tab, initialTab]); // Depend on `tab` to avoid stale closures
 
     // --- Helper function to determine filters based on tab ---
-    const getStatusFilters = useCallback((currentTab: string) => {
-        const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
-        const isAdminOrLead = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
+    // const getStatusFilters = useCallback((currentTab: string) => {
+    //     const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
+    //     // const isAdminOrLead = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
 
-        // Handle special roles first
-        if (isEstimatesExec) {
-            return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
-        }
+    //     // Handle special roles first
+    //     if (isEstimatesExec) {
+    //         return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+    //     }
 
-        // Handle Approve tabs for Admin/Lead
-        if (isAdminOrLead) {
-            if (currentTab === "Approve PO") return [["status", "=", "PR Approved"]]; // Assuming this is the status before PO Approved
-            if (currentTab === "Approve Amended PO") return [["status", "=", "PO Amendment"]];
-            if (currentTab === "Approve Sent Back PO") return [["status", "=", "Sent Back Request"]]; // Assuming this status
-        }
-
-        // Handle regular PO status tabs
-        switch (currentTab) {
-            case "Approved PO":
-                return [["status", "=", "PO Approved"]];
-            case "Dispatched PO":
-                return [["status", "=", "Dispatched"]];
-            case "Partially Delivered PO": // New Tab
-                return [["status", "=", "Partially Delivered"]];
-            case "Delivered PO": // Updated Tab
-                return [["status", "=", "Delivered"]];
-            default:
-                // Fallback or default filter if needed, maybe show approved?
-                return [["status", "=", "Approved PO"]];
-        }
-    }, [role]);
+    //     // Handle regular PO status tabs
+    //     switch (currentTab) {
+    //         case "Approved PO":
+    //             return [["status", "=", "PO Approved"]];
+    //         case "Dispatched PO":
+    //             return [["status", "=", "Dispatched"]];
+    //         case "Partially Delivered PO": // New Tab
+    //             return [["status", "=", "Partially Delivered"]];
+    //         case "Delivered PO": // Updated Tab
+    //             return [["status", "=", "Delivered"]];
+    //         default:
+    //             // Fallback or default filter if needed, maybe show approved?
+    //             return [["status", "=", "Approved PO"]];
+    //     }
+    // }, [role]);
     // --- End Helper Function ---
 
-    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders",
-        {
-            fields: ["*"],
-            filters: getStatusFilters(tab),
-            limit: 10000,
-            orderBy: { field: "modified", order: "desc" }
-        },
-        `po_list_${tab}` // Add tab to query key for better caching/refetching on tab change
-    );
-
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-        fields: ["*"],
+        fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
         limit: 100000
     })
 
-    useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
-        await mutate()
-    })
+    // useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
+    //     await mutate()
+    // })
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -112,29 +131,59 @@ export const ReleasePOSelect: React.FC = () => {
         "Nirmaan Users"
     )
 
-    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })), [vendorsList])
-    const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
+    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })) || [], [vendorsList])
 
-    const getAmountPaid = useMemo(() => memoize((id: string) => {
-        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
-        return getTotalAmountPaid(payments);
-    }, (id: string) => id), [projectPayments])
+    const projectOptions = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
+
+    // const getAmountPaid = useMemo(() => memoize((id: string) => {
+    //     const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
+    //     return getTotalAmountPaid(payments);
+    // }, (id: string) => id), [projectPayments])
+
+    // --- Memoized Calculation Functions ---
+    // Define these outside the main component body or ensure dependencies are stable
+    // Using useMemo ensures they are stable if dependencies don't change.
+    const getAmountPaid = useMemo(() => {
+        if (!projectPayments) return () => 0; // Return a function that returns 0 if data not ready
+        // Create a map for faster lookups
+        const paymentsMap = new Map<string, number>();
+        projectPayments.forEach(p => {
+            if (p.document_name && p.status === "Paid") {
+                const currentTotal = paymentsMap.get(p.document_name) || 0;
+                paymentsMap.set(p.document_name, currentTotal + parseNumber(p.amount));
+            }
+        });
+        // Return the memoized lookup function
+        return memoize((id: string) => paymentsMap.get(id) || 0);
+    }, [projectPayments]); // Recalculate only when projectPayments changes
 
     const { newPOCount, adminNewPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount, partiallyDeliveredPOCount, adminPartiallyDeliveredPOCount, deliveredPOCount, adminDeliveredPOCount } = useDocCountStore()
-    const { notifications, mark_seen_notification } = useNotificationStore()
 
-    const { db } = useContext(FrappeContext) as FrappeConfig
+     // --- Determine Static Base Filters based on Tab ---
+    const staticFiltersForTab = useMemo(() => {
+        // Central place to define the base filters for each data table tab
+        const base: Array<[string, string, string | string[]]> = [
+            // Common filter to exclude Merged/Amended unless the tab specifically shows them
+            ["status", "not in", ["Merged", "PO Amendment"]]
+        ];
 
-    const handleNewPRSeen = useCallback((notification: NotificationType | undefined) => {
-        if (notification) {
-            mark_seen_notification(db, notification)
+        const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
+        if (isEstimatesExec) {
+            // Estimates Exec sees all these regardless of tab
+            return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
         }
-    }, [db, mark_seen_notification])
 
-    const onClick = useCallback((value: string) => {
-        if (tab === value) return; // Prevent redundant updates
-        setTab(value);
-    }, [tab, setTab]);
+        switch (tab) {
+            case "Approved PO": return [...base, ["status", "=", "PO Approved"]];
+            case "Dispatched PO": return [...base, ["status", "=", "Dispatched"]];
+            case "Partially Delivered PO": return [...base, ["status", "=", "Partially Delivered"]];
+            case "Delivered PO": return [...base, ["status", "=", "Delivered"]];
+            // Add cases for "Approve PO", "Approve Amended PO", "Approve Sent Back PO" if they show lists
+            // Otherwise, these tabs render different components (ApproveSelectVendor etc.)
+            default: return base; // Default might show nothing or based on initial tab
+        }
+    }, [tab, role]);
+
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
@@ -227,285 +276,300 @@ export const ReleasePOSelect: React.FC = () => {
     ], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPartiallyDeliveredPOCount, partiallyDeliveredPOCount, adminDeliveredPOCount, deliveredPOCount])
 
 
-    const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
-        () => [
+    // --- Define columns using TanStack's ColumnDef ---
+        const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
+            // Row Selection Column
             {
-                accessorKey: "name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="#PO" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const data = row.original
-                    const id = data?.name
-                    const poId = id?.replaceAll("/", "&=")
-                    const isNew = notifications.find(
-                        (item) => tab === "Approved PO" && item.docname === id && item.seen === "false" && item.event_id === "po:new"
-                    )
-                    return (
-                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium relative min-w-[150px] flex flex-col">
-                            {isNew && (
-                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
-                            )}
-                            <div className="flex gap-1 items-center">
-                                <Link
-                                    className="underline hover:underline-offset-2"
-                                    to={`${poId}?tab=${tab}`}
-                                    onClick={() => handleNewPRSeen(isNew)}
-                                >
-                                    {id?.toUpperCase()}
-                                </Link>
-                                <ItemsHoverCard order_list={data?.order_list?.list} />
-                            </div>
+                id: 'select',
+                header: ({ table }) => (
+                    <Checkbox
+                        checked={table.getIsAllPageRowsSelected()}
+                        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                        aria-label="Select all rows"
+                        className="translate-y-[2px]"
+                    />
+                ),
+                cell: ({ row }) => (
+                    <Checkbox
+                        checked={row.getIsSelected()}
+                        onCheckedChange={(value) => row.toggleSelected(!!value)}
+                        aria-label="Select row"
+                        className="translate-y-[2px]"
+                    />
+                ),
+                enableSorting: false,
+                enableHiding: false,
+                size: 40,
+            },
+            {
+                accessorKey: 'name',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="#PO" />,
+                cell: ({ row }) => (
+                    <>
+                    <div className="flex gap-1 items-center">
+                        <Link
+                            className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
+                            // Adjust the route path as needed
+                            to={`/purchase-orders/${row.original.name?.replaceAll("/", "&=")}?tab=${tab}`}
+                        >
+                            {row.original.name}
+                        </Link>
+                        <ItemsHoverCard order_list={row.original?.order_list?.list} />
+                    </div>
+                    {row.original?.custom === "true" && (
+                         <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
+                     )}
+                     </>
+                ),
+                size: 200,
+            },
+            {
+                accessorKey: 'creation',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
+                cell: ({ row }) => (
+                    <div className="font-medium whitespace-nowrap">
+                        {formatDate(row.getValue<string>('creation'))}
+                    </div>
+                ),
+                enableColumnFilter: false,
+                size: 150,
+            },
+            {
+                accessorKey: 'project',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+                cell: ({ row }) => (
+                    <div className="font-medium">{row.original.project_name}</div>
+                ),
+                enableColumnFilter: true, // Enable faceted filter for project
+                size: 250,
+            },
+            {
+                accessorKey: 'vendor',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
+                cell: ({ row }) => (
+                    <div className="font-medium">{row.original.vendor_name}</div>
+                ),
+                enableColumnFilter: true, // Enable faceted filter for vendor
+                size: 250,
+            },
 
-                            {data?.custom === "true" && (
-                                <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
-                            )}
-                        </div>
-                    )
-                }
-            },
-            // {
-            //     accessorKey: "procurement_request",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="#PR" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         return (
-            //             <div className="font-medium">
-            //                 {row.getValue("procurement_request")?.slice(-4)}
-            //             </div>
-            //         )
-            //     }
-            // },
-            {
-                accessorKey: "creation",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="PO Date Created" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {formatDate(row.getValue("creation"))}
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey: "project",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Project" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const project = project_values.find(
-                        (project) => project.value === row.getValue("project")
-                    )
-                    if (!project) {
-                        return null;
-                    }
-
-                    return (
-                        <div className="font-medium">
-                            {project.label}
-                        </div>
-                    )
-                },
-                filterFn: (row, id, value) => {
-                    return value.includes(row.getValue(id))
-                },
-            },
-            {
-                accessorKey: "vendor_name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Vendor" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("vendor_name")}
-                        </div>
-                    )
-                },
-                filterFn: (row, id, value) => {
-                    return value.includes(row.getValue(id))
-                }
-            },
-            // {
-            //     accessorKey: "status",
-            //     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-            //     cell: ({ row }) => {
-            //         const status = row.getValue("status") as string;
-            //         let variant: "default" | "orange" | "green" | "blue" = "default"; // Use 'blue' for Partially Delivered
-            //         if (status === "Dispatched") variant = "orange";
-            //         else if (status === "Delivered") variant = "green";
-            //         else if (status === "Partially Delivered") variant = "blue";
-
-            //         return <Badge variant={variant}>{status}</Badge>;
-            //     }
-            // },
             {
                 accessorKey: "owner",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
                 cell: ({ row }) => {
                     const data = row.original
                     const ownerUser = userList?.find((entry) => data?.owner === entry.name)
-                    // console.log("Owner User", ownerUser)
                     return (
                         <div className="font-medium">
                             {ownerUser?.full_name || data?.owner || "--"}
                         </div>
                     );
-                }
+                },
+                size: 180,
             },
-            // // "Modified By" Column - Conditional
-            // ...(tab !== "Approved PO" ? [ // Show on all tabs *except* Approved PO
-            //     {
-            //         accessorKey: "modified_by",
-            //         header: ({ column }) => <DataTableColumnHeader column={column} title="Last Modified By" />,
-            //         cell: ({ row }) => {
-            //             const data = row.original;
-            //             // Safely find the user
-            //             const modifierUser = userList?.find(user => user.name === data?.modified_by);
-            //             return (
-            //                 <div className="font-medium">
-            //                     {/* Display full name, fallback to modifier ID, then to '--' */}
-            //                     {modifierUser?.full_name || data?.modified_by || '--'}
-            //                 </div>
-            //             );
-            //         }
-            //     }
-            // ] : []),
-            // {
-            //     id: "totalWithoutGST",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         const data = row.original;
-            //         return (
-            //             <div className="font-medium">
-            //                 {formatToIndianRupee(getPOTotal(data,  parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.total)}
-            //             </div>
-            //         )
-            //     }
-            // },
             {
-                id: "totalWithGST",
+                id: "po_amount",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Total PO Amt" />
+                        <DataTableColumnHeader column={column} title="PO Amt" />
                     )
                 },
                 cell: ({ row }) => {
-                    const data = row.original;
-                    return (
-                        <div className="font-medium">
-                            {formatToRoundedIndianRupee(getPOTotal(data, parseNumber(data?.loading_charges), parseNumber(data?.freight_charges))?.totalAmt)}
-                        </div>
-                    )
-                }
+                    const orderData = Array.isArray(row.original?.order_list?.list) ? row.original.order_list.list : [];
+                    const loading = parseNumber(row.original?.loading_charges);
+                    const freight = parseNumber(row.original?.freight_charges);
+
+                    const poTotal = getPOTotal({ order_list: { list: orderData } }, loading, freight);
+                    return (<div className="font-medium pr-2">{formatToRoundedIndianRupee(poTotal?.totalAmt)}</div>);
+
+                },
+                size: 200,
+                enableSorting: false,
             },
             ...(["Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab) ? [
                 {
-                    id: "invoices_amount",
+                    id: "invoice_amount",
                     header: ({ column }) => {
                         return (
-                            <DataTableColumnHeader column={column} title="Total Invoice Amt" />
+                            <DataTableColumnHeader column={column} title="Inv Amt" />
                         )
                     },
                     cell: ({ row }) => {
-                        const data = row.original;
-                        const invoiceAmount = getTotalInvoiceAmount(data?.invoice_data)
+                        const invoiceAmount = getTotalInvoiceAmount(row.original?.invoice_data);
                         return (
-                            <div
-                                className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
-                                onClick={() => invoiceAmount && setSelectedInvoice(data)}
-                            >
-                                {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
-                            </div>
+                            <div className={`font-medium pr-2 ${invoiceAmount ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : ""}`} onClick={() => invoiceAmount && setSelectedInvoicePO(row.original)} >
+                        {formatToRoundedIndianRupee(invoiceAmount || 0)} {/* Show 0 if no amount */}
+                    </div>
                         )
-                    }
-                },
+                    },
+                    size: 200,
+                    enableSorting: false,
+                } as ColumnDef<ProcurementOrdersType>,
             ] : []),
             {
                 id: "Amount_paid",
                 header: "Amt Paid",
                 cell: ({ row }) => {
-                    const data = row.original
-                    const amountPaid = getAmountPaid(data?.name)
-                    return <div className={`font-medium ${amountPaid ? "cursor-pointer underline" : ""}`} onClick={() => amountPaid && setCurrentPaymentsDialog(data)}>
-                        {formatToRoundedIndianRupee(amountPaid || "N/A")}
-                    </div>
-                },
+                    const amountPaid = getAmountPaid(row.original?.name);
+                    return (
+                        <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
+                            {formatToRoundedIndianRupee(amountPaid || 0)}
+                        </div>
+                    );
+
+                    },
+                size: 200,
+                enableSorting: false,
             },
             {
                 accessorKey: 'order_list',
-                header: ({ column }) => {
-                    return <h1 className="hidden">:</h1>
-                },
-                cell: ({ row }) => <span className="hidden">hh</span>
+                header: () => null,
+                cell: () => null,
+                size: 0,
             }
-        ],
-        [project_values, procurement_order_list, projectPayments, tab, notifications, getAmountPaid, getPOTotal, handleNewPRSeen, userList]
-    )
+        ], [tab, useUsersList, getAmountPaid]);
 
-    const { toast } = useToast()
 
-    if (procurement_order_list_error || projects_error || vendorsError || projectPaymentsError) {
-        console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, vendorsError?.message)
-        toast({
-            title: "Error!",
-            description: `Error ${procurement_order_list_error?.message || projects_error?.message || vendorsError?.message}`,
-            variant: "destructive"
-        })
-    }
+        const facetFilterOptions = useMemo(() => ({
+            // Use the 'accessorKey' or 'id' of the column
+            project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
+            vendor: { title: "Vendor", options: vendorOptions }, // Or use 'vendor' if filtering by ID
+            // status: { title: "Status", options: statusOptions },
+        }), [projectOptions, vendorOptions]);
+        
+        // --- Fields to Fetch ---
+        const fieldsToFetch: (keyof ProcurementOrdersType | 'name')[] = useMemo(() => [
+            "name", "project", "vendor", "procurement_request", "project_name",
+            "vendor_name", "status", "creation", "modified", "owner",
+            "order_list",
+            "invoice_data",
+            "freight_charges",
+            "loading_charges",
+            "custom",
+        ], []);
+    
+        // Fields for global search (simple names)
+        const poGlobalSearchFields = useMemo(() => [
+        "name", "project", "vendor", "procurement_request", "project_name", "vendor_name", "status",
+        ], []);
+
+        // --- Determine if Item Search should be enabled for this Doctype/Component ---
+        const enableItemSearchFeature = true; // Set to true for POs
+
+        // --- useServerDataTable Hook Instantiation ---
+        // Only instantiate if the current tab is supposed to show a data table
+        const shouldShowTable = useMemo(() =>
+            ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab),
+        [tab]);
+
+        const serverDataTable = useServerDataTable<ProcurementOrdersType>(
+        (shouldShowTable ? {
+            doctype: DOCTYPE,
+            columns: columns,
+            fetchFields: fieldsToFetch,
+            // defaultSearchField: "name", // Search PO ID by default when specific search is on
+            globalSearchFieldList: poGlobalSearchFields,
+            enableRowSelection: true,
+            urlSyncKey: URL_SYNC_KEY,
+            defaultSort: 'creation desc', // Default sort order
+            additionalFilters: staticFiltersForTab,
+            enableItemSearch: enableItemSearchFeature, // Pass flag to enable item search possibility
+        } : { // Provide minimal config when table shouldn't render to satisfy hook types
+            doctype: DOCTYPE, columns: [], fetchFields: ["name"], globalSearchFieldList: ["name"]
+        }));
+
+    // --- Export Handler ---
+    const handleExport = useCallback(() => {
+        if (!shouldShowTable) return;
+        const selectedRowsData = serverDataTable.table.getSelectedRowModel().rows.map(row => row.original);
+        console.log("Exporting selected PO data:", selectedRowsData);
+        alert(`Exporting ${selectedRowsData.length} selected POs... (Check console)`);
+        serverDataTable.table.resetRowSelection();
+    }, [serverDataTable.table, shouldShowTable]);
+
+    // --- Tab Change Handler ---
+    const handleTabClick = useCallback((value: string) => {
+        if (tab !== value) {
+            setTab(value);
+            // Reset pagination/search/filters when changing tabs? Optional.
+            // If urlSyncKey is used, the hook will re-initialize state based on URL
+            // If you want a full reset, you might need to manually clear URL params
+            // or call specific setters from the hook. For now, relying on URL state.
+        }
+    }, [tab]);
+
 
     // --- Determine which view to render based on tab ---
     const renderTabView = () => {
-        // Render specific components for approval tabs
         if (tab === "Approve PO") return <ApproveSelectVendor />;
         if (tab === "Approve Amended PO") return <ApproveSelectAmendPO />;
         if (tab === "Approve Sent Back PO") return <ApproveSelectSentBack />;
 
-        // Render DataTable for PO status tabs
-        if (procurement_order_list_loading || projects_loading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
-            return <TableSkeleton />;
+        // Handle tabs that should show the DataTable
+        if (shouldShowTable) {
+            // Show loading skeleton if *any* supporting data is loading
+            if (projects_loading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
+                 return <TableSkeleton />; // Use your skeleton component
+            }
+            // Show error if supporting data failed
+            if (!projects || !vendorsList || !userList /* || !projectPayments - handle partial errors? */) {
+                return <div className="text-red-600 text-center p-4">Error loading supporting data for table view.</div>;
+            }
+            // Render the DataTable
+            return (
+                 <DataTable<ProcurementOrdersType>
+                    table={serverDataTable.table}
+                    columns={columns} // Pass dynamically calculated columns
+                    isLoading={serverDataTable.isLoading}
+                    error={serverDataTable.error}
+                    totalCount={serverDataTable.totalCount}
+                    globalFilterValue={serverDataTable.globalFilter}
+                    onGlobalFilterChange={serverDataTable.setGlobalFilter}
+                    // globalSearchConfig={{
+                    //     isEnabled: serverDataTable.isGlobalSearchEnabled,
+                    //     toggle: serverDataTable.toggleGlobalSearch,
+                    //     specificPlaceholder: "Search by PO ID...",
+                    //     globalPlaceholder: "Search All PO Fields..."
+                    // }}
+
+                    // --- Pass new props ---
+                    searchPlaceholder="Search POs (Global)..." // Placeholder for global search
+                    showItemSearchToggle={serverDataTable.showItemSearchToggle} // From hook
+                    itemSearchConfig={{ // Config for the item search toggle
+                        isEnabled: serverDataTable.isItemSearchEnabled,
+                        toggle: serverDataTable.toggleItemSearch,
+                        label: "Item Search" // Optional custom label
+                    }}
+                    // --- End new props ---
+                    facetFilterOptions={facetFilterOptions}
+                    showExport={true}
+                    onExport={handleExport}
+                />
+            );
         }
-        if (procurement_order_list_error || projects_error || vendorsError || userError || projectPaymentsError) {
-            // Optionally show an error message within the table area
-            return <div className="text-red-600 text-center p-4">Failed to load purchase orders for this tab.</div>;
-        }
-        return <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />;
+
+        // Fallback if tab doesn't match any view
+        return <div>Invalid Tab Selected</div>;
+
     };
     // --- End Render View Logic ---
 
     return (
         <>
             <InvoiceDataDialog
-                open={!!selectedInvoice}
-                onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
-                invoiceData={selectedInvoice?.invoice_data}
-                project={selectedInvoice?.project_name}
-                poNumber={selectedInvoice?.name}
-                vendor={selectedInvoice?.vendor_name}
+                open={!!selectedInvoicePO}
+                onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
+                invoiceData={selectedInvoicePO?.invoice_data}
+                project={selectedInvoicePO?.project_name}
+                poNumber={selectedInvoicePO?.name}
+                vendor={selectedInvoicePO?.vendor_name}
             />
 
             <PaymentsDataDialog
-                open={!!currentPaymentsDialog}
-                onOpenChange={(open) => !open && setCurrentPaymentsDialog(undefined)}
+                open={!!selectedPaymentPO}
+                onOpenChange={(open) => !open && setSelectedPaymentPO(undefined)}
                 payments={projectPayments}
-                data={currentPaymentsDialog}
+                data={selectedPaymentPO}
                 projects={projects}
                 vendors={vendorsList}
                 isPO
@@ -520,7 +584,7 @@ export const ReleasePOSelect: React.FC = () => {
                                     optionType="button"
                                     buttonStyle="solid"
                                     value={tab}
-                                    onChange={(e) => onClick(e.target.value)}
+                                    onChange={(e) => handleTabClick(e.target.value)}
                                 />
                             )
                         }
@@ -532,7 +596,7 @@ export const ReleasePOSelect: React.FC = () => {
                                     optionType="button"
                                     buttonStyle="solid"
                                     value={tab}
-                                    onChange={(e) => onClick(e.target.value)}
+                                    onChange={(e) => handleTabClick(e.target.value)}
                                 />
                             )
                         }
@@ -541,25 +605,9 @@ export const ReleasePOSelect: React.FC = () => {
                 )}
 
                 <Suspense fallback={<LoadingFallback />}>
-                    {renderTabView()} {/* Use the render function */}
+                    {renderTabView()}
                 </Suspense>
-
-
-                {/* {["Approve PO", "Approve Amended PO", "Approve Sent Back PO"].includes(tab) ? (
-                    tab === "Approve PO" ? (
-                        <ApproveSelectVendor />
-                    ) : tab === "Approve Amended PO" ? (
-                        <ApproveSelectAmendPO />
-                    ) : (
-                        <ApproveSelectSentBack />
-                    )
-                ) : (
-                    (procurement_order_list_loading || projects_loading || vendorsListLoading || projectPaymentsLoading) ? (<TableSkeleton />) : (
-                        <DataTable columns={columns} data={filtered_po_list} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
-                    )
-                )} */}
             </div>
-
         </>
     )
 }

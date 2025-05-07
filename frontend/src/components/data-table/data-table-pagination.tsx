@@ -219,7 +219,7 @@ export function DataTablePagination<TData>({
     table,
     totalCount,
     isLoading = false,
-    pageSizeOptions = [10, 20, 30, 40, 50], // Default options
+    pageSizeOptions = [10, 20, 30, 40, 50, 500], // Default options
 }: DataTablePaginationProps<TData>) {
 
     const pagination = table.getState().pagination;

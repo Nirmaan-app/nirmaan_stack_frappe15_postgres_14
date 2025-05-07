@@ -39,14 +39,27 @@ interface DataTableProps<TData> {
     /** Callback to update the global filter state in the hook. */
     onGlobalFilterChange: (value: string) => void;
     /** Configuration for the global search toggle. */
-    globalSearchConfig: {
+    // globalSearchConfig: {
+    //     isEnabled: boolean;
+    //     toggle: () => void;
+    //     /** Placeholder text when global search is enabled */
+    //     globalPlaceholder?: string;
+    //      /** Placeholder text when specific field search is enabled */
+    //     specificPlaceholder?: string;
+    // };
+
+    // --- MODIFIED: Search Configuration ---
+    /** Placeholder for the main search input */
+    searchPlaceholder?: string;
+    /** Should the Item Search toggle be displayed? */
+    showItemSearchToggle?: boolean;
+    /** Configuration for the Item Search toggle */
+    itemSearchConfig?: {
         isEnabled: boolean;
         toggle: () => void;
-        /** Placeholder text when global search is enabled */
-        globalPlaceholder?: string;
-         /** Placeholder text when specific field search is enabled */
-        specificPlaceholder?: string;
+        label?: string; // Optional custom label
     };
+    // --- END MODIFICATION ---
     /** Optional: Options for various faceted filters. Passed down to DataTableFacetedFilter. */
     facetFilterOptions?: {
         [columnId: string]: { title: string; options: { label: string; value: string; icon?: React.ComponentType<{ className?: string }> }[] } | undefined;
@@ -69,7 +82,12 @@ export function DataTable<TData>({
     totalCount,
     globalFilterValue,
     onGlobalFilterChange,
-    globalSearchConfig,
+    // globalSearchConfig,
+    // --- MODIFIED: Destructure new props ---
+    searchPlaceholder = "Search...", // Default placeholder
+    showItemSearchToggle = false,
+    itemSearchConfig = { isEnabled: false, toggle: () => {} }, // Default config
+    // --- END MODIFICATION ---
     facetFilterOptions = {},
     showExport = false,
     onExport,
@@ -78,15 +96,28 @@ export function DataTable<TData>({
 }: DataTableProps<TData>) {
 
     // Use React.useId for accessibility linking if needed
-    const globalSearchCheckboxId = React.useId();
-    const globalFilterInputId = React.useId();
+    // const globalSearchCheckboxId = React.useId();
+    // const globalFilterInputId = React.useId();
+
+    const searchInputId = React.useId();
+    const itemSearchCheckboxId = React.useId();
+
 
     // Memoize the placeholder to avoid re-renders on every input change
-    const searchPlaceholder = React.useMemo(() => {
-        return globalSearchConfig.isEnabled
-            ? (globalSearchConfig.globalPlaceholder ?? "Search all fields...")
-            : (globalSearchConfig.specificPlaceholder ?? "Search specific field...");
-     }, [globalSearchConfig.isEnabled, globalSearchConfig.globalPlaceholder, globalSearchConfig.specificPlaceholder]);
+    // const searchPlaceholder = React.useMemo(() => {
+    //     return globalSearchConfig.isEnabled
+    //         ? (globalSearchConfig.globalPlaceholder ?? "Search all fields...")
+    //         : (globalSearchConfig.specificPlaceholder ?? "Search specific field...");
+    //  }, [globalSearchConfig.isEnabled, globalSearchConfig.globalPlaceholder, globalSearchConfig.specificPlaceholder]);
+
+
+    // Placeholder depends on whether item search is possible *and* enabled
+    const currentSearchPlaceholder = React.useMemo(() => {
+        if (showItemSearchToggle && itemSearchConfig.isEnabled) {
+            return `Search by Item...`; // Placeholder when item search is ON
+        }
+        return searchPlaceholder; // Use the default global search placeholder
+    }, [showItemSearchToggle, itemSearchConfig.isEnabled, searchPlaceholder]);
 
 
     return (
@@ -95,7 +126,7 @@ export function DataTable<TData>({
             <div className="flex flex-wrap items-center justify-between gap-4 py-4">
                 {/* Search Input & Global Toggle */}
                 <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
-                     <Input
+                     {/* <Input
                         id={globalFilterInputId}
                         placeholder={searchPlaceholder}
                         value={globalFilterValue}
@@ -103,8 +134,18 @@ export function DataTable<TData>({
                         className="h-9 w-full sm:w-[250px] lg:w-[300px]" // Responsive width
                         aria-label={searchPlaceholder}
                         aria-describedby={globalSearchCheckboxId} // Link to checkbox description
+                    /> */}
+
+                    <Input
+                        id={searchInputId}
+                        placeholder={currentSearchPlaceholder} // Use dynamic placeholder
+                        value={globalFilterValue}
+                        onChange={(e) => onGlobalFilterChange(e.target.value)}
+                        className="h-9 w-full sm:w-[250px] lg:w-[300px]"
+                        aria-label={currentSearchPlaceholder}
+                        aria-describedby={showItemSearchToggle ? itemSearchCheckboxId : undefined}
                     />
-                    <div className="flex items-center space-x-2">
+                    {/* <div className="flex items-center space-x-2">
                          <Checkbox
                             id={globalSearchCheckboxId}
                             checked={globalSearchConfig.isEnabled}
@@ -113,7 +154,21 @@ export function DataTable<TData>({
                         <Label htmlFor={globalSearchCheckboxId} className="text-sm font-medium cursor-pointer whitespace-nowrap">
                             Global Search
                         </Label>
-                    </div>
+                    </div> */}
+
+                    {/* Conditionally render Item Search Toggle */}
+                    {showItemSearchToggle && (
+                         <div className="flex items-center space-x-2">
+                            <Checkbox
+                                id={itemSearchCheckboxId}
+                                checked={itemSearchConfig.isEnabled}
+                                onCheckedChange={itemSearchConfig.toggle}
+                            />
+                            <Label htmlFor={itemSearchCheckboxId} className="text-sm font-medium cursor-pointer whitespace-nowrap">
+                                {itemSearchConfig.label ?? "Item Search"} {/* Default Label */}
+                            </Label>
+                        </div>
+                     )}
                 </div>
 
                 {/* Faceted Filters (Rendered in Header now) & View Options */}
@@ -149,9 +204,9 @@ export function DataTable<TData>({
              )}
 
             {/* --- Table --- */}
-            <div className="rounded-md border overflow-x-auto relative"> {/* overflow-x-auto for responsiveness */}
+            <div className="rounded-md border overflow-x-auto relative max-h-[70vh] overflow-y-auto"> {/* overflow-x-auto for responsiveness */}
                 <Table className="min-w-full">
-                    <TableHeader className="sticky top-0 z-10 bg-background shadow-sm"> {/* Sticky header */}
+                    <TableHeader className="sticky top-0 z-10 bg-red-50 shadow-sm"> {/* Sticky header */}
                         {table.getHeaderGroups().map((headerGroup) => (
                             <TableRow key={headerGroup.id}>
                                 {headerGroup.headers.map((header) => (
@@ -167,7 +222,7 @@ export function DataTable<TData>({
                                                          title={facetFilterOptions[header.column.id]!.title}
                                                          options={facetFilterOptions[header.column.id]!.options}
                                                          // Identifier for URL state management
-                                                         urlSyncKey={header.column.id} // Use column ID as key for URL param
+                                                        //  urlSyncKey={header.column.id} // Use column ID as key for URL param
                                                      />
                                                  )}
 
@@ -194,7 +249,7 @@ export function DataTable<TData>({
                                     data-state={row.getIsSelected() && 'selected'}
                                 >
                                     {row.getVisibleCells().map((cell) => (
-                                        <TableCell key={cell.id} style={{ width: cell.column.getSize() !== 150 ? cell.column.getSize() : undefined }}>
+                                        <TableCell className="p-4" key={cell.id} style={{ width: cell.column.getSize() !== 150 ? cell.column.getSize() : undefined }}>
                                             {flexRender(
                                                 cell.column.columnDef.cell,
                                                 cell.getContext()

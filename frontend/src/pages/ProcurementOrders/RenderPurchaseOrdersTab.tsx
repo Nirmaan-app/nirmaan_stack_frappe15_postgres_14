@@ -1,10 +1,10 @@
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
 
 export const RenderPurchaseOrdersTab : React.FC = () => {
 
-  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO");
+  const tab = useUrlParam("tab");
 
   // const ApprovePO = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes"));
 
