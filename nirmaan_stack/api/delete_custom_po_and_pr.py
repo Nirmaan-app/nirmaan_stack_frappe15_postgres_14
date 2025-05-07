@@ -3,7 +3,7 @@ import frappe
 @frappe.whitelist()
 def delete_custom_po(po_id: str):
     """
-    Deletes a Procurement Order and its associated Procurement Request.
+    Deletes a Procurement Order and its associated Procurement Request, along with any attachments.
 
     Args:
         po_id (str): The name (ID) of the Procurement Order to delete.
@@ -18,6 +18,19 @@ def delete_custom_po(po_id: str):
         if not pr_doc:
             raise frappe.ValidationError(f"Procurement Request {pr_name} not found.")
 
+        # Make sure the doctype is set correctly to match the attachments associated with the PR
+        attachments = frappe.db.get_list(
+            "Nirmaan Attachments", 
+            filters={
+                "associated_docname": pr_name, 
+                "associated_doctype": "Procurement Requests"
+            }, 
+            fields=["name"]
+        )
+        for att in attachments:
+            frappe.delete_doc("Nirmaan Attachments", att.name)
+
+        # Now delete the Procurement Order and Request
         frappe.delete_doc("Procurement Orders", po_id)
         frappe.delete_doc("Procurement Requests", pr_name)
 
