@@ -1,4 +1,3 @@
-// import { DataTable } from "@/components/data-table/data-table";
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -7,7 +6,6 @@ import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
@@ -24,11 +22,11 @@ import { Badge } from "../../components/ui/badge";
 import { TableSkeleton } from "../../components/ui/skeleton";
 import { PaymentsDataDialog } from "../ProjectPayments/PaymentsDataDialog";
 import { InvoiceDataDialog } from "./InvoiceDataDialog";
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useUsersList } from '../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
+import { useVendorsList } from '../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 
 const ApproveSelectVendor = React.lazy(() => import("../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../Sent Back Requests/approve-select-sent-back"));
@@ -116,22 +114,13 @@ export const ReleasePOSelect: React.FC = () => {
         limit: 1000
     }, "Projects")
 
-    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
-        fields: ["vendor_name", 'vendor_type'],
-        filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
-        limit: 10000
-    },
-        "Material Vendors"
-    )
+    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useVendorsList()
 
-    const { data: userList, isLoading: userListLoading, error: userError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["name", 'full_name'],
-        limit: 1000
-    },
-        "Nirmaan Users"
-    )
+    const {data: userList, isLoading: userListLoading, error: userError } = useUsersList()
 
-    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name })) || [], [vendorsList])
+    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
+
+
 
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
@@ -421,13 +410,13 @@ export const ReleasePOSelect: React.FC = () => {
                 size: 200,
                 enableSorting: false,
             },
-            {
-                accessorKey: 'order_list',
-                header: () => null,
-                cell: () => null,
-                size: 0,
-            }
-        ], [tab, useUsersList, getAmountPaid]);
+            // {
+            //     accessorKey: 'order_list',
+            //     header: () => null,
+            //     cell: () => null,
+            //     size: 0,
+            // }
+        ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal]);
 
 
         const facetFilterOptions = useMemo(() => ({
@@ -461,6 +450,9 @@ export const ReleasePOSelect: React.FC = () => {
         const shouldShowTable = useMemo(() =>
             ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab),
         [tab]);
+
+        // Define which columns should use the date filter
+        const dateColumns = useMemo(() => ["creation", "modified"], []); // Add other date column IDs if needed
 
         const serverDataTable = useServerDataTable<ProcurementOrdersType>(
         (shouldShowTable ? {
@@ -542,6 +534,7 @@ export const ReleasePOSelect: React.FC = () => {
                     }}
                     // --- End new props ---
                     facetFilterOptions={facetFilterOptions}
+                    dateFilterColumns={dateColumns}
                     showExport={true}
                     onExport={handleExport}
                 />

@@ -3,7 +3,7 @@ import {
     useReactTable,
     getCoreRowModel,
     getSortedRowModel,
-    getFilteredRowModel, // Keep for potential client-side overrides if needed later
+    // getFilteredRowModel, // Keep for potential client-side overrides if needed later
     getFacetedRowModel, // Keep for UI helpers like unique values
     getFacetedUniqueValues, // Keep for UI helpers
     ColumnDef,
@@ -15,7 +15,7 @@ import {
     RowSelectionState,
     Row,
 } from '@tanstack/react-table';
-import { useFrappePostCall } from 'frappe-react-sdk'; // Assuming you use this context provider
+import { useFrappeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk'; // Assuming you use this context provider
 import { debounce } from 'lodash';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
@@ -23,6 +23,10 @@ import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
 // --- Configuration ---
 const DEBOUNCE_DELAY = 500; // ms
 
+
+// --- Base SWR Key Prefix for this hook's data ---
+// We use this to invalidate relevant queries without needing the exact parameter hash
+const SWR_KEY_PREFIX = 'custom_datatable_list';
 
 // --- URL State Synchronization ---
 // Helper to safely parse URL params to numbers
@@ -87,6 +91,10 @@ export interface ServerDataTableConfig<TData> {
     /** Should the Item Search option be available for this table? */
     enableItemSearch?: boolean;
     // -----------
+    // --- NEW ---
+    /** If true, filters results to only include docs where specific JSON conditions are met (backend logic) */
+    requirePendingItems?: boolean; // Example specific flag for PRs
+    // -----------
 }
 
 export interface ServerDataTableResult<TData> {
@@ -114,6 +122,38 @@ export interface ServerDataTableResult<TData> {
     // -----------
 }
 
+
+// --- Helper: Base64 encode/decode for URL safety ---
+const encodeFiltersForUrl = (filters: ColumnFiltersState): string | null => {
+    if (!filters || filters.length === 0) return null;
+    try {
+        const jsonString = JSON.stringify(filters);
+        return btoa(jsonString); // Base64 encode
+    } catch (e) {
+        console.error("Failed to encode filters:", e);
+        return null;
+    }
+};
+
+const decodeFiltersFromUrl = (encodedString: string | null): ColumnFiltersState => {
+    if (!encodedString) return [];
+    try {
+        const jsonString = atob(encodedString); // Base64 decode
+        const parsed = JSON.parse(jsonString);
+        // Basic validation: is it an array? are items objects with id/value?
+        if (Array.isArray(parsed) && parsed.every(item => typeof item === 'object' && item !== null && 'id' in item && 'value' in item)) {
+             // Further validation could be added for specific value types if needed
+            return parsed as ColumnFiltersState;
+        }
+        console.warn("Decoded filter string is not a valid ColumnFiltersState:", parsed);
+        return [];
+    } catch (e) {
+        console.error("Failed to decode/parse filters from URL:", e);
+        return [];
+    }
+};
+
+
 // --- The Hook ---
 export function useServerDataTable<TData extends { name: string }>({
     doctype,
@@ -131,11 +171,18 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- NEW ---
     enableItemSearch = false, // Default to false
     // -----------
+    requirePendingItems = false, // Default to false
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
 
     // const { call, loading: isLoading } = useFrappePostCall<{message: { data: TData[]; total_count: number } }>("nirmaan_stack.api.data-table.get_list_with_count_via_reportview_logic"); // Get Frappe call method from context
 
-    const { call, loading: isLoading } = useFrappePostCall<{message: { data: TData[]; total_count: number } }>("nirmaan_stack.api.data-table.get_list_with_count_enhanced"); // Get Frappe call method from context
+
+    const apiEndpoint = 'nirmaan_stack.api.data-table.get_list_with_count_enhanced'; // Get Frappe call method from context
+    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{message: { data: TData[]; total_count: number } }>(apiEndpoint); // Get Frappe call method from context
+
+    // --- SWR Mutate for Cache Invalidation ---
+    const { mutate } = useSWRConfig();
+    // -----------------------------------------
 
     // --- State Management ---
     const [pagination, setPagination] = useState<PaginationState>(() => ({
@@ -149,22 +196,13 @@ export function useServerDataTable<TData extends { name: string }>({
             : (initialState.sorting ?? [])
     );
 
-    // --- MODIFIED: How columnFilters are initialized and synced ---
+
+    // --- MODIFIED: Initialize columnFilters from single URL param ---
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => {
         if (urlSyncKey) {
-            // Read each potential column filter from URL
-            // Example: po_project=VAL1,VAL2 -> { id: "project", value: ["VAL1", "VAL2"] }
-            const initialFilters: ColumnFiltersState = [];
-            const params = new URLSearchParams(window.location.search);
-            columns.forEach(col => {
-                if (col?.accessorKey) {
-                    const urlParamValue = params.get(`${urlSyncKey}_${col?.accessorKey}`);
-                    if (urlParamValue) {
-                        initialFilters.push({ id: col?.accessorKey, value: urlParamValue.split(',') });
-                    }
-                }
-            });
-            return initialFilters.length > 0 ? initialFilters : (initialState.columnFilters ?? []);
+            const encodedFilters = urlStateManager.getParam(`${urlSyncKey}_filters`); // Use single key
+            const decoded = decodeFiltersFromUrl(encodedFilters);
+            return decoded.length > 0 ? decoded : (initialState.columnFilters ?? []);
         }
         return initialState.columnFilters ?? [];
     });
@@ -190,18 +228,13 @@ export function useServerDataTable<TData extends { name: string }>({
     // ---------------------------------
 
 
-    // const [isGlobalSearchEnabled, setIsGlobalSearchEnabled] = useState<boolean>(() =>
-    //     urlSyncKey
-    //         ? getUrlBoolParam(`${urlSyncKey}_globalSearch`, initialState.isGlobalSearchEnabled ?? false)
-    //         : (initialState.isGlobalSearchEnabled ?? false)
-    // );
-
     const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialState.columnVisibility ?? {});
     const [rowSelection, setRowSelection] = useState<RowSelectionState>(initialState.rowSelection ?? {});
 
     const [data, setData] = useState<TData[]>([]);
     const [totalCount, setTotalCount] = useState<number>(0);
     const [error, setError] = useState<Error | null>(null);
+    const [isLoading, setIsLoading] = useState(false); // Manual loading state
     const [internalTrigger, setInternalTrigger] = useState<number>(0); // To manually refetch
 
     // --- Debounce Logic using lodash.debounce ---
@@ -252,10 +285,21 @@ export function useServerDataTable<TData extends { name: string }>({
           ...(enableItemSearch ? [urlStateManager.subscribe(`${keyPrefix}itemSearch`, (_, value) => setIsItemSearchEnabled(value === 'true'))] : []),
           // ------------------------------------------
         //   urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => { try { setColumnFilters(value ? JSON.parse(value) : []) } catch { setColumnFilters([]) } }),
+
+        // --- MODIFIED: Subscribe to the single encoded filters param ---
+        urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => {
+            // Update state only if decoded value differs from current state JSON stringified
+            const decoded = decodeFiltersFromUrl(value);
+            if(JSON.stringify(columnFilters) !== JSON.stringify(decoded)) {
+                 console.log("Updating columnFilters state from URL subscription");
+                 setColumnFilters(decoded);
+            }
+        }),
+        // --- END MODIFICATION ---
       ];
       // Return cleanup function to unsubscribe all
       return () => subscriptions.forEach(unsub => unsub());
-  }, [urlSyncKey]); // Re-run only if urlSyncKey changes
+  }, [urlSyncKey, enableItemSearch, columnFilters]); // Add columnFilters here to compare on popstate update
 
 
     // Update URL when local state changes (avoiding infinite loops)
@@ -282,60 +326,32 @@ export function useServerDataTable<TData extends { name: string }>({
         }
     }, [isItemSearchEnabled, enableItemSearch, urlSyncKey, updateUrlParam]);
 
-    // --- NEW: Effect to sync columnFilters TO URL ---
+    // --- MODIFIED: Sync entire columnFilters state TO single URL param ---
     useEffect(() => {
-        if (!urlSyncKey) return;
-
-        // Clear old column filter params first to handle deselection
-        const params = new URLSearchParams(window.location.search);
-        columns.forEach(colDef => { // Iterate over defined columns to know which params to clear
-            if (colDef.accessorKey) {
-                params.delete(`${urlSyncKey}_${colDef.accessorKey}`);
-            }
-        });
-        let currentSearch = params.toString();
-        const newUrl = `${window.location.pathname}${currentSearch ? `?${currentSearch}` : ''}`;
-        window.history.replaceState({}, '', newUrl); // Update URL after clearing
-
-
-        // Set new column filter params
-        if (columnFilters.length > 0) {
-            columnFilters.forEach(filter => {
-                if (Array.isArray(filter.value) && filter.value.length > 0) {
-                    updateUrlParam(filter.id, filter.value.join(','));
-                } else if (typeof filter.value === 'string' && filter.value) {
-                    updateUrlParam(filter.id, filter.value);
-                } else {
-                     // If filter value is empty/undefined, ensure it's removed from URL by passing null
-                    updateUrlParam(filter.id, null);
-                }
-            });
+        if (urlSyncKey) {
+             const encodedFilters = encodeFiltersForUrl(columnFilters);
+            updateUrlParam('filters', encodedFilters); // Use single key "_filters"
         }
-        // If columnFilters is empty, all relevant params should have been cleared above
-        // or by updateUrlParam(key, null)
-    }, [columnFilters, urlSyncKey, updateUrlParam, columns]); // Added columns to dependency
-    // --- END NEW ---
+    }, [columnFilters, urlSyncKey, updateUrlParam]);
+    // --- END MODIFICATION ---
 
 
     // --- Data Fetching ---
     // Use useRef to prevent fetching on initial mount if desired, or manage initial fetch state.
     const isInitialMount = useRef(true);
     
-    const fetchData = useCallback(async () => {
-        setError(null);
+    const fetchData = useCallback(async (isRefetch = false) => {
+        // Don't fetch if already loading, unless it's a manual refetch trigger
+        if (isLoading && !isRefetch) return;
+        
+        setIsLoading(true); // Set loading true when fetch starts
+        setError(null); // Clear previous error
+        resetApiState(); // Reset error/completion state of useFrappePostCall
 
         // --- Parameter preparation for YOUR backend API ---
         const orderByForApi = sorting.length > 0
             ? `${sorting[0].id} ${sorting[0].desc ? 'desc' : 'asc'}`
             : defaultSort; // Send simple field name, backend can prefix if needed for reportview
-
-        // const baseFrappeFilters = convertTanstackFiltersToFrappe(columnFilters, doctype); // Pass doctype for context if needed by converter
-        
-        // // Combine baseFrappeFilters with additionalFilters from config
-        // let combinedBaseFilters = [...additionalFilters];
-        // if (baseFrappeFilters && baseFrappeFilters.length > 0) {
-        //     combinedBaseFilters.push(...baseFrappeFilters);
-        // }
 
         // --- FIX TypeScript Errors ---
         // Call convertTanstackFiltersToFrappe with only one argument
@@ -350,18 +366,6 @@ export function useServerDataTable<TData extends { name: string }>({
 
 
         const searchTermForApi = debouncedSearchTermForApi;
-        
-        // --- NEW: Determine current_search_fields to send to backend ---
-        // let searchFieldsForBackend: string[] | undefined = undefined;
-        // if (searchTermForApi) { // Only construct if there's a search term
-        //     if (isGlobalSearchEnabled) {
-        //         searchFieldsForBackend = globalSearchFieldList;
-        //     } else {
-        //         searchFieldsForBackend = [defaultSearchField];
-        //     }
-        // }
-        // --- END NEW ---
-
 
         // --- MODIFIED: Determine params based on item search ---
         let fieldsForBackendSearch: string[] | undefined = undefined;
@@ -385,15 +389,28 @@ export function useServerDataTable<TData extends { name: string }>({
             // -------------------------------------------
             current_search_fields: fieldsForBackendSearch ? JSON.stringify(fieldsForBackendSearch) : undefined,
             is_item_search: isItemSearchEnabled, // Pass the new flag
+            // --- NEW: Pass the new flag ---
+            require_pending_items: requirePendingItems,
+            // -----------------------------
         };
+
+        // --- Define the SWR Key for THIS specific fetch ---
+        // Needs to include all params that affect the result
+        const currentQueryKey = [
+            SWR_KEY_PREFIX,
+            apiEndpoint,
+            JSON.stringify(payload) // Key based on exact payload
+           ];
 
         // console.log("[useServerDataTable calling custom backend adapter] Payload:", payload);
 
         try {
-            const response = await call(payload);
+            const response = await triggerFetch(payload);
             if (response.message) {
                 setData(response.message.data);
                 setTotalCount(response.message.total_count);
+                // Update SWR cache manually after successful fetch if needed elsewhere?
+                // mutate(currentQueryKey, response, false); // Update cache without revalidation
             } else {
                 console.warn('Custom API call successful but no message received.');
                 setData([]); setTotalCount(0);
@@ -403,9 +420,11 @@ export function useServerDataTable<TData extends { name: string }>({
             const errorMessage = err.message || (err._server_messages ? JSON.parse(err._server_messages)[0].message : 'An unknown error occurred');
             setError(err instanceof Error ? err : new Error(errorMessage));
             setData([]); setTotalCount(0);
+        } finally {
+            setIsLoading(false); // Set loading false when fetch completes
         }
     }, [
-        call, doctype, JSON.stringify(fetchFields),
+        triggerFetch,resetApiState, apiEndpoint, doctype, JSON.stringify(fetchFields),
         pagination.pageIndex, pagination.pageSize, JSON.stringify(sorting),
         JSON.stringify(columnFilters), debouncedSearchTermForApi, 
         // isGlobalSearchEnabled,
@@ -413,6 +432,7 @@ export function useServerDataTable<TData extends { name: string }>({
         isItemSearchEnabled,
         JSON.stringify(globalSearchFieldList), defaultSort,
         JSON.stringify(additionalFilters), internalTrigger, // Added additionalFilters
+        requirePendingItems
     ]);
 
    // Effect to trigger data fetching when dependencies change
@@ -425,16 +445,50 @@ export function useServerDataTable<TData extends { name: string }>({
         // return;
 
         // Fetch initial data if columnFilters (from URL) or other params are set
-        if (columnFilters.length > 0 || globalFilter || sorting.length > 0) {
+        if (columnFilters.length > 0 || globalFilter || sorting.length > 0 || !urlSyncKey) {
             fetchData();
-        } else if (!urlSyncKey){ // If no URL sync, fetch initially
-           fetchData();
-        }
+        } 
         return;
     }
 
     fetchData();
 }, [fetchData]); // Dependency is the memoized fetchData function
+
+    // --- Real-time Event Listener using useFrappeEventListener ---
+    const handleRealtimeEvent = useCallback((message: any) => {
+        console.log(`[useServerDataTable ${doctype}] Socket event received:`, message?.event, message);
+        // Check if the event is relevant to the current doctype
+        if (message?.doctype === doctype) {
+            console.log(`[useServerDataTable ${doctype}] Relevant event received. Invalidating cache and refetching.`);
+        
+            // --- SWR Cache Invalidation ---
+            // Invalidate based on a prefix to catch all variations of filters/pagination for this list
+            // This tells SWR to mark data starting with this key pattern as stale.
+            // The second argument `false` means don't refetch immediately IF the hook isn't mounted/visible.
+            // SWR will revalidate automatically on focus or mount if data is stale.
+            // We might still want an immediate refetch if the table *is* visible.
+            mutate(
+                (key) => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint && key[2]?.includes(`"doctype":"${doctype}"`), // More precise invalidation if needed
+                undefined, // Setting data to undefined forces refetch on next render/focus
+                { revalidate: true } // Trigger revalidation (refetch) immediately if component is mounted
+            );
+        
+            // OR a simpler invalidation (might be less precise but often works):
+            // mutate(key => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint, undefined, { revalidate: true });
+        
+            // Since we manage data with useState now, we might need to directly trigger fetchData
+            fetchData(true); // Call fetchData directly to update our local state
+        }
+    }, [doctype, apiEndpoint, mutate, fetchData]); // Add fetchData to deps
+    
+    // Subscribe to doctype-specific events
+    useFrappeEventListener(`po:new`, handleRealtimeEvent);
+    useFrappeEventListener(`po:updated`, handleRealtimeEvent);
+    useFrappeEventListener(`po:status_changed`, handleRealtimeEvent);
+    useFrappeEventListener(`po:deleted`, handleRealtimeEvent);
+    useFrappeEventListener(`po:cancelled`, handleRealtimeEvent);
+    // Optionally listen to generic Frappe events (can be noisy)
+    // useFrappeEventListener(`list_update`, handleRealtimeEvent);
 
     // --- TanStack Table Instance ---
     const table = useReactTable<TData>({
@@ -473,18 +527,6 @@ export function useServerDataTable<TData extends { name: string }>({
         // debugTable: process.env.NODE_ENV === 'development', // Enable debugging in dev
     });
 
-     // --- Helper Functions ---
-//      const toggleGlobalSearch = useCallback(() => {
-//       setIsGlobalSearchEnabled(prev => {
-//            const newState = !prev;
-//            // Reset search term and page index when toggling global search type? Optional.
-//            setGlobalFilter('');
-//            setDebouncedSearchTermForApi('');
-//            setPagination(p => ({ ...p, pageIndex: 0 }));
-//            return newState;
-//       });
-//   }, []);
-
     // NEW: Toggle Item Search
     const toggleItemSearch = useCallback(() => {
         if (!enableItemSearch) return; // Do nothing if not enabled for this table
@@ -498,9 +540,16 @@ export function useServerDataTable<TData extends { name: string }>({
         });
       }, [enableItemSearch]); // Depend on enableItemSearch
 
+    // --- MODIFIED: Refetch function ---
     const refetch = useCallback(() => {
-    setInternalTrigger(count => count + 1); // Increment trigger to refetch via fetchData dependency
-    }, []);
+        console.log(`[useServerDataTable ${doctype}] Manual refetch triggered.`);
+        // Invalidate cache first
+        mutate(key => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint, undefined, { revalidate: false }); // Invalidate, don't auto-refetch yet
+        // Trigger internal state change OR direct fetch
+        // setInternalTrigger(count => count + 1); // This will trigger the useEffect [fetchData]
+        fetchData(true); // Or call directly, passing true to bypass loading check
+    }, [mutate, apiEndpoint, fetchData]); // Added fetchData
+    // -----------------------------------
 
 
     // --- Return Value ---

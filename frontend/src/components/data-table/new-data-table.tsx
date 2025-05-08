@@ -21,6 +21,7 @@ import { DataTableViewOptions } from './data-table-view-options'; // Adjust path
 import { DataTableFacetedFilter } from './data-table-faceted-filter'; // Adjust path
 import { TableBodySkeleton } from '@/components/ui/skeleton'; // Adjust path
 import { Button } from '../ui/button';
+import { DataTableDateFilter } from './data-table-date-filter';
 
 // --- Types ---
 interface DataTableProps<TData> {
@@ -64,6 +65,11 @@ interface DataTableProps<TData> {
     facetFilterOptions?: {
         [columnId: string]: { title: string; options: { label: string; value: string; icon?: React.ComponentType<{ className?: string }> }[] } | undefined;
     };
+
+    // --- NEW ---
+    /** Array of column IDs that should use the Date Filter */
+    dateFilterColumns?: string[];
+    // -----------
     /** Optional: Show export button and related dialog logic */
     showExport?: boolean;
     onExport?: () => void; // Callback to handle export logic
@@ -89,6 +95,9 @@ export function DataTable<TData>({
     itemSearchConfig = { isEnabled: false, toggle: () => {} }, // Default config
     // --- END MODIFICATION ---
     facetFilterOptions = {},
+    // --- NEW ---
+    dateFilterColumns = [], // Default to empty array
+    // -----------
     showExport = false,
     onExport,
     toolbarActions,
@@ -209,32 +218,60 @@ export function DataTable<TData>({
                     <TableHeader className="sticky top-0 z-10 bg-red-50 shadow-sm"> {/* Sticky header */}
                         {table.getHeaderGroups().map((headerGroup) => (
                             <TableRow key={headerGroup.id}>
-                                {headerGroup.headers.map((header) => (
-                                    <TableHead key={header.id} colSpan={header.colSpan} style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}>
-                                        {header.isPlaceholder ? null : (
-                                            <div className="flex items-center gap-2">
-                                                 {/* Render Faceted Filters Here */}
-                                                 {facetFilterOptions?.[header.column.id] && table.getColumn(header.column.id) && (
-                                                     <DataTableFacetedFilter
-                                                         // Pass column instance for potential client-side interactions (like getting unique values)
-                                                         // but the actual filtering happens server-side via URL params
-                                                         column={table.getColumn(header.column.id)}
-                                                         title={facetFilterOptions[header.column.id]!.title}
-                                                         options={facetFilterOptions[header.column.id]!.options}
-                                                         // Identifier for URL state management
-                                                        //  urlSyncKey={header.column.id} // Use column ID as key for URL param
-                                                     />
-                                                 )}
+                                {headerGroup.headers.map((header) => {
+                                    const column = table.getColumn(header.column.id); // Get column instance
+                                    const canShowFacetedFilter = column && facetFilterOptions?.[header.column.id];
+                                    const canShowDateFilter = column && dateFilterColumns.includes(header.column.id);
+                                    return (
+                                    // <TableHead key={header.id} colSpan={header.colSpan} style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}>
+                                    //     {header.isPlaceholder ? null : (
+                                    //         <div className="flex items-center gap-2">
+                                    //              {/* Render Faceted Filters Here */}
+                                    //              {facetFilterOptions?.[header.column.id] && table.getColumn(header.column.id) && (
+                                    //                  <DataTableFacetedFilter
+                                    //                      // Pass column instance for potential client-side interactions (like getting unique values)
+                                    //                      // but the actual filtering happens server-side via URL params
+                                    //                      column={table.getColumn(header.column.id)}
+                                    //                      title={facetFilterOptions[header.column.id]!.title}
+                                    //                      options={facetFilterOptions[header.column.id]!.options}
+                                    //                      // Identifier for URL state management
+                                    //                     //  urlSyncKey={header.column.id} // Use column ID as key for URL param
+                                    //                  />
+                                    //              )}
 
-                                                 {/* Render Header Content (e.g., DataTableColumnHeader) */}
-                                                 {flexRender(
-                                                     header.column.columnDef.header,
-                                                     header.getContext()
-                                                 )}
-                                             </div>
-                                        )}
-                                    </TableHead>
-                                ))}
+                                    //              {/* Render Header Content (e.g., DataTableColumnHeader) */}
+                                    //              {flexRender(
+                                    //                  header.column.columnDef.header,
+                                    //                  header.getContext()
+                                    //              )}
+                                    //          </div>
+                                    //     )}
+                                    // </TableHead>
+
+                                    <TableHead key={header.id} colSpan={header.colSpan} style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}>
+                                            {!header.isPlaceholder && (
+                                                    <div className="flex items-center gap-1">
+                                                    {canShowDateFilter && (
+                                                            <DataTableDateFilter
+                                                                column={column} // Pass column instance
+                                                                title={header.column.columnDef.header as string || header.column.id} // Use header as title fallback
+                                                            />
+                                                         )}
+                                                         {canShowFacetedFilter && (
+                                                             <DataTableFacetedFilter
+                                                                column={column} // Pass column instance
+                                                                title={facetFilterOptions[header.column.id]!.title}
+                                                                options={facetFilterOptions[header.column.id]!.options}
+                                                            />
+                                                         )}
+                                                         {flexRender(
+                                                            header.column.columnDef.header,
+                                                            header.getContext()
+                                                        )}
+                                                    </div>
+                                            )}
+                                        </TableHead>
+                                )})}
                             </TableRow>
                         ))}
                     </TableHeader>

@@ -103,14 +103,6 @@ export default function ReportsContainer() {
                 {/* Report Type Selector */}
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">Report Type:</span>
-                    {/* Example using Ant Design Select */}
-                    {/* <AntSelect
-                         style={{ width: 200 }}
-                         value={selectedReportType}
-                         onChange={handleReportTypeChange}
-                         options={currentReportOptions}
-                         disabled={currentReportOptions.length === 0}
-                     /> */}
 
                     {/* --- OR --- Example using Shadcn UI Select */}
                     <Select

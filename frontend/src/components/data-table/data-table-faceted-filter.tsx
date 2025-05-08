@@ -470,6 +470,7 @@ import {
     PopoverTrigger,
 } from '@/components/ui/popover'; // Adjust path
 import { Separator } from '@/components/ui/separator'; // Adjust path
+import { Filter, FilterX } from 'lucide-react';
 // import { urlStateManager } from '@/utils/urlStateManager';
 
 interface DataTableFacetedFilterProps<TData, TValue> {
@@ -570,10 +571,27 @@ export function DataTableFacetedFilter<TData, TValue>({
 
     return (
         <Popover>
-            <PopoverTrigger asChild>
+             <PopoverTrigger asChild>
+                 <div
+                     className={`cursor-pointer ${
+                         selectedValues.size > 0 && "bg-gray-200"
+                     } hover:bg-gray-100 px-1 py-1 rounded-md`}
+                 >
+                     {selectedValues.size > 0 ? (
+                         <FilterX
+                             className={`text-primary h-4 w-4 ${
+                                 selectedValues.size > 0 && "animate-bounce"
+                             }`}
+                         />
+                     ) : (
+                         <Filter className="text-primary h-4 w-4" />
+                     )}
+                 </div>
+             </PopoverTrigger>
+            {/* <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 border-dashed">
                     <PlusCircledIcon className="mr-2 h-4 w-4" />
-                    {title || column.id} {/* Fallback to column.id if title is not provided */}
+                    {title || column.id}
                     {selectedValues.size > 0 && (
                         <>
                             <Separator orientation="vertical" className="mx-2 h-4" />
@@ -608,7 +626,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                         </>
                     )}
                 </Button>
-            </PopoverTrigger>
+            </PopoverTrigger> */}
             <PopoverContent className="w-[200px] p-0" align="start">
                 <Command>
                     <CommandInput placeholder={title || column.id} />
