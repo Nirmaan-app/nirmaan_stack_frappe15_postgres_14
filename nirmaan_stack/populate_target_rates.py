@@ -149,3 +149,4 @@ def add_selected_quotation(target_rate_doc, approved_quote_dict):
     sq.category = approved_quote_dict.category
     sq.procurement_package = approved_quote_dict.procurement_package
     sq.make = approved_quote_dict.make
+    sq.dispatch_date = approved_quote_dict.creation
