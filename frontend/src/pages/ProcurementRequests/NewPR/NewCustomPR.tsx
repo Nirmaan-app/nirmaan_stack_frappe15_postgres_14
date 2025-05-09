@@ -1,33 +1,33 @@
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { ProcurementHeaderCard } from "@/components/helpers/ProcurementHeaderCard";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
 import { VendorsReactSelect } from "@/components/helpers/VendorsReactSelect";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ProcurementHeaderCard } from "@/components/ui/ProcurementHeaderCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
 } from "@/components/ui/sheet";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
@@ -40,17 +40,17 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Table as AntTable, ConfigProvider } from "antd";
 import {
-  useFrappeFileUpload,
-  useFrappeGetDocList,
-  useFrappePostCall
+    useFrappeFileUpload,
+    useFrappeGetDocList,
+    useFrappePostCall
 } from "frappe-react-sdk";
 import {
-  ArrowLeft,
-  CheckCheck,
-  CirclePlus,
-  Settings2,
-  Trash2,
-  Undo2
+    ArrowLeft,
+    CheckCheck,
+    CirclePlus,
+    Settings2,
+    Trash2,
+    Undo2
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -68,7 +68,6 @@ interface NewCustomPRProps {
 export const NewCustomPR : React.FC<NewCustomPRProps> = ({resolve = false}) => {
 
   const navigate = useNavigate();
-  const userData = useUserData();
 
   const {prId} = useParams<{ prId: string }>();
 
@@ -385,8 +384,6 @@ const handleResolvePR = async () => {
     }
   }, [order]);
 
-  console.log("order", order)
-
   if (prListLoading || vendorListLoading || procurementPackagesLoading || categoryDataLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   return (
@@ -404,7 +401,7 @@ const handleResolvePR = async () => {
       </div>
       )}
 
-      <ProcurementHeaderCard orderData={{project : projectId, owner : userData?.user_id}} customPr />
+      <ProcurementHeaderCard orderData={prList?.[0]} customPr />
 
       {section === "choose-vendor" && (
         <>

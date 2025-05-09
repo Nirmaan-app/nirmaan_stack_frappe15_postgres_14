@@ -8,6 +8,7 @@ import React, { Suspense, useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useParams, useSearchParams } from "react-router-dom";
 import EditCustomer from "./edit-customer";
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 
 const CustomerOverview = React.lazy(() => import("./CustomerOverview"));
 const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
@@ -15,9 +16,13 @@ const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
 export const Customer : React.FC = () => {
 
   const { customerId } = useParams<{ customerId: string }>();
-  const [searchParams] = useSearchParams(); 
-  const [mainTab, setMainTab] = useState<string>(searchParams.get("main") || "overview")
-  const [tab, setTab] = useState<string>(searchParams.get("tab") || mainTab === "financials" ? "All Payments" : "projects")
+  // const [searchParams] = useSearchParams(); 
+
+  const [mainTab, setMainTab] = useStateSyncedWithParams<string>("main", "overview") // Default to overview if not specified
+  // const [mainTab, setMainTab] = useState<string>(searchParams.get("main") || "overview")
+
+  const [tab, setTab] = useStateSyncedWithParams<string>("tab", mainTab === "financials" ? "All Payments" : "projects") // Default to All Payments if not specified
+  // const [tab, setTab] = useState<string>(searchParams.get("tab") || mainTab === "financials" ? "All Payments" : "projects")
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
@@ -31,17 +36,17 @@ export const Customer : React.FC = () => {
     }
   );
 
-  const updateURL = useCallback(
-      (params: Record<string, string>, removeParams: string[] = []) => {
-      const url = new URL(window.location.href);
-      Object.entries(params).forEach(([key, value]) => {
-        url.searchParams.set(key, value);
-      });
-      removeParams.forEach((key) => {
-        url.searchParams.delete(key);
-      });
-      window.history.pushState({}, '', url);
-    }, []);
+  // const updateURL = useCallback(
+  //     (params: Record<string, string>, removeParams: string[] = []) => {
+  //     const url = new URL(window.location.href);
+  //     Object.entries(params).forEach(([key, value]) => {
+  //       url.searchParams.set(key, value);
+  //     });
+  //     removeParams.forEach((key) => {
+  //       url.searchParams.delete(key);
+  //     });
+  //     window.history.pushState({}, '', url);
+  //   }, []);
 
   type MenuItem = Required<MenuProps>["items"][number];
     
@@ -61,21 +66,18 @@ export const Customer : React.FC = () => {
           if (mainTab === e.key) return;
           
           const newTab = e.key;
-          console.log("newTab", newTab)
-          let subTab = newTab === "financials" ? "All Payments" : "projects"
-          console.log("subTab", subTab)
-          setMainTab(newTab);
-          setTab(subTab);
-          updateURL({ main: newTab, tab: subTab });
-        }, [mainTab, updateURL]);
+          // setTab(subTab);
+          setMainTab(newTab, ["tab"]);
+          // updateURL({ main: newTab, tab: subTab });
+        }, [mainTab]);
 
   const onClick = useCallback(
       (value : string) => {
         if (tab === value) return;
         setTab(value);
-        updateURL({ tab: value });
+        // updateURL({ tab: value });
       }
-      , [tab, updateURL]);
+      , [tab]);
 
 
   if (error)

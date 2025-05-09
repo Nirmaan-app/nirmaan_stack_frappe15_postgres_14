@@ -19,8 +19,15 @@ class Projects(Document):
 	
 def generateUserPermissions(project, method=None):
 	user_permissions = set()
+	current_user = frappe.session.user
+	user = None
+	if current_user != "Administrator":
+		user = frappe.get_doc("Nirmaan Users", current_user)
 	if(project.project_lead!=""):
 		user_permissions.add(project.project_lead)
+	if user and user.role_profile != "Nirmaan Admin Profile"  and (not project.project_lead or (project.project_lead and project.project_lead != current_user)):
+		user_permissions.add(current_user)
+
 	if(project.procurement_lead!=""):
 		user_permissions.add(project.procurement_lead)
 	if(project.design_lead!=""):
@@ -38,4 +45,19 @@ def generateUserPermissions(project, method=None):
 			doc.allow = "Projects"
 			doc.for_value = project.name
 			doc.insert(ignore_permissions=True)
+
+
+def on_update(doc, method=None):
+	old_doc = doc.get_doc_before_save()
+	if doc and doc.customer and old_doc and old_doc.customer and doc.customer != old_doc.customer:
+		inflow_payments = frappe.db.get_all("Project Inflows", 
+																			 filters={"project": doc.name},
+																			 fields={"name", "customer"}
+																		 )
+		for inflow in inflow_payments:
+			inflow_doc = frappe.get_doc("Project Inflows", inflow.name)
+			inflow_doc.customer = doc.customer
+			inflow_doc.save(ignore_permissions=True)
+
+
 		

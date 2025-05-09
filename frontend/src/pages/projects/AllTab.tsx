@@ -1,35 +1,37 @@
 import { Badge } from "@/components/ui/badge";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 interface AllTabProps {
   workPackageTotalAmounts?: {
     [key: string]: any;
-    };
+  };
   setProjectSpendsTab: (tab: any) => void;
   segregatedServiceOrderData?: {
     [category: string]: {
-        key: string;
-        unit: string;
-        quantity: number;
-        amount: number;
-        children: any[];
-        estimate_total: number;
+      key: string;
+      unit: string;
+      quantity: number;
+      amount: number;
+      children: any[];
+      estimate_total: number;
     };
-}[];
+  }[];
   totalServiceOrdersAmt?: number;
   getTotalAmountPaid?: {
     poAmount: number;
     srAmount: number;
     totalAmount: number;
-};
+  };
 }
 
-export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt, getTotalAmountPaid }) => {
+export const AllTab: React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt, getTotalAmountPaid }) => {
 
-  const [totalsAmounts, setTotalsAmounts] = useState<{ [key: string]: any }>({})
+  // const [totalsAmounts, setTotalsAmounts] = useState<{ [key: string]: any }>({})
+
+
 
   const serviceTotalEstdAmt = useMemo(() => segregatedServiceOrderData
     ?.reduce((acc, i) => {
@@ -37,13 +39,40 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
       return acc + parseNumber(estimate_total);
     }, 0), [segregatedServiceOrderData])
 
-  useEffect(() => {
-    const totalAmountsObject = { ...workPackageTotalAmounts }
+  const totalsAmounts = useMemo(() => {
+    const totalAmountsObject = { ...workPackageTotalAmounts };
+
     if ((serviceTotalEstdAmt || totalServiceOrdersAmt)) {
-      totalAmountsObject["Services"] = { amountWithoutTax: totalServiceOrdersAmt, total_estimated_amount: serviceTotalEstdAmt, total_amount_paid: getTotalAmountPaid?.srAmount }
+      totalAmountsObject["Services"] = {
+        amountWithoutTax: totalServiceOrdersAmt,
+        total_estimated_amount: serviceTotalEstdAmt,
+        total_amount_paid: getTotalAmountPaid?.srAmount,
+      };
     }
-    setTotalsAmounts(totalAmountsObject)
-  }, [serviceTotalEstdAmt, workPackageTotalAmounts, totalServiceOrdersAmt])
+
+    return totalAmountsObject;
+  }, [workPackageTotalAmounts, serviceTotalEstdAmt, totalServiceOrdersAmt, getTotalAmountPaid]);
+
+  const tableRows = useMemo(() => {
+    return Object.keys(totalsAmounts)
+      .sort((a, b) => a?.localeCompare(b))
+      .map((key) => ({
+        key,
+        work_package: key,
+        amountWithoutTax: totalsAmounts[key]?.amountWithoutTax,
+        total_estimated_amount: totalsAmounts[key]?.total_estimated_amount,
+        total_amount_paid: totalsAmounts[key]?.total_amount_paid,
+      }))
+      .sort((a, b) => b?.total_estimated_amount - a?.total_estimated_amount);
+  }, [totalsAmounts]);
+
+  // useEffect(() => {
+  //   const totalAmountsObject = { ...workPackageTotalAmounts }
+  //   if ((serviceTotalEstdAmt || totalServiceOrdersAmt)) {
+  //     totalAmountsObject["Services"] = { amountWithoutTax: totalServiceOrdersAmt, total_estimated_amount: serviceTotalEstdAmt, total_amount_paid: getTotalAmountPaid?.srAmount }
+  //   }
+  //   setTotalsAmounts(totalAmountsObject)
+  // }, [serviceTotalEstdAmt, workPackageTotalAmounts, totalServiceOrdersAmt])
 
   const columns = useMemo(() => [
     {
@@ -58,21 +87,21 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
       dataIndex: "amountWithoutTax",
       key: "amountWithoutTax",
       width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Estd. Amount (exc. GST)",
       dataIndex: "total_estimated_amount",
       key: "total_estimated_amount",
       width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Amount Paid",
       dataIndex: "total_amount_paid",
       key: "total_amount_paid",
       width: "20%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
   ], [totalsAmounts])
 
@@ -81,23 +110,7 @@ export const AllTab : React.FC<AllTabProps> = ({ workPackageTotalAmounts, setPro
       {Object.keys(totalsAmounts)?.length !== 0 ? (
         <div className="overflow-x-auto">
           <ConfigProvider>
-            <Table
-              dataSource={Object.keys(totalsAmounts)
-                ?.sort((a, b) =>
-                  a?.localeCompare(b)
-                )
-                ?.map((key) => {
-                  return {
-                    key: key,
-                    amountWithoutTax: totalsAmounts[key]?.amountWithoutTax,
-                    total_estimated_amount: totalsAmounts[key]?.total_estimated_amount,
-                    total_amount_paid: totalsAmounts[key]?.total_amount_paid,
-                    work_package: key,
-                  }
-                })?.
-                sort((a, b) => b?.total_estimated_amount - a?.total_estimated_amount)}
-              columns={columns}
-            />
+            <Table dataSource={tableRows} columns={columns} />
           </ConfigProvider>
         </div>
       ) : (

@@ -16,7 +16,7 @@ import NewMilestones from "@/components/updates/NewMilestones";
 import { ApprovedQuotationsTable } from "@/pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
 import DeliveryNote from "@/pages/DeliveryNotes/deliverynote";
 import DeliveryNotes from "@/pages/DeliveryNotes/deliverynotes";
-import Items from "@/pages/Items/items";
+import ItemsTesting from "@/pages/Items/ItemsTableTesting";
 import { RenderPurchaseOrdersTab } from "@/pages/ProcurementOrders/RenderPurchaseOrdersTab";
 import { ReleasePOSelect } from "@/pages/ProcurementOrders/release-po-select";
 import { NewCustomPR } from "@/pages/ProcurementRequests/NewPR/NewCustomPR";
@@ -51,6 +51,10 @@ import Vendors from "@/pages/vendors/vendors";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
+import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
+import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
+import ReportsContainer from "@/pages/reports/ReportsContainer";
+import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -82,7 +86,8 @@ export const appRoutes: RouteObject[] = [
                   {
                     path: ":projectId",
                     children: [
-                      { path: "new-pr", element: <NewProcurementRequest /> },
+                      // { path: "new-pr", element: <NewProcurementRequest /> },
+                      { path: "new-pr", element: <NewProcurementRequestPage /> },
                       { path: "new-custom-pr", element: <NewCustomPR /> },
                     ],
                   },
@@ -91,7 +96,7 @@ export const appRoutes: RouteObject[] = [
                     children: [
                        {
                         path: "resolve-pr",
-                        element: <NewProcurementRequest resolve={true} />,
+                        element: <NewProcurementRequestPage resolve={true} />,
                       },
                       {
                         path: "resolve-custom-pr",
@@ -99,7 +104,7 @@ export const appRoutes: RouteObject[] = [
                       },
                       {
                         path: "edit-pr",
-                        element: <NewProcurementRequest edit={true} />,
+                        element: <NewProcurementRequestPage edit={true} />,
                       },
                       { index: true, lazy: () => import("@/components/pr-summary") },
                       {
@@ -188,8 +193,13 @@ export const appRoutes: RouteObject[] = [
             path: "purchase-orders",
             children: [
               { index: true, element: <ReleasePOSelect /> },
+              // { index : true, element: <ProcurementOrdersTesting />},
               { path: ":id", element: <RenderPurchaseOrdersTab /> }, // :poId might be clearer if it's always PO ID
             ],
+          },
+          {
+            path: "invoice-reconciliation",
+            element: <InvoiceReconciliationContainer />
           },
 
           // --- Sent Back Requests ---
@@ -241,6 +251,14 @@ export const appRoutes: RouteObject[] = [
             ],
           },
 
+          // --- Reports Section ---
+
+          {
+            path: "reports",
+            children: [
+              { index: true, element: <ReportsContainer /> },
+            ],
+          },
           // --- Project Payments ---
           {
             path: "project-payments",
@@ -271,7 +289,7 @@ export const appRoutes: RouteObject[] = [
           {
             path: "products",
             children: [
-              { index: true, element: <Items /> },
+              { index: true, element: <ItemsTesting /> },
               { path: ":productId", lazy: () => import("@/pages/Items/item") },
             ],
           },
@@ -298,7 +316,12 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <Customers /> },
               { path: "new-customer", element: <NewCustomer /> },
-              { path: ":customerId", element: <Customer /> },
+              { path: ":customerId", 
+                children: [
+                  {index: true, element: <Customer />},
+                  { path: ":poId", lazy: () => import("@/components/POSummary") },
+                ]
+               },
             ],
           },
 

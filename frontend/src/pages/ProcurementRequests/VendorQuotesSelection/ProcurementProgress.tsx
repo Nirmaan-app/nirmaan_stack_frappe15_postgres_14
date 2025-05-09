@@ -13,11 +13,11 @@ import { CirclePlus, Info, Undo2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard"
 import { VendorsReactMultiSelect } from "../../../components/helpers/VendorsReactSelect"
-import { ProcurementHeaderCard } from "../../../components/ui/ProcurementHeaderCard"
 import { Button } from "../../../components/ui/button"
 import { toast } from "../../../components/ui/use-toast"
-import GenerateRFQDialog from "./GenerateRFQDialog"
+import GenerateRFQDialog from "./components/GenerateRFQDialog"
 import { SelectVendorQuotesTable } from "./SelectVendorQuotesTable"
 
 // Custom hook to persist state to localStorage
@@ -83,6 +83,11 @@ export const ProcurementProgress : React.FC = () => {
   const navigate = useNavigate()
 
   const {prId} = useParams<{ prId: string }>()
+
+  // Ensure prId exists early
+  if (!prId) {
+    return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
+}
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>()
   const [addVendorsDialog, setAddVendorsDialog] = useState(false)
@@ -157,6 +162,7 @@ export const ProcurementProgress : React.FC = () => {
         );
         const defaultMakes = matchingCategory ? matchingCategory.makes : [];
         newDetails[item.name] = {
+          initialMake: item?.make,
           vendorQuotes: {},
           makes: defaultMakes || [],
         };
@@ -199,12 +205,12 @@ const onClick = async (value : string) => {
                 ...item,
                 vendor: vendorId,
                 quote: parseNumber(vendorData.quote),
-                make: vendorData.make,
+                make: vendorData.make || item?.make,
               };
             }
             return { ...item };
           } else {
-            const { vendor, quote, make, ...rest } = item;
+            const { vendor, quote, ...rest } = item;
             return rest;
           }
         });
@@ -233,12 +239,12 @@ const handleReviewChanges = async () => {
           ...item,
           vendor: vendorId,
           quote: parseNumber(vendorData.quote),
-          make: vendorData.make,
+          make: vendorData.make || item.make,
         };
       }
       return { ...item };
     } else {
-      const { vendor, quote, make, ...rest } = item;
+      const { vendor, quote, ...rest } = item;
       return rest;
     }
   }) || [];
@@ -252,7 +258,7 @@ const handleReviewChanges = async () => {
 
 const handleRevertPR = async () => {
   const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
-      const { vendor, quote, make, ...rest } = item;
+      const { vendor, quote, ...rest } = item;
       return rest;
   }) || [];
 

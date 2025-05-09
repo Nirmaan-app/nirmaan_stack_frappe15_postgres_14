@@ -1,0 +1,230 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-04-22 15:31:09.656077",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "task_doctype",
+  "task_docname",
+  "task_details_section",
+  "assignee",
+  "assignee_role",
+  "status",
+  "reference_name_1",
+  "reference_value_1",
+  "reference_name_2",
+  "reference_value_2",
+  "reference_name_3",
+  "reference_value_3",
+  "reference_name_4",
+  "reference_value_4",
+  "task_type"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "task_doctype",
+   "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Document Type",
+   "options": "DocType",
+   "search_index": 1
+  },
+  {
+   "fieldname": "task_docname",
+   "fieldtype": "Dynamic Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Document Name",
+   "options": "task_doctype",
+   "search_index": 1
+  },
+  {
+   "fieldname": "task_details_section",
+   "fieldtype": "Section Break",
+   "label": "Task Details"
+  },
+  {
+   "fieldname": "assignee",
+   "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Assignee",
+   "options": "Nirmaan Users",
+   "search_index": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "search_index": 1
+  },
+  {
+   "fieldname": "reference_name_1",
+   "fieldtype": "Data",
+   "label": "Reference Field Name 1"
+  },
+  {
+   "fieldname": "reference_value_1",
+   "fieldtype": "Data",
+   "label": "Reference Field Value 1"
+  },
+  {
+   "fieldname": "reference_name_2",
+   "fieldtype": "Data",
+   "label": "Reference Field Name 2"
+  },
+  {
+   "fieldname": "reference_value_2",
+   "fieldtype": "Data",
+   "label": "Reference Field Value 2"
+  },
+  {
+   "fieldname": "task_type",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Task Type"
+  },
+  {
+   "fieldname": "assignee_role",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Assignee Role",
+   "search_index": 1
+  },
+  {
+   "fieldname": "reference_name_3",
+   "fieldtype": "Data",
+   "label": "Reference Field Name 3"
+  },
+  {
+   "fieldname": "reference_value_3",
+   "fieldtype": "Data",
+   "label": "Reference Field Value 3"
+  },
+  {
+   "fieldname": "reference_name_4",
+   "fieldtype": "Data",
+   "label": "Reference Field Name 4"
+  },
+  {
+   "fieldname": "reference_value_4",
+   "fieldtype": "Data",
+   "label": "Reference Field Value 4"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-04-25 01:09:39.414546",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Task",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

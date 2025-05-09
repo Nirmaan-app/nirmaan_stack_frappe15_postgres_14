@@ -4,7 +4,7 @@ import { useFrappeGetDocList } from 'frappe-react-sdk';
 import memoize from 'lodash/memoize';
 import { useMemo } from 'react';
 
-export const useItemEstimate = (threshold: number = 2) => {
+export const useItemEstimate = () => {
   const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>(
     'Approved Quotations',
     {
@@ -15,10 +15,10 @@ export const useItemEstimate = (threshold: number = 2) => {
   );
 
   const getItemEstimate = useMemo(
-    () => memoize((itemId : string) : number => {
-      return getThreeMonthsLowestFiltered(quote_data, itemId, threshold)
+    () => memoize((itemId : string, data: ApprovedQuotations[] | undefined = quote_data) : {averageRate: number, contributingQuotes: ApprovedQuotations[]} | undefined => {
+      return getThreeMonthsLowestFiltered(data, itemId)
     }
-  , (itemId: string) => itemId),[quote_data]);
+  , (itemId: string, data: ApprovedQuotations[] | undefined) => JSON.stringify(data) + itemId),[quote_data]);
 
   return { getItemEstimate };
 };

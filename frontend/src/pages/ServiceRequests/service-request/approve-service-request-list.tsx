@@ -8,7 +8,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
@@ -160,7 +160,7 @@ export const ApproveSelectSR : React.FC = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotalAmount(row.getValue("name"), 'Service Requests')?.totalWithTax)}
+                            {formatToRoundedIndianRupee(getTotalAmount(row.getValue("name"), 'Service Requests')?.totalWithTax)}
                         </div>
                     )
                 }

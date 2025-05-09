@@ -3,10 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import SITEURL from "@/constants/siteURL";
+import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { Radio } from "antd";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import React, { Suspense, useCallback, useMemo, useState } from "react";
@@ -112,7 +113,7 @@ const amountsSummaryItems = useMemo(() => [
                           {item.label}
                         </p>
                         <p onClick={item.onClick} className={`text-sm font-bold text-gray-900 ${item.style}`}>
-                          {formatToIndianRupee(item.value)}
+                          {formatToRoundedIndianRupee(item.value)}
                         </p>
                       </div>
                     ))}
@@ -151,7 +152,7 @@ const amountsSummaryItems = useMemo(() => [
                                           </div>
                                           <div className="flex items-center gap-2">
                                               <Label className=" text-red-700">Total Inflow:</Label>
-                                              <span className="text-xs text-green-600">{formatToIndianRupee(customerFinancialsData?.message?.totals?.total_inflow_amount)}</span>
+                                              <span className="text-xs text-green-600">{formatToRoundedIndianRupee(customerFinancialsData?.message?.totals?.total_inflow_amount)}</span>
                                           </div>
                                       </div>
               
@@ -180,7 +181,7 @@ const amountsSummaryItems = useMemo(() => [
                                                               ) : (
                                                                   <TableCell className="font-semibold">{payment?.utr}</TableCell>
                                                               )}
-                                                              <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                              <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
                                                           </TableRow>
                                                       )
                                                   })

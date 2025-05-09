@@ -32,8 +32,6 @@ import {
 } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PODetails } from "@/components/ui/PODetails";
-import { POPdf } from "@/components/ui/POPdf";
 import {
   Sheet,
   SheetClose,
@@ -56,6 +54,8 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
+import { PODetails } from "@/pages/ProcurementOrders/PODetails";
+import { POPdf } from "@/pages/ProcurementOrders/POPdf";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -90,11 +90,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import DeliveryHistory from "../DeliveryNotes/DeliveryHistory";
-import { InvoiceDialog } from "./InvoiceDialog";
+import DeliveryHistory from "../DeliveryNotes/components/DeliveryHistory";
+import { InvoiceDialog } from "./invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./POAttachments";
 import POPaymentTermsCard from "./POPaymentTermsCard";
 import TransactionDetailsCard from "./TransactionDetailsCard";
+import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog"; // Import the dialog component
+import { DocumentAttachments } from "./invoices-and-dcs/DocumentAttachments";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -105,7 +107,7 @@ export const PurchaseOrder = ({
   summaryPage = false,
   accountsPage = false,
 }: PurchaseOrderProps) => {
-  
+
   const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO")
 
   const userData = useUserData();
@@ -118,11 +120,11 @@ export const PurchaseOrder = ({
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
 
-  const [orderData, setOrderData] = useState<{ list : PurchaseOrderItem[]}>({
+  const [orderData, setOrderData] = useState<{ list: PurchaseOrderItem[] }>({
     list: []
   });
   const [PO, setPO] = useState<ProcurementOrder | null>(null)
-  const { data: po, isLoading: poLoading, error: poError, mutate: poMutate} = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
+  const { data: po, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
     fields: ["*"],
     filters: [["name", "=", poId]],
   });
@@ -130,7 +132,7 @@ export const PurchaseOrder = ({
   const { errors, isValid } = usePOValidation(PO);
 
   useEffect(() => {
-    if(po) {
+    if (po) {
       const doc = po[0]
       setPO(doc)
       setOrderData(doc?.order_list || { list: [] });
@@ -167,9 +169,9 @@ export const PurchaseOrder = ({
   const [stack, setStack] = useState<Operation[]>([]);
   const [comment, setComment] = useState("");
 
-  const [editMakeOptions, setEditMakeOptions] = useState<{label : string, value : string}[]>([]);
+  const [editMakeOptions, setEditMakeOptions] = useState<{ label: string, value: string }[]>([]);
 
-  const [selectedMake, setSelectedMake] = useState<{label : string, value : string} | null>(null);
+  const [selectedMake, setSelectedMake] = useState<{ label: string, value: string } | null>(null);
 
   const [amendEditItem, setAmendEditItem] = useState<PurchaseOrderItem | null>(null);
 
@@ -221,17 +223,17 @@ export const PurchaseOrder = ({
     setShowAddNewMake((prevState) => !prevState);
   }, [showAddNewMake]);
 
-  const { toggleRequestPaymentDialog} = useDialogStore()
+  const { toggleRequestPaymentDialog } = useDialogStore()
 
   const { updateDoc } = useFrappeUpdateDoc();
 
   const { createDoc } = useFrappeCreateDoc();
 
-  const {call : cancelPOCall, loading : cancelPOCallLoading} = useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
+  const { call: cancelPOCall, loading: cancelPOCallLoading } = useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
 
-  const {call : mergePOCall, loading : mergePOCallLoading} = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos");
+  const { call: mergePOCall, loading: mergePOCallLoading } = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos");
 
-  const {call : unMergePOCall, loading : unMergePOCallLoading} = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos");
+  const { call: unMergePOCall, loading: unMergePOCallLoading } = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos");
 
   const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
     fields: ["*"],
@@ -248,14 +250,14 @@ export const PurchaseOrder = ({
     filters: [["document_name", "=", poId]],
     limit: 1000,
   },
-  poId ? undefined : null
-);
+    poId ? undefined : null
+  );
 
   const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-      fields: ["*"],
-      filters: [["document_type", "=", "Procurement Orders"]],
-      limit: 1000,
-    });
+    fields: ["*"],
+    filters: [["document_type", "=", "Procurement Orders"]],
+    limit: 1000,
+  });
 
   useEffect(() => {
     if (associated_po_list && associated_po_list?.length > 0) {
@@ -268,7 +270,7 @@ export const PurchaseOrder = ({
             item.name !== poId &&
             item?.custom != "true" &&
             !AllPoPaymentsList?.some((j) => j?.document_name === item.name)
-            // item.merged !== "true" &&
+          // item.merged !== "true" &&
         );
         setMergeablePOs(mergeablePOs);
         if (PO?.merged === "true") {
@@ -291,7 +293,7 @@ export const PurchaseOrder = ({
     return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
   }, [PO]);
 
-  const handleMerge = (po : ProcurementOrder) => {
+  const handleMerge = (po: ProcurementOrder) => {
     let updatedOrderList = po.order_list.list;
     if (po?.merged !== "true") {
       updatedOrderList = po.order_list.list.map((item) => ({
@@ -309,7 +311,7 @@ export const PurchaseOrder = ({
     }
   };
 
-  const handleUnmerge = (po : ProcurementOrder) => {
+  const handleUnmerge = (po: ProcurementOrder) => {
     if (orderData) {
       let updatedList;
       if (po?.merged === "true") {
@@ -345,94 +347,94 @@ export const PurchaseOrder = ({
 
   const handleMergePOs = async () => {
     try {
-        // Call the backend API for merging POs
-        const response = await mergePOCall({
-            po_id: poId,
-            merged_items: mergedItems,
-            order_data: orderData,
-        });
+      // Call the backend API for merging POs
+      const response = await mergePOCall({
+        po_id: poId,
+        merged_items: mergedItems,
+        order_data: orderData,
+      });
 
-        if (response.message.status === 200) {
-            // ✅ Step 4: Success message & UI updates (Batch State Updates)
-            setMergeablePOs([]);
-            toast({
-                title: "Merge Successful!",
-                description: response.message.message,
-                variant: "success",
-            });
-            toggleMergeConfirmDialog();
-            toggleMergeSheet();
-
-            // ✅ Step 5: Add redirect overlay, then navigate smoothly
-            setIsRedirecting(true);
-
-            setTimeout(() => {
-                setIsRedirecting(false);
-                navigate(
-                    `/purchase-orders/${response.message.new_po_name.replaceAll(
-                        "/",
-                        "&="
-                    )}?tab=Approved%20PO`
-                );
-                window.location.reload();
-            }, 1000);
-        } else if (response.message.status === 400) {
-            toast({
-                title: "Error!",
-                description: response.message.error,
-                variant: "destructive",
-            });
-        }
-    } catch (error) {
-        console.error("Error in merging POs:", error);
+      if (response.message.status === 200) {
+        // ✅ Step 4: Success message & UI updates (Batch State Updates)
+        setMergeablePOs([]);
         toast({
-            title: "Error!",
-            description: "Failed to merge POs. Please try again.",
-            variant: "destructive",
+          title: "Merge Successful!",
+          description: response.message.message,
+          variant: "success",
         });
+        toggleMergeConfirmDialog();
+        toggleMergeSheet();
+
+        // ✅ Step 5: Add redirect overlay, then navigate smoothly
+        setIsRedirecting(true);
+
+        setTimeout(() => {
+          setIsRedirecting(false);
+          navigate(
+            `/purchase-orders/${response.message.new_po_name.replaceAll(
+              "/",
+              "&="
+            )}?tab=Approved%20PO`
+          );
+          window.location.reload();
+        }, 1000);
+      } else if (response.message.status === 400) {
+        toast({
+          title: "Error!",
+          description: response.message.error,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error in merging POs:", error);
+      toast({
+        title: "Error!",
+        description: "Failed to merge POs. Please try again.",
+        variant: "destructive",
+      });
     }
-};
+  };
 
   const handleUnmergePOs = async () => {
     try {
-        // Call the backend API for unmerging POs
-        const response = await unMergePOCall({
-            po_id: poId,
-            prev_merged_pos: prevMergedPOs,
-        });
+      // Call the backend API for unmerging POs
+      const response = await unMergePOCall({
+        po_id: poId,
+        prev_merged_pos: prevMergedPOs,
+      });
 
-        if (response.message.status === 200) {
-            toggleUnMergeDialog();
+      if (response.message.status === 200) {
+        toggleUnMergeDialog();
 
-            toast({
-                title: "Success!",
-                description: response.message.message,
-                variant: "success",
-            });
-
-            setIsRedirecting(true); // Show overlay
-
-            setTimeout(() => {
-                setIsRedirecting(false);
-                navigate(`/purchase-orders?tab=Approved%20PO`);
-                window.location.reload();
-            }, 1000); // Small delay ensures UI has time to update
-        } else if (response.message.status === 400) {
-            toast({
-                title: "Error!",
-                description: response.message.error,
-                variant: "destructive",
-            });
-        }
-    } catch (error) {
-        console.log("error while unmerging po's", error);
         toast({
-            title: "Error!",
-            description: "Failed to unmerge POs. Please try again.",
-            variant: "destructive",
+          title: "Success!",
+          description: response.message.message,
+          variant: "success",
         });
+
+        setIsRedirecting(true); // Show overlay
+
+        setTimeout(() => {
+          setIsRedirecting(false);
+          navigate(`/purchase-orders?tab=Approved%20PO`);
+          window.location.reload();
+        }, 1000); // Small delay ensures UI has time to update
+      } else if (response.message.status === 400) {
+        toast({
+          title: "Error!",
+          description: response.message.error,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.log("error while unmerging po's", error);
+      toast({
+        title: "Error!",
+        description: "Failed to unmerge POs. Please try again.",
+        variant: "destructive",
+      });
     }
-};
+  };
 
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
@@ -485,7 +487,7 @@ export const PurchaseOrder = ({
           variant: "success",
         });
         navigate("/purchase-orders?tab=Approved%20PO");
-      } else if(response.message.status === 400) {
+      } else if (response.message.status === 400) {
         toast({
           title: "Failed!",
           description: response.message.error,
@@ -516,7 +518,7 @@ export const PurchaseOrder = ({
   const handleSave = useCallback((
     itemName: string,
     newQuantity: number,
-    selectedMake: {label : string, value : string}
+    selectedMake: { label: string, value: string }
   ) => {
     let curRequest = orderData?.list;
 
@@ -578,7 +580,7 @@ export const PurchaseOrder = ({
     let curRequest = orderData?.list;
     let itemToPush = curRequest.find((curValue) => curValue.item === item);
 
-    if(itemToPush) {
+    if (itemToPush) {
       setStack((prevStack) => [
         ...prevStack,
         {
@@ -652,41 +654,42 @@ export const PurchaseOrder = ({
 
   const amountPaid = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid")), [poPayments]);
 
+  const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
 
-  const getUserName = useMemo(() => (id : string | undefined) => {
+  const getUserName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name === id)?.full_name || ""
   }, [usersList]);
 
-  const MERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && PO?.custom != "true" && !estimatesViewing && PO?.status === "PO Approved" && PO?.merged !== "true" && !((poPayments || [])?.length > 0) && mergeablePOs.length > 0, 
-  [
-    PO,
-    mergeablePOs,
-    poPayments,
-    summaryPage,
-    accountsPage,
-    estimatesViewing
-  ]);
+  const MERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && PO?.custom != "true" && !estimatesViewing && PO?.status === "PO Approved" && PO?.merged !== "true" && !((poPayments || [])?.length > 0) && mergeablePOs.length > 0,
+    [
+      PO,
+      mergeablePOs,
+      poPayments,
+      summaryPage,
+      accountsPage,
+      estimatesViewing
+    ]);
 
-  const CANCELPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && ["PO Approved"].includes(PO?.status) && !((poPayments || []).length > 0) && PO?.merged !== "true", 
-  [PO,
-    poPayments,
-    summaryPage,
-    accountsPage,
-    estimatesViewing])
+  const CANCELPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && ["PO Approved"].includes(PO?.status) && !((poPayments || []).length > 0) && PO?.merged !== "true",
+    [PO,
+      poPayments,
+      summaryPage,
+      accountsPage,
+      estimatesViewing])
 
-  const AMENDPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !estimatesViewing && ["PO Approved"].includes(PO?.status) && PO?.merged !== "true" &&  !((poPayments || [])?.length > 0), 
-  [PO,
-    poPayments,
-    summaryPage,
-    accountsPage,
-    estimatesViewing])
-  
-  const UNMERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && PO?.merged === "true", 
+  const AMENDPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !estimatesViewing && ["PO Approved"].includes(PO?.status) && PO?.merged !== "true" && !((poPayments || [])?.length > 0),
+    [PO,
+      poPayments,
+      summaryPage,
+      accountsPage,
+      estimatesViewing])
+
+  const UNMERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && PO?.merged === "true",
     [PO,
       summaryPage,
       accountsPage,
-      estimatesViewing])  
-  
+      estimatesViewing])
+
   if (isRedirecting) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
@@ -757,19 +760,25 @@ export const PurchaseOrder = ({
   return (
     <div className="flex-1 space-y-4">
       {MERGEPOVALIDATIONS && (
-          <>
-            <Alert variant="warning" className="">
-              <AlertTitle className="text-sm flex items-center gap-2">
-                <MessageCircleWarning className="h-4 w-4" />
-                Heads Up
-              </AlertTitle>
-              <AlertDescription className="text-xs flex justify-between items-center">
-                PO Merging Feature is available for this PO.
-                <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
-                  <SheetTrigger asChild>
+        <>
+          <Alert variant="warning" className="">
+            <AlertTitle className="text-sm flex items-center gap-2">
+              <MessageCircleWarning className="h-4 w-4" />
+              Heads Up - PO Merging Available
+            </AlertTitle>
+            <AlertDescription className="text-xs flex justify-end items-center">
+              <span className="sr-only">
+                This purchase order can be merged with other compatible orders
+              </span>
+              {/* PO Merging Feature is available for this PO. */}
+              <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
+                <SheetTrigger disabled={!isValid} className="disabled:opacity-50">
+                  <div>
                     <Tooltip>
-                      <TooltipTrigger>
-                        <Button disabled={!isValid} className="flex items-center gap-1" color="primary">
+                      <TooltipTrigger asChild>
+                        <Button
+                          aria-label={isValid ? "Merge PO(s)" : "Merge unavailable"}
+                          className="flex items-center gap-1" color="primary">
                           <Merge className="w-4 h-4" />
                           Merge PO(s)
                         </Button>
@@ -783,282 +792,283 @@ export const PurchaseOrder = ({
                         </TooltipContent>
                       )}
                     </Tooltip>
-                  </SheetTrigger>
-                  <SheetContent className="overflow-y-auto">
-                    <div className="md:p-6">
-                      <h2 className="text-2xl font-bold mb-4">
-                        Merge Purchase Orders
-                      </h2>
+                  </div>
+                </SheetTrigger>
+                <SheetContent className="overflow-y-auto">
+                  <div className="md:p-6">
+                    <h2 className="text-2xl font-bold mb-4">
+                      Merge Purchase Orders
+                    </h2>
 
-                      <Card className="mb-4">
-                        <CardHeader className="flex flex-row justify-between items-center">
-                          <div className="flex flex-col">
-                            <span className="text-sm text-gray-500">
-                              Project:
-                            </span>
-                            <p className="text-base font-medium tracking-tight text-black">
-                              {PO?.project_name}
-                            </p>
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-sm text-gray-500">
-                              Vendor:
-                            </span>
-                            <p className="text-base font-medium tracking-tight text-black">
-                              {PO?.vendor_name}
-                            </p>
-                          </div>
-                        </CardHeader>
-                      </Card>
+                    <Card className="mb-4">
+                      <CardHeader className="flex flex-row justify-between items-center">
+                        <div className="flex flex-col">
+                          <span className="text-sm text-gray-500">
+                            Project:
+                          </span>
+                          <p className="text-base font-medium tracking-tight text-black">
+                            {PO?.project_name}
+                          </p>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-sm text-gray-500">
+                            Vendor:
+                          </span>
+                          <p className="text-base font-medium tracking-tight text-black">
+                            {PO?.vendor_name}
+                          </p>
+                        </div>
+                      </CardHeader>
+                    </Card>
 
-                      {mergeablePOs.length > 0 ? (
-                        <div className="overflow-x-auto">
-                          <Table className="min-w-[500px]">
-                            <TableHeader>
-                              <TableRow className="bg-red-100">
-                                <TableHead className="w-[15%]">
-                                  ID(PO/PR)
-                                </TableHead>
-                                <TableHead>Items Count</TableHead>
-                                <TableHead>Items List</TableHead>
-                                <TableHead>Action</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              <TableRow key={PO?.name}>
-                                <TableCell>
-                                  {poId?.slice(3, 6)}/
-                                  {PO?.procurement_request?.slice(9)}
-                                </TableCell>
-                                <TableCell>
-                                  {
-                                    orderData?.list?.filter((i) => !i?.po)
-                                      ?.length
-                                  }
-                                </TableCell>
-                                <TableCell>
-                                  <ul className="list-disc">
-                                    {orderData?.list
-                                      ?.filter((i) => !i?.po)
-                                      ?.map((j) => (
-                                        <li key={j?.item}>
-                                          {j?.item}{" "}
-                                          <span>(Qty-{j?.quantity})</span>
+                    {mergeablePOs.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <Table className="min-w-[500px]">
+                          <TableHeader>
+                            <TableRow className="bg-red-100">
+                              <TableHead className="w-[15%]">
+                                ID(PO/PR)
+                              </TableHead>
+                              <TableHead>Items Count</TableHead>
+                              <TableHead>Items List</TableHead>
+                              <TableHead>Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            <TableRow key={PO?.name}>
+                              <TableCell>
+                                {poId?.slice(3, 6)}/
+                                {PO?.procurement_request?.slice(9)}
+                              </TableCell>
+                              <TableCell>
+                                {
+                                  orderData?.list?.filter((i) => !i?.po)
+                                    ?.length
+                                }
+                              </TableCell>
+                              <TableCell>
+                                <ul className="list-disc">
+                                  {orderData?.list
+                                    ?.filter((i) => !i?.po)
+                                    ?.map((j) => (
+                                      <li key={j?.item}>
+                                        {j?.item}{" "}
+                                        <span>(Qty-{j?.quantity})</span>
+                                        <p className="text-primary text-sm">
+                                          Make:{" "}
+                                          <span className="text-xs text-gray-500 italic">
+                                            {j?.makes?.list?.find(
+                                              (k) => k?.enabled === "true"
+                                            )?.make || "--"}
+                                          </span>
+                                        </p>
+                                      </li>
+                                    ))}
+                                </ul>
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
+                                  variant={"ghost"}
+                                  disabled
+                                >
+                                  <Split className="w-4 h-4" />
+                                  Split
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                            {mergeablePOs.map((po) => {
+                              // Helper function to check if merge should be disabled
+                              const isMergeDisabled = po.order_list.list.some(
+                                (poItem) => {
+                                  // Check if any item in orderData has the same name but different rate
+                                  return orderData?.list?.some(
+                                    (currentItem) =>
+                                      currentItem.name === poItem.name &&
+                                      currentItem.quote !== poItem.quote
+                                  );
+                                }
+                              );
+
+                              return (
+                                <TableRow key={po.name}>
+                                  <TableCell>
+                                    {po?.name?.slice(3, 6)}/
+                                    {po?.procurement_request?.slice(9)}
+                                  </TableCell>
+                                  <TableCell>
+                                    {po.order_list.list.length}
+                                  </TableCell>
+                                  <TableCell>
+                                    <ul className="list-disc">
+                                      {po?.order_list?.list?.map((i) => (
+                                        <li key={i?.item}>
+                                          {i?.item}{" "}
+                                          <span>(Qty-{i?.quantity})</span>
                                           <p className="text-primary text-sm">
                                             Make:{" "}
                                             <span className="text-xs text-gray-500 italic">
-                                              {j?.makes?.list?.find(
+                                              {i?.makes?.list?.find(
                                                 (k) => k?.enabled === "true"
                                               )?.make || "--"}
                                             </span>
                                           </p>
                                         </li>
                                       ))}
-                                  </ul>
-                                </TableCell>
-                                <TableCell>
-                                  <Button
-                                    className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
-                                    variant={"ghost"}
-                                    disabled
-                                  >
-                                    <Split className="w-4 h-4" />
-                                    Split
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                              {mergeablePOs.map((po) => {
-                                // Helper function to check if merge should be disabled
-                                const isMergeDisabled = po.order_list.list.some(
-                                  (poItem) => {
-                                    // Check if any item in orderData has the same name but different rate
-                                    return orderData?.list?.some(
-                                      (currentItem) =>
-                                        currentItem.name === poItem.name &&
-                                        currentItem.quote !== poItem.quote
-                                    );
-                                  }
-                                );
-
-                                return (
-                                  <TableRow key={po.name}>
-                                    <TableCell>
-                                      {po?.name?.slice(3, 6)}/
-                                      {po?.procurement_request?.slice(9)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {po.order_list.list.length}
-                                    </TableCell>
-                                    <TableCell>
-                                      <ul className="list-disc">
-                                        {po?.order_list?.list?.map((i) => (
-                                          <li key={i?.item}>
-                                            {i?.item}{" "}
-                                            <span>(Qty-{i?.quantity})</span>
-                                            <p className="text-primary text-sm">
-                                              Make:{" "}
-                                              <span className="text-xs text-gray-500 italic">
-                                                {i?.makes?.list?.find(
-                                                  (k) => k?.enabled === "true"
-                                                )?.make || "--"}
-                                              </span>
-                                            </p>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </TableCell>
-                                    <TableCell>
-                                      {!mergedItems.some(
-                                        (mergedItem) =>
-                                          mergedItem?.name === po.name
-                                      ) ? (
-                                        isMergeDisabled ? (
-                                          <HoverCard>
-                                            <HoverCardTrigger>
-                                              <Button
-                                                className="flex items-center gap-1"
-                                                disabled
-                                              >
-                                                <Merge className="w-4 h-4" />
-                                                Merge
-                                              </Button>
-                                            </HoverCardTrigger>
-                                            <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg mr-28">
-                                              Unable to Merge this PO as it has
-                                              some{" "}
-                                              <span className="text-primary">
-                                                overlapping item(s) with
-                                                different quotes
-                                              </span>
-                                            </HoverCardContent>
-                                          </HoverCard>
-                                        ) : (
-                                          <Button
-                                            className="flex items-center gap-1"
-                                            onClick={() => handleMerge(po)}
-                                          >
-                                            <Merge className="w-4 h-4" />
-                                            Merge
-                                          </Button>
-                                        )
+                                    </ul>
+                                  </TableCell>
+                                  <TableCell>
+                                    {!mergedItems.some(
+                                      (mergedItem) =>
+                                        mergedItem?.name === po.name
+                                    ) ? (
+                                      isMergeDisabled ? (
+                                        <HoverCard>
+                                          <HoverCardTrigger>
+                                            <Button
+                                              className="flex items-center gap-1"
+                                              disabled
+                                            >
+                                              <Merge className="w-4 h-4" />
+                                              Merge
+                                            </Button>
+                                          </HoverCardTrigger>
+                                          <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg mr-28">
+                                            Unable to Merge this PO as it has
+                                            some{" "}
+                                            <span className="text-primary">
+                                              overlapping item(s) with
+                                              different quotes
+                                            </span>
+                                          </HoverCardContent>
+                                        </HoverCard>
                                       ) : (
                                         <Button
-                                          className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
-                                          variant={"ghost"}
-                                          onClick={() => handleUnmerge(po)}
+                                          className="flex items-center gap-1"
+                                          onClick={() => handleMerge(po)}
                                         >
-                                          <Split className="w-4 h-4" />
-                                          Split
+                                          <Merge className="w-4 h-4" />
+                                          Merge
                                         </Button>
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ) : (
-                        <p>No mergeable POs available.</p>
-                      )}
-
-                      {/* Button Section */}
-                      <div className="flex justify-end space-x-4 mt-6">
-                        <Button
-                          className="flex items-center gap-1"
-                          onClick={togglePoPdfSheet}
-                          variant={"outline"}
-                        >
-                          <Eye className="w-4 h-4" />
-                          Preview
-                        </Button>
-                        <AlertDialog
-                          open={mergeConfirmDialog}
-                          onOpenChange={toggleMergeConfirmDialog}
-                        >
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              className="flex items-center gap-1"
-                              disabled={!mergedItems.length}
-                            >
-                              <CheckCheck className="h-4 w-4" />
-                              Confirm
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent className="overflow-auto">
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Are you sure!</AlertDialogTitle>
-                            </AlertDialogHeader>
-                            <AlertDialogDescription>
-                              Below are the subsequent actions executed on
-                              clicking the Confirm button:
-                              <ul className="list-disc ml-6 italic">
-                                <li>
-                                  Merged PO(s) including the current PO will be
-                                  marked as{" "}
-                                  <span className="text-primary">Merged</span>!
-                                </li>
-                                <li>
-                                  A <span className="text-primary">New PO</span>{" "}
-                                  will be created to contain the merged PO(s)
-                                  items
-                                </li>
-                              </ul>
-                              <p className="mt-2 font-semibold text-base">
-                                Continue?
-                              </p>
-                            </AlertDialogDescription>
-                            {mergePOCallLoading ? (
-                              <div className="flex items-center justify-center">
-                                <TailSpin width={80} color="red" />{" "}
-                              </div>
-                            ) : (
-                              <AlertDialogDescription className="flex gap-2 items-center justify-center">
-                                <AlertDialogCancel className="flex items-center gap-1">
-                                  <CircleX className="h-4 w-4" />
-                                  Cancel
-                                </AlertDialogCancel>
-                                <Button
-                                  onClick={handleMergePOs}
-                                  className="flex gap-1 items-center"
-                                >
-                                  <CheckCheck className="h-4 w-4" />
-                                  Confirm
-                                </Button>
-                              </AlertDialogDescription>
-                            )}
-                          </AlertDialogContent>
-                        </AlertDialog>
+                                      )
+                                    ) : (
+                                      <Button
+                                        className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
+                                        variant={"ghost"}
+                                        onClick={() => handleUnmerge(po)}
+                                      >
+                                        <Split className="w-4 h-4" />
+                                        Split
+                                      </Button>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
                       </div>
+                    ) : (
+                      <p>No mergeable POs available.</p>
+                    )}
+
+                    {/* Button Section */}
+                    <div className="flex justify-end space-x-4 mt-6">
+                      <Button
+                        className="flex items-center gap-1"
+                        onClick={togglePoPdfSheet}
+                        variant={"outline"}
+                      >
+                        <Eye className="w-4 h-4" />
+                        Preview
+                      </Button>
+                      <AlertDialog
+                        open={mergeConfirmDialog}
+                        onOpenChange={toggleMergeConfirmDialog}
+                      >
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            className="flex items-center gap-1"
+                            disabled={!mergedItems.length}
+                          >
+                            <CheckCheck className="h-4 w-4" />
+                            Confirm
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="overflow-auto">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Are you sure!</AlertDialogTitle>
+                          </AlertDialogHeader>
+                          <AlertDialogDescription>
+                            Below are the subsequent actions executed on
+                            clicking the Confirm button:
+                            <ul className="list-disc ml-6 italic">
+                              <li>
+                                Merged PO(s) including the current PO will be
+                                marked as{" "}
+                                <span className="text-primary">Merged</span>!
+                              </li>
+                              <li>
+                                A <span className="text-primary">New PO</span>{" "}
+                                will be created to contain the merged PO(s)
+                                items
+                              </li>
+                            </ul>
+                            <p className="mt-2 font-semibold text-base">
+                              Continue?
+                            </p>
+                          </AlertDialogDescription>
+                          {mergePOCallLoading ? (
+                            <div className="flex items-center justify-center">
+                              <TailSpin width={80} color="red" />{" "}
+                            </div>
+                          ) : (
+                            <AlertDialogDescription className="flex gap-2 items-center justify-center">
+                              <AlertDialogCancel className="flex items-center gap-1">
+                                <CircleX className="h-4 w-4" />
+                                Cancel
+                              </AlertDialogCancel>
+                              <Button
+                                onClick={handleMergePOs}
+                                className="flex gap-1 items-center"
+                              >
+                                <CheckCheck className="h-4 w-4" />
+                                Confirm
+                              </Button>
+                            </AlertDialogDescription>
+                          )}
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
-                  </SheetContent>
-                </Sheet>
-              </AlertDescription>
-            </Alert>
-          </>
-        )}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </AlertDescription>
+          </Alert>
+        </>
+      )}
 
       <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
-            getTotal={getTotal} amountPaid={amountPaid} poMutate={poMutate} />
+        getTotal={getTotal} amountPaid={amountPaid} poMutate={poMutate} />
 
-      <Accordion type="multiple" 
-      defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
-      className="w-full">
+      <Accordion type="multiple"
+        // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
+        className="w-full">
         <AccordionItem key="transac&payments" value="transac&payments">
-          {tab === "Delivered PO" && (
-            <AccordionTrigger>
+          {/* {tab === "Delivered PO" && ( */}
+          <AccordionTrigger>
             <p className="font-semibold text-lg text-red-600 pl-6">
               Payment Details
             </p>
           </AccordionTrigger>
-          )}
+          {/* )} */}
           <AccordionContent>
-        <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-          <TransactionDetailsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} amountPaid={amountPaid} poPayments={poPayments} poPaymentsMutate={poPaymentsMutate} AllPoPaymentsListMutate={AllPoPaymentsListMutate} />
+            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+              <TransactionDetailsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} amountPaid={amountPaid} poPayments={poPayments} poPaymentsMutate={poPaymentsMutate} AllPoPaymentsListMutate={AllPoPaymentsListMutate} />
 
-         <POPaymentTermsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} poMutate={poMutate} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} setAdvance={setAdvance} setMaterialReadiness={setMaterialReadiness} setAfterDelivery={setAfterDelivery} setXDaysAfterDelivery={setXDaysAfterDelivery} setXDays={setXDays} />
-        </div>
-      </AccordionContent>
+              <POPaymentTermsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} poMutate={poMutate} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} setAdvance={setAdvance} setMaterialReadiness={setMaterialReadiness} setAfterDelivery={setAfterDelivery} setXDaysAfterDelivery={setXDaysAfterDelivery} setXDays={setXDays} />
+            </div>
+          </AccordionContent>
 
         </AccordionItem>
       </Accordion>
@@ -1066,19 +1076,25 @@ export const PurchaseOrder = ({
 
       {/* PO Attachments Accordion */}
       {PO?.status !== "PO Approved" && (
-        <Accordion type="multiple" 
-          defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+        <Accordion type="multiple"
+          // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
           className="w-full">
           <AccordionItem key="poattachments" value="poattachments">
-            {tab === "Delivered PO" && (
-              <AccordionTrigger>
+            {/* {tab === "Delivered PO" && ( */}
+            <AccordionTrigger>
               <p className="font-semibold text-lg text-red-600 pl-6">
                 PO Attachments
               </p>
             </AccordionTrigger>
-            )}
-            <AccordionContent> 
-              <POAttachments PO={PO} />
+            {/* )} */}
+            <AccordionContent>
+              <DocumentAttachments
+                docType="Procurement Orders"
+                docName={poId}
+                documentData={PO}
+                docMutate={poMutate}
+              />
+              {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
             </AccordionContent>
           </AccordionItem>
         </Accordion>
@@ -1086,9 +1102,9 @@ export const PurchaseOrder = ({
 
 
       {/* Invoice Dialog */}
-      <InvoiceDialog  po={PO} poMutate={poMutate} />
+      <InvoiceDialog docName={PO?.name} docType="Procurement Orders" docMutate={poMutate} />
 
-      {/* Order Details  */}
+      {/* Order Details */}
       <Card className="rounded-sm shadow-md md:col-span-3">
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
@@ -1104,61 +1120,138 @@ export const PurchaseOrder = ({
             </div>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <table className="table-auto w-full">
-            <thead className="bg-red-100">
-              <tr className="max-sm:text-sm">
-                <th className="w-[5%] text-left ">S.No.</th>
-                <th className="w-[50%] text-left p-2">Item Name</th>
-                <th className="w-[10%]  text-center p-2">Unit</th>
-                <th className="w-[10%]  text-center p-2">Quantity</th>
-                <th className="w-[10%]  text-center p-2">Rate</th>
-                <th className="w-[10%]  text-center p-2">Amount</th>
-                {tab === "Delivered PO" && (
-                   <th className="w-[5%] text-center p-2">OD</th>
-                )}
-              </tr>
-            </thead>
-          </table>
-          <div className={`${!summaryPage && "max-h-32"} overflow-y-auto`}>
-            <table className="w-full">
-              <tbody className="max-sm:text-xs text-sm">
-                {orderData?.list?.map((item, index) => (
-                  <tr key={index} className="border-b-2">
-                    <td className="w-[5%] text-start ">{index + 1}</td>
-                    <td className="w-[50%] text-left py-1">
-                      <span>
-                        {item.item}{" "}
-                        {item?.makes?.list?.length > 0 && (
-                          <span className="text-xs italic font-semibold text-gray-500">
-                            -{" "}
-                            {item.makes.list.find((i) => i?.enabled === "true")
-                              ?.make || "no make specified"}
-                          </span>
-                        )}
-                      </span>
-                      {item.comment && (
-                        <div className="flex gap-1 items-start border rounded-md p-1 md:w-[60%]">
-                          <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
-                          <div className="text-xs ">{item.comment}</div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="w-[10%] text-center">{item.unit}</td>
-                    <td className="w-[10%] text-center">{item.quantity}</td>
-                    <td className="w-[10%] text-center">
-                      {formatToIndianRupee(item?.quote)}
-                    </td>
-                    <td className="w-[10%] text-center">
-                      {formatToIndianRupee(item?.quote * item?.quantity)}
-                    </td>
+        <CardContent className="p-0">
+          <div className="relative overflow-hidden">
+            {/* Synchronized Table Layout */}
+            <div className="overflow-x-auto">
+              {/* Header Table */}
+              <table className="w-full border-collapse order-details-table">
+                <colgroup>
+                  <col className="w-[5%]" />
+                  <col className="w-[50%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  {tab === "Delivered PO" && <col className="w-[5%]" />}
+                </colgroup>
+                <thead className="bg-red-100">
+                  <tr className="text-sm font-semibold text-gray-700">
+                    <th className="sticky top-0 z-10 text-left pl-4 py-3 bg-red-100">
+                      S.No.
+                    </th>
+                    <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
+                      Item Name
+                    </th>
+                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                      Unit
+                    </th>
+                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                      Quantity
+                    </th>
+                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                      Rate
+                    </th>
+                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                      Tax
+                    </th>
+                    <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
+                      Amount
+                    </th>
                     {tab === "Delivered PO" && (
-                   <th className={`w-[5%] text-center ${item?.received === item?.quantity ? "text-green-600" : "text-red-700"}`}>{item?.received || 0}</th>
-                )}
+                      <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                        OD
+                      </th>
+                    )}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+              </table>
+            </div>
+
+            {/* Body Table with Synchronized Columns */}
+            <div
+              // className={`overflow-y-auto ${!summaryPage ? 'max-h-32' : ''} border-t border-gray-200`}
+              className={`overflow-y-auto border-t border-gray-200`}
+              role="region"
+              aria-labelledby="order-details-table"
+              tabIndex={0}
+            >
+              <table className="w-full border-collapse order-details-table">
+                <colgroup>
+                  <col className="w-[5%]" />
+                  <col className="w-[50%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  {tab === "Delivered PO" && <col className="w-[5%]" />}
+                </colgroup>
+                <tbody className="divide-y divide-gray-200">
+                  {orderData?.list?.map((item, index) => (
+                    <tr
+                      key={index}
+                      className="hover:bg-gray-50 transition-colors text-sm text-gray-600"
+                    >
+                      {/* S.No. */}
+                      <td className="pl-4 py-2 align-top">{index + 1}</td>
+
+                      {/* Item Name */}
+                      <td className="pl-2 py-2 align-top">
+                        <div className="flex flex-col gap-1">
+                          <span className="font-medium text-gray-700 truncate">
+                            {item.item}
+                            {item?.makes?.list?.length > 0 && (
+                              <span className="ml-1 text-xs italic font-semibold text-gray-500">
+                                - {item.makes.list.find(i => i?.enabled === "true")?.make || "N/A"}
+                              </span>
+                            )}
+                          </span>
+                          {item.comment && (
+                            <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5">
+                              <MessageCircleMore className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
+                              <div className="text-xs text-gray-600 leading-snug">
+                                {item.comment}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Unit */}
+                      <td className="text-center py-2 align-top">{item.unit}</td>
+
+                      {/* Quantity */}
+                      <td className="text-center py-2 align-top">{item.quantity}</td>
+
+                      {/* Rate */}
+                      <td className="text-center py-2 align-top">
+                        {formatToIndianRupee(item?.quote)}
+                      </td>
+
+                      {/* Tax */}
+                      <td className="text-center py-2 align-top">{item?.tax}%</td>
+
+                      {/* Amount */}
+                      <td className="pr-4 text-center py-2 align-top font-medium">
+                        {formatToIndianRupee(item?.quote * item?.quantity)}
+                      </td>
+
+                      {/* OD (Conditional) */}
+                      {tab === "Delivered PO" && (
+                        <td className={`text-center py-2 align-top ${item?.received === item?.quantity
+                          ? 'text-green-600'
+                          : 'text-red-700'
+                          }`}>
+                          {item?.received || 0}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1262,15 +1355,15 @@ export const PurchaseOrder = ({
         {/* Amend PO */}
         <div className="flex gap-2 items-center justify-end">
           {AMENDPOVALIDATION && (
-                <Button
-                  onClick={toggleAmendPOSheet}
-                  variant={"outline"}
-                  className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
-                >
-                  <PencilRuler className="w-4 h-4" />
-                  Amend PO
-                </Button>
-              )
+            <Button
+              onClick={toggleAmendPOSheet}
+              variant={"outline"}
+              className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
+            >
+              <PencilRuler className="w-4 h-4" />
+              Amend PO
+            </Button>
+          )
           }
           <Sheet open={amendPOSheet} onOpenChange={toggleAmendPOSheet}>
             <SheetContent className="overflow-auto">
@@ -1593,15 +1686,15 @@ export const PurchaseOrder = ({
 
           {/* Cancel PO */}
           {CANCELPOVALIDATION && (
-                <Button
-                  onClick={toggleCancelPODialog}
-                  variant={"outline"}
-                  className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
-                >
-                  <X className="w-4 h-4" />
-                  Cancel PO
-                </Button>
-              )
+            <Button
+              onClick={toggleCancelPODialog}
+              variant={"outline"}
+              className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
+            >
+              <X className="w-4 h-4" />
+              Cancel PO
+            </Button>
+          )
           }
 
           <AlertDialog
@@ -1675,15 +1768,26 @@ export const PurchaseOrder = ({
       </div>
 
       {/* Delivery History */}
-    {["Delivered", "Partially Delivered"].includes(PO?.status) && (
-      <DeliveryHistory
-        deliveryData={PO?.delivery_data?.data || null}
-      />
-    )}
+      {["Delivered", "Partially Delivered"].includes(PO?.status) && (
+        <DeliveryHistory
+          deliveryData={PO?.delivery_data?.data || null}
+        />
+      )}
 
       {/* PO Pdf  */}
-        <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
-      
+      <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
+      {/* Render RequestPaymentDialog here, outside the Accordion */}
+      <RequestPaymentDialog
+        amountPending={amountPending}
+        totalAmount={getTotal?.totalAmt || 0}
+        totalAmountWithoutGST={getTotal?.total || 0}
+        totalPaid={amountPaid}
+        po={PO}
+        paymentsMutate={poPaymentsMutate}
+        isSr={false} // Assuming this is always false in PurchaseOrder component
+      // gst prop defaults to true, add if needed: gst={true}
+      />
+
     </div>
   );
 };
@@ -1692,8 +1796,8 @@ export const PurchaseOrder = ({
 export default PurchaseOrder;
 
 interface Make {
-  label : string
-  value : string
+  label: string
+  value: string
 }
 
 interface MakesSelectionProps {
@@ -1708,7 +1812,7 @@ const MakesSelection = ({
   setSelectedMake,
   editMakeOptions,
   toggleAddNewMake,
-} : MakesSelectionProps) => {
+}: MakesSelectionProps) => {
   const CustomMenu = (props) => {
     const { MenuList } = components;
 
@@ -1742,12 +1846,12 @@ const MakesSelection = ({
 };
 
 interface AddNewMakesProps {
-  orderData : PurchaseOrderItem[];
-  setOrderData : React.Dispatch<React.SetStateAction<{ list : PurchaseOrderItem[]}>>; 
-  editMakeOptions : Make[];
-  toggleAddNewMake : () => void;
+  orderData: PurchaseOrderItem[];
+  setOrderData: React.Dispatch<React.SetStateAction<{ list: PurchaseOrderItem[] }>>;
+  editMakeOptions: Make[];
+  toggleAddNewMake: () => void;
   amendEditItem: any;
-  setEditMakeOptions : React.Dispatch<React.SetStateAction<Make[]>>;
+  setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
 }
 
 
@@ -1758,7 +1862,7 @@ const AddNewMakes = ({
   amendEditItem,
   toggleAddNewMake,
   setEditMakeOptions,
-} : AddNewMakesProps) => {
+}: AddNewMakesProps) => {
   const [makeOptions, setMakeOptions] = useState<Make[]>([]);
 
   const [newSelectedMakes, setNewSelectedMakes] = useState<Make[]>([]);

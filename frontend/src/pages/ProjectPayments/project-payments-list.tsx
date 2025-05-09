@@ -16,7 +16,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -274,22 +274,22 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
           setWarning(
             `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${
               newPayment?.doctype === "Procurement Orders" ? "including" : order.gst === "true" ? "including" : "excluding"
-            } GST: ${formatToIndianRupee(compareAmount)}`
+            } GST: ${formatToRoundedIndianRupee(compareAmount)}`
           );
         } else {
           setWarning(""); // Clear warning if within the limit
         }
       }, 300), [newPayment])
 
-    const getVendorName = useMemo(() => memoize((id: string) => {
-        const vendorName = vendorValues.find((vend) => vend.value === id)?.label;
+    const getVendorName = useMemo(() => memoize((id: string | undefined) => {
+        const vendorName = vendorValues.find((vend) => vend.value === id)?.label || id;
         return vendorName;
-    }, (id: string) => id), [vendorValues])
+    }, (id: string | undefined) => id), [vendorValues])
 
-    const getProjectName = useMemo(() => memoize((id: string) => {
-        const projectName = projectValues.find((proj) => proj.value === id)?.label;
+    const getProjectName = useMemo(() => memoize((id: string | undefined) => {
+        const projectName = projectValues.find((proj) => proj.value === id)?.label || id;
         return projectName;
-    }, (id: string) => id), [vendorValues])
+    }, (id: string | undefined) => id), [vendorValues])
     
       // Handle input change
     const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
@@ -337,7 +337,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                 accessorKey: "creation",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Date Created" />
+                        <DataTableColumnHeader column={column} title="PO Date Created" />
                     )
                 },
                 cell: ({ row }) => (
@@ -393,9 +393,9 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                     const amount = getTotalAmount(row.original.name, row.original.type)
                     return <div className="font-medium">
                         {data.type === "Service Order" ? (
-                            data.gst === "true" ? formatToIndianRupee(amount?.totalWithTax)
+                            data.gst === "true" ? formatToRoundedIndianRupee(amount?.totalWithTax)
                             : "--"
-                        ) : formatToIndianRupee(amount?.totalWithTax)
+                        ) : formatToRoundedIndianRupee(amount?.totalWithTax)
                         }
                     </div>
                 },
@@ -415,7 +415,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                             className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
                             onClick={() => invoiceAmount && setSelectedInvoice(data)}
                           >
-                            {formatToIndianRupee(invoiceAmount || "N/A")}
+                            {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
                           </div>
                         )
                       }                      
@@ -427,7 +427,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                     const data = row.original
                     const amountPaid = getAmountPaid(data?.name);
                     return <div onClick={() => amountPaid && setCurrentPaymentsDialog(data)} className={`font-medium ${amountPaid ? "cursor-pointer underline" : ""}`}>
-                        {formatToIndianRupee(amountPaid || "N/A")}
+                        {formatToRoundedIndianRupee(amountPaid || "N/A")}
                     </div>
                 },
             },
@@ -441,7 +441,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                         const vendor = getVendorName(data?.vendor)
                         return <div className="font-medium">
                             <SquarePlus onClick={() => {
-                                setNewPayment({ ...newPayment, project: project, vendor: vendor, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
+                                setNewPayment({ ...newPayment, project: project!, vendor: vendor!, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
                                 setWarning("")
                                 toggleNewPaymentDialog()
                             }} className="w-5 h-5 text-red-500 cursor-pointer" />
@@ -458,7 +458,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                         const amountPaid = getAmountPaid(data?.name);
                         return(
                             <div className="font-medium">
-                                {formatToIndianRupee(totalAmount - amountPaid)}
+                                {formatToRoundedIndianRupee(totalAmount - amountPaid)}
                             </div>
                         )
                     }
@@ -492,19 +492,19 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">PO Amt excl. Tax:</Label>
                             <span className="">
-                                {formatToIndianRupee(getTotalAmount(newPayment.docname, newPayment.doctype)?.total)}
+                                {formatToRoundedIndianRupee(getTotalAmount(newPayment.docname, newPayment.doctype)?.total)}
                             </span>
                         </div>
                         {(newPayment?.doctype === "Procurement Orders" || (newPayment?.doctype === "Service Requests" && serviceOrders?.find(i => i?.name === newPayment?.docname)?.gst === "true")) && (
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                            <span className="">{formatToIndianRupee(getTotalAmount(newPayment?.docname, newPayment.doctype)?.totalWithTax)}
+                            <span className="">{formatToRoundedIndianRupee(getTotalAmount(newPayment?.docname, newPayment.doctype)?.totalWithTax)}
                             </span>
                         </div>
                         )}
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                            <span className="">{formatToIndianRupee(getAmountPaid(newPayment?.docname))}</span>
+                            <span className="">{formatToRoundedIndianRupee(getAmountPaid(newPayment?.docname))}</span>
                         </div>
 
                         <div className="flex flex-col gap-4 pt-4">
@@ -532,7 +532,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                     }}
                                 />
-                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
+                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
                                 </div>
                             </div>
                             <div className="flex gap-4 w-full">

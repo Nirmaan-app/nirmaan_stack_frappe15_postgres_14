@@ -1,5 +1,5 @@
+import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { RenderPRorSBComments } from "@/components/ui/RenderPRorSBComments";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
@@ -10,10 +10,10 @@ import { ArrowBigRightDash, MessageCircleMore, Trash2 } from "lucide-react";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
+import { ProcurementHeaderCard } from "../../components/helpers/ProcurementHeaderCard";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../components/ui/hover-card";
-import { ProcurementHeaderCard } from "../../components/ui/ProcurementHeaderCard";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 
 export const SentBackSummary = () => {

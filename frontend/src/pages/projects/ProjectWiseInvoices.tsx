@@ -5,7 +5,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
@@ -134,7 +134,7 @@ const invoiceColumns: ColumnDef<InvoiceItem>[] =
           const amount = row.original.amount;
           return (
             <div className="font-medium text-green-600">
-              {formatToIndianRupee(amount)}
+              {formatToRoundedIndianRupee(amount)}
             </div>
           );
         },

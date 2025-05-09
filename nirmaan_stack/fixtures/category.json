@@ -11,39 +11,6 @@
   "work_package": "Data & Networking"
  },
  {
-  "category_name": "Raceway",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/raceway.jpg",
-  "modified": "2024-12-21 16:03:11.362116",
-  "name": "Raceway",
-  "new_items": "false",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Cable Tray & Junction Box",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/cable-tray-jb.jpg",
-  "modified": "2024-12-21 15:59:00.168708",
-  "name": "Cable Tray & Junction Box",
-  "new_items": "false",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Conduits",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/conduits.jpg",
-  "modified": "2024-12-21 15:59:07.152205",
-  "name": "Conduits",
-  "new_items": "false",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "Message Manager",
   "docstatus": 0,
   "doctype": "Category",

@@ -1,38 +1,43 @@
 import QuantityQuoteInput from "@/components/helpers/QtyandQuoteInput";
+import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { omit } from "lodash";
-import { CheckCheck, CircleMinus, MessageCircleMore } from "lucide-react";
+import { CheckCheck, CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import React, { useCallback } from "react";
-import { MakesSelection } from "./ItemVendorMakeSelection";
+import { MakesSelection } from "./components/ItemVendorMakeSelection";
+import { parseNumber } from "@/utils/parseNumber";
+import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { HistoricalQuotesHoverCard } from "./components/HistoricalQuotesHoverCard";
 
-interface SelectVendorQuotesTableProps {
-  sentBack?: boolean
-  orderData : any
-  formData : RFQData
+type DocumentType = ProcurementRequest | SentBackCategory
+
+interface SelectVendorQuotesTableProps<T extends DocumentType> {
+  sentBack?: boolean;
+  orderData : T;
+  formData : RFQData;
   setFormData : React.Dispatch<React.SetStateAction<RFQData>>
   selectedVendorQuotes : Map<any, any>
   setSelectedVendorQuotes : React.Dispatch<React.SetStateAction<Map<any, any>>>
   mode : string
-  setOrderData : any
+  setOrderData : React.Dispatch<React.SetStateAction<T | null>>
 }
 
-export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = ({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}) => {
+export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = false, orderData, setOrderData, formData, setFormData, selectedVendorQuotes, setSelectedVendorQuotes, mode}: SelectVendorQuotesTableProps<T>) {
 
   const { getItemEstimate } = useItemEstimate()
 
   const handleQuoteChange = useCallback((
     itemId: string,
     vendorId: string,
-    quote: string | undefined,
+    quote: string | number | undefined,
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -188,7 +193,12 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                     <TableBody>
                       {(sentBack ? (orderData as SentBackCategory)?.item_list : (orderData as ProcurementRequest)?.procurement_list)?.list.map((item: any) => {
                         if (item.category === cat.name) {
-                          const minQuote = getItemEstimate(item.name)
+                          // const targetQuote: number = (getItemEstimate(item.name)?.averageRate ?? 0) * 0.98
+                          // const contributingQuotes = getItemEstimate(item.name)?.contributingQuotes
+                          const estimate = getItemEstimate(item.name); // Call your function to get data
+                          const targetQuoteValue: number = estimate ? estimate.averageRate * 0.98 : 0; // Calculate target
+                          const contributingQuotes: ApprovedQuotations[] | null = estimate ? estimate.contributingQuotes : null;
+
                           return (
                             <TableRow key={`${cat.name}-${item.name}`}>
                               <TableCell className="py-8">
@@ -211,8 +221,21 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                               <TableCell>{item.unit}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
                               {formData?.selectedVendors?.map(v => {
-                                const data = formData?.details?.[item.name]?.vendorQuotes?.[v?.value]
-                                const quote = data?.quote
+                                const vendorQuotes = formData?.details?.[item.name]?.vendorQuotes
+                                const defaultMake = formData?.details?.[item.name]?.initialMake
+                                // let lowestQuote = Number.POSITIVE_INFINITY; // Initialize with the highest possible value
+                                // let lowestVendorId: string | null = null; // Initialize winner vendor ID as null
+
+                                // // 3. Iterate through each [vendorId, quoteData] pair in vendorQuotes
+                                // for (const [vendorId, quoteData] of Object.entries(vendorQuotes)) {
+                                //   const q = parseNumber(quoteData?.quote)
+                                //   if (q < lowestQuote) {
+                                //     lowestQuote = parseNumber(q)
+                                //     lowestVendorId = vendorId
+                                //   }
+                                // }
+                                const data = vendorQuotes?.[v?.value]
+                                const quote = parseNumber(data?.quote)
                                 const make = data?.make
                                 const isSelected = mode === "view" && selectedVendorQuotes?.get(item?.name) === v?.value;
                                 return (
@@ -233,13 +256,14 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                     role="radio" 
                                     tabIndex={0} 
                                     className={`min-w-[150px] max-w-[150px] space-y-3 p-3 border border-gray-300 rounded-md shadow-md transition-all 
-                                    ring-offset-2 ring-gray-300 focus:ring-2 focus:ring-primary hover:shadow-lg ${mode === "view" && !quote ? "pointer-events-none opacity-50" : ""} ${isSelected ? "bg-red-100 ring-2 ring-primary" : "bg-white"}`}>
+                                    ring-offset-2 ring-gray-300 focus:ring-2 focus:ring-primary hover:shadow-lg ${mode === "view" && !quote ? "pointer-events-none opacity-50" : ""} ${isSelected ? "bg-red-100 ring-2 ring-primary" : "bg-white"} relative`}>
+                                      <CircleCheck className={`absolute w-5 h-5 right-2 text-red-600 ${isSelected ? "" : 'hidden'}`} />
                                       <div className="flex flex-col gap-1">
                                         <Label className="text-xs font-semibold text-primary">Make</Label>
                                         {mode === "edit" ? (
-                                           <MakesSelection vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
+                                           <MakesSelection defaultMake={defaultMake} vendor={v} item={item} formData={formData} orderData={orderData} setFormData={setFormData} />
                                         ) : (
-                                          <p className="text-sm font-medium text-gray-700">{make || "--"}</p>
+                                          <p className={`text-sm font-medium text-gray-700 ${quote < targetQuoteValue ? "text-green-600" : ""}`}>{make || defaultMake || "--"}</p>
                                         )}
                                       </div>
                                       <div className="flex flex-col gap-1">
@@ -257,7 +281,7 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                           // />
                                           <QuantityQuoteInput value={quote || ""} onChange={(value) => handleQuoteChange(item.name, v?.value || "", value)} />
                                         ) : (
-                                          <p>{quote ?  formatToIndianRupee(quote) : "--"}</p>
+                                          <p className={`${quote < targetQuoteValue ? "text-green-600" : ""}`}>{quote ?  formatToIndianRupee(quote) : "--"}</p>
                                         )}
                                       </div>
                                     </div>
@@ -265,7 +289,19 @@ export const SelectVendorQuotesTable : React.FC<SelectVendorQuotesTableProps> = 
                                 )
                               })}
                               {!formData?.selectedVendors?.length && <TableCell />}
-                              <TableCell>{minQuote ? formatToIndianRupee(minQuote * 0.98) : "N/A"}</TableCell>
+                              {/* <TableCell>{targetQuoteValue ? formatToIndianRupee(targetQuoteValue) : "N/A"}</TableCell> */}
+                              <TableCell>
+                                  {targetQuoteValue ? (
+                                      // Wrap the formatted rate with the HoverCard component
+                                      <HistoricalQuotesHoverCard quotes={contributingQuotes}>
+                                          {/* This is the trigger element */}
+                                          <span>{formatToRoundedIndianRupee(targetQuoteValue)}</span>
+                                      </HistoricalQuotesHoverCard>
+                                  ) : (
+                                      // Display N/A if no target rate could be calculated
+                                      <span>N/A</span>
+                                  )}
+                              </TableCell>
                             </TableRow>
                           )
                         }

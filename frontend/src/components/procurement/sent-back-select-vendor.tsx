@@ -18,8 +18,8 @@ import { ArrowBigUpDash, ArrowLeft, CheckCheck, Info, MessageCircleMore, Pencil,
 import { useEffect, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
+import { ProcurementHeaderCard } from '../helpers/ProcurementHeaderCard';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
-import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
 import { Textarea } from '../ui/textarea';
 import { toast } from '../ui/use-toast';
 

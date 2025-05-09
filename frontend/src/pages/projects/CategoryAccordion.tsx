@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd";
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from "uuid";
 interface CategoryAccordionProps {
   categorizedData?: {
     [workPackage: string]: {
-        [category: string]: any[];
+      [category: string]: any[];
     };
   };
   selectedPackage?: string;
@@ -21,7 +21,7 @@ interface CategoryAccordionProps {
 const getExpandedRowKeysStorageKey = () => `expandedRowKeys_${window.location.href}`;
 const getExpandedPORowKeysStorageKey = () => `expandedPORowKeys_${window.location.href}`;
 
-export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
+export const CategoryAccordion: React.FC<CategoryAccordionProps> = ({
   categorizedData,
   selectedPackage,
   projectEstimates,
@@ -29,6 +29,29 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
 }) => {
 
   const selectedData = useMemo(() => categorizedData?.[selectedPackage || ""], [categorizedData, selectedPackage])
+
+  const tableData = useMemo(() => {
+    return Object.keys(selectedData || {})
+      ?.map((key) => {
+        const totalAmount = selectedData?.[key]?.reduce((acc, item) => acc + parseNumber(item?.amount), 0) || 0;
+
+        const totalCategoryEstdAmt = projectEstimates
+          ?.filter((i) => i?.category === key)
+          ?.reduce((sum, item) =>
+            sum + parseNumber(item?.rate_estimate) * parseNumber(item?.quantity_estimate),
+            0
+          ) || 0;
+
+        return {
+          key,
+          category: key,
+          total_amount: totalAmount,
+          total_estimate_amount: totalCategoryEstdAmt,
+          items: selectedData[key],
+        };
+      })
+      ?.sort((a, b) => b?.total_estimate_amount - a?.total_estimate_amount);
+  }, [selectedData, projectEstimates]);
 
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>(() => {
     const storedKeys = localStorage.getItem(getExpandedRowKeysStorageKey());
@@ -52,12 +75,12 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
 
   const navigate = useNavigate();
 
-  const getItemAttributes = useMemo(() => (item : any) => {
+  const getItemAttributes = useMemo(() => (item: any) => {
     const estimateItem = projectEstimates?.find(
       (i) => i?.item === item?.item_id
     );
 
-    if(!estimateItem) return { dynamicQtyClass: null, updated_estd_amt: null, percentage_change: null, estimateItem: null }
+    if (!estimateItem) return { dynamicQtyClass: null, updated_estd_amt: null, percentage_change: null, estimateItem: null }
 
     const quantityDif = item?.quantity - estimateItem?.quantity_estimate;
 
@@ -96,7 +119,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
     return { dynamicQtyClass, updated_estd_amt, percentage_change, estimateItem }
   }, [projectEstimates])
 
-  const columns : TableColumnsType<{key : string, total_amount : number, total_estimate_amount : number, category : string, items : any[]}> = useMemo(() => [
+  const columns: TableColumnsType<{ key: string, total_amount: number, total_estimate_amount: number, category: string, items: any[] }> = useMemo(() => [
     {
       title: "Category",
       dataIndex: "category",
@@ -109,14 +132,14 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       dataIndex: "total_amount",
       key: "total_amount",
       width: "30%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
     {
       title: "Total Estd. Amount (exc. GST)",
       dataIndex: "total_estimate_amount",
       key: "total_estimate_amount",
       width: "30%",
-      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+      render: (text) => <Badge className="font-bold">{text ? formatToRoundedIndianRupee(text) : "--"}</Badge>,
     },
   ], [])
 
@@ -169,7 +192,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       key: "amount_spent",
       render: (text) => (
         <span className="italic">
-          {text ? formatToIndianRupee(text) : "--"}
+          {text ? formatToRoundedIndianRupee(text) : "--"}
         </span>
       ),
     },
@@ -179,7 +202,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
       render: (text, data) => {
         const { estimateItem } = getItemAttributes(data)
         return <span className="italic">
-          {formatToIndianRupee(
+          {formatToRoundedIndianRupee(
             estimateItem?.rate_estimate *
             estimateItem?.quantity_estimate
           )}
@@ -193,18 +216,18 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
         const { updated_estd_amt, percentage_change, estimateItem } = getItemAttributes(data)
         return <span
           className={`${(estimateItem?.quantity_estimate !==
-              undefined && updated_estd_amt)
-              ? updated_estd_amt >
-                (estimateItem?.rate_estimate *
-                  estimateItem?.quantity_estimate)
-                ? "text-red-500"
-                : "text-green-500"
-              : ""
+            undefined && updated_estd_amt)
+            ? updated_estd_amt >
+              (estimateItem?.rate_estimate *
+                estimateItem?.quantity_estimate)
+              ? "text-red-500"
+              : "text-green-500"
+            : ""
             } italic`}
         >
           {estimateItem?.quantity_estimate !==
             undefined
-            ? formatToIndianRupee(updated_estd_amt)
+            ? formatToRoundedIndianRupee(updated_estd_amt)
             : "--"}
           {!isNaN(percentage_change) && (estimateItem?.quantity_estimate !==
             undefined && ` (${percentage_change}%)`)}
@@ -251,22 +274,22 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
     },
   ], [])
 
-  const getTotalAmount = useMemo(
-    () => (key: string) : number => {
-      return selectedData?.[key]?.reduce((acc, item) => acc + parseNumber(item?.amount), 0) || 0
-    }
-  , [selectedData])
+  // const getTotalAmount = useMemo(
+  //   () => (key: string) : number => {
+  //     return selectedData?.[key]?.reduce((acc, item) => acc + parseNumber(item?.amount), 0) || 0
+  //   }
+  // , [selectedData])
 
-  const getTotalCategoryEstdAmt = useMemo(
-    () => (key: string) : number => {
-      const categoryEstimates = projectEstimates?.filter(
-        (i) => i?.category === key
-      );
-      return categoryEstimates?.reduce((sum, item) => sum + parseNumber(item?.rate_estimate) * parseNumber(item?.quantity_estimate),
-        0
-      ) || 0
-    }
-  , [projectEstimates])
+  // const getTotalCategoryEstdAmt = useMemo(
+  //   () => (key: string) : number => {
+  //     const categoryEstimates = projectEstimates?.filter(
+  //       (i) => i?.category === key
+  //     );
+  //     return categoryEstimates?.reduce((sum, item) => sum + parseNumber(item?.rate_estimate) * parseNumber(item?.quantity_estimate),
+  //       0
+  //     ) || 0
+  //   }
+  // , [projectEstimates])
 
   return (
     <div className="w-full">
@@ -274,21 +297,7 @@ export const CategoryAccordion : React.FC<CategoryAccordionProps> = ({
         <div className="overflow-x-auto pb-4">
           <ConfigProvider>
             <AntTable
-              dataSource={Object.keys(selectedData)
-                ?.sort((a, b) =>
-                  a?.localeCompare(b)
-                )
-                ?.map((key) => {
-                  const totalAmount = getTotalAmount(key);
-                  const totalCategoryEstdAmt = getTotalCategoryEstdAmt(key)
-                  return {
-                    key: key,
-                    total_amount: totalAmount,
-                    total_estimate_amount: totalCategoryEstdAmt,
-                    category: key,
-                    items: selectedData[key],
-                  }
-                })?.sort((a, b) => b?.total_estimate_amount - a?.total_estimate_amount)}
+              dataSource={tableData}
               columns={columns}
               pagination={false}
               expandable={{

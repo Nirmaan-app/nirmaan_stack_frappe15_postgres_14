@@ -42,8 +42,12 @@
   {
    "fieldname": "project",
    "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Project",
-   "options": "Projects"
+   "options": "Projects",
+   "search_index": 1
   },
   {
    "fieldname": "procurement_order_details_section",
@@ -58,14 +62,22 @@
   {
    "fieldname": "vendor",
    "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Vendor",
-   "options": "Vendors"
+   "options": "Vendors",
+   "search_index": 1
   },
   {
    "fieldname": "procurement_request",
    "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Procurement Request",
-   "options": "Procurement Requests"
+   "options": "Procurement Requests",
+   "search_index": 1
   },
   {
    "fieldname": "category",
@@ -76,7 +88,9 @@
   {
    "fieldname": "project_name",
    "fieldtype": "Data",
-   "label": "Project Name"
+   "in_global_search": 1,
+   "label": "Project Name",
+   "search_index": 1
   },
   {
    "fieldname": "project_address",
@@ -86,7 +100,9 @@
   {
    "fieldname": "vendor_name",
    "fieldtype": "Data",
-   "label": "Vendor Name"
+   "in_global_search": 1,
+   "label": "Vendor Name",
+   "search_index": 1
   },
   {
    "fieldname": "vendor_address",
@@ -135,7 +151,11 @@
    "default": "PO Approved",
    "fieldname": "status",
    "fieldtype": "Data",
-   "label": "Status"
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "search_index": 1
   },
   {
    "fieldname": "category_list",
@@ -145,7 +165,7 @@
   },
   {
    "fieldname": "notes",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Notes"
   },
   {
@@ -179,9 +199,10 @@
    "label": "Invoice Data"
   }
  ],
+ "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-03-27 15:33:52.999749",
+ "modified": "2025-05-06 18:46:07.888894",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
@@ -266,6 +287,7 @@
    "share": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

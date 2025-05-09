@@ -11,13 +11,19 @@ interface SelectOptions {
 interface ProjectSelectProps {
     onChange: (selectedOption: SelectOptions | null) => void
     universal?: boolean
+    all?: boolean
 }
 
-export default function ProjectSelect({ onChange, universal = true }: ProjectSelectProps) {
+export default function ProjectSelect({ onChange, universal = true, all = false }: ProjectSelectProps) {
+
+    // First build the filters array dynamically
+    const projectFilters = [["status", "not in", ["Completed", "Halted"]]];
+
+
 
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager", "status"],
-        filters: [["status", "not in", ["Completed", "Halted"]]],
+        filters: all ? undefined : projectFilters,
         limit: 1000,
         orderBy: { field: 'creation', order: 'desc' },
     });
@@ -54,14 +60,14 @@ export default function ProjectSelect({ onChange, universal = true }: ProjectSel
 
     if (error) return <h1>Error</h1>;
     return (
-      <ReactSelect
-        options={options}
-        isLoading={loading}
-        value={selectedOption}
-        onChange={handleChange}
-        placeholder="Select Project"
-        isClearable
-        onMenuOpen={() => handleChange(null)}
-      ></ReactSelect>
+        <ReactSelect
+            options={options}
+            isLoading={loading}
+            value={selectedOption}
+            onChange={handleChange}
+            placeholder="Select Project"
+            isClearable
+            onMenuOpen={() => handleChange(null)}
+        ></ReactSelect>
     );
 }

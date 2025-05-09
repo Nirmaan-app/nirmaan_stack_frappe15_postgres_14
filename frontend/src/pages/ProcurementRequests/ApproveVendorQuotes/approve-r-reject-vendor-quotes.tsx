@@ -1,8 +1,8 @@
+import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/helpers/ApproveVendorQuotesPRorSBAntDTable';
+import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/ui/ApproveVendorQuotesPRorSBAntDTable';
 import { Button } from "@/components/ui/button";
 import { Label } from '@/components/ui/label';
-import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
 import { Table as ReactTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/components/ui/use-toast";
@@ -24,8 +24,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { ActionSummary } from '../../../components/ui/ActionSummary';
-import { RenderPRorSBComments } from '../../../components/ui/RenderPRorSBComments';
+import { ActionSummary } from '../../../components/helpers/ActionSummary';
+import { RenderPRorSBComments } from '../../../components/helpers/RenderPRorSBComments';
+import { SelectionState, VendorDataSourceItem, VendorItemDetails, VendorWiseData } from './types';
+import { VendorApprovalTable } from './components/VendorApprovalTable';
 
 const ApproveRejectVendorQuotes : React.FC = () => {
 
@@ -191,8 +193,122 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
   }, [orderData]);
 
   const getThreeMonthsLowest = useMemo(() => (itemId : string) => {
-    return getThreeMonthsLowestFiltered(quotes_data, itemId)
+    return getThreeMonthsLowestFiltered(quotes_data, itemId)?.averageRate
   }, [quotes_data]);
+
+  // Calculate totals per VENDOR
+const getVendorTotals = useMemo(() => {
+    const totals: { [vendorId: string]: number } = {};
+    if (!orderData?.procurement_list?.list?.length) return totals;
+
+    orderData.procurement_list.list.forEach(item => {
+        // Ensure item has a vendor; skip or handle if missing
+        if (!item.vendor) {
+            console.warn(`Item ${item.name} is missing vendor ID.`);
+            return; // Skip items without a vendor
+        }
+        const vendorId = item.vendor;
+        const quote = item.quote ?? 0; // Use nullish coalescing for default
+        const quantity = item.quantity ?? 0; // Use default if quantity is missing
+
+        if (!totals[vendorId]) {
+            totals[vendorId] = 0;
+        }
+        totals[vendorId] += quote * quantity;
+    });
+
+    return totals;
+}, [orderData?.procurement_list.list]); // Depend only on the list
+
+
+// Transform data to be grouped by VENDOR
+const getFinalVendorGroupedData = useMemo((): VendorWiseData => {
+    const data: VendorWiseData = {};
+
+    // Ensure list exists and has items
+    if (!orderData?.procurement_list?.list?.length) {
+        return data;
+    }
+
+    const procurementList = orderData.procurement_list.list;
+
+    procurementList.forEach(item => {
+        // Ensure item has a vendor ID to group by
+        if (!item.vendor) {
+            // Handle items without vendors if necessary (e.g., add to a special group)
+            // For now, skipping them
+            return;
+        }
+
+        const vendorId = item.vendor;
+        const vendorName = getVendorName(vendorId) || `Unknown Vendor (${vendorId})`; // Fallback name
+
+        // Calculate amounts for this item
+        const amount = (item.quote ?? 0) * (item.quantity ?? 0);
+        // Ensure getThreeMonthsLowest and getLowest handle potential undefined results gracefully (e.g., return 0)
+        const threeMonthsLowest = getThreeMonthsLowest(item.name) ?? 0;
+        const lowestQuoted = getLowest(item.name) ?? 0;
+        const threeMonthsLowestAmount = threeMonthsLowest * (item.quantity ?? 0);
+        const lowestQuotedAmount = lowestQuoted * (item.quantity ?? 0);
+
+        // Prepare the item details with calculated amounts and vendor name
+        const itemDetails: VendorItemDetails = {
+            ...item, // Spread original item properties
+            vendor_name: vendorName,
+            amount: amount,
+            threeMonthsLowestAmount: threeMonthsLowestAmount,
+            lowestQuotedAmount: lowestQuotedAmount,
+        };
+
+        // Check if this vendor group already exists in our 'data' object
+        if (data[vendorId]) {
+            // Vendor exists, push the item to its items array
+            data[vendorId].items.push(itemDetails);
+            // Note: totalAmount is calculated separately in getVendorTotals
+        } else {
+            // Vendor doesn't exist, create a new entry
+            data[vendorId] = {
+                // Fetch the total amount calculated earlier
+                totalAmount: getVendorTotals[vendorId] || 0,
+                key: uuidv4(), // Generate a unique key for this vendor group
+                items: [itemDetails], // Start the items array with the current item
+            };
+        }
+    });
+
+    return data;
+}, [
+    orderData?.procurement_list.list,
+    getVendorName,
+    getLowest,
+    getThreeMonthsLowest,
+    getVendorTotals, // Add getVendorTotals as a dependency
+    // uuidv4 is assumed stable, otherwise add if needed
+]);
+
+
+// Create the dataSource array for your UI component (e.g., Ant Design Table)
+// This converts the VendorWiseData object into a sorted array.
+const vendorDataSource = useMemo((): VendorDataSourceItem[] => {
+    return Object.entries(getFinalVendorGroupedData)
+        // Optional: Sort by vendor name (looked up via getVendorName) or vendor ID
+        .sort(([vendorIdA], [vendorIdB]) => {
+            const nameA = getVendorName(vendorIdA) || vendorIdA;
+            const nameB = getVendorName(vendorIdB) || vendorIdB;
+            return nameA.localeCompare(nameB);
+        })
+        // Map to the final structure expected by the UI component
+        .map(([vendorId, vendorGroupData]) => ({
+            key: vendorGroupData.key, // Unique key from the group
+            vendorId: vendorId,
+            vendorName: getVendorName(vendorId) || `Unknown Vendor (${vendorId})`, // Get vendor name again
+            totalAmount: vendorGroupData.totalAmount,
+            items: vendorGroupData.items,
+        }));
+}, [getFinalVendorGroupedData, getVendorName]); // Depend on the grouped data and name lookup
+
+// Now you can use `vendorDataSource` in your Ant Design Table or other UI component
+// console.log("Vendor Wise Data Source:", vendorDataSource);
 
   const getCategoryTotals = useMemo(() => {
     const totals : {[category: string]: number} = {}
@@ -258,7 +374,9 @@ export const ApproveRejectVendorQuotesPage : React.FC<ApproveRejectVendorQuotesP
     items: Object.values(key)[0]?.items,
   }))
 
-  const [selectionMap, setSelectionMap] = useState(new Map());
+//   console.log("getFinalVendorQuotesData", getFinalVendorQuotesData)
+
+  const [selectionMap, setSelectionMap] = useState<SelectionState>(new Map());
 
 const newHandleApprove = async () => {
   try {
@@ -412,125 +530,129 @@ const newHandleSentBack = async () => {
   }
 };
 
-const generateActionSummary = useCallback((actionType : string) => {
-  if (actionType === "approve") {
-      const selectedItems : DataItem[] = [];
-      const selectedVendors : {[itemName: string]: string} = {};
+console.log("selectionMap", selectionMap)
 
-      selectionMap.forEach((categorySelection, categoryKey) => {
-          const categoryData = dataSource.find(category => category.key === categoryKey);
-          if (!categoryData) return; // Skip if category not found
+// const generateActionSummary = useCallback((actionType : string) => {
+//   if (actionType === "approve") {
+//       const selectedItems : DataItem[] = [];
+//       const selectedVendors : {[itemName: string]: string} = {};
 
-          if (categorySelection.all) {
-              // All items in category selected
-              categoryData.items.forEach(item => {
-                  selectedItems.push(item);
-                  selectedVendors[item.name] = item.vendor || "";
-              });
-          } else {
-              // Some items in category selected
-              categorySelection.items.forEach((itemName : string) => {
-                  const item = categoryData.items.find(item => item.name === itemName);
-                  if (item) {
-                      selectedItems.push(item);
-                      selectedVendors[item.name] = item.vendor || "";
-                  }
-              });
-          }
-      });
+//       selectionMap.forEach((categorySelection, categoryKey) => {
+//           const categoryData = dataSource.find(category => category.key === categoryKey);
+//           if (!categoryData) return; // Skip if category not found
 
-      const groupedVendors = selectedItems.reduce((acc : {[vendor: string]: DataItem[]}, item) => {
-          const vendor = selectedVendors[item.name];
-          if (vendor) {
-              if (!acc[vendor]) acc[vendor] = [];
-              acc[vendor].push(item);
-          }
-          return acc;
-      }, {});
+//           if (categorySelection.all) {
+//               // All items in category selected
+//               categoryData.items.forEach(item => {
+//                   selectedItems.push(item);
+//                   selectedVendors[item.name] = item.vendor || "";
+//               });
+//           } else {
+//               // Some items in category selected
+//               categorySelection.items.forEach((itemName : string) => {
+//                   const item = categoryData.items.find(item => item.name === itemName);
+//                   if (item) {
+//                       selectedItems.push(item);
+//                       selectedVendors[item.name] = item.vendor || "";
+//                   }
+//               });
+//           }
+//       });
 
-      if (!groupedVendors || Object.keys(groupedVendors).length === 0) {
-          return "No valid items selected for approval.";
-      }
+//       const groupedVendors = selectedItems.reduce((acc : {[vendor: string]: DataItem[]}, item) => {
+//           const vendor = selectedVendors[item.name];
+//           if (vendor) {
+//               if (!acc[vendor]) acc[vendor] = [];
+//               acc[vendor].push(item);
+//           }
+//           return acc;
+//       }, {});
 
-      const vendorTotals = Object.entries(groupedVendors).map(([vendor, items]) => ({
-          vendor,
-          total: items.reduce((sum, item) => sum + (item.amount || 0), 0),
-      }));
-      const overallTotal = vendorTotals.reduce((sum, { total }) => sum + total, 0);
+//       if (!groupedVendors || Object.keys(groupedVendors).length === 0) {
+//           return "No valid items selected for approval.";
+//       }
 
-      return (
-          <div>
-              <p>Upon approval, the following actions will be taken:</p>
-              <ul className="mt-2 list-disc pl-5">
-                  {Object.entries(groupedVendors).map(([vendor, items]) => (
-                      <li key={vendor}>
-                          A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
-                          <ul className="mt-1 list-disc pl-5">
-                              {items.map((item) => (
-                                  <li key={item.name}>
-                                      {item.item} - {item.quantity} {item.unit} ({formatToIndianRupee(item.amount)})
-                                  </li>
-                              ))}
-                          </ul>
-                          <p className="mt-1 text-gray-600">
-                              Vendor Total: <strong>{formatToIndianRupee(vendorTotals.find(v => v.vendor === vendor)?.total)}</strong>
-                          </p>
-                      </li>
-                  ))}
-              </ul>
-              <p className="mt-3 text-gray-800">
-                  Overall Total: <strong>{formatToIndianRupee(overallTotal)}</strong>
-              </p>
-          </div>
-      );
-  } else if (actionType === "sendBack") {
-      const selectedItems : DataItem[] = [];
+//       const vendorTotals = Object.entries(groupedVendors).map(([vendor, items]) => ({
+//           vendor,
+//           total: items.reduce((sum, item) => sum + (item.amount || 0), 0),
+//       }));
+//       const overallTotal = vendorTotals.reduce((sum, { total }) => sum + total, 0);
 
-      selectionMap.forEach((categorySelection, categoryKey) => {
-          const categoryData = dataSource.find(category => category.key === categoryKey);
-          if (!categoryData) return; // Skip if category not found
+//       return (
+//           <div>
+//               <p>Upon approval, the following actions will be taken:</p>
+//               <ul className="mt-2 list-disc pl-5">
+//                   {Object.entries(groupedVendors).map(([vendor, items]) => (
+//                       <li key={vendor}>
+//                           A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
+//                           <ul className="mt-1 list-disc pl-5">
+//                               {items.map((item) => (
+//                                   <li key={item.name}>
+//                                       {item.item} - {item.quantity} {item.unit} ({formatToIndianRupee(item.amount)})
+//                                   </li>
+//                               ))}
+//                           </ul>
+//                           <p className="mt-1 text-gray-600">
+//                               Vendor Total: <strong>{formatToIndianRupee(vendorTotals.find(v => v.vendor === vendor)?.total)}</strong>
+//                           </p>
+//                       </li>
+//                   ))}
+//               </ul>
+//               <p className="mt-3 text-gray-800">
+//                   Overall Total: <strong>{formatToIndianRupee(overallTotal)}</strong>
+//               </p>
+//           </div>
+//       );
+//   } else if (actionType === "sendBack") {
+//       const selectedItems : DataItem[] = [];
 
-          if (categorySelection.all) {
-              // All items in category selected
-              categoryData.items.forEach(item => {
-                  selectedItems.push(item);
-              });
-          } else {
-              // Some items in category selected
-              categorySelection.items.forEach((itemName : string) => {
-                  const item = categoryData.items.find(item => item.name === itemName);
-                  if (item) {
-                      selectedItems.push(item);
-                  }
-              });
-          }
-      });
+//       selectionMap.forEach((categorySelection, categoryKey) => {
+//           const categoryData = dataSource.find(category => category.key === categoryKey);
+//           if (!categoryData) return; // Skip if category not found
 
-      if (selectedItems.length === 0) {
-          return "No valid items selected for sending back.";
-      }
+//           if (categorySelection.all) {
+//               // All items in category selected
+//               categoryData.items.forEach(item => {
+//                   selectedItems.push(item);
+//               });
+//           } else {
+//               // Some items in category selected
+//               categorySelection.items.forEach((itemName : string) => {
+//                   const item = categoryData.items.find(item => item.name === itemName);
+//                   if (item) {
+//                       selectedItems.push(item);
+//                   }
+//               });
+//           }
+//       });
 
-      return (
-          <div>
-              <p>Upon sending back, the following actions will be taken:</p>
-              <ul className="mt-2 list-disc pl-5">
-                  <li>
-                      A <strong>new sent-back</strong> will be created with the following items:
-                      <ul className="mt-1 list-disc pl-5">
-                          {selectedItems.map((item) => (
-                              <li key={item.name}>
-                                  {item.item} - {item.quantity} {item.unit}
-                              </li>
-                          ))}
-                      </ul>
-                  </li>
-              </ul>
-          </div>
-      );
-  }
+//       if (selectedItems.length === 0) {
+//           return "No valid items selected for sending back.";
+//       }
 
-  return "No valid action details available.";
-}, [selectionMap, dataSource, orderData]);
+//       return (
+//           <div>
+//               <p>Upon sending back, the following actions will be taken:</p>
+//               <ul className="mt-2 list-disc pl-5">
+//                   <li>
+//                       A <strong>new sent-back</strong> will be created with the following items:
+//                       <ul className="mt-1 list-disc pl-5">
+//                           {selectedItems.map((item) => (
+//                               <li key={item.name}>
+//                                   {item.item} - {item.quantity} {item.unit}
+//                               </li>
+//                           ))}
+//                       </ul>
+//                   </li>
+//               </ul>
+//           </div>
+//       );
+//   }
+
+//   return "No valid action details available.";
+// }, [selectionMap, dataSource, orderData]);
+
+// console.log("generateActionSummary", generateActionSummary("approve"))
 
   return (
         <div className="flex-1 space-y-4">
@@ -539,18 +661,20 @@ const generateActionSummary = useCallback((actionType : string) => {
                 <ProcurementActionsHeaderCard orderData={orderData} po={true} />
             </div>
 
-            {selectionMap.size > 0 && (
+            {/* {selectionMap.size > 0 && (
                 <ActionSummary generateActionSummary={generateActionSummary} />
-            )}
+            )} */}
 
             <div className='overflow-x-auto'>
-                      {getFinalVendorQuotesData?.length > 0 ? (
+                      {/* {getFinalVendorQuotesData?.length > 0 ? (
                 <ApproveVendorQuotesPRorSBAntDTable disableRowSelection={!orderData?.work_package} dataSource={dataSource} selectionMap={selectionMap} setSelectionMap={setSelectionMap} />
               ) : (
                 <div className="h-[10vh] flex items-center justify-center">
                   No Results.
                 </div>
-              )}
+              )} */}
+
+              <VendorApprovalTable dataSource={vendorDataSource} onSelectionChange={(newSelection: SelectionState) => setSelectionMap(newSelection)} />
             </div>
 
             <div className='flex justify-between items-center mt-4 sm:pl-4'>

@@ -1,5 +1,5 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +13,7 @@ import { Pencil2Icon } from "@radix-ui/react-icons";
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -30,9 +31,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import { VendorHoverCard } from "@/components/ui/vendor-hover-card";
 import SITEURL from "@/constants/siteURL";
-import { InvoiceDialog } from "@/pages/ProcurementOrders/InvoiceDialog";
+import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -47,6 +47,10 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SelectServiceVendorPage } from "./select-service-vendor";
 import SRAttachments from "./SRAttachments";
+import { useUserData } from "@/hooks/useUserData";
+import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
+import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
+import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
 
 // const { Sider, Content } = Layout;
 
@@ -58,6 +62,7 @@ interface ApprovedSRProps {
 export const ApprovedSR = ({summaryPage = false, accountsPage = false} : ApprovedSRProps) => {
 
     const params = useParams();
+    const {role, user_id} = useUserData()
   
     const id = accountsPage ? params.id : params.srId;
 
@@ -107,6 +112,19 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     });
     
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+
+    const [deleteDialog, setDeleteDialog] = useState(false)
+    // Use the custom hook for deletion logic
+    const { deleteServiceRequest, isDeleting } = useServiceRequestLogic({
+            onSuccess: (deletedSrName) => {
+                service_request_mutate();
+                setDeleteDialog(false);
+            },
+            onError: (error, srName) => {
+                console.error(`Error deleting SR ${srName} from table view:`, error);
+            },
+            navigateOnSuccessPath: "/service-requests?tab=approved-sr"
+        });
 
     const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
@@ -299,7 +317,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
           setWarning(
             `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
             ${orderData?.gst === "true" ? "including" : "excluding"
-            } GST: ${formatToIndianRupee(compareAmount)}`
+            } GST: ${formatToRoundedIndianRupee(compareAmount)}`
           );
         } else {
           setWarning("");
@@ -349,6 +367,13 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
           </div>
         );
 
+    // Handler for the dialog confirmation
+    const handleConfirmDelete = () => {
+        if (orderData) {
+            deleteServiceRequest(orderData.name); // Call the hook's function
+        }
+    }
+
     return (
         <div className="flex-1 space-y-4">
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
@@ -359,6 +384,23 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     <Badge>{orderData?.status}</Badge>
                 </div>
               <div className="flex items-center gap-2">
+
+                                    <Button 
+                                    disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile")} 
+                                    variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete
+                                    </Button>
+
+                                {/* Render the Delete Confirmation Dialog */}
+                                            <SRDeleteConfirmationDialog
+                                                open={deleteDialog}
+                                                onOpenChange={() => setDeleteDialog(false)}
+                                                itemName={orderData?.name}
+                                                itemType="Service Request" // Specific type for this instance
+                                                onConfirm={handleConfirmDelete}
+                                                isDeleting={isDeleting}
+                                            />
                                 {!summaryPage && !accountsPage && (
                                     <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
                                         <PencilRuler className="w-4 h-4" />
@@ -406,16 +448,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                   </div>
                                   <div className="flex flex-col gap-2 max-sm:items-end">
                                       <Label className=" text-red-700">Total (Excl. GST)</Label>
-                                      <span>{formatToIndianRupee(getTotal)}</span>
+                                      <span>{formatToRoundedIndianRupee(getTotal)}</span>
                                   </div>
                                   <div className="flex flex-col gap-2 sm:items-center">
                                       <Label className=" text-red-700">Total Amount Paid</Label>
-                                      <span>{getAmountPaid ? formatToIndianRupee(getAmountPaid) : "--"}</span>    
+                                      <span>{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>    
                                   </div>
                                   {gstEnabled && (
                                     <div className="flex flex-col gap-2 items-end">
                                         <Label className=" text-red-700">Total (Incl. GST)</Label>
-                                        <span>{formatToIndianRupee(getTotal * 1.18)}</span>
+                                        <span>{formatToRoundedIndianRupee(getTotal * 1.18)}</span>
                                     </div>
                                   )}
                         </div>
@@ -465,17 +507,17 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(getTotal)}</span>
+                                    <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
                                 </div>
                                 {orderData?.gst === "true" && (
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToIndianRupee(Math.floor(getTotal))}</span>
+                                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
                                 </div>
                                 )}
                                 <div className="flex items-center justify-between">
                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                    <span className="">{getAmountPaid ? formatToIndianRupee(getAmountPaid) : "--"}</span>
+                                    <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
                                 </div>
 
                                 <div className="flex flex-col gap-4 pt-4">
@@ -503,7 +545,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                                         setNewPayment({ ...newPayment, tds: tdsValue })
                                                                     }}
                                                                 />
-                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
+                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
                                                                 </div>
                                                             </div>
                                                             <div className="flex gap-4 w-full">
@@ -579,7 +621,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                     projectPayments?.map((payment) => {
                                         return (
                                             <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
                                                 {/* {service_request?.gst === "true" && (
                                                      <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
                                                  )} */}
@@ -813,10 +855,16 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     </CardContent>
                 </Card>
             </div>
+            
+            <DocumentAttachments
+                docType="Service Requests"
+                docName={service_request?.name}
+                documentData={orderData}
+                docMutate={service_request_mutate}
+            />
+            {/* <SRAttachments SR={orderData} /> */}
 
-            <SRAttachments SR={orderData} />
-
-            <InvoiceDialog  sr={orderData} poMutate={service_request_mutate} />
+            <InvoiceDialog  docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} />
 
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">

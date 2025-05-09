@@ -39,7 +39,7 @@ import { usePOValidation } from "@/hooks/usePOValidation";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -48,7 +48,7 @@ import { debounce } from "lodash";
 import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
+// import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
   accountsPage: boolean
@@ -76,363 +76,362 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   const { call, loading: callLoading } = useFrappePostCall("frappe.client.set_value");
   const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 
-  const { toggleRequestPaymentDialog} = useDialogStore()
+  const { toggleRequestPaymentDialog } = useDialogStore()
   const [newPayment, setNewPayment] = useState({
-      amount: "",
-      payment_date: "",
-      utr: "",
-      tds: ""
-    });
-  
+    amount: "",
+    payment_date: "",
+    utr: "",
+    tds: ""
+  });
+
   const [deleteFlagged, setDeleteFlagged] = useState<ProjectPayments | null>(null);
   const [warning, setWarning] = useState("");
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
-  
+
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);
   const toggleNewPaymentDialog = useCallback(() => {
-      setNewPaymentDialog((prevState) => !prevState);
-    }, []);
+    setNewPaymentDialog((prevState) => !prevState);
+  }, []);
 
   const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
 
   const validateAmount = useCallback(
-      debounce((amount : number) => {
+    debounce((amount: number) => {
       const { totalAmt } = getTotal;
-  
+
       const compareAmount = totalAmt - amountPaid;
-  
+
       if (amount > compareAmount) {
         setWarning(
-          `Entered amount exceeds the total ${
-            amountPaid ? "remaining" : ""
-          } amount including GST: ${formatToIndianRupee(compareAmount)}`
+          `Entered amount exceeds the total ${amountPaid ? "remaining" : ""
+          } amount including GST: ${formatToRoundedIndianRupee(compareAmount)}`
         );
       } else {
         setWarning(""); // Clear warning if within the limit
       }
     }, 300), []);
-  
-    // Handle input change
-    const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
-      const amount = e.target.value;
-      setNewPayment({ ...newPayment, amount });
-      validateAmount(amount);
-    }, []);
 
-    const AddPayment = async () => {
-        try {
-          const res = await createDoc("Project Payments", {
-            document_type: "Procurement Orders",
-            document_name: PO?.name,
-            project: PO?.project,
-            vendor: PO?.vendor,
-            utr: newPayment?.utr,
-            tds: newPayment?.tds,
-            amount: newPayment?.amount,
-            payment_date: newPayment?.payment_date,
-            status: "Paid"
-          });
-    
-          if(paymentScreenshot) {
-            const fileArgs = {
-              doctype: "Project Payments",
-              docname: res?.name,
-              fieldname: "payment_attachment",
-              isPrivate: true,
-            };
-      
-            const uploadedFile = await upload(paymentScreenshot, fileArgs);
-      
-            await call({
-              doctype: "Project Payments",
-              name: res?.name,
-              fieldname: "payment_attachment",
-              value: uploadedFile.file_url,
-            });
-          }
-    
-          await AllPoPaymentsListMutate();
-    
-          await poPaymentsMutate();
-    
-          toggleNewPaymentDialog();
-    
-          toast({
-            title: "Success!",
-            description: "Payment added successfully!",
-            variant: "success",
-          });
-    
-          setNewPayment({
-            amount: "",
-            payment_date: "",
-            utr: "",
-            tds: ""
-          });
-    
-          setPaymentScreenshot(null);
-        } catch (error) {
-          console.log("error", error);
-          toast({
-            title: "Failed!",
-            description: "Failed to add Payment!",
-            variant: "destructive",
-          });
-        }
-      };
-    
-      const handleDeletePayment = async () => {
-        try {
+  // Handle input change
+  const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const amount = e.target.value;
+    setNewPayment({ ...newPayment, amount });
+    validateAmount(amount);
+  }, []);
 
-          await deleteDoc("Project Payments", deleteFlagged?.name);
-    
-          await AllPoPaymentsListMutate();
-    
-          await poPaymentsMutate();
-    
-          toast({
-            title: "Success!",
-            description: "Payment deleted successfully!",
-            variant: "success",
-          });
-          
-        } catch (error) {
-          console.log("error", error);
-          toast({
-            title: "Failed!",
-            description: "Failed to delete Payment!",
-            variant: "destructive",
-          });
-        }
+  const AddPayment = async () => {
+    try {
+      const res = await createDoc("Project Payments", {
+        document_type: "Procurement Orders",
+        document_name: PO?.name,
+        project: PO?.project,
+        vendor: PO?.vendor,
+        utr: newPayment?.utr,
+        tds: newPayment?.tds,
+        amount: newPayment?.amount,
+        payment_date: newPayment?.payment_date,
+        status: "Paid"
+      });
+
+      if (paymentScreenshot) {
+        const fileArgs = {
+          doctype: "Project Payments",
+          docname: res?.name,
+          fieldname: "payment_attachment",
+          isPrivate: true,
+        };
+
+        const uploadedFile = await upload(paymentScreenshot, fileArgs);
+
+        await call({
+          doctype: "Project Payments",
+          name: res?.name,
+          fieldname: "payment_attachment",
+          value: uploadedFile.file_url,
+        });
       }
 
+      await AllPoPaymentsListMutate();
+
+      await poPaymentsMutate();
+
+      toggleNewPaymentDialog();
+
+      toast({
+        title: "Success!",
+        description: "Payment added successfully!",
+        variant: "success",
+      });
+
+      setNewPayment({
+        amount: "",
+        payment_date: "",
+        utr: "",
+        tds: ""
+      });
+
+      setPaymentScreenshot(null);
+    } catch (error) {
+      console.log("error", error);
+      toast({
+        title: "Failed!",
+        description: "Failed to add Payment!",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeletePayment = async () => {
+    try {
+
+      await deleteDoc("Project Payments", deleteFlagged?.name);
+
+      await AllPoPaymentsListMutate();
+
+      await poPaymentsMutate();
+
+      toast({
+        title: "Success!",
+        description: "Payment deleted successfully!",
+        variant: "success",
+      });
+
+    } catch (error) {
+      console.log("error", error);
+      toast({
+        title: "Failed!",
+        description: "Failed to delete Payment!",
+        variant: "destructive",
+      });
+    }
+  }
+
   return (
-          <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <p className="text-xl max-sm:text-lg text-red-600">
-                      Transaction Details
-                    </p>
-                    {!accountsPage && !estimatesViewing && !summaryPage && (
-                      <>
-                      <Tooltip>
-                        <TooltipTrigger>
-                        <Button
-                          disabled={!isValid}
-                          variant="outline"
-                          className="text-primary border-primary text-xs px-2"
-                          onClick={isValid ? toggleRequestPaymentDialog : undefined}
-                        >
-                          Request Payment
-                        </Button>
-                        </TooltipTrigger>
-                        {!isValid && (
-                          <TooltipContent
-                            side="bottom"
-                            className="bg-background border border-border text-foreground w-80"
-                          >
-                            <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                    <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
+    <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <p className="text-xl max-sm:text-lg text-red-600">
+            Transaction Details
+          </p>
+          {!accountsPage && !estimatesViewing && !summaryPage && (
+            <>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Button
+                    disabled={!isValid}
+                    variant="outline"
+                    className="text-primary border-primary text-xs px-2"
+                    onClick={isValid ? toggleRequestPaymentDialog : undefined}
+                  >
+                    Request Payment
+                  </Button>
+                </TooltipTrigger>
+                {!isValid && (
+                  <TooltipContent
+                    side="bottom"
+                    className="bg-background border border-border text-foreground w-80"
+                  >
+                    <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              {/* <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
                       po={PO} paymentsMutate={poPaymentsMutate}
+                      /> */}
+            </>
+          )}
+
+          {accountsPage && (
+            <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
+              <AlertDialogTrigger
+                onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
+              >
+                <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
+              </AlertDialogTrigger>
+              <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                <AlertDialogHeader className="text-start">
+                  <div className="flex items-center justify-between">
+                    <Label className=" text-red-700">Project:</Label>
+                    <span className="">{PO?.project_name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className=" text-red-700">Vendor:</Label>
+                    <span className="">{PO?.vendor_name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className=" text-red-700">PO Amt excl. Tax:</Label>
+                    <span className="">{formatToRoundedIndianRupee(getTotal?.total)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal?.totalAmt || 0))}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className=" text-red-700">Amt Paid Till Now:</Label>
+                    <span className="">{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
+                  </div>
+
+                  <div className="flex flex-col gap-4 pt-4">
+                    <div className="flex gap-4 w-full">
+                      <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
+                      <div className="w-full">
+                        <Input
+                          type="number"
+                          placeholder="Enter Amount"
+                          value={newPayment.amount}
+                          onChange={(e) => handleAmountChange(e)}
+                        />
+                        {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                      </div>
+                    </div>
+                    <div className="flex gap-4 w-full">
+                      <Label className="w-[40%]">TDS Amount</Label>
+                      <div className="w-full">
+                        <Input
+                          type="number"
+                          placeholder="Enter TDS Amount"
+                          value={newPayment.tds}
+                          onChange={(e) => {
+                            const tdsValue = e.target.value;
+                            setNewPayment({ ...newPayment, tds: tdsValue })
+                          }}
+                        />
+                        {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee((parseNumber(newPayment?.amount)) - parseNumber(newPayment?.tds))}</span>}
+                      </div>
+                    </div>
+                    <div className="flex gap-4 w-full">
+                      <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                      <Input
+                        type="number"
+                        placeholder="Enter UTR"
+                        value={newPayment.utr}
+                        onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
                       />
-                    </>
+                    </div>
+
+                    <div className="flex gap-4 w-full" >
+                      <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                      <Input
+                        type="date"
+                        value={newPayment.payment_date}
+                        placeholder="DD/MM/YYYY"
+                        onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })}
+                        max={new Date().toISOString().split("T")[0]}
+                        onKeyDown={(e) => e.preventDefault()}
+                      />
+                    </div>
+
+                  </div>
+
+                  <CustomAttachment
+                    maxFileSize={20 * 1024 * 1024} // 20MB
+                    selectedFile={paymentScreenshot}
+                    onFileSelect={setPaymentScreenshot}
+                    className="pt-2"
+                    label="Attach Screenshot"
+                  />
+
+                  <div className="flex gap-2 items-center pt-4 justify-center">
+                    {callLoading || createLoading || uploadLoading ? <TailSpin color="red" width={40} height={40} /> : (
+                      <>
+                        <AlertDialogCancel className="flex-1" asChild>
+                          <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                        </AlertDialogCancel>
+                        <Button
+                          onClick={AddPayment}
+                          disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
+                          className="flex-1">Add Payment
+                        </Button>
+                      </>
                     )}
-    
-                        {accountsPage && (
-                            <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
-                                <AlertDialogTrigger
-                                  onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
-                                >
-                                    <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
-                                </AlertDialogTrigger>
-                                <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                                    <AlertDialogHeader className="text-start">
-                                    <div className="flex items-center justify-between">
-                                        <Label className=" text-red-700">Project:</Label>
-                                        <span className="">{PO?.project_name}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label className=" text-red-700">Vendor:</Label>
-                                        <span className="">{PO?.vendor_name}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                        <span className="">{formatToIndianRupee(getTotal?.total)}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                        <span className="">{formatToIndianRupee(Math.floor(getTotal?.totalAmt || 0))}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                        <span className="">{amountPaid ? formatToIndianRupee(amountPaid) : "--"}</span>
-                                    </div>
-    
-                                    <div className="flex flex-col gap-4 pt-4">
-                                                                <div className="flex gap-4 w-full">
-                                                                    <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                    <div className="w-full">
-                                                                    <Input
-                                                                        type="number"
-                                                                        placeholder="Enter Amount"
-                                                                        value={newPayment.amount}
-                                                                        onChange={(e) => handleAmountChange(e)}
-                                                                    />
-                                                                        {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
-                                                                    </div> 
-                                                                </div>
-                                                                <div className="flex gap-4 w-full">
-                                                                    <Label className="w-[40%]">TDS Amount</Label>
-                                                                    <div className="w-full">
-                                                                    <Input
-                                                                        type="number"
-                                                                        placeholder="Enter TDS Amount"
-                                                                        value={newPayment.tds}
-                                                                        onChange={(e) => {
-                                                                            const tdsValue = e.target.value;
-                                                                            setNewPayment({ ...newPayment, tds: tdsValue })
-                                                                        }}
-                                                                    />
-                                                                    {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToIndianRupee((parseNumber(newPayment?.amount)) - parseNumber(newPayment?.tds))}</span>}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex gap-4 w-full">
-                                                                    <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                    <Input
-                                                                        type="number"
-                                                                        placeholder="Enter UTR"
-                                                                        value={newPayment.utr}
-                                                                        onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                                                    />
-                                                                </div>
-    
-                                                                <div className="flex gap-4 w-full" >
-                                                                    <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                    <Input
-                                                                            type="date"
-                                                                            value={newPayment.payment_date}
-                                                                            placeholder="DD/MM/YYYY"
-                                                                            onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
-                                                                            max={new Date().toISOString().split("T")[0]}
-                                                                            onKeyDown={(e) => e.preventDefault()}
-                                                                         />
-                                                                </div>
-    
-                                                            </div>
-    
-                                            <CustomAttachment
-                                                maxFileSize={20 * 1024 * 1024} // 20MB
-                                                selectedFile={paymentScreenshot}
-                                                onFileSelect={setPaymentScreenshot}
-                                                className="pt-2"
-                                                label="Attach Screenshot"
-                                            />
-    
-                                    <div className="flex gap-2 items-center pt-4 justify-center">
-                                        {callLoading || createLoading || uploadLoading ? <TailSpin color="red" width={40} height={40} /> : (
-                                            <>
-                                            <AlertDialogCancel className="flex-1" asChild>
-                                                <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                            </AlertDialogCancel>
-                                            <Button
-                                                onClick={AddPayment}
-                                                disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
-                                                className="flex-1">Add Payment
-                                            </Button>
-                                            </>
-                                        )}
-                                    </div>
-                                    
-                                    </AlertDialogHeader>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                            )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="overflow-auto">
-                  <Table>
-                    <TableHeader className="bg-red-100">
-                      <TableRow>
-                        <TableHead className="text-black font-bold">Amount</TableHead>
-                        <TableHead className="text-black font-bold">UTR No.</TableHead>
-                        <TableHead className="text-black font-bold">Date</TableHead>
-                        <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
-                        <TableHead ></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(poPayments || [])?.length > 0 ? (
-                        poPayments?.map((payment) => {
-                          return (
-                            <TableRow key={payment?.name}>
-                              <TableCell>
-                                {formatToIndianRupee(payment?.amount)}
-                              </TableCell>
-                                {(payment?.utr && payment?.payment_attachment) ? (
-                                  <TableCell className="text-blue-500 underline">
-                                  {<a
-                                      href={`${SITEURL}${payment?.payment_attachment}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      {payment?.utr}
-                                    </a>}
-                                  </TableCell>
-                                ) : (
-                                  <TableCell>
-                                    {payment?.utr || "--"}
-                                  </TableCell>
-                                )}
-                              <TableCell>
-                                {formatDate(
-                                  payment?.payment_date || payment?.creation
-                                )}
-                              </TableCell>
-                              <TableCell>{payment?.status}</TableCell>
-                              <TableCell className="text-red-500 text-end w-[5%]">
-                                {payment?.status !== "Paid" && !estimatesViewing && !summaryPage && 
-                                <Dialog>
-                                  <DialogTrigger>
-                                    <Trash2
-                                      onClick={() => setDeleteFlagged(payment)}
-                                      className="w-4 h-4" />
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle>Are you sure?</DialogTitle>
-                                    </DialogHeader>
-                                    <div className="flex items-center justify-end gap-2">
-                                      {deleteLoading ? <TailSpin color="red" height={40} width={40} /> : (
-                                        <>
-                                          <DialogClose asChild>
-                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                            </DialogClose>
-                                          <Button onClick={handleDeletePayment}>Delete</Button>
-                                        </>
-                                      )}
-                                    </div>
-    
-                                  </DialogContent>
-                                </Dialog>
-                                }
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-center py-2">
-                            No Payments Found
-                          </TableCell>
-                        </TableRow>
+                  </div>
+
+                </AlertDialogHeader>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-auto">
+        <Table>
+          <TableHeader className="bg-red-100">
+            <TableRow>
+              <TableHead className="text-black font-bold">Amount</TableHead>
+              <TableHead className="text-black font-bold">UTR No.</TableHead>
+              <TableHead className="text-black font-bold">Date</TableHead>
+              <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
+              <TableHead ></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(poPayments || [])?.length > 0 ? (
+              poPayments?.map((payment) => {
+                return (
+                  <TableRow key={payment?.name}>
+                    <TableCell>
+                      {formatToRoundedIndianRupee(payment?.amount)}
+                    </TableCell>
+                    {(payment?.utr && payment?.payment_attachment) ? (
+                      <TableCell className="text-blue-500 underline">
+                        {<a
+                          href={`${SITEURL}${payment?.payment_attachment}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {payment?.utr}
+                        </a>}
+                      </TableCell>
+                    ) : (
+                      <TableCell>
+                        {payment?.utr || "--"}
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      {formatDate(
+                        payment?.payment_date || payment?.creation
                       )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                    </TableCell>
+                    <TableCell>{payment?.status}</TableCell>
+                    <TableCell className="text-red-500 text-end w-[5%]">
+                      {payment?.status !== "Paid" && !estimatesViewing && !summaryPage &&
+                        <Dialog>
+                          <DialogTrigger>
+                            <Trash2
+                              onClick={() => setDeleteFlagged(payment)}
+                              className="w-4 h-4" />
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Are you sure?</DialogTitle>
+                            </DialogHeader>
+                            <div className="flex items-center justify-end gap-2">
+                              {deleteLoading ? <TailSpin color="red" height={40} width={40} /> : (
+                                <>
+                                  <DialogClose asChild>
+                                    <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                  </DialogClose>
+                                  <Button onClick={handleDeletePayment}>Delete</Button>
+                                </>
+                              )}
+                            </div>
+
+                          </DialogContent>
+                        </Dialog>
+                      }
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            ) : (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-2">
+                  No Payments Found
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   )
 }
 

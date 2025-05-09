@@ -10,7 +10,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee as formatToIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
@@ -26,11 +26,11 @@ interface ProjectsProps {
   customerId?: string;
 }
 
-export const Projects : React.FC<ProjectsProps> = ({customersView = false, customerId = undefined}) => {
+export const Projects: React.FC<ProjectsProps> = ({ customersView = false, customerId = undefined }) => {
   const project_filters: Filter<FrappeDoc<ServiceRequests>>[] | undefined = []
-      if (customerId) {
-        project_filters.push(["customer", "=", customerId])
-      }
+  if (customerId) {
+    project_filters.push(["customer", "=", customerId])
+  }
 
   const { data: data, isLoading: isLoading } = useFrappeGetDocList<ProjectsType>("Projects", {
     fields: [
@@ -49,12 +49,12 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
   });
 
   const { data: projectTypesList, isLoading: projectTypesListLoading } = useFrappeGetDocList("Project Types",
-      {
-        fields: ["*"],
-        limit: 1000,
-      },
-      "Project Types"
-    );
+    {
+      fields: ["*"],
+      limit: 1000,
+    },
+    "Project Types"
+  );
 
   const [projectStatusCounts, setProjectStatusCounts] = useState({});
 
@@ -66,7 +66,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
     }
   );
 
-  const {data : po_item_data} = useFrappeGetDocList<ProcurementOrder>("Procurement Orders",
+  const { data: po_item_data } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders",
     {
       fields: ["*"],
       filters: [["status", "!=", "Merged"]],
@@ -76,26 +76,26 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
   );
 
   const { data: serviceRequestsData, isLoading: sRloading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-        fields: ["*"],
-        filters: [
-          ["status", "=", "Approved"],
-        ],
-        limit: 10000,
-      });
-  
-  const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
-      fields: ["*"],
-      limit: 1000
-    })
-  
-  const getProjectWiseInflowAmount = useMemo(() => memoize((projectId : string) : number => {
+    fields: ["*"],
+    filters: [
+      ["status", "=", "Approved"],
+    ],
+    limit: 10000,
+  });
+
+  const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
+    fields: ["*"],
+    limit: 10000
+  })
+
+  const getProjectWiseInflowAmount = useMemo(() => memoize((projectId: string): number => {
     const filteredInflows = projectInflows?.filter(i => i?.project === projectId)
     return getTotalInflowAmount(filteredInflows || [])
-  }, (projectId : string) => projectId),[projectInflows])
+  }, (projectId: string) => projectId), [projectInflows])
 
-    
 
-  const getSRTotal = useMemo(() => memoize((projectId : string) => {
+
+  const getSRTotal = useMemo(() => memoize((projectId: string) => {
     return serviceRequestsData
       ?.filter((item) => item.project === projectId)
       ?.reduce((total, item) => {
@@ -110,9 +110,9 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
       }, 0) || 0;
   }, (projectId: string) => projectId), [serviceRequestsData]);
 
-  const getPOTotalWithGST = useMemo(() => memoize((projectId : string) => {
+  const getPOTotalWithGST = useMemo(() => memoize((projectId: string) => {
     if (!po_item_data?.length) return 0;
-  
+
     return po_item_data
       .filter((order) => order.project === projectId)
       .reduce((total, order) => {
@@ -126,7 +126,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
         );
       }, 0);
   }, (projectId: string) => projectId), [po_item_data]);
-  
+
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders",
     {
@@ -138,16 +138,16 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
   );
 
   const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-          fields: ["*"],
-          filters: [["status", "=", "Paid"]],
-          limit: 100000
+    fields: ["*"],
+    filters: [["status", "=", "Paid"]],
+    limit: 100000
   })
 
-  const getTotalAmountPaid = useMemo(() => memoize((projectId : string) => {
+  const getTotalAmountPaid = useMemo(() => memoize((projectId: string) => {
     return projectPayments
       ?.filter((payment) => payment.project === projectId)
       ?.reduce((total, payment) => total + parseNumber(payment.amount), 0) || 0;
-  }, (projectId : string) => projectId), [projectPayments]);
+  }, (projectId: string) => projectId), [projectPayments]);
 
   const { data: project_estimates, isLoading: project_estimates_loading } = useFrappeGetDocList("Project Estimates", {
     fields: ["*"],
@@ -175,7 +175,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
     return allItemsApproved ? "Approved PO" : "Open PR";
   }, (status: string, procurementRequest: ProcurementRequest) => status + JSON.stringify(procurementRequest)), [getItemStatus, po_data]);
 
-  const prToProjectData = useMemo(() => pr_data?.reduce((acc : Record<string, ProcurementRequest[]>, pr) => {
+  const prToProjectData = useMemo(() => pr_data?.reduce((acc: Record<string, ProcurementRequest[]>, pr) => {
     if (pr?.project) {
       acc[pr.project] = acc[pr.project] || [];
       acc[pr.project].push(pr);
@@ -185,7 +185,7 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
 
   useEffect(() => {
     if (prToProjectData && po_data) {
-      const statusCounts : Record<string, Record<string, number>> = {};
+      const statusCounts: Record<string, Record<string, number>> = {};
 
       for (const [project, prs] of Object.entries(prToProjectData)) {
         statusCounts[project] = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
@@ -362,36 +362,36 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
           // const totalEstimateAmt = getTotalEstimateAmt(data?.name)
           const totalInflowAmt = getProjectWiseInflowAmount(data?.name)
 
-       return (
-         <div className="font-medium flex flex-col gap-1 min-w-[180px]">
-           <Badge
-             className="flex justify-between"
-           >
-             <span>Total PO Amt inc. GST:</span> <span>{formatToIndianRupee(totalPOAmt)}</span>
-           </Badge>
-           {/* <Badge
+          return (
+            <div className="font-medium flex flex-col gap-1 min-w-[180px]">
+              <Badge
+                className="flex justify-between"
+              >
+                <span>Total PO Amt inc. GST:</span> <span>{formatToIndianRupee(totalPOAmt)}</span>
+              </Badge>
+              {/* <Badge
              variant={"yellow"}
              className="flex justify-between"
            >
              <span>Total Estimates Amt:</span>{" "}
              <span>{formatToIndianRupee(totalEstimateAmt)}</span>
            </Badge> */}
-           <Badge
-             variant={"yellow"}
-             className="flex justify-between"
-           >
-             <span>Total Amt Paid:</span>{" "}
-             <span>{formatToIndianRupee(amountPaid)}</span>
-           </Badge>
-           <Badge
-             variant={"green"}
-             className="flex justify-between"
-           >
-             <span>Total Inflow Amt:</span>{" "}
-             <span>{formatToIndianRupee(totalInflowAmt)}</span>
-           </Badge>
-         </div>
-       );
+              <Badge
+                variant={"yellow"}
+                className="flex justify-between"
+              >
+                <span>Total Amt Paid:</span>{" "}
+                <span>{formatToIndianRupee(amountPaid)}</span>
+              </Badge>
+              <Badge
+                variant={"green"}
+                className="flex justify-between"
+              >
+                <span>Total Inflow Amt:</span>{" "}
+                <span>{formatToIndianRupee(totalInflowAmt)}</span>
+              </Badge>
+            </div>
+          );
         },
 
       }
@@ -399,67 +399,67 @@ export const Projects : React.FC<ProjectsProps> = ({customersView = false, custo
     [data, projectStatusCounts, project_estimates, projectPayments, po_item_data, serviceRequestsData]
   );
 
-  const statusOptions = useMemo(() => [{value : "Created", label : "Created"},
-    {value : "WIP", label : "WIP"},
-    {value : "Completed", label : "Completed"},
-    {value : "Halted", label : "Halted"},
-   ], [])
+  const statusOptions = useMemo(() => [{ value: "Created", label: "Created" },
+  { value: "WIP", label: "WIP" },
+  { value: "Completed", label: "Completed" },
+  { value: "Halted", label: "Halted" },
+  ], [])
 
   return (
     <div className="flex-1 space-y-4">
       {!customersView && (
-         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
-         <CardHeader className="flex flex-row items-center justify-between">
-           <CardTitle className="text-sm font-medium">
-             Total Projects
-           </CardTitle>
-           <HardHat className="h-4 w-4 text-muted-foreground" />
-         </CardHeader>
-         <CardContent className="flex justify-between items-center">
-           <div className="text-2xl font-bold">
-             {isLoading ? (
-               <TailSpin
-                 visible={true}
-                 height="30"
-                 width="30"
-                 color="#D03B45"
-                 ariaLabel="tail-spin-loading"
-                 radius="1"
-                 wrapperStyle={{}}
-                 wrapperClass=""
-               />
-             ) : (
-               data?.length
-             )}
-           </div>
-           <div className="flex flex-col gap-1 text-xs font-semibold">
-             <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-yellow-100 rounded-md">
-               <span className="">WIP</span>
-               <i>{data?.filter(i => i?.status === "WIP").length}</i>
-             </div>
-             <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-green-100 rounded-md">
-               <span className="">Completed</span>
-               <i>{data?.filter(i => i?.status === "Completed").length}</i>
-             </div>
-             <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-red-100 rounded-md">
-               <span className="">Halted</span>
-               <i>{data?.filter(i => i?.status === "Halted").length}</i>
-             </div>
-           </div>
-         </CardContent>
-       </Card>
+        <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-medium">
+              Total Projects
+            </CardTitle>
+            <HardHat className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="flex justify-between items-center">
+            <div className="text-2xl font-bold">
+              {isLoading ? (
+                <TailSpin
+                  visible={true}
+                  height="30"
+                  width="30"
+                  color="#D03B45"
+                  ariaLabel="tail-spin-loading"
+                  radius="1"
+                  wrapperStyle={{}}
+                  wrapperClass=""
+                />
+              ) : (
+                data?.length
+              )}
+            </div>
+            <div className="flex flex-col gap-1 text-xs font-semibold">
+              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-yellow-100 rounded-md">
+                <span className="">WIP</span>
+                <i>{data?.filter(i => i?.status === "WIP").length}</i>
+              </div>
+              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-green-100 rounded-md">
+                <span className="">Completed</span>
+                <i>{data?.filter(i => i?.status === "Completed").length}</i>
+              </div>
+              <div className="min-w-[100px] flex items-center justify-between px-2 py-0.5 bg-red-100 rounded-md">
+                <span className="">Halted</span>
+                <i>{data?.filter(i => i?.status === "Halted").length}</i>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
-        {isLoading || projectTypesListLoading || project_estimates_loading || 
+      {isLoading || projectTypesListLoading || project_estimates_loading ||
         projectPaymentsLoading || po_loading || sRloading || prData_loading || projectInflowsLoading ? (
-          <TableSkeleton />
-        ) : (
-          <DataTable
-            columns={columns}
-            data={data || []}
-            projectStatusOptions={statusOptions}
-            projectTypeOptions={projectTypeOptions}
-          />
-        )}
+        <TableSkeleton />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={data || []}
+          projectStatusOptions={statusOptions}
+          projectTypeOptions={projectTypeOptions}
+        />
+      )}
     </div>
   );
 }

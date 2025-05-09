@@ -44,7 +44,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
@@ -108,9 +108,9 @@ interface po_item_data_item {
   vendor_id: string
   vendor_name: string
   creation: string
-  item_id : string
-  quote : number
-  quantity : number
+  item_id: string
+  quote: number
+  quantity: number
   received: number
   category: string
   tax: number
@@ -119,46 +119,55 @@ interface po_item_data_item {
   work_package: string
 }
 
-interface FilterParameters {
+export interface FilterParameters {
   fields?: string[]
   filters?: any
   limit?: number
   orderBy?: { field: string, order: string }
+  limit_start?: number
 }
 
 export const ProjectQueryKeys = {
-  project: (projectId: string) => ['projects', projectId],
-  customer: (customerId: string) => ['customers', customerId],
-  quotes: (parameters: FilterParameters) => ['Approved Quotations', {...parameters}],
-  estimates: (parameters: FilterParameters) => ['Project Estimates', {...parameters}]
+  project: (projectId: string) => ['projects', 'single', projectId],
+  customer: (customerId: string) => ['customers', 'single', customerId],
+  quotes: (parameters: FilterParameters) => ['Approved Quotations', 'list', { ...parameters }],
+  estimates: (parameters: FilterParameters) => ['Project Estimates', 'list', { ...parameters }]
 }
 
-const Project : React.FC = () => {
+const Project: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
   const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? ProjectQueryKeys.project(projectId) : null);
 
   const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? ProjectQueryKeys.customer(data?.customer) : null);
 
-  const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{ message : { po_items : po_item_data_item[] }}>(
+  const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{
+    message: {
+      po_items: po_item_data_item[],
+      custom: po_item_data_item[]
+    }
+  }>(
     "nirmaan_stack.api.procurement_orders.generate_po_summary",
     { project_id: projectId }
   );
 
-  if(isLoading || projectCustomerLoading || po_item_loading) {
+  if (isLoading || projectCustomerLoading || po_item_loading) {
     return <LoadingFallback />
   }
 
   return (
-        data && (
-        <ProjectView
-          projectId={projectId}
-          data={data}
-          project_mutate={project_mutate}
-          projectCustomer={projectCustomer}
-          po_item_data={po_item_data?.message?.po_items}
-        />
-      )
+    data && (
+      <ProjectView
+        projectId={projectId}
+        data={data}
+        project_mutate={project_mutate}
+        projectCustomer={projectCustomer}
+        po_item_data={[
+          ...po_item_data?.message?.po_items.map(item => ({ ...item, isCustom: false })) || [],
+          ...po_item_data?.message?.custom.map(item => ({ ...item, isCustom: true })) || [],
+        ]}
+      />
+    )
   );
 };
 
@@ -191,6 +200,8 @@ export const Component = Project;
 // } satisfies ChartConfig;
 
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
+
+  // console.log("modified-call", po_item_data)
 
   const { role } = useUserData();
 
@@ -231,14 +242,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     return tabsToRemove;
   }, (newPage: string) => newPage), [])
 
-    const onClick: MenuProps['onClick'] = useCallback(
-      (e) => {
-        if (activePage === e.key) return;
-        const newPage = e.key;
-        const tabsToRemove = getTabsToRemove(newPage)
-        setActivePage(newPage, tabsToRemove)
-      }
-      , [activePage, getTabsToRemove]);
+  const onClick: MenuProps['onClick'] = useCallback(
+    (e) => {
+      if (activePage === e.key) return;
+      const newPage = e.key;
+      const tabsToRemove = getTabsToRemove(newPage)
+      setActivePage(newPage, tabsToRemove)
+    }
+    , [activePage, getTabsToRemove]);
 
   // const onClick: MenuProps['onClick'] = useCallback(
   //   (e) => {
@@ -287,11 +298,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 10000,
-  }, projectId ? ProjectQueryKeys.estimates({fields: ["*"], filters: [["project", "=", projectId]], limit: 10000}) : null);
+  }, projectId ? ProjectQueryKeys.estimates({ fields: ["*"], filters: [["project", "=", projectId]], limit: 10000 }) : null);
 
   const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
-    filters : [['project', '=', projectId], ['status', '=', 'Paid']],
+    filters: [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 1000
   })
 
@@ -343,13 +354,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   });
 
   const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-      fields: ["*"],
-      filters: [
-        ["status", "=", "Approved"],
-        ["project", "=", projectId],
-      ],
-      limit: 1000,
-    });
+    fields: ["*"],
+    filters: [
+      ["status", "=", "Approved"],
+      ["project", "=", projectId],
+    ],
+    limit: 1000,
+  });
 
   const { data: vendorsList } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type"],
@@ -379,7 +390,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [projectPayments]);
 
 
-  const getUserFullName = useMemo(() => (id: string | undefined) => {
+  const getUserFullName = useCallback(() => (id: string | undefined) => {
     if (id === "Administrator") return id;
     return usersList?.find((user) => user.name === id)?.full_name || "";
   }, [usersList]);
@@ -449,10 +460,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "Project Spends",
       key: "projectspends",
     },
-    role === "Nirmaan Admin Profile" ? {
+    {
       label: "Financials",
-      key : "projectfinancials",
-    } : null,
+      key: "projectfinancials",
+    },
     {
       label: "Project Estimates",
       key: "projectestimates"
@@ -609,7 +620,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations", {
     fields: ["item_id", "quote"],
     limit: 100000,
-  }, ProjectQueryKeys.quotes({fields: ["item_id", "quote"], limit: 100000}));
+  }, ProjectQueryKeys.quotes({ fields: ["item_id", "quote"], limit: 100000 }));
 
 
   const getItemStatus = useMemo(
@@ -641,8 +652,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   );
 
 
-  const getTotal = (order_id: string) => {
-    return useMemo(() => {
+  const getTotal = useMemo(() => memoize((order_id: string) => {
     let total = 0;
     const procurementRequest = pr_data?.find((item) => item.name === order_id);
     const orderData = procurementRequest?.procurement_list;
@@ -659,13 +669,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       });
     } else {
       orderData?.list.forEach((item) => {
-        const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)
+        const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)?.averageRate
         total += parseNumber(minQuote * item.quantity);
       });
     }
     return total || "N/A";
-    }, [pr_data, po_data, quote_data, statusRender, order_id]);
-  };
+  }, (order_id: string) => order_id), [pr_data, po_data, quote_data, statusRender]);
 
   useEffect(() => {
     if (pr_data) {
@@ -685,7 +694,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   ], []);
 
 
-  const prSummaryColumns : ColumnDef<ProcurementRequest>[] = useMemo(() => [
+  const prSummaryColumns: ColumnDef<ProcurementRequest>[] = useMemo(() => [
     {
       accessorKey: "name",
       header: ({ column }) => {
@@ -702,10 +711,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         const name = data?.name
         return (
           <div className="flex items-center gap-1">
-          <Link className="text-blue-500 underline" to={row.getValue("name")}>
-            <div>{name?.split("-")[2]}</div>
-          </Link>
-          <ItemsHoverCard order_list={data?.procurement_list.list} />
+            <Link className="text-blue-500 underline" to={row.getValue("name")}>
+              <div>{name?.split("-")[2]}</div>
+            </Link>
+            <ItemsHoverCard order_list={data?.procurement_list.list} />
           </div>
         );
       },
@@ -802,10 +811,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         );
       },
       cell: ({ row }) => {
-        const categories : Set<string> = new Set();
+        const categories: Set<string> = new Set();
         const categoryList = row.getValue("category_list")?.list || [];
         categoryList?.forEach((i) => {
-            categories.add(i?.name || "");
+          categories.add(i?.name || "");
         });
 
         return (
@@ -832,7 +841,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         const total = getTotal(row.getValue("name"));
         return (
           <div className="text-[#11050599]">
-            {total === "N/A" ? total : formatToIndianRupee(total)}
+            {total === "N/A" ? total : formatToRoundedIndianRupee(total)}
           </div>
         );
       },
@@ -841,18 +850,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const getSRTotal = (order_id: string) => {
     return useMemo(() => {
-    let total: number = 0;
-    const orderData = allServiceRequestsData?.find((item) => item.name === order_id)?.service_order_list;
-    orderData?.list.forEach((item) => {
-      const price = parseNumber(item.rate) * parseNumber(item.quantity);
-      total += price;
-    });
-    return total;
+      let total: number = 0;
+      const orderData = allServiceRequestsData?.find((item) => item.name === order_id)?.service_order_list;
+      orderData?.list.forEach((item) => {
+        const price = parseNumber(item.rate) * parseNumber(item.quantity);
+        total += price;
+      });
+      return total;
     }, [allServiceRequestsData, order_id]);
   };
 
 
-  const srSummaryColumns : ColumnDef<ServiceRequests>[] = useMemo(
+  const srSummaryColumns: ColumnDef<ServiceRequests>[] = useMemo(
     () => [
       {
         accessorKey: "name",
@@ -865,12 +874,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           return (
             <div className="flex items-center gap-1">
               <Link
-              className="text-blue-500 underline"
-              to={`/service-requests-list/${srId}`}
-            >
-              {srId?.slice(-5)}
-            </Link>
-            <ItemsHoverCard order_list={data?.service_order_list.list} isSR />
+                className="text-blue-500 underline"
+                to={`/service-requests-list/${srId}`}
+              >
+                {srId?.slice(-5)}
+              </Link>
+              <ItemsHoverCard order_list={data?.service_order_list.list} isSR />
             </div>
           );
         },
@@ -922,7 +931,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(getSRTotal(row.getValue("name")) || "--")}
+              {formatToRoundedIndianRupee(getSRTotal(row.getValue("name")) || "--")}
             </div>
           );
         },
@@ -931,48 +940,46 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         id: "Amount_paid",
         header: "Amt Paid",
         cell: ({ row }) => {
-            const data = row.original
-            const amountPaid = getTotalAmountPaidPOWise(data?.name);
-            return <div className="font-medium">
-                {formatToIndianRupee(amountPaid || "--")}
-            </div>
+          const data = row.original
+          const amountPaid = getTotalAmountPaidPOWise(data?.name);
+          return <div className="font-medium">
+            {formatToRoundedIndianRupee(amountPaid || "--")}
+          </div>
         },
-    },
+      },
     ],
     [projectId, allServiceRequestsData, getSRTotal]
   );
 
   const getPOTotal = (order_id: string) => {
     return useMemo(() => {
-    let total: number = 0;
-    let totalWithGST: number = 0;
-    const po = po_data_for_posummary?.find((item) => item.name === order_id);
-    const loading_charges = parseNumber(po?.loading_charges);
-    const freight_charges = parseNumber(po?.freight_charges);
-    const orderData = po?.order_list;
+      let total: number = 0;
+      let totalWithGST: number = 0;
+      const po = po_data_for_posummary?.find((item) => item.name === order_id);
+      const loading_charges = parseNumber(po?.loading_charges);
+      const freight_charges = parseNumber(po?.freight_charges);
+      const orderData = po?.order_list;
 
-    orderData?.list.forEach((item) => {
-      const price = parseNumber(item.quote);
-      const quantity = parseNumber(item?.quantity) || 1;
-      const gst = parseNumber(item?.tax);
-      total += price * quantity;
-      const gstAmount = (price * gst) / 100;
-      totalWithGST += (price + gstAmount) * quantity;
-    });
+      orderData?.list.forEach((item) => {
+        const price = parseNumber(item.quote);
+        const quantity = parseNumber(item?.quantity) || 1;
+        const gst = parseNumber(item?.tax);
+        total += price * quantity;
+        const gstAmount = (price * gst) / 100;
+        totalWithGST += (price + gstAmount) * quantity;
+      });
 
-    total += loading_charges + freight_charges;
-    totalWithGST += loading_charges * 1.18 + freight_charges * 1.18;
+      total += loading_charges + freight_charges;
+      totalWithGST += loading_charges * 1.18 + freight_charges * 1.18;
 
-    return { totalWithoutGST: total, totalWithGST: totalWithGST };
+      return { totalWithoutGST: total, totalWithGST: totalWithGST };
     }, [po_data_for_posummary, order_id]);
   }
 
-  const getWorkPackageName = (poId: string) => {
-    return useMemo(() => {
+  const getWorkPackageName = useMemo(() => memoize((poId: string) => {
     const po = po_data_for_posummary?.find((j) => j?.name === poId);
     return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
-    }, [po_data_for_posummary, pr_data, poId]);
-  }
+  }, (poId: string) => poId), [po_data_for_posummary, pr_data])
 
 
   const wpOptions = useMemo(() => {
@@ -989,12 +996,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [data]);
 
 
-  const getTotalAmountPaidPOWise =(id: string) => {
-    return useMemo(() => {
+  const getTotalAmountPaidPOWise = useMemo(() => memoize((id: string) => {
     const payments = projectPayments?.filter((payment) => payment.document_name === id);
     return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-    }, [projectPayments, id]);
-  }
+  }, (id: string) => id), [projectPayments]);
 
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
@@ -1022,7 +1027,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         accessorKey: "creation",
         header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date Created" />;
+          return <DataTableColumnHeader column={column} title="PO Date Created" />;
         },
         cell: ({ row }) => {
           return (
@@ -1039,11 +1044,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           return <DataTableColumnHeader column={column} title="Work Package" />;
         },
         cell: ({ row }) => {
-          const po : string = row.getValue("name");
+          const po: string = row.getValue("name");
           return <div className="font-medium">{getWorkPackageName(po) || "Custom"}</div>;
         },
         filterFn: (row, id, value) => {
-          const rowValue : string = row.getValue(id);
+          const rowValue: string = row.getValue(id);
           // console.log("rowvalue", rowValue)
           // console.log("value", value)
           const renderValue = getWorkPackageName(rowValue);
@@ -1090,19 +1095,36 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           );
         },
       },
+      // {
+      //   id: "totalWithoutGST",
+      //   header: ({ column }) => {
+      //     return (
+      //       <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+      //     );
+      //   },
+      //   cell: ({ row }) => {
+      //     return (
+      //       <div className="font-medium">
+      //         {formatToRoundedIndianRupee(
+      //           getPOTotal(row.getValue("name")).totalWithoutGST
+      //         )}
+      //       </div>
+      //     );
+      //   },
+      // },
       {
-        id: "totalWithoutGST",
+        accessorKey: "owner",
         header: ({ column }) => {
           return (
-            <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+            <DataTableColumnHeader column={column} title="Approved By" />
           );
         },
         cell: ({ row }) => {
+          const data = row.original
+          const ownerUser = usersList?.find((entry) => data?.owner === entry.name)
           return (
             <div className="font-medium">
-              {formatToIndianRupee(
-                getPOTotal(row.getValue("name")).totalWithoutGST
-              )}
+              {ownerUser?.full_name || data?.owner || "--"}
             </div>
           );
         },
@@ -1117,7 +1139,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           return (
             <div className="font-medium">
-              {formatToIndianRupee(
+              {formatToRoundedIndianRupee(
                 getPOTotal(row.getValue("name")).totalWithGST
               )}
             </div>
@@ -1128,22 +1150,22 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         id: "Amount_paid",
         header: "Amt Paid",
         cell: ({ row }) => {
-            const data = row.original
-            const amountPaid = getTotalAmountPaidPOWise(data?.name);
-            return <div className="font-medium">
-                {formatToIndianRupee(amountPaid)}
-            </div>
+          const data = row.original
+          const amountPaid = getTotalAmountPaidPOWise(data?.name);
+          return <div className="font-medium">
+            {formatToRoundedIndianRupee(amountPaid)}
+          </div>
         },
       },
       {
         accessorKey: 'order_list',
         header: ({ column }) => {
-            return <h1 className="hidden">:</h1>
+          return <h1 className="hidden">:</h1>
         },
         cell: ({ row }) => <span className="hidden">hh</span>
       }
     ],
-    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal]
+    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal, usersList]
   );
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
@@ -1181,131 +1203,130 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       }_${data?.owner}_${formatDate(new Date())}`,
   });
 
-  const groupItemsByWorkPackageAndCategory = useMemo(() => (items : po_item_data_item[] | undefined) => {
-    const totals: { [key: string]: { amountWithTax: number; amountWithoutTax: number, total_estimated_amount? : number, total_amount_paid? : number } } = {};
+  const groupItemsByWorkPackageAndCategory = useMemo(() => (
+    items: po_item_data_item[] | undefined
+  ) => {
+    const totals: {
+      [key: string]: {
+        amountWithTax: number;
+        amountWithoutTax: number;
+        total_estimated_amount?: number;
+        total_amount_paid?: number;
+      };
+    } = {};
 
-    const allItemIds : string[] = [];
+    const allItemIds: string[] = [];
 
-    const groupedData = items?.reduce((acc : { [workPackage: string]: { [category: string]: any[] } }, item : po_item_data_item) => {
+    const groupedData = items?.reduce((acc: { [workPackage: string]: { [category: string]: any[] } }, item: po_item_data_item & { isCustom?: boolean }) => {
+      const isCustom = item?.isCustom === true;
+      const work_package = isCustom ? "Custom" : item.work_package;
+
       const baseAmount = parseNumber(item.quote * item.quantity);
       const taxAmount = baseAmount * (parseNumber(item.tax) / 100);
       const amountPlusTax = baseAmount + taxAmount;
 
-      if (totals[item.work_package]) {
-        const { amountWithTax, amountWithoutTax } = totals[item.work_package];
-        totals[item.work_package] = {
-          amountWithTax: amountPlusTax + amountWithTax,
+      if (totals[work_package]) {
+        const { amountWithTax, amountWithoutTax } = totals[work_package];
+        totals[work_package] = {
+          amountWithTax: amountWithTax + amountPlusTax,
           amountWithoutTax: amountWithoutTax + baseAmount,
         };
       } else {
-        totals[item.work_package] = {
+        totals[work_package] = {
           amountWithTax: amountPlusTax,
           amountWithoutTax: baseAmount,
         };
-        // totals[item.work_package] = amountWithTax;
       }
 
-      if (!acc[item.work_package]) acc[item.work_package] = {};
-      if (!acc[item.work_package][item.category]) {
-        acc[item.work_package][item.category] = [];
+      if (!acc[work_package]) acc[work_package] = {};
+      if (!acc[work_package][item.category]) {
+        acc[work_package][item.category] = [];
       }
 
-      const existingItem = acc[item.work_package][item.category].find(
+      const existingItem = acc[work_package][item.category].find(
         (i) => i.item_id === item.item_id
       );
 
       if (existingItem) {
-        existingItem.quantity = existingItem.quantity + item.quantity;
-        existingItem.received = existingItem.received + item.received;
+        existingItem.quantity += item.quantity;
+        existingItem.received += item.received;
         existingItem.amount += baseAmount;
         existingItem.amountWithTax += amountPlusTax;
-        existingItem.averageRate = Math.floor(
-          (existingItem.averageRate + item.quote) / 2
-        );
+        existingItem.averageRate = Math.floor((existingItem.averageRate + item.quote) / 2);
         existingItem.po_number = `${existingItem.po_number},${item.po_number}`;
       } else {
-        allItemIds.push(item.item_id)
-        acc[item.work_package][item.category].push({
+        allItemIds.push(item.item_id);
+        acc[work_package][item.category].push({
           ...item,
           amount: baseAmount,
           amountWithTax: amountPlusTax,
           averageRate: item.quote,
         });
       }
+
       return acc;
     }, {}) || {};
 
-    // const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item || ""))
-
-    // filteredProjectEstimates?.forEach((item) => {
-    //   if (!groupedData[item?.work_package || ""]) {
-    //     groupedData[item?.work_package || ""] = {};
-    //   }
-    //   if (!groupedData[item?.work_package || ""][item?.category || ""]) {
-    //     groupedData[item?.work_package || ""][item?.category || ""] = [];
-    //   }
-
-    //   groupedData[item.work_package || ""][item.category || ""].push({
-    //     item_id: item.item,
-    //     item_name: item.item_name,
-    //     unit: item?.uom,
-    //     amount: undefined,
-    //     amountWithTax: undefined,
-    //     averageRate: undefined,
-    //     category: item.category,
-    //     creation: item.creation,
-    //     po_number: undefined,
-    //     quantity: undefined,
-    //     quote: undefined,
-    //     tax: parseNumber(item?.item_tax),
-    //     vendor_id: undefined,
-    //     vendor_name: undefined,
-    //     work_package: item.work_package,
-    //   });
-    // })
-
     return { groupedData, totals };
-    }, [project_estimates, items]);
+  }, [project_estimates, items]);
+
+  const poToWorkPackageMap = useMemo(() => {
+    if (!po_data || !pr_data) return {};
+
+    const map: { [poName: string]: string } = {};
+
+    po_data.forEach((po) => {
+      const pr = pr_data.find((pr) => pr.name === po.procurement_request);
+      const workPackage = pr?.work_package?.trim() ? pr.work_package : "Custom";
+      map[po.name] = workPackage;
+    });
+
+    return map;
+  }, [po_data, pr_data]);
 
   useEffect(() => {
-    if (!po_item_data || !project_estimates) return;
+    if (!po_item_data || !project_estimates || !projectPayments) return;
 
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
 
-    const totalAmountPaidWPWise : { [key: string]: number } = {}
+    const totalAmountPaidWPWise: { [key: string]: number } = {};
 
-    const filteredPOPayments = projectPayments?.filter(i => i.document_type === "Procurement Orders")
+    projectPayments
+      ?.filter((payment) => payment.document_type === "Procurement Orders")
+      .forEach((payment) => {
+        const workPackage = poToWorkPackageMap[payment.document_name] || "Custom";
 
-    filteredPOPayments?.forEach(i => {
-      const po = po_data?.find(j => j?.name === i?.document_name)
-      const workPackage = pr_data?.find(j => j?.name === po?.procurement_request)?.work_package || ""
-      if (!totalAmountPaidWPWise[workPackage]) totalAmountPaidWPWise[workPackage] = 0
-      totalAmountPaidWPWise[workPackage] += parseNumber(i?.amount)
-    })
+        if (!totalAmountPaidWPWise[workPackage]) {
+          totalAmountPaidWPWise[workPackage] = 0;
+        }
+        totalAmountPaidWPWise[workPackage] += parseNumber(payment.amount);
+      });
 
-    Object.keys(totals)?.forEach((key) => {
-      const estimates =
-        project_estimates?.filter((i) => i?.work_package === key) || [];
-      const totalEstimatedAmount = estimates?.reduce(
-        (acc, i) =>
-          acc +
-          parseNumber(i?.quantity_estimate) *
-          parseNumber(i?.rate_estimate),
+    Object.keys(totals || {}).forEach((key) => {
+      const estimates = project_estimates?.filter((i) => i?.work_package === key) || [];
+      const totalEstimatedAmount = estimates.reduce(
+        (acc, i) => acc + parseNumber(i.quantity_estimate) * parseNumber(i.rate_estimate),
         0
       );
+
       totals[key]['total_estimated_amount'] = totalEstimatedAmount || 0;
-      totals[key]['total_amount_paid'] = totalAmountPaidWPWise[key] || 0
+      totals[key]['total_amount_paid'] = totalAmountPaidWPWise[key] || 0;
     });
+
     setWorkPackageTotalAmounts(totals);
-  }, [po_item_data, project_estimates, po_data, projectPayments, pr_data]);
+  }, [po_item_data, project_estimates, projectPayments, poToWorkPackageMap]);
+
+  console.log("totals-arr", workPackageTotalAmounts)
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
-  
-  const totalPOAmountWithGST: number = useMemo(memoize(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
-      const { amountWithTax } = workPackageTotalAmounts[key];
-      return acc + amountWithTax;
-    }, 0), (workPackageTotalAmounts: any) => JSON.stringify(workPackageTotalAmounts)), [workPackageTotalAmounts])
+
+  const totalPOAmountWithGST: number = useMemo(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
+    const { amountWithTax } = workPackageTotalAmounts[key];
+    return acc + amountWithTax;
+  }, 0), [workPackageTotalAmounts])
+
+  // console.log("total-po-amt-with-gst", totalPOAmountWithGST)
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -1368,17 +1389,17 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     if (data) {
       const workPackages =
         JSON.parse(data?.project_work_packages)?.work_packages || [];
-        const options = [
-          { label: "All", value: "All" },
-          ...workPackages.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })),
-          // { label: "Tool & Equipments", value: "Tool & Equipments" },
-          { label: "Services", value: "Services" },
-        ].sort((a, b) => {
-          if (a.label === "All") return -1;
-          if (b.label === "All") return 1;
-          return a.label.localeCompare(b.label);
-        });
-  
+      const options = [
+        { label: "All", value: "All" },
+        ...workPackages.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })),
+        // { label: "Tool & Equipments", value: "Tool & Equipments" },
+        { label: "Services", value: "Services" },
+      ].sort((a, b) => {
+        if (a.label === "All") return -1;
+        if (b.label === "All") return 1;
+        return a.label.localeCompare(b.label);
+      });
+
 
       setMakeOptions(options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label)));
 
@@ -1434,9 +1455,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const estimatesTotal = useMemo(() => project_estimates?.reduce((acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)), 0) || 0, [project_estimates]);
 
-  if(po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || allServiceRequestsDataLoading) {
-          return <LoadingFallback />
-    }
+  if (po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || allServiceRequestsDataLoading) {
+    return <LoadingFallback />
+  }
 
 
   return (
@@ -1471,7 +1492,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     <span className="font-bold text-md">Status: </span>
                     <div
                       className={`flex items-center gap-2 ${projectStatuses.find((s) => s.value === data?.status)
-                          ?.color || "text-gray-500"
+                        ?.color || "text-gray-500"
                         }`}
                     >
                       {statusIcon &&
@@ -1523,12 +1544,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       <TailSpin color="red" width={26} height={26} />
                     ) : (
                       <>
-                      <AlertDialogCancel onClick={handleCancelStatus}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <Button onClick={handleConfirmStatus}>
-                      Continue
-                    </Button>
+                        <AlertDialogCancel onClick={handleCancelStatus}>
+                          Cancel
+                        </AlertDialogCancel>
+                        <Button onClick={handleConfirmStatus}>
+                          Continue
+                        </Button>
                       </>
                     )}
                   </AlertDialogFooter>
@@ -1546,13 +1567,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             <div>
               <span className="whitespace-nowrap">Total Estimates: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(estimatesTotal)}
+                {formatToRoundedIndianRupee(estimatesTotal)}
               </span>
             </div>
             <div>
               <span className="whitespace-nowrap">Total Amt Paid: </span>
               <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToIndianRupee(getTotalAmountPaid.totalAmount)}
+                {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
               </span>
             </div>
           </div>
@@ -1560,32 +1581,32 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       </div>
 
 
-        <div className="w-full">
-          <ConfigProvider
-            theme={{
-              components: {
-                Menu: {
-                  horizontalItemSelectedColor: "#D03B45",
-                  itemSelectedBg: "#FFD3CC",
-                  itemSelectedColor: "#D03B45",
-                },
+      <div className="w-full">
+        <ConfigProvider
+          theme={{
+            components: {
+              Menu: {
+                horizontalItemSelectedColor: "#D03B45",
+                itemSelectedBg: "#FFD3CC",
+                itemSelectedColor: "#D03B45",
               },
-            }}
-          >
-            <Menu
-              selectedKeys={[activePage]}
-              onClick={onClick}
-              mode="horizontal"
-              items={items}
-            />
-          </ConfigProvider>
-        </div>
+            },
+          }}
+        >
+          <Menu
+            selectedKeys={[activePage]}
+            onClick={onClick}
+            mode="horizontal"
+            items={items}
+          />
+        </ConfigProvider>
+      </div>
 
       {/* Overview Section */}
 
-        {activePage === "overview" && (
-              <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
-        )
+      {activePage === "overview" && (
+        <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
+      )
       }
 
       {/* {activePage === "projectTracking" && (
@@ -1671,27 +1692,27 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   });
 
                   return ( */}
-                    <div className="flex flex-col items-start">
-                      <p className="text-gray-700">
-                        <span className="font-bold">Total inc. GST:</span>{" "}
-                        <span className="text-blue-600">
-                          {formatToIndianRupee(totalPOAmountWithGST)}
-                        </span>
-                      </p>
-                      <p className="text-gray-700">
-                        <span className="font-bold">Total exc. GST:</span>{" "}
-                        <span className="text-blue-600">
-                          {formatToIndianRupee(totalPosRaised)}
-                        </span>
-                      </p>
-                      <p className="text-gray-700">
-                        <span className="font-bold">Total Amt Paid:</span>{" "}
-                        <span className="text-blue-600">
-                          {formatToIndianRupee(getTotalAmountPaid.poAmount)}
-                        </span>
-                      </p>
-                    </div>
-                  {/* );
+                <div className="flex flex-col items-start">
+                  <p className="text-gray-700">
+                    <span className="font-bold">Total inc. GST:</span>{" "}
+                    <span className="text-blue-600">
+                      {formatToRoundedIndianRupee(totalPOAmountWithGST)}
+                    </span>
+                  </p>
+                  <p className="text-gray-700">
+                    <span className="font-bold">Total exc. GST:</span>{" "}
+                    <span className="text-blue-600">
+                      {formatToRoundedIndianRupee(totalPosRaised)}
+                    </span>
+                  </p>
+                  <p className="text-gray-700">
+                    <span className="font-bold">Total Amt Paid:</span>{" "}
+                    <span className="text-blue-600">
+                      {formatToRoundedIndianRupee(getTotalAmountPaid.poAmount)}
+                    </span>
+                  </p>
+                </div>
+                {/* );
                 })()} */}
               </CardDescription>
             </CardContent>
@@ -1724,15 +1745,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       )}
 
       {activePage === "projectspends" && (
-          <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options} 
-           categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
+        <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options}
+          categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
       )}
 
 
       {activePage === "projectfinancials" && (
         <Suspense fallback={<LoadingFallback />}>
-          <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer} 
-           totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} /> 
+          <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
+            totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />
         </Suspense>
       )}
 
@@ -1746,7 +1767,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
       {activePage === "SRSummary" && (
         <>
-        <Card>
+          <Card>
             <CardContent className="flex flex-row items-center justify-between p-4">
               <CardDescription>
                 <p className="text-lg font-semibold text-gray-700">Summary</p>
@@ -1755,33 +1776,33 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                 </p>
               </CardDescription>
               <CardDescription className="text-right">
-                    <div className="flex flex-col items-start">
-                      <p className="text-gray-700">
-                        <span className="font-bold">Total inc. GST:</span>{" "}
-                        <span className="text-blue-600">
-                          {formatToIndianRupee(getAllSRsTotalWithGST)}
-                        </span>
-                      </p>
-                      {/* <p className="text-gray-700">
+                <div className="flex flex-col items-start">
+                  <p className="text-gray-700">
+                    <span className="font-bold">Total inc. GST:</span>{" "}
+                    <span className="text-blue-600">
+                      {formatToRoundedIndianRupee(getAllSRsTotalWithGST)}
+                    </span>
+                  </p>
+                  {/* <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
                           {formatToIndianRupee(totalServiceOrdersAmt)}
                         </span>
                       </p> */}
-                      <p className="text-gray-700">
-                        <span className="font-bold">Total Amt Paid:</span>{" "}
-                        <span className="text-blue-600">
-                          {formatToIndianRupee(getTotalAmountPaid?.srAmount)}
-                        </span>
-                      </p>
-                    </div>
+                  <p className="text-gray-700">
+                    <span className="font-bold">Total Amt Paid:</span>{" "}
+                    <span className="text-blue-600">
+                      {formatToRoundedIndianRupee(getTotalAmountPaid?.srAmount)}
+                    </span>
+                  </p>
+                </div>
               </CardDescription>
             </CardContent>
           </Card>
           <DataTable
-          columns={srSummaryColumns}
-          data={allServiceRequestsData || []}
-        />
+            columns={srSummaryColumns}
+            data={allServiceRequestsData || []}
+          />
         </>
       )}
 

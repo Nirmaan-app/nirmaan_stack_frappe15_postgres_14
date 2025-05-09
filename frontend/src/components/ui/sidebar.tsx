@@ -548,6 +548,8 @@ const tooltipPathMap : {[key : string] : string} = {
   "Service Requests": "service-requests",
   "Projects": "projects",
   "In-Flow Payments": "in-flow-payments",
+  "Invoice Recon": "invoice-reconciliation",
+  "Reports": "reports",
 };
 
 const getActiveClass = (selectedKeys : string, tooltipText : string) => 

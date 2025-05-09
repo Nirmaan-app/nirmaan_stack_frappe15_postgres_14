@@ -19,5 +19,5 @@ export interface Category{
 	/**	Tax : Data	*/
 	tax?: string
 	/**	New Items Addition : Data	*/
-	new_items: string
+	new_items?: "true" | "false"
 }

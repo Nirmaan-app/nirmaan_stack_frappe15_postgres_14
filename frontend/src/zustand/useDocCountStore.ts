@@ -24,13 +24,13 @@ interface PRCounts {
 }
 
 interface NewSBCounts {
-    rejected : number | null;
+    rejected: number | null;
     delayed: number | null;
     cancelled: number | null;
 }
 
 interface PaymentCountsInterface {
-    rejected : number | null;
+    rejected: number | null;
     requested: number | null;
     approved: number | null;
     paid: number | null;
@@ -48,17 +48,21 @@ interface StoreState {
     updatePOCounts: (poData: PODataType[], admin: boolean) => void;
     newPOCount: number | null;
     adminNewPOCount: number | null;
-    newSBCounts : NewSBCounts;
+    newSBCounts: NewSBCounts;
     adminNewSBCounts: NewSBCounts;
     dispatchedPOCount: number | null;
     adminDispatchedPOCount: number | null;
-    otherPOCount: number | null;
-    adminOtherPOCount: number | null;
-    updateSRCounts: (srData : any, admin: boolean) => void;
+    partiallyDeliveredPOCount: number | null; // New state
+    adminPartiallyDeliveredPOCount: number | null; // New state
+    // otherPOCount: number | null;
+    // adminOtherPOCount: number | null;
+    deliveredPOCount: number | null; // Renamed state for clarity
+    adminDeliveredPOCount: number | null; // Renamed state for clarity
+    updateSRCounts: (srData: any, admin: boolean) => void;
     selectedSRCount: number | null;
     adminSelectedSRCount: number | null;
-    approvedSRCount : number | null;
-    adminApprovedSRCount : number | null;
+    approvedSRCount: number | null;
+    adminApprovedSRCount: number | null;
     allSRCount: number | null;
     adminAllSRCount: number | null;
     pendingSRCount: number | null;
@@ -67,14 +71,14 @@ interface StoreState {
     adminAmendedSRCount: number | null;
     paymentsCount: PaymentCountsInterface;
     adminPaymentsCount: PaymentCountsInterface;
-    updatePaymentsCount: (paymentData : any, admin: boolean) => void;
+    updatePaymentsCount: (paymentData: any, admin: boolean) => void;
 }
 
 export const useDocCountStore = create<StoreState>()(
     persist(
         (set) => ({
-            prCounts: {pending: 0, approve: 0, approved: 0, inProgress: 0},
-            adminPrCounts: {pending: 0, approve: 0, approved: 0, inProgress: 0},
+            prCounts: { pending: 0, approve: 0, approved: 0, inProgress: 0 },
+            adminPrCounts: { pending: 0, approve: 0, approved: 0, inProgress: 0 },
             amendedSRCount: 0,
             adminAmendedSRCount: 0,
             adminNewApproveSBCount: 0,
@@ -83,22 +87,26 @@ export const useDocCountStore = create<StoreState>()(
             adminAmendPOCount: 0,
             newPOCount: 0,
             adminNewPOCount: 0,
-            otherPOCount: 0,
-            adminOtherPOCount: 0,
+            // otherPOCount: 0,
+            // adminOtherPOCount: 0,
             dispatchedPOCount: 0,
             adminDispatchedPOCount: 0,
-            newSBCounts: { rejected: 0, delayed: 0, cancelled: 0},
-            adminNewSBCounts: { rejected: 0, delayed: 0, cancelled: 0},
+            partiallyDeliveredPOCount: 0, // Initialize new state
+            adminPartiallyDeliveredPOCount: 0, // Initialize new state
+            deliveredPOCount: 0, // Initialize renamed state
+            adminDeliveredPOCount: 0, // Initialize renamed state
+            newSBCounts: { rejected: 0, delayed: 0, cancelled: 0 },
+            adminNewSBCounts: { rejected: 0, delayed: 0, cancelled: 0 },
             selectedSRCount: 0,
             adminSelectedSRCount: 0,
-            approvedSRCount : 0,
-            adminApprovedSRCount : 0,
+            approvedSRCount: 0,
+            adminApprovedSRCount: 0,
             allSRCount: 0,
             adminAllSRCount: 0,
             pendingSRCount: 0,
             adminPendingSRCount: 0,
-            paymentsCount: {requested: 0, approved: 0, rejected: 0, paid: 0},
-            adminPaymentsCount: {requested: 0, approved: 0, rejected: 0, paid: 0},
+            paymentsCount: { requested: 0, approved: 0, rejected: 0, paid: 0 },
+            adminPaymentsCount: { requested: 0, approved: 0, rejected: 0, paid: 0 },
             updatePRCounts: (prData, admin) => {
                 const pendingCount = prData.filter((pr) => pr.workflow_state === 'Pending').length;
                 const approveCount = prData.filter((pr) => ['Vendor Selected', 'Partially Approved'].includes(pr.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending")).length;
@@ -106,9 +114,9 @@ export const useDocCountStore = create<StoreState>()(
                 // const updateQuotePRCount = prData.filter((pr) => pr.workflow_state === "RFQ Generated").length
                 // const chooseVendorPRCount = prData.filter((pr) => pr.workflow_state === "Quote Updated").length
                 const inProgressPRCount = prData.filter((pr) => pr.workflow_state === "In Progress").length
-                if(admin) {
+                if (admin) {
                     set({
-                        adminPrCounts: {pending: pendingCount, approve: approveCount, approved: approvedCount, inProgress: inProgressPRCount},
+                        adminPrCounts: { pending: pendingCount, approve: approveCount, approved: approvedCount, inProgress: inProgressPRCount },
                         // adminPendingPRCount: pendingCount,
                         // adminApprovePRCount: approveCount,
                         // adminApprovedPRCount: approvedCount,
@@ -118,7 +126,7 @@ export const useDocCountStore = create<StoreState>()(
                     });
                 } else {
                     set({
-                        prCounts: {pending: pendingCount, approve: approveCount, approved: approvedCount, inProgress: inProgressPRCount},
+                        prCounts: { pending: pendingCount, approve: approveCount, approved: approvedCount, inProgress: inProgressPRCount },
                         // pendingPRCount: pendingCount,
                         // approvePRCount: approveCount,
                         // approvedPRCount: approvedCount,
@@ -134,40 +142,46 @@ export const useDocCountStore = create<StoreState>()(
                 const newDelayedSBCount = sbData.filter((sb) => sb?.workflow_state === "Pending" && sb?.type === "Delayed").length
                 const newCancelledSBCount = sbData.filter((sb) => sb?.workflow_state === "Pending" && sb?.type === "Cancelled").length
 
-                if(admin) {
+                if (admin) {
                     set({
                         adminNewApproveSBCount: approveSBCount,
-                        adminNewSBCounts : {rejected : newRejectedSBCount, delayed: newDelayedSBCount, cancelled: newCancelledSBCount}
+                        adminNewSBCounts: { rejected: newRejectedSBCount, delayed: newDelayedSBCount, cancelled: newCancelledSBCount }
                     });
                 } else {
                     set({
                         newSBApproveCount: approveSBCount,
-                        newSBCounts : {rejected : newRejectedSBCount, delayed: newDelayedSBCount, cancelled: newCancelledSBCount}
+                        newSBCounts: { rejected: newRejectedSBCount, delayed: newDelayedSBCount, cancelled: newCancelledSBCount }
                     });
                 }
             },
             updatePOCounts: (poData, admin) => {
                 const amendPOCount = poData?.filter((po) => po?.status === "PO Amendment")?.length
-                const newPOCount = poData?.filter((po) =>  ["PO Approved"].includes(po?.status))?.length
+                const newPOCount = poData?.filter((po) => ["PO Approved"].includes(po?.status))?.length
                 const dispatchedPOCount = poData?.filter((po) => po?.status === "Dispatched")?.length
-                const otherPOCount = poData?.filter((po) =>  !["PO Approved", "PO Amendment", "Merged", "Dispatched"].includes(po?.status))?.length
-                if(admin) {
+                // const otherPOCount = poData?.filter((po) =>  !["PO Approved", "PO Amendment", "Merged", "Dispatched"].includes(po?.status))?.length
+                const partiallyDeliveredPOCount = poData?.filter((po) => po?.status === "Partially Delivered")?.length; // Calculate new count
+                const deliveredPOCount = poData?.filter((po) => po?.status === "Delivered")?.length; // Calculate specific delivered count
+                if (admin) {
                     set({
                         adminAmendPOCount: amendPOCount,
                         adminNewPOCount: newPOCount,
-                        adminOtherPOCount: otherPOCount,
+                        // adminOtherPOCount: otherPOCount,
+                        adminPartiallyDeliveredPOCount: partiallyDeliveredPOCount, // Set new admin count
+                        adminDeliveredPOCount: deliveredPOCount, // Set renamed admin count
                         adminDispatchedPOCount: dispatchedPOCount
                     });
                 } else {
                     set({
                         amendPOCount: amendPOCount,
                         newPOCount: newPOCount,
-                        otherPOCount: otherPOCount,
+                        partiallyDeliveredPOCount: partiallyDeliveredPOCount, // Set new count
+                        // otherPOCount: otherPOCount,
+                        deliveredPOCount: deliveredPOCount, // Set renamed count
                         dispatchedPOCount: dispatchedPOCount
                     });
                 }
             },
-            updateSRCounts : (srData, admin) => {
+            updateSRCounts: (srData, admin) => {
                 const selectedSRCount = srData?.filter((sr) => ["Vendor Selected"].includes(sr?.status))?.length
                 const approvedSRCount = srData?.filter((sr) => sr?.status === "Approved")?.length
                 const allSRCount = srData?.length
@@ -175,7 +189,7 @@ export const useDocCountStore = create<StoreState>()(
 
                 const amendedSRCount = srData?.filter((sr) => sr?.status === "Amendment")?.length
 
-                if(admin) {
+                if (admin) {
                     set({
                         adminSelectedSRCount: selectedSRCount,
                         adminApprovedSRCount: approvedSRCount,
@@ -199,13 +213,13 @@ export const useDocCountStore = create<StoreState>()(
                 const requestedPaymentsCount = paymentData?.filter((p) => p?.status === "Requested")?.length
                 const paidPaymentsCount = paymentData?.filter((p) => p?.status === "Paid")?.length
 
-                if(admin) {
+                if (admin) {
                     set({
-                        adminPaymentsCount: {requested: requestedPaymentsCount, approved: approvedPaymentsCount, rejected: rejectedPaymentsCount, paid: paidPaymentsCount}
+                        adminPaymentsCount: { requested: requestedPaymentsCount, approved: approvedPaymentsCount, rejected: rejectedPaymentsCount, paid: paidPaymentsCount }
                     });
                 } else {
                     set({
-                        paymentsCount: {requested: requestedPaymentsCount, approved: approvedPaymentsCount, rejected: rejectedPaymentsCount, paid: paidPaymentsCount}
+                        paymentsCount: { requested: requestedPaymentsCount, approved: approvedPaymentsCount, rejected: rejectedPaymentsCount, paid: paidPaymentsCount }
                     });
                 }
             },

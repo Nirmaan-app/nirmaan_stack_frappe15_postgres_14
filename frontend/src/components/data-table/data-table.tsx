@@ -25,7 +25,7 @@ import { formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
 import { debounce } from "lodash";
-import { FileUp } from "lucide-react";
+import { Download, FileUp } from "lucide-react";
 import * as React from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "../ui/button";
@@ -38,11 +38,16 @@ import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { fuzzyFilter } from "./data-table-models";
 import { DataTablePagination } from "./data-table-pagination";
 import { DataTableViewOptions } from "./data-table-view-options";
+import { ReportType, useReportStore } from "@/pages/reports/store/useReportStore";
+import { exportToCsv } from "@/utils/exportToCsv";
 
 type OptionsType = {
   label: string;
   value: string;
 };
+
+// Define the type for the new prop
+type ExportDataGetter<TData> = (reportType: ReportType, allData: TData[]) => TData[];
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -65,9 +70,16 @@ interface DataTableProps<TData, TValue> {
   itemSearch?: boolean;
   isExport?: boolean;
   inFlowButton?: boolean;
+  sortColumn?: string;
+  // --- New Props for Generic Export ---
+    /** Prefix for the downloaded CSV file (e.g., "projects", "po_pending_invoices") */
+    exportFileNamePrefix?: string;
+    /** Function to filter/prepare data specifically for export based on report type */
+    getExportData?: ExportDataGetter<TData>;
 }
 
 export function DataTable<TData, TValue>({
+  loading = false,
   columns,
   data,
   project_values,
@@ -86,17 +98,24 @@ export function DataTable<TData, TValue>({
   vendorData = undefined,
   customerOptions = undefined,
   inFlowButton = false,
+  sortColumn = undefined,
+  exportFileNamePrefix, // New prop
+    getExportData,      // New prop
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
 
   const [searchParams] = useSearchParams();
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ type: false, });
 
   const [rowSelection, setRowSelection] = React.useState({});
 
   const [pageIndex, setPageIndex] = React.useState(0);
   const [pageSize, setPageSize] = React.useState(10);
+
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ type: false, });
+
+  // Get selectedReportType from the store
+  const selectedReportType = useReportStore((state) => state.selectedReportType);
 
   // const currentRoute = window.location.pathname;
 
@@ -126,6 +145,28 @@ export function DataTable<TData, TValue>({
   //     return combinedString.includes(filterValue.toLowerCase());
   // };
 
+  React.useEffect(() => {
+    if(columns) {
+      columns.forEach(c => {
+        if(c?.hide) {
+          setColumnVisibility(prev => ({...prev, [c?.accessorKey]: false}))
+        }
+        if(c?.accessorKey === "creation" && (!sortColumn || sortColumn === "creation")) {
+          setSorting([{
+            id: "creation",
+            desc: true,
+          },])
+        }
+      })
+      if(sortColumn && sorting.length === 0) {
+        setSorting([{
+          id: sortColumn,
+          desc: true,
+        },])
+      }
+    }
+  }, [columns])
+
   const [globalFilter, setGlobalFilter] = React.useState(searchParams.get("search") || "");
 
   const { toggleNewInflowDialog } = useDialogStore();
@@ -144,6 +185,7 @@ export function DataTable<TData, TValue>({
   }, []);
 
   const updateURL = React.useCallback((key: string, value: string) => {
+    console.log("key", key, value)
     const url = new URL(window.location.href);
     if (value) {
       url.searchParams.set(key, value);
@@ -182,6 +224,7 @@ export function DataTable<TData, TValue>({
   const handlePageSizeChange = React.useCallback((newPageSize: string) => {
     setPageSize(parseInt(newPageSize));
     updateURL("rows", newPageSize);
+    handlePageChange("0");
   }, [pageSize, updateURL]);
 
   const { setSelectedData, selectedData } = useFrappeDataStore()
@@ -212,14 +255,61 @@ export function DataTable<TData, TValue>({
     },
   });
 
-  React.useEffect(() => {
-    if (columns?.some(i => i?.accessorKey === "creation")) {
-      setSorting([{
-        id: "creation",
-        desc: true,
-      },])
-    }
-  }, [columns])
+
+  // Get the actual rows being displayed after filtering and pagination
+  const currentVisibleRows = table.getRowModel().rows.map(row => row.original);
+  // OR If you want to export ALL filtered data regardless of pagination:
+  const allFilteredRows = table.getFilteredRowModel().rows.map(row => row.original);
+  // Choose which dataset to use for export based on requirements. Let's use ALL filtered data.
+
+  // --- New Export Handler ---
+  const handleExport = () => {
+      if (!exportFileNamePrefix || !getExportData) {
+          console.error("Export configuration (prefix or data getter) is missing.");
+          toast({ title: "Export Error", description: "Export functionality not configured.", variant: "destructive" });
+          return;
+      }
+      if (loading || data.length === 0) {
+           toast({ title: "Export", description: "No data available to export or still loading.", variant: "default" });
+          return;
+      }
+
+      try {
+          // 1. Get the data specifically prepared for this export type
+          //    We pass ALL original data (`data` prop) to the getter,
+          //    so it can apply report-type filtering before any table filtering.
+          const dataToExportRaw = getExportData(selectedReportType, data);
+
+          // 2. OPTIONAL: Apply table's current filters (search, column filters) to the report-specific data
+          //    This is more complex as it requires replicating table filtering logic outside the table.
+          //    Easier approach: Export based on Report Type filter applied to the *full* dataset.
+          //    Let's stick to the easier approach for now: export data filtered *only* by the report type.
+          const dataToExport = dataToExportRaw;
+
+           // OR, if you want to export exactly what's visible *after* table filters:
+           // const visibleFilteredData = getExportData(selectedReportType, allFilteredRows); // Apply report type filter to table-filtered data
+
+          if (!dataToExport || dataToExport.length === 0) {
+               toast({ title: "Export", description: `No data found matching report type: ${selectedReportType}`, variant: "default" });
+               return;
+          }
+
+          // 3. Determine filename based on prefix and maybe the report type
+           const finalFileName = `${exportFileNamePrefix}${selectedReportType ? `_${selectedReportType.replace(/\s+/g, '_')}` : ''}`;
+
+
+          // 4. Call the generic export utility
+          exportToCsv(finalFileName, dataToExport, columns);
+
+          toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success"});
+
+      } catch (error) {
+           console.error("Export failed:", error);
+           toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive"});
+      }
+  };
+
+
 
   React.useEffect(() => {
     setSelectedData(table.getSelectedRowModel().rows)
@@ -298,11 +388,24 @@ export function DataTable<TData, TValue>({
               handleGlobalFilterChange(e.target.value); // Debounced update
             }}
             className="w-[50%] max-sm:w-[60%]"
+            // className="max-w-sm w-full sm:w-auto" // Responsive width
           />
 
           {inFlowButton && (
             <Button onClick={toggleNewInflowDialog}>Add New Entry</Button>
           )}
+
+          {/* Generic Export Button */}
+          {exportFileNamePrefix && getExportData && (
+                        <Button
+                            onClick={handleExport}
+                            size="sm"
+                            disabled={loading || data.length === 0}
+                        >
+                            <Download className="mr-2 h-4 w-4" />
+                            Export
+                        </Button>
+                    )}
 
           {/* {inFlowButton && <NewInflowPayment />} */}
 
@@ -351,6 +454,7 @@ export function DataTable<TData, TValue>({
 
           {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
         </div>
+        
         {totalPOsRaised && (
           <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
             <span className=" whitespace-nowrap">Total PO's raised</span>
@@ -554,7 +658,15 @@ export function DataTable<TData, TValue>({
                     </TableBody> */}
 
           <TableBody>
-            {table.getRowModel().rows?.length ? (
+            {/* Loading State Overlay or Indicator (Optional) */}
+            {loading && (
+                             <TableRow>
+                                 <TableCell colSpan={columns.length + 1} className="h-24 text-center"> {/* +1 if view options was in header row */}
+                                     Loading data... {/* Or use a spinner component */}
+                                 </TableCell>
+                             </TableRow>
+                         )}
+            {!loading && table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
@@ -575,7 +687,7 @@ export function DataTable<TData, TValue>({
                   ))}
                 </TableRow>
               ))
-            ) : (
+            ) : ( !loading && (
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
@@ -584,7 +696,7 @@ export function DataTable<TData, TValue>({
                   No results.
                 </TableCell>
               </TableRow>
-            )}
+            ))}
           </TableBody>
         </Table>
       </div>
