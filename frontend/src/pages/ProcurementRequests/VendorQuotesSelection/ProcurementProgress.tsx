@@ -8,7 +8,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { parseNumber } from "@/utils/parseNumber"
-import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
+import { useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
 import { CirclePlus, Info, Undo2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
@@ -19,6 +19,14 @@ import { Button } from "../../../components/ui/button"
 import { toast } from "../../../components/ui/use-toast"
 import GenerateRFQDialog from "./components/GenerateRFQDialog"
 import { SelectVendorQuotesTable } from "./SelectVendorQuotesTable"
+// Import the types and mapping function (adjust path if they are in a shared types directory)
+import {
+  TargetRateDetailFromAPI,
+  FrappeTargetRateApiResponse,
+  ApiSelectedQuotation, // Needed by mapApiQuotesToApprovedQuotations
+  ApprovedQuotations,   // Expected by HistoricalQuotesHoverCard
+  mapApiQuotesToApprovedQuotations
+} from '../ApproveVendorQuotes/types'; // Assuming types are in ApproveVendorQuotes/types for now
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -38,31 +46,31 @@ function usePersistentState<T>(key: string, defaultValue: T) {
   return [state, setState] as [T, typeof setState];
 }
 
-const useProcurementUpdates = (prId: string, prMutate : any) => {
+const useProcurementUpdates = (prId: string, prMutate: any) => {
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
 
-  const {mutate} = useSWRConfig()
+  const { mutate } = useSWRConfig()
 
   const navigate = useNavigate()
 
-  const updateProcurementData = async (formData: RFQData | null = null, updatedData : ProcurementItem[],  value : string) => {
+  const updateProcurementData = async (formData: RFQData | null = null, updatedData: ProcurementItem[], value: string) => {
     await updateDoc("Procurement Requests", prId, {
       rfq_data: formData,
       procurement_list: { list: updatedData },
       workflow_state: value === "revert" ? "Approved" : undefined
     });
-    
+
     await prMutate();
 
     await mutate(`Procurement Requests:${prId}`)
 
-    if(value === "review" || value === "revert") {
+    if (value === "review" || value === "revert") {
       toast({
         title: "Success!",
         description: value === "revert" ? `PR: ${prId} changes reverted successfully!` : `Quotes updated and saved successfully!`,
         variant: "success",
       })
-      if(value === "revert") {
+      if (value === "revert") {
         navigate(`/procurement-requests?tab=New%20PR%20Request`)
       } else {
         navigate(`/procurement-requests/${prId}?tab=In+Progress&mode=review`)
@@ -77,17 +85,17 @@ const useProcurementUpdates = (prId: string, prMutate : any) => {
   return { updateProcurementData, update_loading };
 };
 
-export const ProcurementProgress : React.FC = () => {
+export const ProcurementProgress: React.FC = () => {
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate()
 
-  const {prId} = useParams<{ prId: string }>()
+  const { prId } = useParams<{ prId: string }>()
 
   // Ensure prId exists early
   if (!prId) {
     return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
-}
+  }
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>()
   const [addVendorsDialog, setAddVendorsDialog] = useState(false)
@@ -112,7 +120,7 @@ export const ProcurementProgress : React.FC = () => {
     setRevertDialog(!revertDialog);
   }, [revertDialog]);
 
-  const {data: vendors, isLoading: vendors_loading} = useFrappeGetDocList<Vendors>("Vendors", {
+  const { data: vendors, isLoading: vendors_loading } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
     filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
     limit: 10000,
@@ -120,42 +128,100 @@ export const ProcurementProgress : React.FC = () => {
   }, "Material Vendors")
 
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-      fields: ["*"],
-      limit: 1000,
-    },
+    fields: ["*"],
+    limit: 1000,
+  },
     `Nirmaan Users`
   )
-  
-  const getFullName = useMemo(() => (id : string | undefined) => {
+
+  const getFullName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 
   const { updateProcurementData, update_loading } = useProcurementUpdates(prId, procurement_request_mutate)
 
+  // --- NEW: Fetch Target Rates ---
+  const itemIdsToFetch = useMemo(() => {
+    // Ensure orderData and its nested properties exist before mapping
+    return orderData?.procurement_list?.list
+      ?.map(item => item.name) // Assuming item.name is the item_id
+      .filter(id => !!id) ?? [];
+  }, [orderData]); // Recompute when orderData changes
+
+  const {
+    data: targetRatesApiResponse,
+    isLoading: targetRatesLoading,
+    error: targetRatesError
+  } = useFrappeGetCall<FrappeTargetRateApiResponse>(
+    'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', // YOUR_CUSTOM_APP_NAME.api_module.function_name
+    { item_ids_json: itemIdsToFetch.length > 0 ? JSON.stringify(itemIdsToFetch) : undefined },
+    itemIdsToFetch.length > 0 ? `target_rates_for_items_progress_${prId}` : null, // Unique SWR key
+    { revalidateOnFocus: false } // Optional SWR config
+  );
+
+  const targetRatesDataMap = useMemo(() => {
+    const map = new Map<string, TargetRateDetailFromAPI>();
+    targetRatesApiResponse?.message?.forEach(tr => {
+      if (tr.item_id) { // Ensure item_id exists for mapping
+        map.set(tr.item_id, tr);
+      }
+    });
+    return map;
+  }, [targetRatesApiResponse]);
+
   useEffect(() => {
-    if (procurement_request) {
+    if (targetRatesError) {
+      console.error("Error fetching target rates in ProcurementProgress:", targetRatesError);
+      toast({ title: "Error", description: "Could not load target rate information.", variant: "destructive" });
+    }
+  }, [targetRatesError]);
+  // --- END: Fetch Target Rates ---
+
+  useEffect(() => {
+    if (procurement_request && procurement_request.length > 0) {
       const request = procurement_request[0]
-      const  itemToVendorMap = new Map()
+
+      // Ensure nested lists are parsed if they are strings
+      if (typeof request.procurement_list === 'string') {
+        try { request.procurement_list = JSON.parse(request.procurement_list); }
+        catch (e) { console.error("Parse error procurement_list", e); request.procurement_list = { list: [] }; }
+      }
+      if (typeof request.category_list === 'string') {
+        try { request.category_list = JSON.parse(request.category_list); }
+        catch (e) { console.error("Parse error category_list", e); request.category_list = { list: [] }; }
+      }
+      if (typeof request.rfq_data === 'string' && request.rfq_data) {
+        try { request.rfq_data = JSON.parse(request.rfq_data); }
+        catch (e) { console.error("Parse error rfq_data", e); request.rfq_data = { selectedVendors: [], details: {} }; }
+      } else if (!request.rfq_data) { // Ensure rfq_data is an object if initially null/undefined
+        request.rfq_data = { selectedVendors: [], details: {} };
+      }
+
+      const itemToVendorMap = new Map()
       request.procurement_list.list.forEach((item) => {
-        if(item?.vendor) {
+        if (item?.vendor) {
           itemToVendorMap.set(item?.name, item?.vendor)
         }
       })
-      if(!Object.keys(formData.details || {}).length && request.rfq_data && Object.keys(request.rfq_data).length) {
-          setFormData(request.rfq_data)
+      // Initialize formData from fetched RFQ data if draft is empty
+      // And ensure formData.details is an object
+      if ((!formData.details || Object.keys(formData.details).length === 0) && request.rfq_data && Object.keys(request.rfq_data.details || {}).length) {
+        setFormData(request.rfq_data);
+      } else if (!formData.details) {
+        setFormData(prev => ({ ...prev, details: {} }));
       }
       setOrderData(procurement_request[0])
       setSelectedVendorQuotes(itemToVendorMap)
     }
-  }, [procurement_request])
+  }, [procurement_request, formData.details, setFormData])
 
   useEffect(() => {
     if (
-      orderData && orderData?.procurement_list?.list?.length > 0 &&
-      Object.keys(formData.details).length === 0
+      orderData && Array.isArray(orderData?.procurement_list?.list) && orderData.procurement_list.list.length > 0 &&
+      formData.details && Object.keys(formData.details).length === 0 // Check if details specifically is empty
     ) {
       const newDetails: RFQData['details'] = {};
-      
+
       orderData.procurement_list.list.forEach((item) => {
         const matchingCategory = orderData.category_list.list.find(
           (cat) => cat.name === item.category
@@ -169,9 +235,9 @@ export const ProcurementProgress : React.FC = () => {
       });
       setFormData((prev) => ({ ...prev, details: newDetails }));
     }
-  }, [orderData, formData.details]);
+  }, [orderData, formData.details, setFormData]);
 
-  const useVendorOptions = (vendors : any, selectedVendors: Vendor[]) => 
+  const useVendorOptions = (vendors: any, selectedVendors: Vendor[]) =>
     useMemo(() => vendors
       ?.filter(v => !selectedVendors.some(sv => sv.value === v.name))
       .map(v => ({
@@ -180,47 +246,47 @@ export const ProcurementProgress : React.FC = () => {
         city: v.vendor_city,
         state: v.vendor_state,
       })),
-    [vendors, selectedVendors]
-  );
+      [vendors, selectedVendors]
+    );
 
-const vendorOptions = useVendorOptions(vendors, formData.selectedVendors);
+  const vendorOptions = useVendorOptions(vendors, formData.selectedVendors);
 
-const updateURL = useCallback((key : string, value : string) => {
+  const updateURL = useCallback((key: string, value: string) => {
     const url = new URL(window.location.href);
     url.searchParams.set(key, value);
     window.history.pushState({}, "", url);
-}, []);
+  }, []);
 
 
-const onClick = async (value : string) => {
+  const onClick = async (value: string) => {
     if (mode === value) return;
-    if(value === "view" && JSON.stringify(formData) !== JSON.stringify(orderData?.rfq_data || {})) {
-        setIsRedirecting("view")
-        const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
-          if (selectedVendorQuotes.has(item.name)) {
-            const vendorId : string = selectedVendorQuotes.get(item.name);
-            const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
-            if (vendorData) {
-              return {
-                ...item,
-                vendor: vendorId,
-                quote: parseNumber(vendorData.quote),
-                make: vendorData.make || item?.make,
-              };
-            }
-            return { ...item };
-          } else {
-            const { vendor, quote, ...rest } = item;
-            return rest;
+    if (value === "view" && JSON.stringify(formData) !== JSON.stringify(orderData?.rfq_data || {})) {
+      setIsRedirecting("view")
+      const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
+        if (selectedVendorQuotes.has(item.name)) {
+          const vendorId: string = selectedVendorQuotes.get(item.name);
+          const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
+          if (vendorData) {
+            return {
+              ...item,
+              vendor: vendorId,
+              quote: parseNumber(vendorData.quote),
+              make: vendorData.make || item?.make,
+            };
           }
-        });
-      
-        setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
-        await updateProcurementData(formData, updatedOrderList, value)
+          return { ...item };
+        } else {
+          const { vendor, quote, ...rest } = item;
+          return rest;
+        }
+      });
+
+      setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
+      await updateProcurementData(formData, updatedOrderList, value)
     }
     setMode(value);
     updateURL("mode", value);
-};
+  };
 
   const handleVendorSelection = useCallback(() => {
     setFormData((prev) => ({ ...prev, selectedVendors: [...prev.selectedVendors, ...selectedVendors] }));
@@ -229,49 +295,53 @@ const onClick = async (value : string) => {
   }, [formData, selectedVendors, setFormData, setSelectedVendors, setAddVendorsDialog]);
 
 
-const handleReviewChanges = async () => {
-  const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
-    if (selectedVendorQuotes.has(item.name)) {
-      const vendorId : string = selectedVendorQuotes.get(item.name);
-      const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
-      if (vendorData) {
-        return {
-          ...item,
-          vendor: vendorId,
-          quote: parseNumber(vendorData.quote),
-          make: vendorData.make || item.make,
-        };
+  const handleReviewChanges = async () => {
+    const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
+      if (selectedVendorQuotes.has(item.name)) {
+        const vendorId: string = selectedVendorQuotes.get(item.name);
+        const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
+        if (vendorData) {
+          return {
+            ...item,
+            vendor: vendorId,
+            quote: parseNumber(vendorData.quote),
+            make: vendorData.make || item.make,
+          };
+        }
+        return { ...item };
+      } else {
+        const { vendor, quote, ...rest } = item;
+        return rest;
       }
-      return { ...item };
-    } else {
+    }) || [];
+
+    setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
+
+    setIsRedirecting("review");
+
+    await updateProcurementData(formData, updatedOrderList, "review");
+  };
+
+  const handleRevertPR = async () => {
+    const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
       const { vendor, quote, ...rest } = item;
       return rest;
-    }
-  }) || [];
+    }) || [];
 
-  setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
+    setOrderData({ ...orderData, procurement_list: { list: updatedOrderList }, rfq_data: { selectedVendors: [], details: {} } });
 
-  setIsRedirecting("review");
+    setIsRedirecting("revert");
 
-  await updateProcurementData(formData, updatedOrderList, "review");
-};
+    await updateProcurementData(undefined, updatedOrderList, "revert");
+  }
 
-const handleRevertPR = async () => {
-  const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
-      const { vendor, quote, ...rest } = item;
-      return rest;
-  }) || [];
+  // --- Combined Loading State ---
+  const mainLoading = procurement_request_loading || vendors_loading || usersListLoading || targetRatesLoading;
 
-  setOrderData({ ...orderData, procurement_list: { list: updatedOrderList }, rfq_data: { selectedVendors : [], details : {}} });
+  // Workflow state check uses orderData, which is set in useEffect
+  if (mainLoading && !orderData) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>;
 
-  setIsRedirecting("revert");
-
-  await updateProcurementData(undefined, updatedOrderList, "revert"); 
-} 
-
-if (procurement_request_loading || vendors_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-
-  if (orderData?.workflow_state !== "In Progress") {
+  if (orderData && orderData?.workflow_state !== "In Progress") {
     return (
       <div className="flex items-center justify-center h-[90vh]">
         <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -301,111 +371,115 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
       </div>
     );
   }
+  // If orderData is still not defined after loading (e.g., PR not found), show an error or appropriate message
+  if (!orderData) {
+    return <div className="flex items-center justify-center h-[90vh]">Procurement Request not found or still loading...</div>;
+  }
 
   return (
     <>
-    <div className="flex-1 space-y-4">
-      <ProcurementHeaderCard orderData={orderData} />
-      <div className="flex max-sm:flex-col max-sm:items-start items-center justify-between max-sm:gap-4">
-        <div className="flex gap-4 max-sm:justify-between w-full">
-          <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
-          <div className="flex items-center gap-1">
-            <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
-            <span  role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
-            <span role="radio" tabIndex={0} aria-checked={mode === "view"}  onClick={() => onClick("view")}  className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
-          </div>
-        <HoverCard>
-          <HoverCardTrigger>
-            <Info className="text-blue-500" />
-          </HoverCardTrigger>
-          <HoverCardContent>
-            {mode === "edit" ? (
-                <div>
-                    <p className="font-semibold mb-2 tracking-tight">Edit Mode Instructions:</p>
-                    <ul className="list-disc list-inside space-y-1 text-xs">
+      <div className="flex-1 space-y-4">
+        <ProcurementHeaderCard orderData={orderData} />
+        <div className="flex max-sm:flex-col max-sm:items-start items-center justify-between max-sm:gap-4">
+          <div className="flex gap-4 max-sm:justify-between w-full">
+            <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
+            <div className="flex items-center gap-1">
+              <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
+                <span role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
+                <span role="radio" tabIndex={0} aria-checked={mode === "view"} onClick={() => onClick("view")} className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
+              </div>
+              <HoverCard>
+                <HoverCardTrigger>
+                  <Info className="text-blue-500" />
+                </HoverCardTrigger>
+                <HoverCardContent>
+                  {mode === "edit" ? (
+                    <div>
+                      <p className="font-semibold mb-2 tracking-tight">Edit Mode Instructions:</p>
+                      <ul className="list-disc list-inside space-y-1 text-xs">
                         <li>Select required vendors using the <b>Add More Vendors</b> button.</li>
                         <li>Fill in the quotes for each relevant Item-Vendor combination.</li>
                         <li>Select Makes (if applicable).</li>
                         <li>Click <b>View</b> to review your item-vendor quote selections.</li>
-                    </ul>
-                </div>
-            ) : (
-                <div>
-                    <p className="font-semibold mb-2 tracking-tight">View Mode Instructions:</p>
-                    <ul className="list-disc list-inside space-y-1 text-xs">
+                      </ul>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="font-semibold mb-2 tracking-tight">View Mode Instructions:</p>
+                      <ul className="list-disc list-inside space-y-1 text-xs">
                         <li>To enable the <b>Continue</b> button below the items table, select at least one Item-Vendor quote.</li>
                         <li>Click <b>Continue</b> to navigate to the review selections page.</li>
-                    </ul>
-                </div>
-          )}
-        </HoverCardContent>
-        </HoverCard>
-        </div>
-      </div>
-
-      <div className="flex gap-2 items-center max-sm:justify-end max-sm:w-full">
-        {mode === "edit" && (
-          <Button onClick={() => setAddVendorsDialog(true)} variant={"outline"} className="text-primary border-primary flex gap-1">
-          <CirclePlus className="w-4 h-4" />
-          Select {formData?.selectedVendors?.length > 0 && "More"} Vendors
-        </Button>
-        )}
-        <GenerateRFQDialog orderData={orderData} />
-      </div>
-      </div>
-
-      <SelectVendorQuotesTable orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} setOrderData={setOrderData} />
-      
-      
-        <div className="flex justify-between items-end">
-                  <AlertDialog open={revertDialog} onOpenChange={toggleRevertDialog}>
-                        <AlertDialogTrigger asChild>
-                          <Button className="flex items-center gap-1">
-                            <Undo2 className="w-4 h-4" />
-                            Revert PR
-                          </Button>
-                        </AlertDialogTrigger>
-                          <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                              <AlertDialogHeader className="text-start">
-                                  <AlertDialogTitle className="text-center">
-                                      Revert Procurement Request
-                                  </AlertDialogTitle>
-                                      <AlertDialogDescription>Are you sure you want to revert the PR changes?, this will permanently empty the rfq data filled if any.</AlertDialogDescription>
-                                  <div className="flex gap-2 items-center pt-4 justify-center">
-                                      {update_loading ? <TailSpin color="red" width={40} height={40} /> : (
-                                          <>
-                                              <AlertDialogCancel className="flex-1" asChild>
-                                                  <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                              </AlertDialogCancel>
-                                               <Button
-                                                  onClick={handleRevertPR}
-                                                  className="flex-1">
-                                                      Confirm
-                                              </Button>
-                                          </>
-                                      )}
-                                  </div>
-          
-                              </AlertDialogHeader>
-                          </AlertDialogContent>
-                      </AlertDialog>
-        <Button disabled={mode === "edit" || !selectedVendorQuotes?.size} onClick={handleReviewChanges}>Continue</Button>
-      </div>
-
-      <Dialog open={addVendorsDialog} onOpenChange={() => setAddVendorsDialog(!addVendorsDialog)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-center">Add Vendors</DialogTitle>
-          </DialogHeader>
-          <DialogDescription className="flex gap-2 items-center">
-            <div className="w-[90%]">
-              <VendorsReactMultiSelect vendorOptions={vendorOptions || []} setSelectedVendors={setSelectedVendors} />
+                      </ul>
+                    </div>
+                  )}
+                </HoverCardContent>
+              </HoverCard>
             </div>
+          </div>
+
+          <div className="flex gap-2 items-center max-sm:justify-end max-sm:w-full">
+            {mode === "edit" && (
+              <Button onClick={() => setAddVendorsDialog(true)} variant={"outline"} className="text-primary border-primary flex gap-1">
+                <CirclePlus className="w-4 h-4" />
+                Select {formData?.selectedVendors?.length > 0 && "More"} Vendors
+              </Button>
+            )}
+            <GenerateRFQDialog orderData={orderData} />
+          </div>
+        </div>
+
+        <SelectVendorQuotesTable orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} setOrderData={setOrderData} targetRatesData={targetRatesDataMap} />
+
+
+        <div className="flex justify-between items-end">
+          <AlertDialog open={revertDialog} onOpenChange={toggleRevertDialog}>
+            <AlertDialogTrigger asChild>
+              <Button className="flex items-center gap-1">
+                <Undo2 className="w-4 h-4" />
+                Revert PR
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+              <AlertDialogHeader className="text-start">
+                <AlertDialogTitle className="text-center">
+                  Revert Procurement Request
+                </AlertDialogTitle>
+                <AlertDialogDescription>Are you sure you want to revert the PR changes?, this will permanently empty the rfq data filled if any.</AlertDialogDescription>
+                <div className="flex gap-2 items-center pt-4 justify-center">
+                  {update_loading ? <TailSpin color="red" width={40} height={40} /> : (
+                    <>
+                      <AlertDialogCancel className="flex-1" asChild>
+                        <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                      </AlertDialogCancel>
+                      <Button
+                        onClick={handleRevertPR}
+                        className="flex-1">
+                        Confirm
+                      </Button>
+                    </>
+                  )}
+                </div>
+
+              </AlertDialogHeader>
+            </AlertDialogContent>
+          </AlertDialog>
+          <Button disabled={mode === "edit" || !selectedVendorQuotes?.size} onClick={handleReviewChanges}>Continue</Button>
+        </div>
+
+        <Dialog open={addVendorsDialog} onOpenChange={() => setAddVendorsDialog(!addVendorsDialog)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="text-center">Add Vendors</DialogTitle>
+            </DialogHeader>
+            <DialogDescription className="flex gap-2 items-center">
+              <div className="w-[90%]">
+                <VendorsReactMultiSelect vendorOptions={vendorOptions || []} setSelectedVendors={setSelectedVendors} />
+              </div>
               <Sheet>
                 <SheetTrigger asChild>
-                  <CirclePlus 
-                  // onClick={() => setAddVendorsDialog(false)} 
-                  className="text-primary cursor-pointer" />
+                  <CirclePlus
+                    // onClick={() => setAddVendorsDialog(false)} 
+                    className="text-primary cursor-pointer" />
                 </SheetTrigger>
                 <SheetContent className="overflow-auto">
                   <SheetHeader className="text-start">
@@ -420,23 +494,23 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
                   </SheetHeader>
                 </SheetContent>
               </Sheet>
-          </DialogDescription>
-          <div className="flex items-end gap-4">
-            <DialogClose className="flex-1" asChild>
-              <Button variant={"outline"}>Cancel</Button>
-            </DialogClose>
-            <Button onClick={handleVendorSelection} className="flex-1">Confirm</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-    {update_loading && (
-      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-        <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-          <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : isRedirecting === "revert" ? "Reverting Changes... Please wait" : "Redirecting... Please wait"}</p>
-        </div>
+            </DialogDescription>
+            <div className="flex items-end gap-4">
+              <DialogClose className="flex-1" asChild>
+                <Button variant={"outline"}>Cancel</Button>
+              </DialogClose>
+              <Button onClick={handleVendorSelection} className="flex-1">Confirm</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
-    )}
+      {update_loading && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="bg-white p-6 rounded-lg shadow-lg text-center">
+            <p className="text-lg font-semibold">{isRedirecting === "view" ? "Saving Changes... Please wait" : isRedirecting === "revert" ? "Reverting Changes... Please wait" : "Redirecting... Please wait"}</p>
+          </div>
+        </div>
+      )}
     </>
   )
 }

@@ -9,7 +9,7 @@ import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementReques
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { parseNumber } from "@/utils/parseNumber";
-import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { CirclePlus, Info } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -18,6 +18,14 @@ import GenerateRFQDialog from "../ProcurementRequests/VendorQuotesSelection/comp
 import { SelectVendorQuotesTable } from "../ProcurementRequests/VendorQuotesSelection/SelectVendorQuotesTable";
 import { Vendor } from "../ServiceRequests/service-request/select-service-vendor";
 import { NewVendor } from "../vendors/new-vendor";
+// Import the types and mapping function (adjust path if they are in a shared types directory)
+import {
+  TargetRateDetailFromAPI,
+  FrappeTargetRateApiResponse,
+  ApiSelectedQuotation, // Needed by mapApiQuotesToApprovedQuotations
+  ApprovedQuotations,   // Expected by HistoricalQuotesHoverCard
+  mapApiQuotesToApprovedQuotations
+} from '../ApproveVendorQuotes/types'; // Assuming types are in ApproveVendorQuotes/types for now
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -100,22 +108,80 @@ export const SentBackVendorQuotes: React.FC = () => {
 
   const [orderData, setOrderData] = useState<SentBackCategory | undefined>();
 
+  // --- NEW: Fetch Target Rates ---
+  const itemIdsToFetch = useMemo(() => {
+    // Ensure orderData and its nested properties exist before mapping
+    return orderData?.item_list?.list
+      ?.map(item => item.name) // Assuming item.name is the item_id
+      .filter(id => !!id) ?? [];
+  }, [orderData]); // Recompute when orderData changes
+
+  const {
+    data: targetRatesApiResponse,
+    isLoading: targetRatesLoading,
+    error: targetRatesError
+  } = useFrappeGetCall<FrappeTargetRateApiResponse>(
+    'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', // YOUR_CUSTOM_APP_NAME.api_module.function_name
+    { item_ids_json: itemIdsToFetch.length > 0 ? JSON.stringify(itemIdsToFetch) : undefined },
+    itemIdsToFetch.length > 0 ? `target_rates_for_items_progress_${sbId}` : null, // Unique SWR key
+    { revalidateOnFocus: false } // Optional SWR config
+  );
+
+  const targetRatesDataMap = useMemo(() => {
+    const map = new Map<string, TargetRateDetailFromAPI>();
+    targetRatesApiResponse?.message?.forEach(tr => {
+      if (tr.item_id) { // Ensure item_id exists for mapping
+        map.set(tr.item_id, tr);
+      }
+    });
+    return map;
+  }, [targetRatesApiResponse]);
+
   useEffect(() => {
-    if (sent_back_list) {
+    if (targetRatesError) {
+      console.error("Error fetching target rates in ProcurementProgress:", targetRatesError);
+      toast({ title: "Error", description: "Could not load target rate information.", variant: "destructive" });
+    }
+  }, [targetRatesError]);
+  // --- END: Fetch Target Rates ---
+
+  useEffect(() => {
+    if (sent_back_list && sent_back_list.length > 0) {
       const request = sent_back_list[0]
+
+      // Ensure nested lists are parsed if they are strings
+      if (typeof request.item_list === 'string') {
+        try { request.item_list = JSON.parse(request.item_list); }
+        catch (e) { console.error("Parse error procurement_list", e); request.procurement_list = { list: [] }; }
+      }
+      if (typeof request.category_list === 'string') {
+        try { request.category_list = JSON.parse(request.category_list); }
+        catch (e) { console.error("Parse error category_list", e); request.category_list = { list: [] }; }
+      }
+      if (typeof request.rfq_data === 'string' && request.rfq_data) {
+        try { request.rfq_data = JSON.parse(request.rfq_data); }
+        catch (e) { console.error("Parse error rfq_data", e); request.rfq_data = { selectedVendors: [], details: {} }; }
+      } else if (!request.rfq_data) { // Ensure rfq_data is an object if initially null/undefined
+        request.rfq_data = { selectedVendors: [], details: {} };
+      }
       const itemToVendorMap = new Map()
       request.item_list.list.forEach((item) => {
         if (item?.vendor) {
           itemToVendorMap.set(item?.name, item?.vendor)
         }
       })
-      if (!Object.keys(formData.details || {}).length && request.rfq_data && Object.keys(request.rfq_data).length) {
-        setFormData(request.rfq_data)
+      // Initialize formData from fetched RFQ data if draft is empty
+      // And ensure formData.details is an object
+      if ((!formData.details || Object.keys(formData.details).length === 0) && request.rfq_data && Object.keys(request.rfq_data.details || {}).length) {
+        setFormData(request.rfq_data);
+      } else if (!formData.details) {
+        setFormData(prev => ({ ...prev, details: {} }));
       }
+
       setOrderData(request)
       setSelectedVendorQuotes(itemToVendorMap)
     }
-  }, [sent_back_list])
+  }, [sent_back_list, formData.details, setFormData])
 
   useEffect(() => {
     if (
@@ -223,7 +289,7 @@ export const SentBackVendorQuotes: React.FC = () => {
     await updateProcurementData(formData, updatedOrderList, "review");
   };
 
-  if (sent_back_list_loading || vendors_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+  if (sent_back_list_loading || vendors_loading || targetRatesLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
   return (
     <>
@@ -234,8 +300,8 @@ export const SentBackVendorQuotes: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="flex-1 space-y-4">
-        <ProcurementHeaderCard orderData={orderData} sentBack />
+      {orderData && <div className="flex-1 space-y-4">
+        <ProcurementHeaderCard orderData={orderData} sentBack={true} />
         <div className="flex max-sm:flex-col max-sm:items-start items-center justify-between max-sm:gap-4">
           <div className="flex gap-4 max-sm:justify-between w-full">
             <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
@@ -290,7 +356,7 @@ export const SentBackVendorQuotes: React.FC = () => {
           </div>
         </div>
 
-        <SelectVendorQuotesTable sentBack orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} setOrderData={setOrderData} />
+        <SelectVendorQuotesTable sentBack={true} orderData={orderData} formData={formData} setFormData={setFormData} selectedVendorQuotes={selectedVendorQuotes} setSelectedVendorQuotes={setSelectedVendorQuotes} mode={mode} setOrderData={setOrderData} targetRatesData={targetRatesDataMap} />
 
         <div className="flex justify-end">
           <Button disabled={mode === "edit" || selectedVendorQuotes?.size !== orderData?.item_list?.list?.length} onClick={handleReviewChanges}>Continue</Button>
@@ -334,6 +400,7 @@ export const SentBackVendorQuotes: React.FC = () => {
           </DialogContent>
         </Dialog>
       </div>
+      }
     </>
   )
 }

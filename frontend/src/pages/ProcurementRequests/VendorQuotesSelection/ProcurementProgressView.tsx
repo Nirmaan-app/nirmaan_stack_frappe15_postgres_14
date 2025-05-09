@@ -42,15 +42,16 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     toggleVendorSheet,
     getFullName, // Pass down if needed by sub-components (like header)
     canContinueToReview,
+    targetRatesDataMap // <-- Destructure the new map passed from logic hook
 }) => {
 
     // Main loading overlay for actions like saving, reverting
     const showLoadingOverlay = isLoading || isRedirecting;
     const loadingText = isRedirecting === "view_save" ? "Saving Changes..." :
-                       isRedirecting === "revert" ? "Reverting Changes..." :
-                       isRedirecting === "review_save" ? "Saving Selections..." :
-                       isLoading ? "Processing..." : // General loading
-                       ""; // Should not happen if showLoadingOverlay is true
+        isRedirecting === "revert" ? "Reverting Changes..." :
+            isRedirecting === "review_save" ? "Saving Selections..." :
+                isLoading ? "Processing..." : // General loading
+                    ""; // Should not happen if showLoadingOverlay is true
 
     return (
         <>
@@ -73,24 +74,24 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                                         <Info className="h-4 w-4 text-blue-500 cursor-help" />
                                     </HoverCardTrigger>
                                     <HoverCardContent className="w-60 text-sm">
-                                         {mode === "edit" ? (
-                                             <div>
-                                                 <p className="font-semibold mb-2 tracking-tight">Edit Mode:</p>
-                                                 <ul className="list-disc list-inside space-y-1 text-xs">
-                                                     <li>Add vendors via the button below.</li>
-                                                     <li>Enter quotes/makes in the table.</li>
-                                                     <li>Switch to <b>View</b> mode to select the final quotes for each item.</li>
-                                                 </ul>
-                                             </div>
-                                         ) : (
-                                             <div>
-                                                 <p className="font-semibold mb-2 tracking-tight">View Mode:</p>
-                                                 <ul className="list-disc list-inside space-y-1 text-xs">
-                                                     <li>Select the desired vendor quote for each item by clicking the corresponding radio button.</li>
-                                                     <li>Click <b>Continue</b> (enabled when at least one quote is selected) to proceed to the final review.</li>
-                                                 </ul>
-                                             </div>
-                                     )}
+                                        {mode === "edit" ? (
+                                            <div>
+                                                <p className="font-semibold mb-2 tracking-tight">Edit Mode:</p>
+                                                <ul className="list-disc list-inside space-y-1 text-xs">
+                                                    <li>Add vendors via the button below.</li>
+                                                    <li>Enter quotes/makes in the table.</li>
+                                                    <li>Switch to <b>View</b> mode to select the final quotes for each item.</li>
+                                                </ul>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <p className="font-semibold mb-2 tracking-tight">View Mode:</p>
+                                                <ul className="list-disc list-inside space-y-1 text-xs">
+                                                    <li>Select the desired vendor quote for each item by clicking the corresponding radio button.</li>
+                                                    <li>Click <b>Continue</b> (enabled when at least one quote is selected) to proceed to the final review.</li>
+                                                </ul>
+                                            </div>
+                                        )}
                                     </HoverCardContent>
                                 </HoverCard>
                             </div>
@@ -110,7 +111,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                                 Add {formData?.selectedVendors?.length > 0 ? "More" : ""} Vendors
                             </Button>
                         )}
-                         {/* Ensure orderData exists before rendering GenerateRFQDialog */}
+                        {/* Ensure orderData exists before rendering GenerateRFQDialog */}
                         {orderData && <GenerateRFQDialog orderData={orderData} />}
                     </div>
                 </div>
@@ -126,6 +127,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                         // setSelectedVendorQuotes={setSelectedVendorQuotes} - Prefer handleVendorQuoteSelection
                         mode={mode}
                         // setOrderData={setOrderData} - Avoid passing setState down directly
+                        targetRatesData={targetRatesDataMap} // <-- Pass the map down
                         onQuoteChange={handleQuoteChange}
                         onMakeChange={handleMakeChange}
                         onVendorSelect={handleVendorQuoteSelection}
@@ -160,8 +162,8 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                             onClick={handleReviewChanges}
                             disabled={!canContinueToReview || isLoading || isRedirecting !== ""} // Use derived state
                             size="sm"
-                         >
-                             Continue to Review
+                        >
+                            Continue to Review
                         </Button>
                     )}
                 </div>
@@ -190,7 +192,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                     <VendorSheet
                         isOpen={isVendorSheetOpen}
                         onClose={toggleVendorSheet}
-                        // Pass any necessary props like navigation=false or callbacks on vendor creation
+                    // Pass any necessary props like navigation=false or callbacks on vendor creation
                     />
                 </>
             )}
@@ -199,7 +201,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
             {showLoadingOverlay && (
                 <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-60 z-[999]">
                     <div className="bg-white p-6 rounded-lg shadow-xl text-center flex items-center gap-4">
-                         <TailSpin color="red" height={30} width={30} />
+                        <TailSpin color="red" height={30} width={30} />
                         <p className="text-base font-medium">{loadingText}</p>
                     </div>
                 </div>
