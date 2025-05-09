@@ -1,6 +1,6 @@
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import React, { Suspense } from "react";
-import { TailSpin } from "react-loader-spinner";
 
 export const RenderPurchaseOrdersTab : React.FC = () => {
 
@@ -20,9 +20,7 @@ export const RenderPurchaseOrdersTab : React.FC = () => {
 
   return (
     <Suspense fallback={
-       <div className="flex items-center h-[90vh] w-full justify-center">
-            <TailSpin color={"red"} />{" "}
-        </div>
+      <LoadingFallback />
     }>
         {tab === "Approve PO" ? (
             <ApproveRejectVendorQuotesContainer />

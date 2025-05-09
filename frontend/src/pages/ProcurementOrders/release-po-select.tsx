@@ -14,7 +14,7 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
-import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -27,6 +27,8 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useUsersList } from '../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
+import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
+import { toast } from '@/components/ui/use-toast';
 
 const ApproveSelectVendor = React.lazy(() => import("../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../Sent Back Requests/approve-select-sent-back"));
@@ -109,18 +111,21 @@ export const ReleasePOSelect: React.FC = () => {
     //     await mutate()
     // })
 
-    const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
-        fields: ["name", "project_name"],
-        limit: 1000
-    }, "Projects")
+    const projectsFetchOptions = getProjectListOptions();
+        
+    // --- Generate Query Keys ---
+    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
+
+    // --- Supporting Data & Hooks ---
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
+    );
 
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useVendorsList()
 
     const {data: userList, isLoading: userListLoading, error: userError } = useUsersList()
 
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
-
-
 
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
@@ -275,7 +280,7 @@ export const ReleasePOSelect: React.FC = () => {
                         checked={table.getIsAllPageRowsSelected()}
                         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
                         aria-label="Select all rows"
-                        className="translate-y-[2px]"
+                        className="data_table_select-all"
                     />
                 ),
                 cell: ({ row }) => (
@@ -283,7 +288,7 @@ export const ReleasePOSelect: React.FC = () => {
                         checked={row.getIsSelected()}
                         onCheckedChange={(value) => row.toggleSelected(!!value)}
                         aria-label="Select row"
-                        className="translate-y-[2px]"
+                        className="data_table_select-row"
                     />
                 ),
                 enableSorting: false,
@@ -469,6 +474,14 @@ export const ReleasePOSelect: React.FC = () => {
         } : { // Provide minimal config when table shouldn't render to satisfy hook types
             doctype: DOCTYPE, columns: [], fetchFields: ["name"], globalSearchFieldList: ["name"]
         }));
+    
+        // --- Realtime Update Handling ---
+        useFrappeDocTypeEventListener(DOCTYPE, (event) => {
+            console.log(`Realtime event for ${DOCTYPE} in Purchase Orders (tab: ${tab}):`, event);
+            // Potentially filter event based on event.doc.type === type before refetching
+            serverDataTable.refetch();
+            toast({ title: `Procurement Orders List updated.`, duration: 2000 });
+        });
 
     // --- Export Handler ---
     const handleExport = useCallback(() => {
@@ -500,7 +513,7 @@ export const ReleasePOSelect: React.FC = () => {
         // Handle tabs that should show the DataTable
         if (shouldShowTable) {
             // Show loading skeleton if *any* supporting data is loading
-            if (projects_loading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
+            if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
                  return <TableSkeleton />; // Use your skeleton component
             }
             // Show error if supporting data failed

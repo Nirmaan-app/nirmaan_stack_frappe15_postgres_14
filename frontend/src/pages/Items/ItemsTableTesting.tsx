@@ -324,7 +324,7 @@ export default function ItemsTesting() {
             cell: ({ row }) => (
                 <Link
                     className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
-                    to={`/items/${row.original.name}`} // Use actual name for link
+                    to={`/products/${row.original.name}`} // Use actual name for link
                 >
                     {row.original.name.slice(-6)} {/* Display last 6 chars */}
                 </Link>

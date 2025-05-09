@@ -193,10 +193,10 @@
 
 
 
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { useToast } from "@/components/ui/use-toast";
 
@@ -215,13 +215,14 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
 // --- Types ---
-import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"; // Adjust path
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -232,11 +233,16 @@ export const ApproveSelectSentBack: React.FC = () => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
+    const projectsFetchOptions = getProjectListOptions();
+        
+    // --- Generate Query Keys ---
+    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
+
     // --- Supporting Data & Hooks ---
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
-        "Projects", { fields: ["name", "project_name"], limit: 1000 }, "Projects"
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
+    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { notifications, mark_seen_notification } = useNotificationStore();
 
     // --- Memoized Calculations & Options ---
@@ -273,7 +279,7 @@ export const ApproveSelectSentBack: React.FC = () => {
 
     // --- Global Search Fields ---
     const globalSearchFields = useMemo(() => [
-        "name", "project", "project_name", "procurement_request", "owner", "type"
+        "name", "project", "procurement_request", "owner", "type"
         // Add other relevant text fields from Sent Back Category
     ], []);
 
@@ -283,10 +289,28 @@ export const ApproveSelectSentBack: React.FC = () => {
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<SentBackCategory>[]>(() => [
         {
-            id: 'select', // Required for selection state
-            header: ({ table }) => (<Checkbox checked={table.getIsAllPageRowsSelected()} onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)} aria-label="Select all rows" />),
-            cell: ({ row }) => (<Checkbox checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(!!value)} aria-label="Select row" />),
-            enableSorting: false, enableHiding: false, size: 40,
+            id: 'select',
+            header: ({ table }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={table.getIsAllPageRowsSelected()}
+                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                    aria-label="Select all rows"
+                    className="data_table_select-all"
+                />
+            ),
+            cell: ({ row }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label="Select row"
+                    className="data_table_select-row"
+                />
+            ),
+            enableSorting: false,
+            enableHiding: false,
+            size: 40,
         },
         {
             accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="SB ID" />,
@@ -340,7 +364,7 @@ export const ApproveSelectSentBack: React.FC = () => {
         },
         {
             id: "sent_back_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
-            cell: ({ row }) => (<p className="font-medium text-right pr-2">{formatToRoundedIndianRupee(getTotal(row.original.item_list))}</p>),
+            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.item_list))}</p>),
             size: 150, enableSorting: false,
         }
 
@@ -386,7 +410,7 @@ export const ApproveSelectSentBack: React.FC = () => {
     });
 
     // --- Combined Loading State & Error Handling ---
-    const isLoading = projectsLoading || userListLoading || listIsLoading;
+    const isLoading = projectsLoading || userListLoading;
     const error = projectsError || userError || listError;
 
     if (error) {

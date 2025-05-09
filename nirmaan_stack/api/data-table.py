@@ -17,7 +17,7 @@ from datetime import timedelta, datetime # Ensure datetime is imported
 # Define constants
 DEFAULT_PAGE_LENGTH = 10
 MAX_PAGE_LENGTH = 2000
-CACHE_EXPIRY = 30 # 30 secs
+CACHE_EXPIRY = 10 # 10 secs
 JSON_ITEM_SEARCH_DOCTYPE_MAP = {
     # Renamed item_path to item_path_parts for clarity
     "Procurement Orders": {"json_field": "order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
@@ -25,6 +25,7 @@ JSON_ITEM_SEARCH_DOCTYPE_MAP = {
     # --- NEW ENTRY ---
     "Sent Back Category": {"json_field": "item_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
     # -----------------
+    "Service Requests": {"json_field": "service_order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "description"},
 }
 
 # --- Helper Functions ---

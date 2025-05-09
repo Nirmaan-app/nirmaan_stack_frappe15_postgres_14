@@ -1,21 +1,43 @@
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
-import React, { Suspense, useCallback, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
 
-const SelectServiceVendorList = React.lazy(() => import("./service-request/select-service-vendor-list"));
+
 const ApproveSelectSR = React.lazy(() => import("./service-request/approve-service-request-list"));
 const ApproveSelectAmendSR = React.lazy(() => import("./service-request/approve-amend-sr-list"));
+const SelectServiceVendorList = React.lazy(() => import("./service-request/select-service-vendor-list"));
 const ApprovedSRList = React.lazy(() => import("./service-request/approved-sr-list"));
 
 export const ServiceRequestsTabs : React.FC = () => {
-    const [searchParams] = useSearchParams();
 
     const {role} = useUserData();
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "approve-service-order" : "choose-vendor"));
+    // --- Tab State Management using urlStateManager ---
+    const initialTab = useMemo(() => {
+        const adminDefault = "approve-service-order";
+        const userDefault = "choose-vendor";
+        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
+    }, [role]);
+
+    const [tab, setTab] = useState<string>(initialTab);
+
+    useEffect(() => { // Sync tab state TO URL
+        if (urlStateManager.getParam("tab") !== tab) {
+            urlStateManager.updateParam("tab", tab);
+        }
+    }, [tab]);
+    
+    useEffect(() => { // Sync URL TO tab state
+        const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
+            const newTab = value || initialTab;
+            if (tab !== newTab) setTab(newTab);
+        });
+        return unsubscribe;
+    }, [tab, initialTab]);
 
     const {pendingSRCount, adminPendingSRCount, approvedSRCount, adminApprovedSRCount, adminAmendedSRCount, amendedSRCount, adminSelectedSRCount, selectedSRCount} = useDocCountStore()
 
@@ -71,17 +93,25 @@ export const ServiceRequestsTabs : React.FC = () => {
       },
   ], [role, adminPendingSRCount, pendingSRCount, adminApprovedSRCount, approvedSRCount]);
 
-  const updateURL = useCallback((key : string, value : string) => {
-      const url = new URL(window.location.href);
-      url.searchParams.set(key, value);
-      window.history.pushState({}, "", url);
-  }, []);
+  // --- Tab Change Handler ---
+    const handleTabClick = useCallback((value: string) => {
+        if (tab !== value) {
+            setTab(value);
+            // The useEffect for tab will update the URL
+        }
+    }, [tab]);
 
-  const onClick = useCallback((value : string) => {
-      if (tab === value) return;
-      setTab(value);
-      updateURL("tab", value);
-  }, [tab, updateURL]);
+//   const updateURL = useCallback((key : string, value : string) => {
+//       const url = new URL(window.location.href);
+//       url.searchParams.set(key, value);
+//       window.history.pushState({}, "", url);
+//   }, []);
+
+//   const onClick = useCallback((value : string) => {
+//       if (tab === value) return;
+//       setTab(value);
+//       updateURL("tab", value);
+//   }, [tab, updateURL]);
 
   return (
     <div className="flex-1 space-y-4">
@@ -92,7 +122,7 @@ export const ServiceRequestsTabs : React.FC = () => {
                     optionType="button"
                     buttonStyle="solid"
                     value={tab}
-                    onChange={(e) => onClick(e.target.value)}
+                    onChange={(e) => handleTabClick(e.target.value)}
                 />
             )}
           {items && (
@@ -101,7 +131,7 @@ export const ServiceRequestsTabs : React.FC = () => {
                   optionType="button"
                   buttonStyle="solid"
                   value={tab}
-                  onChange={(e) => onClick(e.target.value)}
+                  onChange={(e) => handleTabClick(e.target.value)}
               />
           )}
         </div>

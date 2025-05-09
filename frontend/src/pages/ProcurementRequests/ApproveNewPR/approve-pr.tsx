@@ -230,24 +230,24 @@
 
 
 
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table'; // Use NEW DataTable
+import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox"; // Assuming selection might be added later
+import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from '@/hooks/useServerDataTable'; // Use NEW Hook
+import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-// import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"; // Remove if Est. Price column is removed
-// import { parseNumber } from "@/utils/parseNumber"; // Remove if Est. Price column is removed
+// import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+// import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
 // --- Types ---
@@ -257,6 +257,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "./hooks/useUsersList";
+import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
@@ -266,11 +267,15 @@ const URL_SYNC_KEY = 'pr_new_approve'; // Unique key for this specific table ins
 export const ApprovePR: React.FC = () => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
+    
+    const projectsFetchOptions = getProjectListOptions();
+    
+    // --- Generate Query Keys ---
+    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
     // --- Supporting Data & Hooks ---
-    // Keep project fetch for faceted filter options
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
-        "Projects", { fields: ["name", "project_name"], limit: 1000 }, "Projects"
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { notifications, mark_seen_notification } = useNotificationStore();
@@ -307,12 +312,30 @@ export const ApprovePR: React.FC = () => {
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementRequest>[]>(() => [
-        // {
-        //             id: 'select', // Required for selection state
-        //             header: ({ table }) => (<Checkbox checked={table.getIsAllPageRowsSelected()} onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)} aria-label="Select all rows" />),
-        //             cell: ({ row }) => (<Checkbox checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(!!value)} aria-label="Select row" />),
-        //             enableSorting: false, enableHiding: false, size: 40,
-        //         },
+        {
+            id: 'select',
+            header: ({ table }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={table.getIsAllPageRowsSelected()}
+                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                    aria-label="Select all rows"
+                    className="data_table_select-all"
+                />
+            ),
+            cell: ({ row }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label="Select row"
+                    className="data_table_select-row"
+                />
+            ),
+            enableSorting: false,
+            enableHiding: false,
+            size: 40,
+        },
         {
             accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#PR" />,
             cell: ({ row }) => {
@@ -336,7 +359,7 @@ export const ApprovePR: React.FC = () => {
             }, size: 150,
         },
         {
-            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
         },

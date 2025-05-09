@@ -256,6 +256,15 @@ export const getVendorListOptions = (vendorType: string[] = ["Material", "Materi
   vendorType: vendorType, // Include for key uniqueness
 });
 
+export const getProjectListOptions = (): ProjectListParams => ({
+  fields: PROJECT_MINIMAL_FIELDS,
+  limit: 1000,
+  orderBy: { field: "project_name", order: "asc" },
+});
+
+
+
+
 // Helper for Approved Quotations options (adjust fields/limits as needed)
 export const getApprovedQuotationOptions = (): ListParams => ({
   fields: ['name', 'item_id', 'quote', 'creation', 'procurement_order', 'vendor', 'quantity', 'unit', 'item_name'], // Add fields needed for 3-month lowest calc
