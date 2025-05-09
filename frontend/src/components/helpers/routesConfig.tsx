@@ -20,7 +20,7 @@ import Items from "@/pages/Items/items";
 import { RenderPurchaseOrdersTab } from "@/pages/ProcurementOrders/RenderPurchaseOrdersTab";
 import { ReleasePOSelect } from "@/pages/ProcurementOrders/release-po-select";
 import { NewCustomPR } from "@/pages/ProcurementRequests/NewPR/NewCustomPR";
-import { NewProcurementRequest } from "@/pages/ProcurementRequests/NewPR/new-new-pr";
+// import { NewProcurementRequest } from "@/pages/Retired Components/new-new-pr";
 import { ProcurementRequests } from "@/pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";
 import { RenderProcurementRequest } from "@/pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
 import { RenderProjectPaymentsComponent } from "@/pages/ProjectPayments/RenderProjectPaymentsComponent";
