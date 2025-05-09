@@ -216,13 +216,13 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
+scheduler_events = {
 # 	"all": [
 # 		"nirmaan_stack.tasks.all"
 # 	],
-# 	"daily": [
-# 		"nirmaan_stack.tasks.daily"
-# 	],
+	"daily": [
+		"nirmaan_stack.populate_target_rates.populate_target_rates"
+	],
 # 	"hourly": [
 # 		"nirmaan_stack.tasks.hourly"
 # 	],
@@ -232,7 +232,12 @@ doc_events = {
 # 	"monthly": [
 # 		"nirmaan_stack.tasks.monthly"
 # 	],
-# }
+    # "cron": {
+    #     "31 14 * * *": [
+    #         "nirmaan_stack.populate_target_rates.populate_target_rates"
+    #     ]
+    # }
+}
 
 # Testing
 # -------
