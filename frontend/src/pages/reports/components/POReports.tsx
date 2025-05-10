@@ -13,7 +13,7 @@ export default function POReports() {
     const { reportData, isLoading, error } = usePOReportsData();
 
     const selectedReportType = useReportStore((state) => state.selectedReportType);
-    
+
     const columns = React.useMemo(() => poColumns, []);
 
     const getPOExportData = (
@@ -26,8 +26,8 @@ export default function POReports() {
             case 'Pending Invoices':
                 // Total Invoice Amount is less than Total PO/SR Amount (use small tolerance for floating point)
                 return allData.filter(row => parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - 0.001);
-            case 'Pending Amendments':
-                 // Amount Paid is greater than Total PO/SR Amount (use small tolerance)
+            case 'PO with Excess Payments':
+                // Amount Paid is greater than Total PO/SR Amount (use small tolerance)
                 return allData.filter(row => parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + 0.001);
             default:
                 // Should not happen if selection is restricted, but return all as fallback
@@ -42,7 +42,7 @@ export default function POReports() {
     if (error) {
         console.error("Error fetching PO/SR reports data:", error);
         return (
-             <Alert variant="destructive" className="m-4">
+            <Alert variant="destructive" className="m-4">
                 <Terminal className="h-4 w-4" />
                 <AlertTitle>Error Loading PO/SR Reports</AlertTitle>
                 <AlertDescription>

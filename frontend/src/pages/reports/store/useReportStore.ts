@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
 
 export type ProjectReportType = 'Cash Sheet';
-export type POReportType = 'Pending Invoices' | 'Pending Amendments';
+export type POReportType = 'Pending Invoices' | 'PO with Excess Payments';
 export type ReportType = ProjectReportType | POReportType | null; // Allow null initially
 
 interface ReportState {

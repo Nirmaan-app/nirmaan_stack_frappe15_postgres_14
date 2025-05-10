@@ -13,17 +13,17 @@ const POReports = React.lazy(() => import('./components/POReports'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
-  { label: 'Cash Sheet', value: 'Cash Sheet' },
+    { label: 'Cash Sheet', value: 'Cash Sheet' },
 ];
 
 const poReportOptions: { label: string; value: POReportType }[] = [
-  { label: 'Pending Invoices', value: 'Pending Invoices' },
-  { label: 'Pending Amendments', value: 'Pending Amendments' },
+    { label: 'Pending Invoices', value: 'Pending Invoices' },
+    { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
 ];
 
 export default function ReportsContainer() {
 
-    const {role} = useUserData();
+    const { role } = useUserData();
     const [activeTab, setActiveTab] = useStateSyncedWithParams<string>(
         "tab",
         REPORTS_TABS.PROJECTS
@@ -41,55 +41,55 @@ export default function ReportsContainer() {
     }, [activeTab, setDefaultReportType]);
 
     const tabs = useMemo(() => [
-            ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
-                {
-                    label: (
-                        <div className="flex items-center">
-                            <span>Projects</span>
-                        </div>
-                    ),
-                    value: REPORTS_TABS.PROJECTS,
-                },
-            ] : []),
+        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
             {
-              label: (
-                  <div className="flex items-center">
-                      <span>PO</span>
-                  </div>
-              ),
-              value: REPORTS_TABS.PO,
-          },
-        ], [role])
+                label: (
+                    <div className="flex items-center">
+                        <span>Projects</span>
+                    </div>
+                ),
+                value: REPORTS_TABS.PROJECTS,
+            },
+        ] : []),
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>PO</span>
+                </div>
+            ),
+            value: REPORTS_TABS.PO,
+        },
+    ], [role])
 
     const onClick = useCallback(
-            (value : string) => {
+        (value: string) => {
             if (activeTab === value) return; // Prevent redundant updates
-    
+
             setActiveTab(value);
-    }, [activeTab, setActiveTab]);
+        }, [activeTab, setActiveTab]);
 
-  
+
     const currentReportOptions = useMemo(() => {
-      if (activeTab === REPORTS_TABS.PROJECTS) {
-          return projectReportOptions;
-      } else if (activeTab === REPORTS_TABS.PO) {
-          return poReportOptions;
-      }
-      return [];
-  }, [activeTab]);
+        if (activeTab === REPORTS_TABS.PROJECTS) {
+            return projectReportOptions;
+        } else if (activeTab === REPORTS_TABS.PO) {
+            return poReportOptions;
+        }
+        return [];
+    }, [activeTab]);
 
-  const handleReportTypeChange = (value: ReportType) => {
-       setSelectedReportType(value);
-  };
+    const handleReportTypeChange = (value: ReportType) => {
+        setSelectedReportType(value);
+    };
 
 
     return (
-        <div 
-        className="flex-1 space-y-4"
-        > 
+        <div
+            className="flex-1 space-y-4"
+        >
 
             <div className="flex justify-between items-center gap-4 flex-wrap">
-            {tabs && (
+                {tabs && (
                     <Radio.Group
                         options={tabs}
                         defaultValue="projects"
@@ -132,12 +132,12 @@ export default function ReportsContainer() {
                 </div>
             </div>
 
-           {/* Content Area */}
-           <Suspense fallback={<LoadingFallback />}>
+            {/* Content Area */}
+            <Suspense fallback={<LoadingFallback />}>
                 {activeTab === REPORTS_TABS.PROJECTS ? (
                     <ProjectReports />
                 ) : activeTab === REPORTS_TABS.PO ? (
-                     <POReports />
+                    <POReports />
                 ) : (
                     <div>Select a report tab.</div> // Fallback for invalid tab
                 )}

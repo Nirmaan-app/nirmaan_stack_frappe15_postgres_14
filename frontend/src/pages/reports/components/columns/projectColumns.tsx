@@ -28,98 +28,98 @@ const formatDisplayValueToLakhs = (value: string | number | undefined | null): s
 
 
 export const projectColumns: ColumnDef<ProcessedProject>[] = [
-    {
-        accessorKey: "project_name",
-        header: "Project",
-        cell: ({ row }) => {
-            const name = row.original.project_name;
-            const id = row.original.name;
-            // Optional: Link to project details page
-             return <Link to={`/projects/${id}`} className="text-blue-600 hover:underline">{name || id}</Link>;
-        },
-        // Enable sorting/filtering if needed using tanstack table features
+  {
+    accessorKey: "project_name",
+    header: "Project Name",
+    cell: ({ row }) => {
+      const name = row.original.project_name;
+      const id = row.original.name;
+      // Optional: Link to project details page
+      return <Link to={`/projects/${id}`} className="text-blue-600 hover:underline">{name || id}</Link>;
     },
+    // Enable sorting/filtering if needed using tanstack table features
+  },
 
-    {
-            accessorKey: "creation",
-            header: "Date Created",
-            cell: ({ row }) => {
-                const date = row.original.creation;
-                return <div>{formatDate(date)}</div>;
-            },
-            meta: {
-                exportValue: (row: ProcessedProject) => formatDate(row.creation),
-            }
-      },
-    {
-        accessorKey: "project_value",
-        header: "Value (Lakhs)",
-        cell: ({ row }) => {
-            // Access the original project_value field
-            return <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>;
-        },
-        meta: {
-          // Use export formatter for CSV
-         exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.project_value),
-        //  align: 'right'
-     }
+  {
+    accessorKey: "creation",
+    header: "Project Creation Date",
+    cell: ({ row }) => {
+      const date = row.original.creation;
+      return <div>{formatDate(date)}</div>;
     },
-    {
-        // Use accessorKey pointing to the calculated field
-        accessorKey: "totalInvoiced",
-        header: "Invoice (Lakhs)",
-        cell: ({ row }) => {
-            // Access the calculated totalInvoiced field
-            const totalInvoiced = row.original.totalInvoiced;
-            return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInvoiced)}</div>;
-        },
-        meta: {
-          // Use export formatter for CSV
-         exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInvoiced),
-        //  align: 'right'
-      }
+    meta: {
+      exportValue: (row: ProcessedProject) => formatDate(row.creation),
+    }
+  },
+  {
+    accessorKey: "project_value",
+    header: "Value (excl. GST)",
+    cell: ({ row }) => {
+      // Access the original project_value field
+      return <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>;
     },
-    {
-        accessorKey: "totalInflow",
-        header: "Inflow (Lakhs)",
-        cell: ({ row }) => {
-             // Access the calculated totalInflow field
-            const totalInflow = row.original.totalInflow;
-            return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInflow)}</div>;
-        },
-        meta: {
-          // Use export formatter for CSV
-         exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInflow),
-        //  align: 'right'
-     }
-    },
-    {
-      accessorKey: "totalOutflow",
-      header: "Outflow (Lakhs)",
-      cell: ({ row }) => {
-           // Access the calculated totalOutflow field (sum of 'Paid' payments)
-          const totalOutflow = row.original.totalOutflow;
-          return <div className="tabular-nums">{formatDisplayValueToLakhs(totalOutflow)}</div>;
-      },
-      meta: {
-        // Use export formatter for CSV
-       exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalOutflow),
+    meta: {
+      // Use export formatter for CSV
+      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.project_value),
       //  align: 'right'
     }
   },
-    {
-      accessorKey: "totalCredit",
-      header: "Total Credit (Lakhs)",
-      cell: ({ row }) => {
-           // Access the calculated totalInflow field
-          // const totalInflow = row.original.totalInflow;
-          // return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInflow)}</div>;
-          return <div>placeholder</div>
-      },
-      // meta: {
-      //   // Use export formatter for CSV
-      //  exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInflow),
-      // //  align: 'right'
-      // }
+  {
+    // Use accessorKey pointing to the calculated field
+    accessorKey: "totalInvoiced",
+    header: "Total PO + SR Amount (incl. GST)",
+    cell: ({ row }) => {
+      // Access the calculated totalInvoiced field
+      const totalInvoiced = row.original.totalInvoiced;
+      return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInvoiced)}</div>;
+    },
+    meta: {
+      // Use export formatter for CSV
+      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInvoiced),
+      //  align: 'right'
+    }
+  },
+  {
+    accessorKey: "totalInflow",
+    header: "Inflow",
+    cell: ({ row }) => {
+      // Access the calculated totalInflow field
+      const totalInflow = row.original.totalInflow;
+      return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInflow)}</div>;
+    },
+    meta: {
+      // Use export formatter for CSV
+      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInflow),
+      //  align: 'right'
+    }
+  },
+  {
+    accessorKey: "totalOutflow",
+    header: "Outflow",
+    cell: ({ row }) => {
+      // Access the calculated totalOutflow field (sum of 'Paid' payments)
+      const totalOutflow = row.original.totalOutflow;
+      return <div className="tabular-nums">{formatDisplayValueToLakhs(totalOutflow)}</div>;
+    },
+    meta: {
+      // Use export formatter for CSV
+      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalOutflow),
+      //  align: 'right'
+    }
+  },
+  {
+    accessorKey: "totalCredit",
+    header: "Credit Outstanding",
+    cell: ({ row }) => {
+      // Access the calculated totalInflow field
+      // const totalInflow = row.original.totalInflow;
+      // return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInflow)}</div>;
+      return <div>placeholder</div>
+    },
+    // meta: {
+    //   // Use export formatter for CSV
+    //  exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInflow),
+    // //  align: 'right'
+    // }
   },
 ];
