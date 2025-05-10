@@ -234,7 +234,7 @@ export const SentBackVendorQuotes: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="flex-1 space-y-4">
+      {orderData && <div className="flex-1 space-y-4">
         <ProcurementHeaderCard orderData={orderData} sentBack />
         <div className="flex max-sm:flex-col max-sm:items-start items-center justify-between max-sm:gap-4">
           <div className="flex gap-4 max-sm:justify-between w-full">
@@ -334,6 +334,7 @@ export const SentBackVendorQuotes: React.FC = () => {
           </DialogContent>
         </Dialog>
       </div>
+      }
     </>
   )
 }
