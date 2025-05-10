@@ -219,6 +219,17 @@ sup {
 }
 
 
+
+/* Data Table Row Selection */ 
+.data_table_select-all {
+  @apply translate-x-[8px]
+}
+
+.data_table_select-row {
+  @apply translate-y-[2px]
+}
+
+
 /* @media (max-width: 600px) {
   table, thead, tbody, th, td, tr {
       display: block;

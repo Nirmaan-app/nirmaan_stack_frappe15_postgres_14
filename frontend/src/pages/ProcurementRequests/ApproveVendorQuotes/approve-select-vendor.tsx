@@ -205,34 +205,35 @@
 // export default ApproveSelectVendor;
 
 
-import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener } from "frappe-react-sdk"; // Keep for Projects fetch
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table'; // Use NEW DataTable
+import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
+import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from '@/hooks/useServerDataTable'; // Use NEW Hook
+import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore"; // Keep for notification logic
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
 // --- Types ---
-import { ProcurementRequest, ProcurementItem, Category } from "@/types/NirmaanStack/ProcurementRequests"; // Adjust path
+import { ProcurementRequest, ProcurementItem, Category } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
-import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard"; // Keep helper
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
+import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
@@ -243,9 +244,14 @@ export const ApproveSelectVendor: React.FC = () => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
+    const projectsFetchOptions = getProjectListOptions();
+        
+    // --- Generate Query Keys ---
+    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
+
     // --- Supporting Data & Hooks ---
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
-        "Projects", { fields: ["name", "project_name"], limit: 1000 }, "Projects"
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // Keep for owner display
     const { notifications, mark_seen_notification } = useNotificationStore(); // For notification badges
@@ -293,27 +299,29 @@ export const ApproveSelectVendor: React.FC = () => {
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementRequest>[]>(() => [
         {
-                        id: 'select',
-                        header: ({ table }) => (
-                            <Checkbox
-                                checked={table.getIsAllPageRowsSelected()}
-                                onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                                aria-label="Select all rows"
-                                className="translate-y-[2px]"
-                            />
-                        ),
-                        cell: ({ row }) => (
-                            <Checkbox
-                                checked={row.getIsSelected()}
-                                onCheckedChange={(value) => row.toggleSelected(!!value)}
-                                aria-label="Select row"
-                                className="translate-y-[2px]"
-                            />
-                        ),
-                        enableSorting: false,
-                        enableHiding: false,
-                        size: 40,
-                    },
+            id: 'select',
+            header: ({ table }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={table.getIsAllPageRowsSelected()}
+                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                    aria-label="Select all rows"
+                    className="data_table_select-all"
+                />
+            ),
+            cell: ({ row }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label="Select row"
+                    className="data_table_select-row"
+                />
+            ),
+            enableSorting: false,
+            enableHiding: false,
+            size: 40,
+        },
         {
             accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#PR" />,
             cell: ({ row }) => {

@@ -216,35 +216,36 @@
 // export default ApproveSelectAmendPO;
 
 
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table'; // Use NEW DataTable
+import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from '@/hooks/useServerDataTable'; // Use NEW Hook
+import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
 // --- Types ---
-import { ProcurementOrder as ProcurementOrdersType, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders"; // Adjust path
+import { ProcurementOrder as ProcurementOrdersType, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Orders';
@@ -255,14 +256,18 @@ export const ApproveSelectAmendPO: React.FC = () => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
+    const projectsFetchOptions = getProjectListOptions();
+        
+    // --- Generate Query Keys ---
+    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
+
     // --- Supporting Data & Hooks ---
-    // Fetch projects and vendors for faceted filters
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<ProjectsType>(
-        "Projects", { fields: ["name", "project_name"], limit: 1000 }, "Projects"
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<ProjectsType>>, projectQueryKey
     );
-    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList(); // Use your custom hook
-    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
-    const { notifications, mark_seen_notification } = useNotificationStore(); // For notification badges
+    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList();
+    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
+    const { notifications, mark_seen_notification } = useNotificationStore();
 
     // --- Memoized Calculations & Options ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
@@ -274,7 +279,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
         let total = 0;
         const orderData = Array.isArray(order.order_list?.list) ? order.order_list.list : [];
         orderData.forEach((item) => {
-            const price = item.quote; // Assuming quote is the relevant field here
+            const price = item.quote;
             total += parseNumber(price * item.quantity);
         });
         // Add loading/freight if applicable for amended PO totals? Check requirements.
@@ -314,10 +319,28 @@ export const ApproveSelectAmendPO: React.FC = () => {
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
         {
-            id: 'select', // Required for selection state
-            header: ({ table }) => (<Checkbox checked={table.getIsAllPageRowsSelected()} onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)} aria-label="Select all rows" />),
-            cell: ({ row }) => (<Checkbox checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(!!value)} aria-label="Select row" />),
-            enableSorting: false, enableHiding: false, size: 40,
+            id: 'select',
+            header: ({ table }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={table.getIsAllPageRowsSelected()}
+                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                    aria-label="Select all rows"
+                    className="data_table_select-all"
+                />
+            ),
+            cell: ({ row }) => (
+                <Checkbox
+                    disabled={true}
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label="Select row"
+                    className="data_table_select-row"
+                />
+            ),
+            enableSorting: false,
+            enableHiding: false,
+            size: 40,
         },
         {
             accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#PO" />,
@@ -344,12 +367,12 @@ export const ApproveSelectAmendPO: React.FC = () => {
             }, size: 200,
         },
         {
-            accessorKey: "procurement_request", header: ({ column }) => <DataTableColumnHeader column={column} title="PR #" />,
+            accessorKey: "procurement_request", header: ({ column }) => <DataTableColumnHeader column={column} title="#PR" />,
             cell: ({ row }) => (<div className="font-medium">{row.getValue("procurement_request")?.slice(-4) ?? '--'}</div>), // Display last 4 of PR
             size: 100,
         },
         {
-            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
         },
@@ -372,7 +395,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
         },
         {
             id: "po_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-            cell: ({ row }) => (<p className="font-medium text-right pr-2">{formatToRoundedIndianRupee(getTotal(row.original))}</p>),
+            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original))}</p>),
             size: 150, enableSorting: false,
         }
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSeen, getTotal]); // Updated dependencies

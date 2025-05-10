@@ -1,10 +1,12 @@
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
-import React, { Suspense, useCallback, useMemo } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./AccountantTabs"));
@@ -17,13 +19,44 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     const {paymentsCount, adminPaymentsCount} = useDocCountStore()
 
-    const [tab, setTab] = useStateSyncedWithParams<string>("tab", (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? "Payments Done" : "PO Wise"))
+    // --- Tab State Management ---
+    const initialTab = useMemo(() => {
+        const adminDefault = "Approve Payments";
+        const accountantDefault = "New Payments";
+        const userDefault = "Payments Done";
+        const remDefault = "PO Wise";
+        return getUrlStringParam("tab", role === "Nirmaan Admin Profile" ? adminDefault : role === "Nirmaan Accountant Profile" ?  accountantDefault : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? userDefault : remDefault);
+    }, [role]); // Calculate only once based on role
 
-    const onClick = useCallback(
-        (value : string) => {
-        if (tab === value) return; // Prevent redundant updates
+    const [tab, setTab] = useState<string>(initialTab);
 
-        setTab(value);
+    // Effect to sync tab state TO URL
+    useEffect(() => {
+        // Only update URL if the state `tab` is different from the URL's current 'tab' param
+        if (urlStateManager.getParam("tab") !== tab) {
+            urlStateManager.updateParam("tab", tab);
+        }
+    }, [tab]);
+    
+    // Effect to sync URL state TO tab state (for popstate/direct URL load)
+    useEffect(() => {
+        const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
+            // Update state only if the new URL value is different from current state
+            const newTab = value || initialTab; // Fallback to initial if param removed
+            if (tab !== newTab) {
+                setTab(newTab);
+            }
+        });
+        return unsubscribe; // Cleanup subscription
+    }, [tab, initialTab]); // Depend on `tab` to avoid stale closures
+
+    // const [tab, setTab] = useStateSyncedWithParams<string>("tab", (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? "Payments Done" : "PO Wise"))
+
+    // --- Tab Change Handler ---
+    const handleTabClick = useCallback((value: string) => {
+        if (tab !== value) {
+            setTab(value);
+        }
     }, [tab]);
 
     const adminTabs = useMemo(() => [
@@ -108,7 +141,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         optionType="button"
                         buttonStyle="solid"
                         value={tab}
-                        onChange={(e) => onClick(e.target.value)}
+                        onChange={(e) => handleTabClick(e.target.value)}
                     />
                 )}
                 {items && (
@@ -118,7 +151,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         optionType="button"
                         buttonStyle="solid"
                         value={tab}
-                        onChange={(e) => onClick(e.target.value)}
+                        onChange={(e) => handleTabClick(e.target.value)}
                     />
                 )}
                 <Radio.Group
@@ -126,7 +159,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                     optionType="button"
                     buttonStyle="solid"
                     value={tab}
-                    onChange={(e) => onClick(e.target.value)}
+                    onChange={(e) => handleTabClick(e.target.value)}
                 />
 
                 {paymentTypeBasedTabs && (
@@ -136,7 +169,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         optionType="button"
                         buttonStyle="solid"
                         value={tab}
-                        onChange={(e) => onClick(e.target.value)}
+                        onChange={(e) => handleTabClick(e.target.value)}
                     />
                 )}
             </div>
