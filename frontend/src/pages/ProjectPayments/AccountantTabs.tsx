@@ -523,12 +523,12 @@
 
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CircleCheck, CircleX, Info, SquarePen, Trash2 } from "lucide-react";
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table';
+import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -633,10 +633,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
         return vendors?.find(vendor => vendor.name === vendorId);
     }), [vendors]);
 
-    const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
-        const vendor = getVendorDetails(vendorId);
-        return !vendor?.account_number; // Disable if no account number
-    }, [getVendorDetails]);
+    // const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
+    //     const vendor = getVendorDetails(vendorId);
+    //     return !vendor?.account_number; // Disable if no account number
+    // }, [getVendorDetails]);
 
     // --- Notification Handling ---
     const handleNewPaymentSeen = useCallback((notification: NotificationType | undefined) => {
@@ -712,55 +712,30 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
         return []; // Default if tab is unrecognized
     }, [tab]);
 
+
+    const accountantSearchableFields: SearchFieldOption[] = useMemo(() => [
+            { value: "name", label: "Payment ID", placeholder: "Search by Payment ID..." , default: true},
+            { value: "project", label: "Project ID", placeholder: "Search by Project ID..." }, // Search by Project Link ID
+            // { value: "project_name", label: "Project", placeholder: "Search by Project..." },
+            { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },   // Search by Vendor Link ID
+            { value: "document_name", label: "PO ID", placeholder: "Search by PO ID..." },
+            { value: "document_type", label: "PO Type", placeholder: "Search by PO Type (Service || Procurement)..." },
+            // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." },
+        ], []) 
+
     const fieldsToFetch: (keyof ProjectPayments | 'name')[] = useMemo(() => [
         "name", "creation", "modified", "owner", "project", // Assuming project_name not directly on PP
         "vendor", "document_name", "document_type", "status", "amount",
         "payment_date", "utr", "tds", "payment_attachment"
     ], []);
 
-    const globalSearchFields = useMemo(() => [
-        "name", "project", "vendor", "document_name", "document_type", "status", "utr"
-    ], []);
+    // const globalSearchFields = useMemo(() => [
+    //     "name", "project", "vendor", "document_name", "document_type", "status", "utr"
+    // ], []);
 
     const dateColumns = useMemo(() => ["creation", "modified", "payment_date"], []);
 
     const columns = useMemo<ColumnDef<ProjectPayments>[]>(() => [
-        {
-            id: 'select',
-            header: ({ table }) => {
-                // --- MODIFIED Select All Logic ---
-                const WritableRows = table.getCoreRowModel().rows.filter(row => !getRowSelectionDisabled(row.original.vendor));
-                const isAllWritableSelected = WritableRows.length > 0 && WritableRows.every(row => row.getIsSelected());
-                const isSomeWritableSelected = WritableRows.some(row => row.getIsSelected());
-
-                return (
-                    <Checkbox
-                        checked={isAllWritableSelected ? true : (isSomeWritableSelected ? "indeterminate" : false)}
-                        onCheckedChange={(value) => {
-                            // Only toggle selectable rows
-                            WritableRows.forEach(row => row.toggleSelected(!!value));
-                        }}
-                        aria-label="Select all writable rows"
-                        disabled={WritableRows.length === 0} // Disable if no rows are selectable
-                        className="data_table_select-all"
-                    />
-                );
-                // --- END MODIFIED Select All Logic ---
-            },
-
-            cell: ({ row }) => (
-                <Checkbox
-                    checked={row.getIsSelected()}
-                    onCheckedChange={(value) => row.toggleSelected(!!value)}
-                    aria-label="Select row"
-                    className="data_table_select-row"
-                    disabled={tab === "New Payments" && getRowSelectionDisabled(row.original.vendor as string)}
-                />
-            ),
-            enableSorting: false,
-            enableHiding: false,
-            size: 40,
-        },
         {
             accessorKey: "modified", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
             cell: ({ row }) => {
@@ -807,7 +782,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
         },
         {
             accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amt" />,
-            cell: ({ row }) => <div className="font-medium text-right pr-2">{formatToRoundedIndianRupee(parseNumber(row.original.amount))}</div>,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(parseNumber(row.original.amount))}</div>,
             size: 130,
         },
         // // Columns specific to "Fulfilled Payments" tab
@@ -844,23 +819,37 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
                 </div>
             ), size: 120,
         } as ColumnDef<ProjectPayments>] : []),
-    ], [tab, projectOptions, vendorOptions, notifications, getRowSelectionDisabled, getVendorName, handleNewPaymentSeen, openFulfillDialog]); // Add dependencies
+    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openFulfillDialog]); // Add dependencies
+
+    // Function to determine if a row can be selected (passed to hook)
+    const canPaymentRowBeSelected = useCallback((row: Row<ProjectPayments>): boolean => {
+        if (tab === "New Payments") {
+            const vendor = vendors?.find(v => v.name === row.original.vendor);
+            return !!vendor?.account_number;
+        }
+        return false; // By default, other tabs might not have selectable rows
+    }, [vendors, tab]);
 
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
-        globalFilter, setGlobalFilter,
-        isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Though item search is false
+        // globalFilter, setGlobalFilter,
+        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Though item search is false
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+        isRowSelectionActive,
         refetch,
     } = useServerDataTable<ProjectPayments>({
         doctype: DOCTYPE,
         columns: columns,
         fetchFields: fieldsToFetch,
-        globalSearchFieldList: globalSearchFields,
-        enableItemSearch: false,
+        searchableFields: accountantSearchableFields,
+        // globalSearchFieldList: globalSearchFields,
+        // enableItemSearch: false,
         urlSyncKey: urlSyncKey, 
         defaultSort: tab === "New Payments" ? 'modified desc' : 'payment_date desc',
-        enableRowSelection: tab === "New Payments", // Enable selection only for "New Payments" tab
+        enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
+
     });
 
 
@@ -967,19 +956,25 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
                     isLoading={listIsLoading} // Pass specific loading state for table
                     error={listError}
                     totalCount={totalCount}
-                    globalFilterValue={globalFilter}
-                    onGlobalFilterChange={setGlobalFilter}
-                    searchPlaceholder={`Search ${tab}...`}
-                    showItemSearchToggle={showItemSearchToggle} // Will be false
-                    itemSearchConfig={{
-                        isEnabled: isItemSearchEnabled,
-                        toggle: toggleItemSearch,
-                        label: "Item Search"
-                    }}
+                    searchFieldOptions={accountantSearchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    // globalFilterValue={globalFilter}
+                    // onGlobalFilterChange={setGlobalFilter}
+                    // searchPlaceholder={`Search ${tab}...`}
+                    // showItemSearchToggle={showItemSearchToggle} // Will be false
+                    // itemSearchConfig={{
+                    //     isEnabled: isItemSearchEnabled,
+                    //     toggle: toggleItemSearch,
+                    //     label: "Item Search"
+                    // }}
                     facetFilterOptions={{ project: { title: "Project", options: projectOptions }, vendor: { title: "Vendor", options: vendorOptions }}}
                     dateFilterColumns={dateColumns}
-                    showExport={tab === "New Payments"}
-                    onExport={handlePrepareExport}
+                    showExportButton={true}
+                    onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
+                    showRowSelection={isRowSelectionActive}
                 />
             )}
 

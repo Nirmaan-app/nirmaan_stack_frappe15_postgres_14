@@ -10,13 +10,13 @@ export const RenderPurchaseOrdersTab : React.FC = () => {
 
   const ApproveRejectVendorQuotesContainer = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/ApproveRejectVendorQuotesContainer"));
 
-  const ApproveAmendedPO = React.lazy(() => import("@/pages/ProcurementOrders/approve-amend-po"));
+  const ApproveAmendedPO = React.lazy(() => import("@/pages/ProcurementOrders/amend-po/approve-amend-po"));
 
   // const ApproveSentBackPO = React.lazy(() => import("@/pages/Sent Back Requests/ApproveSBVendorQuotes"));
 
   const ApproveSBSQuotesContainer = React.lazy(() => import("@/pages/Sent Back Requests/ApproveSBSQuotesContainer"));
 
-  const PurchaseOrder = React.lazy(() => import("@/pages/ProcurementOrders/PurchaseOrder"));
+  const PurchaseOrder = React.lazy(() => import("@/pages/ProcurementOrders/purchase-order/PurchaseOrder"));
 
   return (
     <Suspense fallback={

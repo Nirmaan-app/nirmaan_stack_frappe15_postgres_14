@@ -18,7 +18,7 @@ import DeliveryNote from "@/pages/DeliveryNotes/deliverynote";
 import DeliveryNotes from "@/pages/DeliveryNotes/deliverynotes";
 import ItemsTesting from "@/pages/Items/ItemsTableTesting";
 import { RenderPurchaseOrdersTab } from "@/pages/ProcurementOrders/RenderPurchaseOrdersTab";
-import { ReleasePOSelect } from "@/pages/ProcurementOrders/release-po-select";
+import { ReleasePOSelect } from "@/pages/ProcurementOrders/purchase-order/release-po-select";
 import { NewCustomPR } from "@/pages/ProcurementRequests/NewPR/NewCustomPR";
 import { NewProcurementRequest } from "@/pages/ProcurementRequests/NewPR/new-new-pr";
 import { ProcurementRequests } from "@/pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";

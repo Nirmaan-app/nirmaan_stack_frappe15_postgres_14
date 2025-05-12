@@ -1,210 +1,3 @@
-// import { DataTable } from "@/components/data-table/data-table";
-// import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-// import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-// import { Badge } from "@/components/ui/badge";
-// import { TableSkeleton } from "@/components/ui/skeleton";
-// import { useToast } from "@/components/ui/use-toast";
-// import { Category, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-// import { Projects } from "@/types/NirmaanStack/Projects";
-// import { formatDate } from "@/utils/FormatDate";
-// import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
-// import { parseNumber } from "@/utils/parseNumber";
-// import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-// import { ColumnDef } from "@tanstack/react-table";
-// import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-// import memoize from "lodash/memoize";
-// import { useCallback, useContext, useMemo } from "react";
-// import { Link } from "react-router-dom";
-
-// export const ApproveSelectVendor : React.FC = () => {
-
-//     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
-//         {
-//             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation', "modified"],
-//             filters: [
-//                 ["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]
-//             ],
-//             limit: 1000,
-//             orderBy: {field: "modified", order: "desc"}
-//         });
-
-//     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
-//         fields: ["name", "project_name"],
-//         limit: 1000
-//     }, "Projects")
-
-
-//     const getTotal = useMemo(() => memoize((order_id: string) => {
-//         let total: number = 0;
-//         const allItems = procurement_request_list?.find(item => item?.name === order_id)?.procurement_list?.list;
-//         const orderData = allItems?.filter((item) => item.status === "Pending")
-//         orderData?.map((item) => {
-//             total += parseNumber((item.quote || 0) * item.quantity);
-//         })
-//         return total;
-//     }, (order_id: string) => order_id), [procurement_request_list])
-
-//     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
-
-//     useFrappeDocTypeEventListener("Procurement Requests", async () => {
-//         await pr_list_mutate()
-//     })
-
-//     const {notifications, mark_seen_notification} = useNotificationStore()
-
-//     const {db} = useContext(FrappeContext) as FrappeConfig
-//     const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
-//         if(notification) {
-//             mark_seen_notification(db, notification)
-//         }
-//     }, [db, mark_seen_notification])
-
-//     const columns: ColumnDef<ProcurementRequest>[] = useMemo(
-//         () => [
-//             {
-//                 accessorKey: "name",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="#PR" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     const data = row.original
-//                     const prId : string = data.name
-//                     const isNew = notifications.find(
-//                         (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:vendorSelected"
-//                     )
-//                     return (
-//                         <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
-//                             {isNew && (
-//                                 <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
-//                             )}
-//                             <div className="flex items-center gap-2">
-//                                 <Link
-//                                     className="underline hover:underline-offset-2"
-//                                     to={`${prId}?tab=Approve PO`}
-//                                 >
-//                                     {prId?.slice(-4)}
-//                                 </Link>
-//                                  {!data.work_package && <Badge className="text-xs">Custom</Badge>}
-//                                  <ItemsHoverCard order_list={data?.procurement_list?.list} isPR />
-//                             </div>
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "creation",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Date Created" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                      const creation : string = row.getValue("creation")
-//                     return (
-//                         <p className="font-medium">
-//                             {formatDate(creation)}
-//                         </p>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "project",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Project" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     const project = project_values.find(
-//                         (project) => project.value === row.getValue("project")
-//                     )
-//                     return (
-//                         <p className="font-medium">
-//                             {project?.label || "--"}
-//                         </p>
-//                     )
-//                 },
-//                 filterFn: (row, id, value) => {
-//                     return value.includes(row.getValue(id))
-//                 },
-//             },
-//             {
-//                 accessorKey: "work_package",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Package" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <p className="font-medium">
-//                             {row.getValue("work_package") || "--"}
-//                         </p>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "category_list",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Categories" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     const categories : { list : Category[] } = row.getValue("category_list")
-//                     return (
-//                         <p className="flex flex-col gap-1 items-start justify-center">
-//                             {categories.list.map((obj) => <Badge key={obj.name} className="inline-block">{obj.name}</Badge>)}
-//                         </p>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "total",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Estimated Price" />
-//                     )
-//                 },
-//                 cell: ({row}) => {
-//                     const id : string = row.getValue("name")
-//                     return (
-//                         <p className="font-medium">
-//                             {getTotal(id) === 0 ? "N/A" : formatToRoundedIndianRupee(getTotal(id))}
-//                         </p>
-//                     )
-//                 }
-//             }
-
-//         ],
-//         [procurement_request_list, notifications, project_values, getTotal]
-//     )
-
-//     const { toast } = useToast()
-
-//     if (procurement_request_list_error || projects_error) {
-//         console.log("Error in approve-select-vendor.tsx", procurement_request_list_error?.message, projects_error?.message)
-//         toast({
-//             title: "Error!",
-//             description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
-//             variant: "destructive"
-//         })
-//     }
-
-//     return (
-//         <div className="flex-1 md:space-y-4">
-//             {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-//                 <DataTable columns={columns} data={procurement_request_list?.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending")) || []} project_values={project_values} />
-//             )}
-//         </div>
-//     )
-// }
-
-// export default ApproveSelectVendor;
-
-
 import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
@@ -213,7 +6,7 @@ import memoize from 'lodash/memoize';
 import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table';
+import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -281,16 +74,22 @@ export const ApproveSelectVendor: React.FC = () => {
         ["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]
     ], []);
 
+    const prSearchableFields: SearchFieldOption[] = useMemo(() => [
+            { value: "name", label: "PR ID", placeholder: "Search by PR ID..." , default: true},
+            { value: "project", label: "Project ID", placeholder: "Search by Project ID..." }, // Search by Project Link ID
+            { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
+            // { value: "project_name", label: "Project", placeholder: "Search by Project..." },
+            // { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },   // Search by Vendor Link ID
+            // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." },
+            { value: "work_package", label: "Work Package", placeholder: "Search by Work Package..." },
+            { value: "status", label: "Status", placeholder: "Search by Status..." },
+            { value: "procurement_list", label: "Item in PR", placeholder: "Search by Item in PR...", is_json: true },
+        ], [])
+
     // --- Fields to Fetch ---
     const fieldsToFetch: (keyof ProcurementRequest | 'name')[] = useMemo(() => [
         "name", "creation", "modified", "owner", "project",
         "work_package", "procurement_list", "category_list", "workflow_state" // Fetch workflow_state if needed for display/logic
-    ], []);
-
-    // --- Global Search Fields ---
-    const globalSearchFields = useMemo(() => [
-        "name", "project", "work_package", "owner"
-        // Add other relevant text fields from PR
     ], []);
 
      // --- Date Filter Columns ---
@@ -298,30 +97,6 @@ export const ApproveSelectVendor: React.FC = () => {
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementRequest>[]>(() => [
-        {
-            id: 'select',
-            header: ({ table }) => (
-                <Checkbox
-                    disabled={true}
-                    checked={table.getIsAllPageRowsSelected()}
-                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                    aria-label="Select all rows"
-                    className="data_table_select-all"
-                />
-            ),
-            cell: ({ row }) => (
-                <Checkbox
-                    disabled={true}
-                    checked={row.getIsSelected()}
-                    onCheckedChange={(value) => row.toggleSelected(!!value)}
-                    aria-label="Select row"
-                    className="data_table_select-row"
-                />
-            ),
-            enableSorting: false,
-            enableHiding: false,
-            size: 40,
-        },
         {
             accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#PR" />,
             cell: ({ row }) => {
@@ -386,7 +161,7 @@ export const ApproveSelectVendor: React.FC = () => {
             id: "estimated_total", header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value" />,
             cell: ({ row }) => {
                 const total = getTotal(row.original.procurement_list);
-                return <p className="font-medium text-right pr-2">{total === 0 ? "N/A" : formatToRoundedIndianRupee(total)}</p>;
+                return <p className="font-medium pr-2">{total === 0 ? "N/A" : formatToRoundedIndianRupee(total)}</p>;
             }, size: 150, enableSorting: false,
         }
 
@@ -402,16 +177,20 @@ export const ApproveSelectVendor: React.FC = () => {
     // --- Use the Server Data Table Hook ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
-        globalFilter, setGlobalFilter,
-        isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Use item search state
+        // globalFilter, setGlobalFilter,
+        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Use item search state
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+        isRowSelectionActive,
         refetch,
     } = useServerDataTable<ProcurementRequest>({
         doctype: DOCTYPE,
         columns: columns,
         fetchFields: fieldsToFetch,
+        searchableFields: prSearchableFields,
         // defaultSearchField: "name", // Removed
-        globalSearchFieldList: globalSearchFields, // For default global search
-        enableItemSearch: true, // Enable item search feature for PRs
+        // globalSearchFieldList: globalSearchFields, // For default global search
+        // enableItemSearch: true, // Enable item search feature for PRs
         urlSyncKey: URL_SYNC_KEY,
         defaultSort: 'modified desc', // Sort by modified desc by default
         enableRowSelection: false, // No selection needed for this view? Adjust if needed.
@@ -482,18 +261,25 @@ export const ApproveSelectVendor: React.FC = () => {
                     isLoading={listIsLoading} // Pass loading state from the hook
                     error={listError} // Pass error state from the hook
                     totalCount={totalCount}
-                    globalFilterValue={globalFilter}
-                    onGlobalFilterChange={setGlobalFilter}
-                    searchPlaceholder="Search PRs..." // Specific placeholder
-                    showItemSearchToggle={showItemSearchToggle}
-                    itemSearchConfig={{
-                        isEnabled: isItemSearchEnabled,
-                        toggle: toggleItemSearch,
-                        label: "Item Search"
-                    }}
+                    searchFieldOptions={prSearchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    // globalFilterValue={globalFilter}
+                    // onGlobalFilterChange={setGlobalFilter}
+                    // searchPlaceholder="Search PRs..." // Specific placeholder
+                    // showItemSearchToggle={showItemSearchToggle}
+                    // itemSearchConfig={{
+                    //     isEnabled: isItemSearchEnabled,
+                    //     toggle: toggleItemSearch,
+                    //     label: "Item Search"
+                    // }}
                     facetFilterOptions={facetFilterOptions}
                     dateFilterColumns={dateColumns} // Enable date filters for creation/modified
-                    // showExport={false} // Disable export if not needed
+                    showExportButton={true} // Disable export if not needed
+                    onExport={'default'}
+                    showRowSelection={isRowSelectionActive}
                 />
             )}
         </div>

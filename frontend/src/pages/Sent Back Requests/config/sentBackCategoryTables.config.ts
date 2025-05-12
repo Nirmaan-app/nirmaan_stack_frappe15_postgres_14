@@ -1,0 +1,40 @@
+import { SearchFieldOption } from '@/components/data-table/new-data-table'; // Adjust path if needed
+import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
+
+export const DEFAULT_SB_FIELDS_TO_FETCH: (keyof SentBackCategory | 'name')[] =  [
+    "name", "project", "owner", 'type', 'workflow_state'
+];
+
+export const SB_SEARCHABLE_FIELDS: SearchFieldOption[] = [
+    { value: "name", label: "SB ID", placeholder: "Search by SB ID...", default: true },
+    { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
+    // { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
+    // { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
+    {
+        value: "item_list", // Field name for backend
+        label: "Item in SB",
+        placeholder: "Search by Item Name in order list...",
+        is_json: true, // Signal to backend for special JSON search logic
+    },
+];
+
+// Date columns commonly used for filtering PO tables
+export const SB_DATE_COLUMNS: string[] = ["creation", "modified"];
+
+// Function to get static filters based on tab and role for ReleasePOSelect context
+export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Array<[string, string, string | string[]]> => {
+    const base: Array<[string, string, string | string[]]> = [
+        ["status", "not in", ["Merged", "PO Amendment"]]
+    ];
+    const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
+    if (isEstimatesExec) {
+        return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+    }
+    switch (tab) {
+        case "Approved PO": return [...base, ["status", "=", "PO Approved"]];
+        case "Dispatched PO": return [...base, ["status", "=", "Dispatched"]];
+        case "Partially Delivered PO": return [...base, ["status", "=", "Partially Delivered"]];
+        case "Delivered PO": return [...base, ["status", "=", "Delivered"]];
+        default: return base; // Or specific default for this view
+    }
+};

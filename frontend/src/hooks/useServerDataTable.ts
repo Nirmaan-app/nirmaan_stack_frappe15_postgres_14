@@ -15,13 +15,14 @@ import {
     RowSelectionState,
     Row,
 } from '@tanstack/react-table';
-import { useFrappeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk'; // Assuming you use this context provider
+import { useFrappeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { debounce } from 'lodash';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
+import { SearchFieldOption } from '@/components/data-table/new-data-table';
 
 // --- Configuration ---
-const DEBOUNCE_DELAY = 500; // ms
+const DEBOUNCE_DELAY = 500;
 
 
 // --- Base SWR Key Prefix for this hook's data ---
@@ -66,14 +67,23 @@ export interface ServerDataTableConfig<TData> {
     fetchFields: string[];
     /** Default field to search when globalSearch is disabled. */
     // defaultSearchField: string;
-    globalSearchFieldList?: string[]; // For global search
+    // globalSearchFieldList?: string[]; // For global search
     /** Optional initial state overrides */
+
+    // --- NEW: Search Field Configuration ---
+    /** List of fields the user can select to search on. */
+    searchableFields: SearchFieldOption[];
+    // ------------------------------------
+
     initialState?: {
         sorting?: SortingState;
         columnFilters?: ColumnFiltersState; // For initial URL load potentially
         pagination?: PaginationState;
-        globalFilter?: string;
-        isGlobalSearchEnabled?: boolean;
+        // globalFilter?: string;
+        // isGlobalSearchEnabled?: boolean;
+        searchTerm?: string; // Renamed from globalFilter
+        selectedSearchField?: string; // Initial selected search field
+
         columnVisibility?: VisibilityState;
         rowSelection?: RowSelectionState;
     };
@@ -89,7 +99,7 @@ export interface ServerDataTableConfig<TData> {
     additionalFilters?: any[] // Keep this for static  filters
     // --- NEW ---
     /** Should the Item Search option be available for this table? */
-    enableItemSearch?: boolean;
+    // enableItemSearch?: boolean;
     // -----------
     // --- NEW ---
     /** If true, filters results to only include docs where specific JSON conditions are met (backend logic) */
@@ -100,6 +110,7 @@ export interface ServerDataTableConfig<TData> {
 export interface ServerDataTableResult<TData> {
     table: Table<TData>;
     data: TData[];
+    allFetchedData?: TData[]; // Optiona: All data if pagination is client-side after initial fetch
     totalCount: number;
     isLoading: boolean;
     error: Error | null;
@@ -110,16 +121,25 @@ export interface ServerDataTableResult<TData> {
     setSorting: React.Dispatch<React.SetStateAction<SortingState>>;
     columnFilters: ColumnFiltersState;
     setColumnFilters: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
-    globalFilter: string;
-    setGlobalFilter: React.Dispatch<React.SetStateAction<string>>;
+    // globalFilter: string;
+    // setGlobalFilter: React.Dispatch<React.SetStateAction<string>>;
     // isGlobalSearchEnabled: boolean;
     // toggleGlobalSearch: () => void;
     refetch: () => void; // Function to manually trigger data refetch
     // --- NEW ---
-    isItemSearchEnabled: boolean;
-    toggleItemSearch: () => void;
-    showItemSearchToggle: boolean; // Expose whether the toggle should be shown
+    // isItemSearchEnabled: boolean;
+    // toggleItemSearch: () => void;
+    // showItemSearchToggle: boolean; // Expose whether the toggle should be shown
     // -----------
+
+    // --- NEW: Exposed Search State & Setters ---
+    searchTerm: string;
+    setSearchTerm: React.Dispatch<React.SetStateAction<string>>;
+    selectedSearchField: string;
+    setSelectedSearchField: React.Dispatch<React.SetStateAction<string>>;
+    // -----------------------------------------
+     // --- NEW: Expose the actual enableRowSelection value used ---
+     isRowSelectionActive: boolean; // Indicates if selection features are enabled in the table instance
 }
 
 
@@ -157,19 +177,20 @@ const decodeFiltersFromUrl = (encodedString: string | null): ColumnFiltersState 
 // --- The Hook ---
 export function useServerDataTable<TData extends { name: string }>({
     doctype,
-    columns,
+    columns : userDefinedDisplayColumns,
     fetchFields,
+    searchableFields,
     // defaultSearchField,
-    globalSearchFieldList = [], // This is used to populate current_search_fields for global search
+    // globalSearchFieldList = [], // This is used to populate current_search_fields for global search
     additionalFilters = [],
 
     initialState = {},
-    enableRowSelection = false,
+    enableRowSelection: configEnableRowSelection = false,
     onRowSelectionChange,
     defaultSort = 'creation desc',
     urlSyncKey,
     // --- NEW ---
-    enableItemSearch = false, // Default to false
+    // enableItemSearch = false, // Default to false
     // -----------
     requirePendingItems = false, // Default to false
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
@@ -196,6 +217,24 @@ export function useServerDataTable<TData extends { name: string }>({
             : (initialState.sorting ?? [])
     );
 
+    // --- NEW: Search State ---
+    const defaultInitialSearchField = useMemo(() => 
+        searchableFields?.find(f => f.default)?.value || searchableFields?.[0]?.value || 'name',
+    [searchableFields]);
+
+    const [selectedSearchField, setSelectedSearchField] = useState<string>(() =>
+        urlSyncKey
+            ? getUrlStringParam(`${urlSyncKey}_searchBy`, initialState.selectedSearchField ?? defaultInitialSearchField)
+            : (initialState.selectedSearchField ?? defaultInitialSearchField)
+    );
+
+    const [searchTerm, setSearchTerm] = useState<string>(() => // This is the immediate input value
+        urlSyncKey
+            ? getUrlStringParam(`${urlSyncKey}_q`, initialState.searchTerm ?? '')
+            : (initialState.searchTerm ?? '')
+    );
+    // -------------------------
+
 
     // --- MODIFIED: Initialize columnFilters from single URL param ---
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => {
@@ -210,32 +249,34 @@ export function useServerDataTable<TData extends { name: string }>({
 
     // console.log("columnFilters FROM HOOK:", columnFilters); // Good for debugging
 
-    const [globalFilter, setGlobalFilter] = useState<string>(() =>
-        urlSyncKey
-            ? getUrlStringParam(`${urlSyncKey}_search`, initialState.globalFilter ?? '')
-            : (initialState.globalFilter ?? '')
-    );
+    // const [globalFilter, setGlobalFilter] = useState<string>(() =>
+    //     urlSyncKey
+    //         ? getUrlStringParam(`${urlSyncKey}_search`, initialState.globalFilter ?? '')
+    //         : (initialState.globalFilter ?? '')
+    // );
 
     // State for the search term that *actually* triggers the API call (after debounce)
-    const [debouncedSearchTermForApi, setDebouncedSearchTermForApi] = useState<string>(globalFilter);
+    // const [debouncedSearchTermForApi, setDebouncedSearchTermForApi] = useState<string>(globalFilter);
+    const [debouncedSearchTermForApi, setDebouncedSearchTermForApi] = useState<string>(searchTerm);
 
     // --- NEW: State for Item Search ---
-    const [isItemSearchEnabled, setIsItemSearchEnabled] = useState<boolean>(() =>
-        enableItemSearch && urlSyncKey // Only read from URL if item search is enabled for this table
-            ? getUrlBoolParam(`${urlSyncKey}_itemSearch`, false) // Default item search to false
-            : false
-    );
+    // const [isItemSearchEnabled, setIsItemSearchEnabled] = useState<boolean>(() =>
+    //     enableItemSearch && urlSyncKey // Only read from URL if item search is enabled for this table
+    //         ? getUrlBoolParam(`${urlSyncKey}_itemSearch`, false) // Default item search to false
+    //         : false
+    // );
     // ---------------------------------
 
-
-    const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialState.columnVisibility ?? {});
-    const [rowSelection, setRowSelection] = useState<RowSelectionState>(initialState.rowSelection ?? {});
 
     const [data, setData] = useState<TData[]>([]);
     const [totalCount, setTotalCount] = useState<number>(0);
     const [error, setError] = useState<Error | null>(null);
     const [isLoading, setIsLoading] = useState(false); // Manual loading state
     const [internalTrigger, setInternalTrigger] = useState<number>(0); // To manually refetch
+
+
+    const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialState.columnVisibility ?? {});
+    const [rowSelection, setRowSelection] = useState<RowSelectionState>(initialState.rowSelection ?? {});
 
     // --- Debounce Logic using lodash.debounce ---
     // Create a debounced function that updates the API search term state.
@@ -254,14 +295,15 @@ export function useServerDataTable<TData extends { name: string }>({
 
   // Effect to call the debounced function when the *immediate* globalFilter changes
   useEffect(() => {
-    debouncedSetApiSearchTerm(globalFilter);
+    // debouncedSetApiSearchTerm(globalFilter);
+    debouncedSetApiSearchTerm(searchTerm);
 
     // Cleanup function to cancel any pending debounced calls if the component unmounts
     // or if globalFilter changes again before the delay expires.
     return () => {
         debouncedSetApiSearchTerm.cancel();
     };
-}, [globalFilter, debouncedSetApiSearchTerm]);
+}, [searchTerm, debouncedSetApiSearchTerm]);
 
     // --- URL Sync Effects ---
 
@@ -277,15 +319,20 @@ export function useServerDataTable<TData extends { name: string }>({
                const validSize = newSize > 0 ? newSize : 10;
               setPagination(p => ({ ...p, pageIndex: 0, pageSize: validSize })); // Reset page index
           }),
-          urlStateManager.subscribe(`${keyPrefix}search`, (_, value) => setGlobalFilter(value ?? '')), // Update immediate filter
+        //   urlStateManager.subscribe(`${keyPrefix}search`, (_, value) => setGlobalFilter(value ?? '')), // Update immediate filter
         //   urlStateManager.subscribe(`${keyPrefix}globalSearch`, (_, value) => setIsGlobalSearchEnabled(value === 'true')),
           urlStateManager.subscribe(`${keyPrefix}sort`, (_, value) => { try { setSorting(value ? JSON.parse(value) : []) } catch { setSorting([]) } }),
 
           // --- NEW: Sync item search state from URL ---
-          ...(enableItemSearch ? [urlStateManager.subscribe(`${keyPrefix}itemSearch`, (_, value) => setIsItemSearchEnabled(value === 'true'))] : []),
+        //   ...(enableItemSearch ? [urlStateManager.subscribe(`${keyPrefix}itemSearch`, (_, value) => setIsItemSearchEnabled(value === 'true'))] : []),
           // ------------------------------------------
         //   urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => { try { setColumnFilters(value ? JSON.parse(value) : []) } catch { setColumnFilters([]) } }),
 
+
+        // --- NEW: Sync search state from URL ---
+        urlStateManager.subscribe(`${keyPrefix}q`, (_, value) => setSearchTerm(value ?? '')),
+        urlStateManager.subscribe(`${keyPrefix}searchBy`, (_, value) => setSelectedSearchField(value ?? defaultInitialSearchField)),
+        // -----------------------------------------
         // --- MODIFIED: Subscribe to the single encoded filters param ---
         urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => {
             // Update state only if decoded value differs from current state JSON stringified
@@ -299,7 +346,7 @@ export function useServerDataTable<TData extends { name: string }>({
       ];
       // Return cleanup function to unsubscribe all
       return () => subscriptions.forEach(unsub => unsub());
-  }, [urlSyncKey, enableItemSearch, columnFilters]); // Add columnFilters here to compare on popstate update
+  }, [urlSyncKey, defaultInitialSearchField, columnFilters]); // Add columnFilters here to compare on popstate update
 
 
     // Update URL when local state changes (avoiding infinite loops)
@@ -314,17 +361,22 @@ export function useServerDataTable<TData extends { name: string }>({
 
     useEffect(() => updateUrlParam('pageIdx', pagination.pageIndex.toString()), [pagination.pageIndex, updateUrlParam]);
     useEffect(() => updateUrlParam('pageSize', pagination.pageSize.toString()), [pagination.pageSize, updateUrlParam]);
-    useEffect(() => updateUrlParam('search', globalFilter || null), [globalFilter, updateUrlParam]); // Use debounced? No, reflect input immediately, debounce fetch
+    // useEffect(() => updateUrlParam('search', globalFilter || null), [globalFilter, updateUrlParam]); // Use debounced? No, reflect input immediately, debounce fetch
     // useEffect(() => updateUrlParam('globalSearch', isGlobalSearchEnabled ? 'true' : 'false'), [isGlobalSearchEnabled, updateUrlParam]);
     useEffect(() => updateUrlParam('sort', sorting.length ? JSON.stringify(sorting) : null), [sorting, updateUrlParam]);
     // useEffect(() => updateUrlParam('filters', columnFilters.length ? JSON.stringify(columnFilters) : null), [columnFilters, updateUrlParam]);
 
+
+    // --- NEW: Sync search state TO URL ---
+    useEffect(() => updateUrlParam('q', searchTerm || null), [searchTerm, updateUrlParam]);
+    useEffect(() => updateUrlParam('searchBy', selectedSearchField), [selectedSearchField, updateUrlParam]);
+    // -------------------------------------
     // --- NEW: Sync item search TO URL ---
-    useEffect(() => {
-        if(enableItemSearch && urlSyncKey) {
-             updateUrlParam('itemSearch', isItemSearchEnabled ? 'true' : null); // Use null to remove param
-        }
-    }, [isItemSearchEnabled, enableItemSearch, urlSyncKey, updateUrlParam]);
+    // useEffect(() => {
+    //     if(enableItemSearch && urlSyncKey) {
+    //          updateUrlParam('itemSearch', isItemSearchEnabled ? 'true' : null); // Use null to remove param
+    //     }
+    // }, [isItemSearchEnabled, enableItemSearch, urlSyncKey, updateUrlParam]);
 
     // --- MODIFIED: Sync entire columnFilters state TO single URL param ---
     useEffect(() => {
@@ -368,12 +420,15 @@ export function useServerDataTable<TData extends { name: string }>({
         const searchTermForApi = debouncedSearchTermForApi;
 
         // --- MODIFIED: Determine params based on item search ---
-        let fieldsForBackendSearch: string[] | undefined = undefined;
-        if (!isItemSearchEnabled && searchTermForApi) {
-            // Default is global search, use the provided list
-            fieldsForBackendSearch = globalSearchFieldList;
-        }
+        // let fieldsForBackendSearch: string[] | undefined = undefined;
+        // if (!isItemSearchEnabled && searchTermForApi) {
+        //     // Default is global search, use the provided list
+        //     fieldsForBackendSearch = globalSearchFieldList;
+        // }
         // If isItemSearchEnabled is true, backend handles it, no need to send search fields list
+
+        const currentSearchFieldConfig = searchableFields.find(f => f.value === selectedSearchField);
+        const isJsonField = currentSearchFieldConfig?.is_json === true;
 
         const payload = {
             doctype: doctype,
@@ -387,9 +442,14 @@ export function useServerDataTable<TData extends { name: string }>({
             // current_search_fields: searchFieldsForBackend ? JSON.stringify(searchFieldsForBackend) : undefined,
             // is_global_search: isGlobalSearchEnabled,
             // -------------------------------------------
-            current_search_fields: fieldsForBackendSearch ? JSON.stringify(fieldsForBackendSearch) : undefined,
-            is_item_search: isItemSearchEnabled, // Pass the new flag
+            // current_search_fields: fieldsForBackendSearch ? JSON.stringify(fieldsForBackendSearch) : undefined,
+            // is_item_search: isItemSearchEnabled, // Pass the new flag
             // --- NEW: Pass the new flag ---
+
+            // Pass the single selected field for backend to process
+            // Backend will decide if it's global-like (array) or specific (single)
+            current_search_fields: searchTermForApi && selectedSearchField ? JSON.stringify([selectedSearchField]) : undefined,
+            is_item_search: searchTermForApi && isJsonField, // NEW: True if selectedSearchField.is_json is true
             require_pending_items: requirePendingItems,
             // -----------------------------
         };
@@ -402,7 +462,7 @@ export function useServerDataTable<TData extends { name: string }>({
             JSON.stringify(payload) // Key based on exact payload
            ];
 
-        // console.log("[useServerDataTable calling custom backend adapter] Payload:", payload);
+        console.log("[useServerDataTable calling backend] Payload:", payload);
 
         try {
             const response = await triggerFetch(payload);
@@ -429,8 +489,10 @@ export function useServerDataTable<TData extends { name: string }>({
         JSON.stringify(columnFilters), debouncedSearchTermForApi, 
         // isGlobalSearchEnabled,
         // defaultSearchField, 
-        isItemSearchEnabled,
-        JSON.stringify(globalSearchFieldList), defaultSort,
+        // isItemSearchEnabled,
+        // JSON.stringify(globalSearchFieldList), 
+        selectedSearchField, JSON.stringify(searchableFields),
+        defaultSort,
         JSON.stringify(additionalFilters), internalTrigger, // Added additionalFilters
         requirePendingItems
     ]);
@@ -445,7 +507,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // return;
 
         // Fetch initial data if columnFilters (from URL) or other params are set
-        if (columnFilters.length > 0 || globalFilter || sorting.length > 0 || !urlSyncKey) {
+        if (columnFilters.length > 0 || searchTerm || sorting.length > 0 || !urlSyncKey) {
             fetchData();
         } 
         return;
@@ -493,7 +555,7 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- TanStack Table Instance ---
     const table = useReactTable<TData>({
         data,
-        columns,
+        columns: userDefinedDisplayColumns,
         // Manual server-side operations
         manualPagination: true,
         manualSorting: true,
@@ -505,7 +567,7 @@ export function useServerDataTable<TData extends { name: string }>({
             pagination,
             sorting,
             columnFilters, // Still needed for TanStack's internal state if using its filter components
-            globalFilter, // Reflect current input value
+            // globalFilter: searchTerm, // Reflect current input value
             columnVisibility,
             rowSelection,
         },
@@ -513,7 +575,7 @@ export function useServerDataTable<TData extends { name: string }>({
         onPaginationChange: setPagination,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters, // Update local state, URL effect handles sync
-        onGlobalFilterChange: setGlobalFilter, // Update local state immediately for input field
+        // onGlobalFilterChange: setSearchTerm, // Update local state immediately for input field
         onColumnVisibilityChange: setColumnVisibility,
         onRowSelectionChange: onRowSelectionChange ?? setRowSelection, // Use passed handler or internal one
         // Models (keep faceted utils for potential UI helpers)
@@ -523,22 +585,22 @@ export function useServerDataTable<TData extends { name: string }>({
         getFacetedRowModel: getFacetedRowModel(), // Useful for faceted filter UI options
         getFacetedUniqueValues: getFacetedUniqueValues(), // Useful for faceted filter UI options
         // Configuration
-        enableRowSelection: enableRowSelection,
-        // debugTable: process.env.NODE_ENV === 'development', // Enable debugging in dev
+        enableRowSelection: configEnableRowSelection,
+        debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
     });
 
     // NEW: Toggle Item Search
-    const toggleItemSearch = useCallback(() => {
-        if (!enableItemSearch) return; // Do nothing if not enabled for this table
-        setIsItemSearchEnabled(prev => {
-             const newState = !prev;
-             // Reset pagination and potentially search term when toggling search type
-             setGlobalFilter('');
-             setDebouncedSearchTermForApi('');
-             setPagination(p => ({ ...p, pageIndex: 0 }));
-             return newState;
-        });
-      }, [enableItemSearch]); // Depend on enableItemSearch
+    // const toggleItemSearch = useCallback(() => {
+    //     if (!enableItemSearch) return; // Do nothing if not enabled for this table
+    //     setIsItemSearchEnabled(prev => {
+    //          const newState = !prev;
+    //          // Reset pagination and potentially search term when toggling search type
+    //          setGlobalFilter('');
+    //          setDebouncedSearchTermForApi('');
+    //          setPagination(p => ({ ...p, pageIndex: 0 }));
+    //          return newState;
+    //     });
+    //   }, [enableItemSearch]); // Depend on enableItemSearch
 
     // --- MODIFIED: Refetch function ---
     const refetch = useCallback(() => {
@@ -557,8 +619,8 @@ export function useServerDataTable<TData extends { name: string }>({
         table,
         data,
         totalCount,
-        isLoading,
-        error,
+        isLoading: isLoading || isCallingApi,
+        error: (error || apiError) as Error | null,
         // Expose states and setters
         pagination,
         setPagination,
@@ -566,13 +628,18 @@ export function useServerDataTable<TData extends { name: string }>({
         setSorting,
         columnFilters,
         setColumnFilters,
-        globalFilter,
-        setGlobalFilter,
+        // globalFilter,
+        // setGlobalFilter,
+        searchTerm,
+        setSearchTerm,
+        selectedSearchField,
+        setSelectedSearchField,
         // isGlobalSearchEnabled,
         // toggleGlobalSearch,
-        isItemSearchEnabled, 
-        toggleItemSearch, // Add new item search state/toggle
-        showItemSearchToggle: enableItemSearch, // Indicate if toggle should be shown
+        // isItemSearchEnabled, 
+        // toggleItemSearch, // Add new item search state/toggle
+        // showItemSearchToggle: enableItemSearch, // Indicate if toggle should be shown
         refetch,
+        isRowSelectionActive: !!configEnableRowSelection,
     };
 }
