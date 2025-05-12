@@ -589,102 +589,102 @@ def update_quantity(data, target_name, new_quantity):
 def on_update(doc, method):
     custom = True if doc.work_package is None else False
     old_doc = doc.get_doc_before_save()
-    if old_doc and old_doc.workflow_state=='In Progress' and doc.workflow_state == "Vendor Selected":
-        if validate_procurement_request_for_po(doc):
-            doc.workflow_state = "Vendor Approved"
-            doc.save(ignore_permissions=True)
-            doc.db_set("modified_by", "Administrator", update_modified=False)
+    # if old_doc and old_doc.workflow_state=='In Progress' and doc.workflow_state == "Vendor Selected":
+    #     if validate_procurement_request_for_po(doc):
+    #         doc.workflow_state = "Vendor Approved"
+    #         doc.save(ignore_permissions=True)
+    #         doc.db_set("modified_by", "Administrator", update_modified=False)
 
-            # Generate POs (Ensure data is prepared correctly)
-            procurement_list_data = doc.get("procurement_list") # Get potentially updated data
-            items_data = None
-            if isinstance(procurement_list_data, str): items_data = json.loads(procurement_list_data)
-            elif isinstance(procurement_list_data, dict): items_data = procurement_list_data
-            if items_data and isinstance(items_data.get("list"), list):
-                items_list = items_data.get("list")
-                items_arr = [item.get("name") for item in items_list if item.get("status") == "Pending"]
-                selected_vendors = {item["name"]: item["vendor"] for item in items_list if item.get("status") == "Pending" and item.get("vendor")}
+    #         # Generate POs (Ensure data is prepared correctly)
+    #         procurement_list_data = doc.get("procurement_list") # Get potentially updated data
+    #         items_data = None
+    #         if isinstance(procurement_list_data, str): items_data = json.loads(procurement_list_data)
+    #         elif isinstance(procurement_list_data, dict): items_data = procurement_list_data
+    #         if items_data and isinstance(items_data.get("list"), list):
+    #             items_list = items_data.get("list")
+    #             items_arr = [item.get("name") for item in items_list if item.get("status") == "Pending"]
+    #             selected_vendors = {item["name"]: item["vendor"] for item in items_list if item.get("status") == "Pending" and item.get("vendor")}
 
-            po = generate_pos_from_selection(doc.project, doc.name, items_arr, selected_vendors, False )
-            print(f"PO generated: {po}")
-            po_doc = frappe.get_doc("Procurement Orders", po['po'])
-            po_doc.db_set("owner", "Administrator", update_modified=False)
-        else:
-            lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
-            if lead_admin_users:
-                for user in lead_admin_users:
-                    if user["push_notification"] == "true":
-                        notification_title = None
-                        if custom:
-                            notification_title = f"New Custom PR: {doc.name} created and Vendors Selected!"
-                        else:
-                            notification_title = f"Vendors Selected for the PR: {doc.name}!"
-                        notification_body = None
-                        if custom:
-                            notification_body = (
-                                f"Hi {user['full_name']}, A new Custom PR: {doc.name} created and Vendors have been selected. "
-                                "Please review it and proceed with approval or rejection."
-                            )
-                        else:
-                            notification_body = (
-                                    f"Hi {user['full_name']}, Vendors have been selected for the {doc.work_package} work package. "
-                                    "Please review the selection and proceed with approval or rejection."
-                                )
-                        click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approve%20PO"
-                        print(f"click_action_url: {click_action_url}")
-                        PrNotification(user, notification_title, notification_body, click_action_url)
-                    else:
-                        print(f"push notifications were not enabled for user: {user['full_name']}")
+    #         po = generate_pos_from_selection(doc.project, doc.name, items_arr, selected_vendors, False )
+    #         print(f"PO generated: {po}")
+    #         po_doc = frappe.get_doc("Procurement Orders", po['po'])
+    #         po_doc.db_set("owner", "Administrator", update_modified=False)
+    #     else:
+    #         lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
+    #         if lead_admin_users:
+    #             for user in lead_admin_users:
+    #                 if user["push_notification"] == "true":
+    #                     notification_title = None
+    #                     if custom:
+    #                         notification_title = f"New Custom PR: {doc.name} created and Vendors Selected!"
+    #                     else:
+    #                         notification_title = f"Vendors Selected for the PR: {doc.name}!"
+    #                     notification_body = None
+    #                     if custom:
+    #                         notification_body = (
+    #                             f"Hi {user['full_name']}, A new Custom PR: {doc.name} created and Vendors have been selected. "
+    #                             "Please review it and proceed with approval or rejection."
+    #                         )
+    #                     else:
+    #                         notification_body = (
+    #                                 f"Hi {user['full_name']}, Vendors have been selected for the {doc.work_package} work package. "
+    #                                 "Please review the selection and proceed with approval or rejection."
+    #                             )
+    #                     click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approve%20PO"
+    #                     print(f"click_action_url: {click_action_url}")
+    #                     PrNotification(user, notification_title, notification_body, click_action_url)
+    #                 else:
+    #                     print(f"push notifications were not enabled for user: {user['full_name']}")
 
-                    # send in-app notification for all allowed users
-                    title = None
-                    if custom:
-                        title = f"New Custom PR created and Vendors Selected!"
-                    else:
-                        title = f"PR Status Updated!"
+    #                 # send in-app notification for all allowed users
+    #                 title = None
+    #                 if custom:
+    #                     title = f"New Custom PR created and Vendors Selected!"
+    #                 else:
+    #                     title = f"PR Status Updated!"
 
-                    description = None
-                    if custom:
-                        description = f"A new Custom PR: {doc.name} created and Vendors have been selected."
-                    else:
-                        description = f"Vendors have been selected for the PR: {doc.name}!"
-                    message = {
-                        "title": _(title),
-                        "description": _(description),
-                        "project": doc.project,
-                        "work_package": doc.work_package if not custom else "Custom",
-                        "sender": frappe.session.user,
-                        "docname": doc.name
-                    }
-                    new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-                    new_notification_doc.recipient = user['name']
-                    new_notification_doc.recipient_role = user['role_profile']
-                    if frappe.session.user != 'Administrator':
-                        new_notification_doc.sender = frappe.session.user
-                    new_notification_doc.title = message["title"]
-                    new_notification_doc.description = message["description"]
-                    new_notification_doc.document = 'Procurement Requests'
-                    new_notification_doc.docname = doc.name
-                    new_notification_doc.project = doc.project
-                    new_notification_doc.work_package = doc.work_package if not custom else "Custom"
-                    new_notification_doc.seen = "false"
-                    new_notification_doc.type = "info"
-                    new_notification_doc.event_id = "pr:vendorSelected"
-                    new_notification_doc.action_url = f"purchase-orders/{doc.name}?tab=Approve%20PO"
-                    new_notification_doc.insert()
-                    frappe.db.commit()
+    #                 description = None
+    #                 if custom:
+    #                     description = f"A new Custom PR: {doc.name} created and Vendors have been selected."
+    #                 else:
+    #                     description = f"Vendors have been selected for the PR: {doc.name}!"
+    #                 message = {
+    #                     "title": _(title),
+    #                     "description": _(description),
+    #                     "project": doc.project,
+    #                     "work_package": doc.work_package if not custom else "Custom",
+    #                     "sender": frappe.session.user,
+    #                     "docname": doc.name
+    #                 }
+    #                 new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+    #                 new_notification_doc.recipient = user['name']
+    #                 new_notification_doc.recipient_role = user['role_profile']
+    #                 if frappe.session.user != 'Administrator':
+    #                     new_notification_doc.sender = frappe.session.user
+    #                 new_notification_doc.title = message["title"]
+    #                 new_notification_doc.description = message["description"]
+    #                 new_notification_doc.document = 'Procurement Requests'
+    #                 new_notification_doc.docname = doc.name
+    #                 new_notification_doc.project = doc.project
+    #                 new_notification_doc.work_package = doc.work_package if not custom else "Custom"
+    #                 new_notification_doc.seen = "false"
+    #                 new_notification_doc.type = "info"
+    #                 new_notification_doc.event_id = "pr:vendorSelected"
+    #                 new_notification_doc.action_url = f"purchase-orders/{doc.name}?tab=Approve%20PO"
+    #                 new_notification_doc.insert()
+    #                 frappe.db.commit()
 
-                    message["notificationId"] = new_notification_doc.name
-                    print(f"running publish realtime for: {user}")
+    #                 message["notificationId"] = new_notification_doc.name
+    #                 print(f"running publish realtime for: {user}")
 
-                    frappe.publish_realtime(
-                        event="pr:vendorSelected",  # Custom event name
-                        message=message,
-                        user=user['name']  # Notify only specific users
-                    )
-            else:
-                print("No project leads or admins found with push notifications enabled.")
-    elif old_doc and old_doc.workflow_state=='Pending' and doc.workflow_state == "Vendor Selected":
+    #                 frappe.publish_realtime(
+    #                     event="pr:vendorSelected",  # Custom event name
+    #                     message=message,
+    #                     user=user['name']  # Notify only specific users
+    #                 )
+    #         else:
+    #             print("No project leads or admins found with push notifications enabled.")
+    if old_doc and old_doc.workflow_state=='Pending' and doc.workflow_state == "Vendor Selected":
         lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
         if lead_admin_users:
             for user in lead_admin_users:

@@ -41,16 +41,16 @@ export default function ReportsContainer() {
     }, [activeTab, setDefaultReportType]);
 
     const tabs = useMemo(() => [
-        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Projects</span>
-                    </div>
-                ),
-                value: REPORTS_TABS.PROJECTS,
-            },
-        ] : []),
+        // ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Projects</span>
+                </div>
+            ),
+            value: REPORTS_TABS.PROJECTS,
+        },
+        // ] : []),
         {
             label: (
                 <div className="flex items-center">
