@@ -20,7 +20,7 @@ import { PRSummarySkeleton } from "./ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { toast } from "./ui/use-toast";
 
-const PRSummary : React.FC = () => {
+const PRSummary: React.FC = () => {
 
     const { prId: id } = useParams<{ prId: string }>();
 
@@ -40,17 +40,17 @@ const PRSummary : React.FC = () => {
 
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
-        filters: [['procurement_request', '=', id], ["status", "not in", ["Merged"]]],
+        filters: [['procurement_request', '=', id]],
         limit: 1000
     },
-    id ? undefined : null
+        id ? undefined : null
     )
 
-    if(pr_error || procurementOrdersError || userError) {
+    if (pr_error || procurementOrdersError || userError) {
         return <h1>{pr_error?.message || procurementOrdersError?.message || userError?.message}</h1>;
     }
 
-    if(prLoading || procurementOrdersLoading || userLoading || universalCommentsLoading) {
+    if (prLoading || procurementOrdersLoading || userLoading || universalCommentsLoading) {
         return <PRSummarySkeleton />;
     }
 
@@ -68,7 +68,7 @@ interface PRSummaryPageProps {
     pr_data_mutate?: any
 }
 
-const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, universalComments, usersList, pr_data_mutate }) => {
+const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, universalComments, usersList, pr_data_mutate }) => {
     const navigate = useNavigate();
     const { role, user_id } = useUserData()
     const { deleteDoc } = useFrappeDeleteDoc()
@@ -79,7 +79,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
     const getFullName = useMemo(() => (id: string) => usersList?.find(user => user.name === id)?.full_name || '', [usersList]);
 
     useEffect(() => {
-        if(po_data) {
+        if (po_data) {
             const newSet = new Set<string>()
             po_data.forEach(po => {
                 po.order_list.list.forEach(item => {
@@ -205,7 +205,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
             return [];
         }
     }, [pr_data]);
-    
+
 
     return (
         <div className={`flex-1 space-y-2 md:space-y-4`}>
@@ -263,7 +263,7 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
                     {pr_data?.workflow_state === "Rejected" && (
 
                         <Button className="flex items-center gap-1" onClick={() => {
-                            if(pr_data?.work_package) {
+                            if (pr_data?.work_package) {
                                 navigate("resolve-pr")
                             } else {
                                 navigate("resolve-custom-pr")
@@ -376,18 +376,71 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
                     </Card>
                 </div>
                 <div className="flex flex-col flex-1 gap-4">
-                <Card className="w-full">
-                    <CardHeader>
-                        <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
-                        {categories.map((cat) => (
-                            (categoryItems(cat)?.length > 0 || requestedItems(cat)?.length > 0) && (
+                    <Card className="w-full">
+                        <CardHeader>
+                            <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
+                            {categories.map((cat) => (
+                                (categoryItems(cat)?.length > 0 || requestedItems(cat)?.length > 0) && (
 
-                                <div className="overflow-x-auto w-full" key={cat.name}>
+                                    <div className="overflow-x-auto w-full" key={cat.name}>
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="bg-red-100">
+                                                    <TableHead className="w-[50%]">
+                                                        <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                                    </TableHead>
+                                                    <TableHead className="w-[15%]">UOM</TableHead>
+                                                    <TableHead className="w-[15%]">Qty</TableHead>
+                                                    <TableHead className="w-[20%]">Status</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {categoryItems(cat).map((item) => (
+                                                    <TableRow key={item.item}>
+                                                        <TableCell>
+                                                            {item.item}
+                                                            <div className="flex gap-1 pt-2 items-start">
+                                                                <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                                <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>{item.unit}</TableCell>
+                                                        <TableCell>{item.quantity}</TableCell>
+                                                        <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : item.status === "Deleted" ? "Deleted" : getItemStatus(item)}</Badge></TableCell>
+                                                    </TableRow>
+                                                ))}
+                                                {requestedItems(cat).map((item) => (
+                                                    <TableRow className="bg-yellow-50" key={item.item}>
+                                                        <TableCell>
+                                                            {item.item}
+                                                            <div className="flex gap-1 pt-2 items-start">
+                                                                <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                                <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>{item.unit}</TableCell>
+                                                        <TableCell>{item.quantity}</TableCell>
+                                                        <TableCell><Badge variant="outline">Requested</Badge></TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                )
+                            ))}
+                        </CardHeader>
+                    </Card>
+                    {deletedItems?.length > 0 && (
+                        <Card className="w-full">
+                            <CardHeader>
+                                <CardTitle className="text-xl text-red-600">Deleted Items</CardTitle>
+                            </CardHeader>
+                            <CardContent>
                                 <Table>
                                     <TableHeader>
                                         <TableRow className="bg-red-100">
                                             <TableHead className="w-[50%]">
-                                                <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                                Item
                                             </TableHead>
                                             <TableHead className="w-[15%]">UOM</TableHead>
                                             <TableHead className="w-[15%]">Qty</TableHead>
@@ -395,74 +448,21 @@ const PRSummaryPage : React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univer
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {categoryItems(cat).map((item) => (
-                                            <TableRow key={item.item}>
-                                                <TableCell>
-                                                    {item.item}
-                                                    <div className="flex gap-1 pt-2 items-start">
-                                                        <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
-                                                        <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>{item.unit}</TableCell>
-                                                <TableCell>{item.quantity}</TableCell>
-                                                <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : item.status === "Deleted" ? "Deleted" : getItemStatus(item)}</Badge></TableCell>
-                                            </TableRow>
-                                        ))}
-                                        {requestedItems(cat).map((item) => (
-                                            <TableRow className="bg-yellow-50" key={item.item}>
-                                                <TableCell>
-                                                    {item.item}
-                                                    <div className="flex gap-1 pt-2 items-start">
-                                                        <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
-                                                        <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>{item.unit}</TableCell>
-                                                <TableCell>{item.quantity}</TableCell>
-                                                <TableCell><Badge variant="outline">Requested</Badge></TableCell>
-                                            </TableRow>
-                                        ))}
+                                        {
+                                            deletedItems?.map(i => (
+                                                <TableRow key={i?.name}>
+                                                    <TableCell className="text-red-700 font-light">
+                                                        {i?.item}
+                                                    </TableCell>
+                                                    <TableCell>{i?.unit}</TableCell>
+                                                    <TableCell>{i?.quantity}</TableCell>
+                                                    <TableCell>Deleted</TableCell>
+                                                </TableRow>
+                                            ))
+                                        }
                                     </TableBody>
                                 </Table>
-                            </div>
-                            )
-                        ))}
-                    </CardHeader>
-                </Card>
-                    {deletedItems?.length > 0 && (
-                        <Card className="w-full">
-                         <CardHeader>
-                             <CardTitle className="text-xl text-red-600">Deleted Items</CardTitle>
-                         </CardHeader>
-                         <CardContent>
-                         <Table>
-                             <TableHeader>
-                                 <TableRow className="bg-red-100">
-                                     <TableHead className="w-[50%]">
-                                         Item
-                                     </TableHead>
-                                     <TableHead className="w-[15%]">UOM</TableHead>
-                                     <TableHead className="w-[15%]">Qty</TableHead>
-                                     <TableHead className="w-[20%]">Status</TableHead>
-                                 </TableRow>
-                             </TableHeader>
-                             <TableBody>
-                                {
-                                    deletedItems?.map(i => (
-                                        <TableRow key={i?.name}>
-                                            <TableCell className="text-red-700 font-light">
-                                                {i?.item}
-                                            </TableCell>
-                                            <TableCell>{i?.unit}</TableCell>
-                                            <TableCell>{i?.quantity}</TableCell>
-                                            <TableCell>Deleted</TableCell>
-                                        </TableRow>
-                                    ))
-                                }
-                             </TableBody>
-                         </Table>
-                         </CardContent>
+                            </CardContent>
                         </Card>
                     )}
                 </div>

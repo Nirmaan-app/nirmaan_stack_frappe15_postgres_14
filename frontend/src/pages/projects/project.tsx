@@ -305,7 +305,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     limit: 1000
   })
 
-  const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+  const { data: usersList, isLoading: userListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
   }, 'Nirmaan Users');
@@ -318,6 +318,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       limit: 1000,
     },
     projectId ? `Procurement Requests ${projectId}` : null
+  );
+
+  const { data: mergedPOData, isLoading: mergedPOLoading } = useFrappeGetDocList<ProcurementOrdersType>(
+    "Procurement Orders",
+    {
+      fields: ["*"],
+      filters: [
+        ["project", "=", projectId],
+        ["status", "=", "Merged"],
+      ], // removed ["status", "!=", "PO Approved"] for now
+      limit: 1000,
+      orderBy: { field: "creation", order: "desc" },
+    }
   );
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
@@ -640,7 +653,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return 'New PR';
       }
 
-      const filteredPOs = po_data?.filter((po) => po?.procurement_request === prId) || [];
+      const mergedPOs = mergedPOData?.filter((po) => po?.procurement_request === prId) || [];
+      const filteredPOs = mergedPOs.concat(po_data?.filter((po) => po?.procurement_request === prId) || []);
       const allItemsApproved = itemList.every(
         (item) => item?.status === 'Deleted' || getItemStatus(item, filteredPOs)
       );
@@ -1454,7 +1468,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const estimatesTotal = useMemo(() => project_estimates?.reduce((acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)), 0) || 0, [project_estimates]);
 
-  if (po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || allServiceRequestsDataLoading) {
+  if (mergedPOLoading || po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || allServiceRequestsDataLoading || userListLoading) {
     return <LoadingFallback />
   }
 
