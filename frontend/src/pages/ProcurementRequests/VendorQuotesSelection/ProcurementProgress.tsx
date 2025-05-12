@@ -210,7 +210,7 @@ const onClick = async (value : string) => {
             }
             return { ...item };
           } else {
-            const { vendor, quote, make, ...rest } = item;
+            const { vendor, quote, ...rest } = item;
             return rest;
           }
         });
@@ -244,7 +244,7 @@ const handleReviewChanges = async () => {
       }
       return { ...item };
     } else {
-      const { vendor, quote, make, ...rest } = item;
+      const { vendor, quote, ...rest } = item;
       return rest;
     }
   }) || [];
@@ -258,7 +258,7 @@ const handleReviewChanges = async () => {
 
 const handleRevertPR = async () => {
   const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
-      const { vendor, quote, make, ...rest } = item;
+      const { vendor, quote, ...rest } = item;
       return rest;
   }) || [];
 

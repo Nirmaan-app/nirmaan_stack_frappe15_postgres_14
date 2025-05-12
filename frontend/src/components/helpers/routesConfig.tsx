@@ -53,6 +53,7 @@ import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
+import ReportsContainer from "@/pages/reports/ReportsContainer";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -248,6 +249,14 @@ export const appRoutes: RouteObject[] = [
             ],
           },
 
+          // --- Reports Section ---
+
+          {
+            path: "reports",
+            children: [
+              { index: true, element: <ReportsContainer /> },
+            ],
+          },
           // --- Project Payments ---
           {
             path: "project-payments",

@@ -116,13 +116,16 @@ export const Projects: React.FC<ProjectsProps> = ({ customersView = false, custo
     return po_item_data
       .filter((order) => order.project === projectId)
       .reduce((total, order) => {
+        const additionalCharges = parseNumber(order.loading_charges) + parseNumber(order.freight_charges);
+        const additionalGst = parseNumber(order.loading_charges) * 0.18 + parseNumber(order.freight_charges) * 0.18;
         return (
-          total +
-          (order.order_list?.list?.reduce((orderSum, item) => {
-            const itemTotal = parseNumber(item.quantity) * parseNumber(item.quote);
-            const taxAmount = (parseNumber(item.tax) / 100) * itemTotal;
-            return orderSum + itemTotal + taxAmount;
-          }, 0) || 0)
+          total + additionalCharges + additionalGst +
+          (
+            order.order_list?.list?.reduce((orderSum, item) => {
+              const itemTotal = parseNumber(item.quantity) * parseNumber(item.quote);
+              const taxAmount = (parseNumber(item.tax) / 100) * itemTotal;
+              return orderSum + itemTotal + taxAmount;
+            }, 0) || 0)
         );
       }, 0);
   }, (projectId: string) => projectId), [po_item_data]);

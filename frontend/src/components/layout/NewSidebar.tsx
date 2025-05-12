@@ -18,6 +18,7 @@ import {
   BlendIcon,
   ChevronRight,
   CircleDollarSign,
+  ClipboardMinus,
   HandCoins,
   ReceiptText
 } from "lucide-react";
@@ -747,6 +748,15 @@ export function NewSidebar() {
                 label: 'Invoice Recon',
             },
         ]
+        : []),
+        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+        ? [
+            {
+                key: '/reports',
+                icon: ClipboardMinus,
+                label: 'Reports',
+            },
+        ]
         : [])
   ], [user_id, role]);
 
@@ -777,6 +787,7 @@ export function NewSidebar() {
     "project-payments",
     "in-flow-payments",
     'invoice-reconciliation',
+    'reports',
   ]), [])
 
   const selectedKeys = useMemo(() => {
@@ -797,7 +808,8 @@ export function NewSidebar() {
     // "/sent-back-requests": ["sent-back-requests"],
     "/project-payments": ["project-payments"],
     "/in-flow-payments": ["in-flow-payments"],
-    "/invoice-reconciliation": ["invoice-reconciliation"]
+    "/invoice-reconciliation": ["invoice-reconciliation"],
+    "/reports": ["reports"]
   }), []);
 
   const openKey = useMemo(() => {
@@ -865,7 +877,7 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
                         ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)

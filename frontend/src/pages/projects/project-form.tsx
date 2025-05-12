@@ -262,7 +262,7 @@ export const ProjectForm = () => {
         limit: 1000
     });
 
-    const {call : createProjectAndAddress, loading: createProjectAndAddressLoading } = useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address")
+    const { call: createProjectAndAddress, loading: createProjectAndAddressLoading } = useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address")
 
     // const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
     // const { deleteDoc } = useFrappeDeleteDoc()
@@ -434,8 +434,8 @@ export const ProjectForm = () => {
             }
 
             const response = await createProjectAndAddress({
-                            values: {...values, areaNames},
-                          });
+                values: { ...values, areaNames },
+            });
 
             if (response.message.status === 200) {
                 toast({
@@ -447,11 +447,11 @@ export const ProjectForm = () => {
                 handleOpenDialog()
 
             } else if (response.message.status === 400) {
-              toast({
-                title: 'Failed!',
-                description: response.message.error,
-                variant: 'destructive',
-              });
+                toast({
+                    title: 'Failed!',
+                    description: response.message.error,
+                    variant: 'destructive',
+                });
             }
         } catch (error) {
             toast({
@@ -570,7 +570,7 @@ export const ProjectForm = () => {
         }
     };
 
-    const getFieldsForSection = (sectionName : string) => {
+    const getFieldsForSection = (sectionName: string) => {
         switch (sectionName) {
             case "projectDetails":
                 return ["project_name", "customer", "project_type", "subdivisions", "project_value"];
@@ -587,7 +587,7 @@ export const ProjectForm = () => {
         }
     };
 
-    const nextSection = (currentSection : string) => {
+    const nextSection = (currentSection: string) => {
         switch (currentSection) {
             case "projectDetails":
                 return "projectAddressDetails";
@@ -712,7 +712,7 @@ export const ProjectForm = () => {
                                     name="project_value"
                                     render={({ field }) => (
                                         <FormItem className="lg:flex lg:items-center gap-4">
-                                            <FormLabel className="md:basis-2/12">Project Value</FormLabel>
+                                            <FormLabel className="md:basis-2/12">Project Value (excl. GST)</FormLabel>
                                             <div className="flex flex-col items-start md:basis-2/4">
                                                 <FormControl className="">
                                                     <Input placeholder="Project Value" {...field} />

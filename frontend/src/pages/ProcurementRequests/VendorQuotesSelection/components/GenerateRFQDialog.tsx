@@ -21,7 +21,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
     const [selectedItems, setSelectedItems] = useState<{ [category: string]: string[] }>({});
     const componentRef = useRef<HTMLDivElement>(null);
 
-    const {data : procurement_project} = useFrappeGetDoc("Projects", orderData?.project)
+    const { data: procurement_project } = useFrappeGetDoc("Projects", orderData?.project)
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
@@ -76,7 +76,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                 const isAllSelected = Object.keys(prevSelected).length === Object.keys(allSelected).length &&
                     Object.keys(prevSelected).every(category =>
                         prevSelected[category].length === allSelected[category].length);
-                if(isAllSelected){
+                if (isAllSelected) {
                     return {};
                 }
                 return allSelected;
@@ -87,11 +87,11 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
 
     const isItemSelected = useMemo(() => memoize((categoryName: string, itemName: string) => {
         return selectedItems[categoryName]?.includes(itemName) || false;
-    }, (categoryName: string, itemName: string) => categoryName +  itemName), [selectedItems]);
+    }, (categoryName: string, itemName: string) => categoryName + itemName), [selectedItems]);
 
     const isCategorySelected = useMemo(() => memoize((categoryName: string, items: ProcurementItem[]) => {
         return items.every((item) => isItemSelected(categoryName, item.name));
-    }, (categoryName: string, items: ProcurementItem[]) => categoryName +  JSON.stringify(items)), [selectedItems]);
+    }, (categoryName: string, items: ProcurementItem[]) => categoryName + JSON.stringify(items)), [selectedItems]);
 
     const getSelectedItemsArray = useMemo(() => memoize(() => {
         return Object.values(selectedItems).flat();
@@ -114,7 +114,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                 </DialogDescription>
                 {orderData && (
                     <div className='space-y-6'>
-                      <div className="flex items-center mb-4 pb-2">
+                        <div className="flex items-center mb-4 pb-2">
                             <Checkbox
                                 id={`select-all`}
                                 checked={getSelectedItemsArray().length === orderData?.procurement_list?.list?.length}
@@ -147,7 +147,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                                                     onCheckedChange={() => handleItemSelection(category.name, item.name)}
                                                 />
                                                 <Label htmlFor={`item-${item.name}`} className="ml-2 font-light">
-                                                    {item.item} ({item.quantity} {item.unit})
+                                                    {item.item}{<i>{item.make ? ` - ${item.make}` : ''}</i>} ({item.quantity} {item.unit})
                                                 </Label>
                                             </li>
                                         ))}
@@ -156,12 +156,12 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                             );
                         })}
                         <div className='flex items-end justify-end gap-2'>
-                          <DialogClose asChild>
-                            <Button>Cancel</Button>
-                          </DialogClose>
-                        <Button onClick={handlePrint} disabled={getSelectedItemsArray().length === 0}>
-                            Print RFQ
-                        </Button>
+                            <DialogClose asChild>
+                                <Button>Cancel</Button>
+                            </DialogClose>
+                            <Button onClick={handlePrint} disabled={getSelectedItemsArray().length === 0}>
+                                Print RFQ
+                            </Button>
                         </div>
                         <RFQPDf componentRef={componentRef} selectedItems={selectedItems} orderData={orderData} procurement_project={procurement_project} />
                     </div>
@@ -179,55 +179,55 @@ interface RFQPdfProps {
     procurement_project: Projects | undefined;
 }
 
-const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData, procurement_project }) => {
+const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData, procurement_project }) => {
     const [itemList, setItemList] = useState<ProcurementItem[] | null>(null);
 
     useEffect(() => {
         if (orderData) {
-          const items : ProcurementItem[] = []
-          Object.keys(selectedItems).forEach((category) => {
-            const categoryItems = selectedItems[category];
-            const categoryItemsForRFQ = orderData?.procurement_list?.list?.filter((item) => categoryItems.includes(item.name));
-            items.push(...categoryItemsForRFQ);
-          });
-          setItemList(items);
+            const items: ProcurementItem[] = []
+            Object.keys(selectedItems).forEach((category) => {
+                const categoryItems = selectedItems[category];
+                const categoryItemsForRFQ = orderData?.procurement_list?.list?.filter((item) => categoryItems.includes(item.name));
+                items.push(...categoryItemsForRFQ);
+            });
+            setItemList(items);
         }
     }, [orderData, selectedItems]);
 
-  return (
+    return (
         <div className='hidden'>
-                <div ref={componentRef} className="px-4 pb-4">
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead className="w-full border-b border-black">
-                                <tr>
-                                    <th colSpan={5} className="p-0">
-                                        <div className="mt-6 flex justify-between">
-                                            <div>
-                                                <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                                <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-                                            </div>
+            <div ref={componentRef} className="px-4 pb-4">
+                <div className="overflow-x-auto">
+                    <table className="w-full">
+                        <thead className="w-full border-b border-black">
+                            <tr>
+                                <th colSpan={5} className="p-0">
+                                    <div className="mt-6 flex justify-between">
+                                        <div>
+                                            <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                            <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                                         </div>
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <th colSpan={5} className="p-0">
-                                        <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
-                                            <div className="flex justify-between">
-                                                <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
-                                                <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-                                            </div>
+                                    </div>
+                                </th>
+                            </tr>
+                            <tr>
+                                <th colSpan={5} className="p-0">
+                                    <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
+                                        <div className="flex justify-between">
+                                            <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
+                                            <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                                         </div>
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <th colSpan={5} className="p-0">
-                                        <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
-                                            <div className="border-0 flex flex-col">
-                                                <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
-                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation!)}</p>
-                                            </div>
-                                            <div className="flex flex-col gap-2">
+                                    </div>
+                                </th>
+                            </tr>
+                            <tr>
+                                <th colSpan={5} className="p-0">
+                                    <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
+                                        <div className="border-0 flex flex-col">
+                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation!)}</p>
+                                        </div>
+                                        <div className="flex flex-col gap-2">
                                             <div className="border-0 flex flex-col ml-10">
                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Project ID</p>
                                                 <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.name}</p>
@@ -237,24 +237,24 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
                                                 <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.project_city}, {procurement_project?.project_state}</p>
                                             </div>
 
-                                            </div>
                                         </div>
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <th scope="col" className="px-6 py-3 text-left font-bold text-gray-800 tracking-wider pr-32">Item</th>
-                                    <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Category</th>
-                                    <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Unit</th>
-                                    <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Quantity</th>
-                                    <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Rate excl. GST</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {itemList?.map((i) => {
-                                    return (
-                                        <tr className="">
+                                    </div>
+                                </th>
+                            </tr>
+                            <tr>
+                                <th scope="col" className="px-6 py-3 text-left font-bold text-gray-800 tracking-wider pr-32">Item</th>
+                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Category</th>
+                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Unit</th>
+                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Quantity</th>
+                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Rate excl. GST</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {itemList?.map((i) => {
+                                return (
+                                    <tr className="">
                                         <td className="px-6 py-2 text-sm">
-                                            {i.item}
+                                            {i.item}{<div className="text-xs font-bold">{i.make ? ` - ${i.make}` : ''}</div>}
                                             {(i.comment) &&
                                                 <div className="flex gap-1 items-start block p-1">
                                                     <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
@@ -269,21 +269,21 @@ const RFQPDf : React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{i.quantity}</td>
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
                                     </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
-                        <div className="pt-24">
-                            <p className="text-md font-bold text-red-700 underline">Note</p>
-                            <ul className="list-disc ml-4 text-xs">
-                                <li>Please share the quotes as soon as possible</li>
-                                <li>Please Exclude GST from the rates</li>
-                            </ul>
-                        </div>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                    <div className="pt-24">
+                        <p className="text-md font-bold text-red-700 underline">Note</p>
+                        <ul className="list-disc ml-4 text-xs">
+                            <li>Please share the quotes as soon as possible</li>
+                            <li>Please Exclude GST from the rates</li>
+                        </ul>
                     </div>
-      </div>
-      </div>
-  )
+                </div>
+            </div>
+        </div>
+    )
 }
 
 export default GenerateRFQDialog;
