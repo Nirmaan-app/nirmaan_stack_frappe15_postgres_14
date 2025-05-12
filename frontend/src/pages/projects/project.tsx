@@ -1329,7 +1329,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     setWorkPackageTotalAmounts(totals);
   }, [po_item_data, project_estimates, projectPayments, poToWorkPackageMap]);
 
-  console.log("totals-arr", workPackageTotalAmounts)
+  // console.log("totals-arr", workPackageTotalAmounts)
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
