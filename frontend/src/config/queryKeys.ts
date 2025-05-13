@@ -1,10 +1,11 @@
+import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { Filter } from "frappe-react-sdk";
+import { Filter, FrappeDoc } from "frappe-react-sdk";
 
 // Define interfaces for filter objects to ensure consistency
 interface ListParams {
@@ -39,6 +40,7 @@ interface POListParams extends ListParams {}
 interface SRListParams extends ListParams {}
 interface PaymentListParams extends ListParams {}
 interface InflowListParams extends ListParams {}
+interface CustomerListParams extends ListParams {}
 
 
 // --- Define Fields Constants (Good Practice) ---
@@ -49,6 +51,8 @@ const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type
 const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date']; // Add fields as needed
 const PROJECT_MINIMAL_FIELDS: (keyof Projects)[] = ['name', 'project_name'];
 const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name']; // Assuming this type/field exists
+
+const CUSTOMER_MINIMAL_FIELDS: (keyof Customers)[] = ['name', 'company_name'];
 
 // Main query key generator object
 export const queryKeys = {
@@ -92,12 +96,17 @@ export const queryKeys = {
   projects: {
     doc: (docId: string) => ['Projects', docId] as const,
     list: (params?: ProjectListParams) => ['Projects', 'list', params ?? {}] as const,
-},
+  },
+
+  customers: {
+    doc: (docId: string) => ['Customers', docId] as const,
+    list: (params?: CustomerListParams) => ['Customers', 'list', params ?? {}] as const,
+  },
 
   vendors: {
     list: (params?: VendorListParams) => ['Vendors', 'list', params ?? {}] as const,
     // detail: (vendorId: string) => ['Vendors', 'detail', vendorId] as const,
-},
+  },
 
 sentBackCategory: {
   doc: (docId: string) => ['Sent Back Category', docId] as const,
@@ -256,12 +265,19 @@ export const getVendorListOptions = (vendorType: string[] = ["Material", "Materi
   vendorType: vendorType, // Include for key uniqueness
 });
 
-export const getProjectListOptions = (): ProjectListParams => ({
-  fields: PROJECT_MINIMAL_FIELDS,
+export const getProjectListOptions = (projectOptions?: {filters?: Filter<FrappeDoc<Projects>>[], fields?: string[]}): ProjectListParams => ({
+  fields: projectOptions?.fields || PROJECT_MINIMAL_FIELDS,
+  filters: projectOptions?.filters || [],
   limit: 1000,
   orderBy: { field: "project_name", order: "asc" },
 });
 
+export const getCustomerListOptions = (customerOptions?: {filters?: Filter<FrappeDoc<Customers>>[]}): CustomerListParams => ({
+  fields: CUSTOMER_MINIMAL_FIELDS,
+  filters: customerOptions?.filters || [],
+  limit: 1000,
+  orderBy: { field: "company_name", order: "asc" },
+});
 
 
 

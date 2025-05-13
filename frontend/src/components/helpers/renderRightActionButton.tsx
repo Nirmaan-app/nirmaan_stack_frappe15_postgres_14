@@ -12,6 +12,7 @@ import { CirclePlus } from "lucide-react";
 import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
+import { useDialogStore } from "@/zustand/useDialogStore";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -53,6 +54,7 @@ export const RenderRightActionButton = ({
   const navigate = useNavigate();
   const {role, user_id} = useUserData()
   const { selectedProject, toggleNewItemDialog } = useContext(UserContext);
+  const { toggleNewInflowDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];
@@ -111,6 +113,13 @@ export const RenderRightActionButton = ({
       <Button onClick={toggleNewItemDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Product</span>
+      </Button>
+    );
+  } else if (locationPath === "/in-flow-payments") {
+    return (
+      <Button onClick={toggleNewInflowDialog} className="sm:mr-4 mr-2">
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">New Inflow</span>
       </Button>
     );
   } else if (

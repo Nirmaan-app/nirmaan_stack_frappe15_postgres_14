@@ -21,7 +21,7 @@ import { RenderPurchaseOrdersTab } from "@/pages/ProcurementOrders/RenderPurchas
 import { ReleasePOSelect } from "@/pages/ProcurementOrders/purchase-order/release-po-select";
 import { NewCustomPR } from "@/pages/ProcurementRequests/NewPR/NewCustomPR";
 import { NewProcurementRequest } from "@/pages/ProcurementRequests/NewPR/new-new-pr";
-import { ProcurementRequests } from "@/pages/ProcurementRequests/VendorQuotesSelection/procurement-requests";
+import { ProcurementRequests } from "@/pages/ProcurementRequests/procurement-requests";
 import { RenderProcurementRequest } from "@/pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
 import { RenderProjectPaymentsComponent } from "@/pages/ProjectPayments/RenderProjectPaymentsComponent";
 import OrderPaymentSummary from "@/pages/ProjectPayments/order-payment-summary";
@@ -38,7 +38,7 @@ import Customer from "@/pages/customers/customer";
 import Customers from "@/pages/customers/customers";
 import Dashboard from "@/pages/dashboard";
 import { PDF } from "@/pages/pdf";
-import { InFlowPayments } from "@/pages/projects/InFlowPayments";
+import { InFlowPayments } from "@/pages/inflow-payments/InFlowPayments";
 import { ProjectForm } from "@/pages/projects/project-form";
 import Projects from "@/pages/projects/projects";
 import Roles from "@/pages/roles";

@@ -17,7 +17,7 @@ interface CustomerOverviewProps {
 }
 
 const Projects = React.lazy(() => import("../projects/projects"));
-const InFlowPayments = React.lazy(() => import("../projects/InFlowPayments"));
+const InFlowPayments = React.lazy(() => import("../inflow-payments/InFlowPayments"));
 
 export const CustomerOverview : React.FC<CustomerOverviewProps> = ({data, customerId, tab, onClick}) => {
 

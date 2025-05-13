@@ -1,200 +1,3 @@
-// import { DataTable } from "@/components/data-table/data-table";
-// import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-// import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-// import { TableSkeleton } from "@/components/ui/skeleton";
-// import { useToast } from "@/components/ui/use-toast";
-// import { useOrderTotals } from "@/hooks/useOrderTotals";
-// import { Projects } from "@/types/NirmaanStack/Projects";
-// import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-// import { Vendors } from "@/types/NirmaanStack/Vendors";
-// import { formatDate } from "@/utils/FormatDate";
-// import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
-// import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-// import { ColumnDef } from "@tanstack/react-table";
-// import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-// import memoize from "lodash/memoize";
-// import { useCallback, useContext, useMemo } from "react";
-// import { Link } from "react-router-dom";
-
-// export const ApproveSelectSR : React.FC = () => {
-
-//     const { getTotalAmount } = useOrderTotals()
-//     const { data: service_request_list, isLoading: service_request_list_loading, error: service_request_list_error, mutate: sr_list_mutate } = useFrappeGetDocList<ServiceRequests>("Service Requests",
-//         {
-//             fields: ["*"],
-//             filters: [["status", "=", "Vendor Selected"]],
-//             limit: 1000,
-//             orderBy: { field: "creation", order: "desc" }
-//         }
-//     );
-
-//     useFrappeDocTypeEventListener("Service Requests", async () => {
-//         await sr_list_mutate()
-//     })
-
-//     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
-//         fields: ["name", "project_name"],
-//         limit: 1000
-//     })
-
-//     const project_values = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
-
-//     const { data: vendorsList, isLoading: vendorsListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
-//         fields: ["vendor_name", 'vendor_type', 'name'],
-//         filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
-//         limit: 1000
-//     },
-//         "Service Vendors"
-//     )
-
-//     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
-
-//     const { notifications, mark_seen_notification } = useNotificationStore()
-
-//     const { db } = useContext(FrappeContext) as FrappeConfig
-
-//     const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
-//         if (notification) {
-//             mark_seen_notification(db, notification)
-//         }
-//     }, [db, mark_seen_notification ]);
-
-//     const getVendorName = useMemo(() => memoize((vendorId: string | undefined) => {
-//         return vendorsList?.find(vendor => vendor.name === vendorId)?.vendor_name || "";
-//     }, (vendorId: string | undefined) => vendorId), [vendorsList])
-
-//     const columns: ColumnDef<ServiceRequests>[] = useMemo(
-//         () => [
-//             {
-//                 accessorKey: "name",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="ID" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     const data = row.original
-//                     const srId = data?.name
-//                     const isNew = notifications.find(
-//                         (item) => item.docname === srId && item.seen === "false" && item.event_id === "sr:vendorSelected"
-//                     )
-//                     return (
-//                         <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
-//                             {isNew && (
-//                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
-//                             )}
-//                             <div className="flex items-center gap-2">
-//                                 <Link
-//                                     className="underline hover:underline-offset-2"
-//                                     to={`${srId}?tab=approve-service-order`}
-//                                 >
-//                                     {srId?.slice(-5)}
-//                                 </Link>
-//                                 <ItemsHoverCard order_list={data.service_order_list.list} isSR />
-//                             </div>
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "creation",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Date Created" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {formatDate(row.getValue("creation"))}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "project",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Project" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     const project = project_values.find(
-//                         (project) => project.value === row.getValue("project")
-//                     )
-//                     return (
-//                         <div className="font-medium">
-//                             {project?.label || "--"}
-//                         </div>
-//                     )
-//                 },
-//                 filterFn: (row, id, value) => {
-//                     return value.includes(row.getValue(id))
-//                 },
-//             },
-//             {
-//                 id: "vendor_name",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Vendor" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {getVendorName(row.original.vendor)}
-//                         </div>
-//                     )
-//                 },
-//                 filterFn: (row, id, value) => {
-//                     return value.includes(row.original.vendor)
-//                 }
-//             },
-//             {
-//                 accessorKey: "total",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Estimated Price" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {formatToRoundedIndianRupee(getTotalAmount(row.getValue("name"), 'Service Requests')?.totalWithTax)}
-//                         </div>
-//                     )
-//                 }
-//             }
-//         ],
-//         [service_request_list, project_values, vendorsList, vendorOptions, getTotalAmount]
-//     )
-
-//     const { toast } = useToast()
-
-//     if (service_request_list_error || projects_error) {
-//         console.log("Error in approve-select-sent-back.tsx", service_request_list_error?.message, projects_error?.message)
-//         toast({
-//             title: "Error!",
-//             description: `Error ${service_request_list_error?.message || projects_error?.message}`,
-//             variant: "destructive"
-//         })
-//     }
-
-
-//     return (
-//         <div className="flex-1 md:space-y-4">
-//             {(service_request_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
-//                 <DataTable columns={columns} data={service_request_list || []} project_values={project_values} vendorOptions={vendorOptions} />
-//             )}
-//         </div>
-//     )
-// }
-
-
-// export default ApproveSelectSR;
-
-
-
 import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
@@ -206,7 +9,6 @@ import memoize from 'lodash/memoize';
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
@@ -225,6 +27,7 @@ import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelectio
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
+import { DEFAULT_SR_FIELDS_TO_FETCH, SR_DATE_COLUMNS, SR_SEARCHABLE_FIELDS } from "../config/srTable.config";
 
 // --- Constants ---
 const DOCTYPE = 'Service Requests';
@@ -245,7 +48,8 @@ export const ApproveSelectSR: React.FC = () => {
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service"]});
+    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service", "Material & Service"]});
+
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { notifications, mark_seen_notification } = useNotificationStore();
 
@@ -264,55 +68,24 @@ export const ApproveSelectSR: React.FC = () => {
         }
     }, [db, mark_seen_notification]);
 
-
     // --- Static Filters for this View ---
     const staticFilters = useMemo(() => [
         ["status", "=", "Vendor Selected"] // This view specifically handles SRs in "Vendor Selected" state
     ], []);
-
-
     // --- Fields to Fetch ---
-    const fieldsToFetch: (keyof ServiceRequests | 'name')[] = useMemo(() => [
-        "name", "creation", "modified", "owner", "project",
-        "vendor", // Fetch vendor ID
-        "service_category_list", "status", "service_order_list"
-    ], []);
+    const fieldsToFetch = useMemo(() => DEFAULT_SR_FIELDS_TO_FETCH.concat([
+        "creation", "modified", 'service_order_list', 'service_category_list'
+    ]), [])
 
-
-    // --- Global Search Fields ---
-    const globalSearchFields = useMemo(() => [
-        "name", "project", "vendor", "status", "owner"
-    ], []);
+    const srSearchableFields = useMemo(() => SR_SEARCHABLE_FIELDS.concat([
+        { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
+    ]), [])
 
      // --- Date Filter Columns ---
-     const dateColumns = useMemo(() => ["creation", "modified"], []);
+     const dateColumns = useMemo(() => SR_DATE_COLUMNS, []);
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ServiceRequests>[]>(() => [
-        {
-            id: 'select',
-            header: ({ table }) => (
-                <Checkbox
-                    disabled={true}
-                    checked={table.getIsAllPageRowsSelected()}
-                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                    aria-label="Select all rows"
-                    className="data_table_select-all"
-                />
-            ),
-            cell: ({ row }) => (
-                <Checkbox
-                    disabled={true}
-                    checked={row.getIsSelected()}
-                    onCheckedChange={(value) => row.toggleSelected(!!value)}
-                    aria-label="Select row"
-                    className="data_table_select-row"
-                />
-            ),
-            enableSorting: false,
-            enableHiding: false,
-            size: 40,
-        },
         {
             accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#SR" />,
             cell: ({ row }) => {
@@ -391,18 +164,22 @@ export const ApproveSelectSR: React.FC = () => {
     // --- Use the Server Data Table Hook ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
-        globalFilter, setGlobalFilter,
-        isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
+        // globalFilter, setGlobalFilter,
+        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+        isRowSelectionActive,
         refetch,
     } = useServerDataTable<ServiceRequests>({
         doctype: DOCTYPE,
         columns: columns,
         fetchFields: fieldsToFetch,
-        globalSearchFieldList: globalSearchFields,
-        enableItemSearch: true, // If you want to search within service_order_list items
+        searchableFields: srSearchableFields,
+        // globalSearchFieldList: globalSearchFields,
+        // enableItemSearch: true, // If you want to search within service_order_list items
         urlSyncKey: URL_SYNC_KEY,
-        defaultSort: 'creation desc', // Default sort, can be changed by user
-        enableRowSelection: true, // For bulk approval if needed
+        defaultSort: 'modified desc',
+        enableRowSelection: false, // For bulk approval if needed
         additionalFilters: staticFilters,
     });
 
@@ -440,18 +217,24 @@ export const ApproveSelectSR: React.FC = () => {
                     isLoading={listIsLoading}
                     error={listError}
                     totalCount={totalCount}
-                    globalFilterValue={globalFilter}
-                    onGlobalFilterChange={setGlobalFilter}
-                    searchPlaceholder="Search SRs (Vendor Selected)..."
-                    showItemSearchToggle={showItemSearchToggle}
-                    itemSearchConfig={{
-                        isEnabled: isItemSearchEnabled,
-                        toggle: toggleItemSearch,
-                        label: "Service Item Search"
-                    }}
+                    searchFieldOptions={srSearchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    // globalFilterValue={globalFilter}
+                    // onGlobalFilterChange={setGlobalFilter}
+                    // searchPlaceholder="Search SRs (Vendor Selected)..."
+                    // showItemSearchToggle={showItemSearchToggle}
+                    // itemSearchConfig={{
+                    //     isEnabled: isItemSearchEnabled,
+                    //     toggle: toggleItemSearch,
+                    //     label: "Service Item Search"
+                    // }}
                     facetFilterOptions={facetFilterOptions}
                     dateFilterColumns={dateColumns}
-                    // showExport={true} // Enable if needed
+                    showExportButton={true}
+                    onExport={'default'}
                     // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions
                 />
             )}

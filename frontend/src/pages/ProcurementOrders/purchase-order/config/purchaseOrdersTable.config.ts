@@ -1,5 +1,5 @@
-import { SearchFieldOption } from '@/components/data-table/new-data-table'; // Adjust path if needed
-import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders'; // Adjust path
+import { SearchFieldOption } from '@/components/data-table/new-data-table';
+import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 
 // Fields to fetch by default for most PO tables
 export const DEFAULT_PO_FIELDS_TO_FETCH: (keyof ProcurementOrder | 'name')[] =  [

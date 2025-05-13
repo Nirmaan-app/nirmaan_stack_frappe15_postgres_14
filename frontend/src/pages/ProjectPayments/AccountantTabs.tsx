@@ -565,18 +565,23 @@ import { unparse } from 'papaparse'; // For CSV export
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
 interface AccountantTabsProps {
-  tab: string; // "New Payments" or "Fulfilled Payments"
+  tab?: string; // "New Payments" or "Fulfilled Payments"
 }
 
 interface SelectOption { label: string; value: string; }
 
-// --- Component ---
-export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
+/**
+ * AccountantTabs component for handling payments for a project.
+ * For now, only supports "New Payments" tab.
+ * tab prop is optional, defaulting to "New Payments".
+ */
+export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
@@ -706,41 +711,26 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
     // --- Table Configuration for `useServerDataTable` ---
     const urlSyncKey = useMemo(() => `acct_pay_${tab.toLowerCase().replace(/\s+/g, '_')}`, [tab]);
 
-    const staticFilters = useMemo(() => {
-        if (tab === "New Payments") return [["status", "=", PAYMENT_STATUS.APPROVED]];
-        if (tab === "Fulfilled Payments") return [["status", "=", PAYMENT_STATUS.PAID]];
-        return []; // Default if tab is unrecognized
-    }, [tab]);
+    // const staticFilters = useMemo(() => {
+    //     if (tab === "New Payments") return [["status", "=", PAYMENT_STATUS.APPROVED]];
+    //     if (tab === "Fulfilled Payments") return [["status", "=", PAYMENT_STATUS.PAID]];
+    //     return []; // Default if tab is unrecognized
+    // }, [tab]);
 
+    const staticFilters = useMemo(() => getProjectPaymentsStaticFilters(tab), [tab]);
 
-    const accountantSearchableFields: SearchFieldOption[] = useMemo(() => [
-            { value: "name", label: "Payment ID", placeholder: "Search by Payment ID..." , default: true},
-            { value: "project", label: "Project ID", placeholder: "Search by Project ID..." }, // Search by Project Link ID
-            // { value: "project_name", label: "Project", placeholder: "Search by Project..." },
-            { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },   // Search by Vendor Link ID
-            { value: "document_name", label: "PO ID", placeholder: "Search by PO ID..." },
-            { value: "document_type", label: "PO Type", placeholder: "Search by PO Type (Service || Procurement)..." },
-            // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." },
-        ], []) 
+    const accountantSearchableFields: SearchFieldOption[] = useMemo(() => PP_SEARCHABLE_FIELDS, []) 
 
-    const fieldsToFetch: (keyof ProjectPayments | 'name')[] = useMemo(() => [
-        "name", "creation", "modified", "owner", "project", // Assuming project_name not directly on PP
-        "vendor", "document_name", "document_type", "status", "amount",
-        "payment_date", "utr", "tds", "payment_attachment"
-    ], []);
+    const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(["modified"]), []);
 
-    // const globalSearchFields = useMemo(() => [
-    //     "name", "project", "vendor", "document_name", "document_type", "status", "utr"
-    // ], []);
-
-    const dateColumns = useMemo(() => ["creation", "modified", "payment_date"], []);
+    const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);
 
     const columns = useMemo<ColumnDef<ProjectPayments>[]>(() => [
         {
             accessorKey: "modified", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
             cell: ({ row }) => {
                 const payment = row.original;
-                const eventId = tab === "New Payments" ? "payment:approved" : "";
+                const eventId = tab === "New Payments" ? "payment:approved" : "payment:paid";
                 const isNew = notifications.find(n => n.docname === payment.name && n.seen === "false" && n.event_id === eventId);
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPaymentSeen(isNew)} className="font-medium relative whitespace-nowrap">
@@ -841,15 +831,14 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab }) => {
     } = useServerDataTable<ProjectPayments>({
         doctype: DOCTYPE,
         columns: columns,
-        fetchFields: fieldsToFetch,
         searchableFields: accountantSearchableFields,
+        fetchFields: fieldsToFetch,
         // globalSearchFieldList: globalSearchFields,
         // enableItemSearch: false,
         urlSyncKey: urlSyncKey, 
         defaultSort: tab === "New Payments" ? 'modified desc' : 'payment_date desc',
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
-
     });
 
 

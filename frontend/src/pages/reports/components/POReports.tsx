@@ -7,6 +7,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from "lucide-react";
 import { ReportType, useReportStore } from "../store/useReportStore";
 import { parseNumber } from "@/utils/parseNumber";
+import { toast } from "@/components/ui/use-toast";
+import { exportToCsv } from "@/utils/exportToCsv";
 
 export default function POReports() {
 
@@ -39,6 +41,48 @@ export default function POReports() {
 
     const exportFileNamePrefix = `po_report`; // Base prefix
 
+        // --- New Export Handler ---
+      const handleExport = () => {
+        if (isLoading || reportData?.length === 0) {
+             toast({ title: "Export", description: "No data available to export or still loading.", variant: "default" });
+            return;
+        }
+    
+        try {
+            // 1. Get the data specifically prepared for this export type
+            //    We pass ALL original data (`data` prop) to the getter,
+            //    so it can apply report-type filtering before any table filtering.
+            const dataToExportRaw = getPOExportData(selectedReportType, reportData || []);
+    
+            // 2. OPTIONAL: Apply table's current filters (search, column filters) to the report-specific data
+            //    This is more complex as it requires replicating table filtering logic outside the table.
+            //    Easier approach: Export based on Report Type filter applied to the *full* dataset.
+            //    Let's stick to the easier approach for now: export data filtered *only* by the report type.
+            const dataToExport = dataToExportRaw;
+    
+             // OR, if you want to export exactly what's visible *after* table filters:
+             // const visibleFilteredData = getExportData(selectedReportType, allFilteredRows); // Apply report type filter to table-filtered data
+    
+            if (!dataToExport || dataToExport.length === 0) {
+                 toast({ title: "Export", description: `No data found matching report type: ${selectedReportType}`, variant: "default" });
+                 return;
+            }
+    
+            // 3. Determine filename based on prefix and maybe the report type
+             const finalFileName = `${exportFileNamePrefix}${selectedReportType ? `_${selectedReportType.replace(/\s+/g, '_')}` : ''}`;
+    
+    
+            // 4. Call the generic export utility
+            exportToCsv(finalFileName, dataToExport, columns);
+    
+            toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success"});
+    
+        } catch (error) {
+             console.error("Export failed:", error);
+             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive"});
+        }
+    };
+
     if (error) {
         console.error("Error fetching PO/SR reports data:", error);
         return (
@@ -64,8 +108,9 @@ export default function POReports() {
                     data={filteredReportData || []} // Ensure data is always an array
                     // Add features like filtering, search, pagination if needed
                     loading={isLoading}
-                    exportFileNamePrefix={exportFileNamePrefix}
-                    getExportData={getPOExportData}
+                    onExport={handleExport}
+                    // exportFileNamePrefix={exportFileNamePrefix}
+                    // getExportData={getPOExportData}
                 />
             )}
         </div>

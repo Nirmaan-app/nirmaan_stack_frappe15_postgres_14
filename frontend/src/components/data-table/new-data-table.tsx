@@ -116,6 +116,8 @@ export function DataTable<TData>({
 
     const searchInputId = React.useId();
 
+    console.log("columns", userDefinedColumns)
+
 
     const currentSearchFieldConfig = React.useMemo(
         () => searchFieldOptions.find(opt => opt.value === selectedSearchField) || searchFieldOptions[0],
@@ -412,7 +414,6 @@ export function DataTable<TData>({
                                     const columnInstance = header.column;
                                     const canShowFacetedFilter = facetFilterOptions?.[columnInstance.id];
                                     const canShowDateFilter = dateFilterColumns.includes(columnInstance.id);
-                                    console.log("size", header.getSize())
                                     return (
                                         <TableHead key={header.id} colSpan={header.colSpan} style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}>
                                             {!header.isPlaceholder && ( 

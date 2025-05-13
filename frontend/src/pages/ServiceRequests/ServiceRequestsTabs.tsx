@@ -101,18 +101,6 @@ export const ServiceRequestsTabs : React.FC = () => {
         }
     }, [tab]);
 
-//   const updateURL = useCallback((key : string, value : string) => {
-//       const url = new URL(window.location.href);
-//       url.searchParams.set(key, value);
-//       window.history.pushState({}, "", url);
-//   }, []);
-
-//   const onClick = useCallback((value : string) => {
-//       if (tab === value) return;
-//       setTab(value);
-//       updateURL("tab", value);
-//   }, [tab, updateURL]);
-
   return (
     <div className="flex-1 space-y-4">
         <div className="flex items-center max-sm:items-start gap-4 max-sm:flex-col">

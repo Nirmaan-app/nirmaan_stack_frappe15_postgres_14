@@ -14,12 +14,14 @@ import {
     Table, // Import Table type
     RowSelectionState,
     Row,
+    getFilteredRowModel,
 } from '@tanstack/react-table';
 import { useFrappeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { debounce } from 'lodash';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
+import { fuzzyFilter } from '@/components/data-table/data-table-models';
 
 // --- Configuration ---
 const DEBOUNCE_DELAY = 500;
@@ -76,6 +78,7 @@ export interface ServerDataTableConfig<TData> {
     // ------------------------------------
 
     initialState?: {
+        data?: TData[]; // For initial URL load potentially
         sorting?: SortingState;
         columnFilters?: ColumnFiltersState; // For initial URL load potentially
         pagination?: PaginationState;
@@ -105,6 +108,21 @@ export interface ServerDataTableConfig<TData> {
     /** If true, filters results to only include docs where specific JSON conditions are met (backend logic) */
     requirePendingItems?: boolean; // Example specific flag for PRs
     // -----------
+
+    /**
+     * Optional: Provide data directly to the hook.
+     * If provided, the internal fetchData mechanism will be bypassed for initial load,
+     * and the table will operate on this client-side data.
+     * Server-side pagination/sorting/filtering will not apply directly to this data.
+     */
+    clientData?: TData[];
+    /**
+     * Optional: Provide total count if clientData is a subset of a larger dataset
+     * and you want to manage pagination based on the true total.
+     * If not provided and clientData is used, totalCount will be clientData.length.
+     */
+    clientTotalCount?: number;
+    
 }
 
 export interface ServerDataTableResult<TData> {
@@ -193,6 +211,8 @@ export function useServerDataTable<TData extends { name: string }>({
     // enableItemSearch = false, // Default to false
     // -----------
     requirePendingItems = false, // Default to false
+    clientData,
+    clientTotalCount
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
 
     // const { call, loading: isLoading } = useFrappePostCall<{message: { data: TData[]; total_count: number } }>("nirmaan_stack.api.data-table.get_list_with_count_via_reportview_logic"); // Get Frappe call method from context
@@ -268,8 +288,8 @@ export function useServerDataTable<TData extends { name: string }>({
     // ---------------------------------
 
 
-    const [data, setData] = useState<TData[]>([]);
-    const [totalCount, setTotalCount] = useState<number>(0);
+    const [data, setData] = useState<TData[]>(clientData || initialState.data || []);
+    const [totalCount, setTotalCount] = useState<number>(clientTotalCount ?? (clientData?.length || 0));
     const [error, setError] = useState<Error | null>(null);
     const [isLoading, setIsLoading] = useState(false); // Manual loading state
     const [internalTrigger, setInternalTrigger] = useState<number>(0); // To manually refetch
@@ -393,6 +413,17 @@ export function useServerDataTable<TData extends { name: string }>({
     const isInitialMount = useRef(true);
     
     const fetchData = useCallback(async (isRefetch = false) => {
+        // --- If clientData is provided, we don't fetch from backend ---
+        if (clientData) {
+            console.log("[useServerDataTable] Using provided clientData. Skipping backend fetch.");
+            setData(clientData);
+            setTotalCount(clientTotalCount ?? clientData.length);
+            setIsLoading(false); // Not loading from backend
+            setError(null);
+            return;
+        }
+        // --- End clientData handling ---
+
         // Don't fetch if already loading, unless it's a manual refetch trigger
         if (isLoading && !isRefetch) return;
         
@@ -462,7 +493,7 @@ export function useServerDataTable<TData extends { name: string }>({
             JSON.stringify(payload) // Key based on exact payload
            ];
 
-        console.log("[useServerDataTable calling backend] Payload:", payload);
+        // console.log("[useServerDataTable calling backend] Payload:", payload);
 
         try {
             const response = await triggerFetch(payload);
@@ -484,7 +515,7 @@ export function useServerDataTable<TData extends { name: string }>({
             setIsLoading(false); // Set loading false when fetch completes
         }
     }, [
-        triggerFetch,resetApiState, apiEndpoint, doctype, JSON.stringify(fetchFields),
+        triggerFetch, resetApiState, doctype, JSON.stringify(fetchFields),
         pagination.pageIndex, pagination.pageSize, JSON.stringify(sorting),
         JSON.stringify(columnFilters), debouncedSearchTermForApi, 
         // isGlobalSearchEnabled,
@@ -494,8 +525,19 @@ export function useServerDataTable<TData extends { name: string }>({
         selectedSearchField, JSON.stringify(searchableFields),
         defaultSort,
         JSON.stringify(additionalFilters), internalTrigger, // Added additionalFilters
-        requirePendingItems
+        requirePendingItems,
+        clientData, clientTotalCount // Add clientData and clientTotalCount to dependencies
+        // isLoading // Remove isLoading from here to prevent loops if it's part of the logic above
     ]);
+
+
+    // Effect to update data if clientData prop changes
+    useEffect(() => {
+        if (clientData) {
+            setData(clientData);
+            setTotalCount(clientTotalCount ?? clientData.length);
+        }
+    }, [clientData, clientTotalCount]);
 
    // Effect to trigger data fetching when dependencies change
    useEffect(() => {
@@ -557,17 +599,19 @@ export function useServerDataTable<TData extends { name: string }>({
         data,
         columns: userDefinedDisplayColumns,
         // Manual server-side operations
-        manualPagination: true,
-        manualSorting: true,
-        manualFiltering: true, // We handle filtering via API call
+        manualPagination: !clientData,
+        manualSorting: !clientData,
+        manualFiltering: !clientData, // We handle filtering via API call
         // Page count calculation
         pageCount: Math.ceil(totalCount / pagination.pageSize),
         // State managed by the hook
+        onGlobalFilterChange: setSearchTerm,
+        globalFilterFn: fuzzyFilter,
         state: {
             pagination,
             sorting,
             columnFilters, // Still needed for TanStack's internal state if using its filter components
-            // globalFilter: searchTerm, // Reflect current input value
+            globalFilter: searchTerm, // Reflect current input value
             columnVisibility,
             rowSelection,
         },
@@ -581,7 +625,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // Models (keep faceted utils for potential UI helpers)
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
-        // getFilteredRowModel: getFilteredRowModel(), // Might not be strictly needed for server-side
+        getFilteredRowModel: getFilteredRowModel(), // Might not be strictly needed for server-side
         getFacetedRowModel: getFacetedRowModel(), // Useful for faceted filter UI options
         getFacetedUniqueValues: getFacetedUniqueValues(), // Useful for faceted filter UI options
         // Configuration

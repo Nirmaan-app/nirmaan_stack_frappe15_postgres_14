@@ -83,7 +83,7 @@ export const ApproveSelectSentBack: React.FC = () => {
     // --- Date Filter Columns ---
     const dateColumns = useMemo(() => SB_DATE_COLUMNS, []);
 
-    const sbSearchableFields = useMemo(() => SB_SEARCHABLE_FIELDS.concat([{ value: "procurement_request", label: "PR ID", placeholder: "Search by PR ID..." }, { value: "owner", label: "Created By", placeholder: "Search by Created By..." }]), []);
+    const sbSearchableFields = useMemo(() => SB_SEARCHABLE_FIELDS.concat([{ value: "procurement_request", label: "PR No.", placeholder: "Search by PR No..." }, { value: "owner", label: "Created By", placeholder: "Search by Created By..." }]), []);
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<SentBackCategory>[]>(() => [

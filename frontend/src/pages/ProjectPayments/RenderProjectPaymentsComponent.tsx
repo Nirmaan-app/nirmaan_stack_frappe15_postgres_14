@@ -1,5 +1,4 @@
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
@@ -183,7 +182,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 
                 ["New Payments"].includes(tab) ? 
                 (
-                    <AccountantTabs tab={tab} />
+                    <AccountantTabs />
                 ) : ["Payments Pending", "Payments Done"].includes(tab) ? (
                     <AllPayments tab={tab} />
                 )

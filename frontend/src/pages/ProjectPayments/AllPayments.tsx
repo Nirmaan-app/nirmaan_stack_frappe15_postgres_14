@@ -1,338 +1,15 @@
-// import { DataTable } from "@/components/data-table/data-table";
-// import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-// import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-// import { TableSkeleton } from "@/components/ui/skeleton";
-// import SITEURL from "@/constants/siteURL";
-// import { useOrderTotals } from "@/hooks/useOrderTotals";
-// import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-// import { Projects } from "@/types/NirmaanStack/Projects";
-// import { Vendors } from "@/types/NirmaanStack/Vendors";
-// import { formatDate } from "@/utils/FormatDate";
-// import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
-// import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-// import { ColumnDef } from "@tanstack/react-table";
-// import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeGetDocList } from "frappe-react-sdk";
-// import { Download, Info } from "lucide-react";
-// import { useCallback, useContext, useMemo } from "react";
-// import { useNavigate } from "react-router-dom";
-// import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
-
-// export const AllPayments: React.FC<{ tab?: string, projectId?: string, customerId?: string }> = ({ tab = "Payments Pending", projectId, customerId }) => {
-
-//   const projectFilters: Filter<FrappeDoc<Projects>>[] | undefined = useMemo(() =>
-//     customerId ? [["customer", "=", customerId]] : [], [customerId])
-
-//   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
-//     fields: ["name", "project_name"],
-//     filters: projectFilters,
-//     limit: 1000,
-//   }, customerId ? `Projects ${customerId}` : "Projects");
-
-//   const paymentFilters: Filter<FrappeDoc<ProjectPayments>>[] | undefined = useMemo(() => [["status", "in", tab === "Payments Done" ? ["Paid"] : ["Requested", "Approved"]], ...(projectId ? [["project", "=", projectId]] : []), ...(customerId ? [["project", "in", projects?.map(i => i?.name)]] : [])], [projectId, customerId, tab])
-
-//   const navigate = useNavigate()
-
-//   const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-//     fields: ["*"],
-//     filters: paymentFilters,
-//     limit: 100000,
-//     orderBy: { field: "payment_date", order: "desc" },
-//   },
-//     tab ? undefined : null
-//   );
-
-//   const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", {
-//     fields: ["name", "vendor_name", "vendor_mobile"],
-//     limit: 10000,
-//   }, 'Vendors');
-
-//   const projectValues = useMemo(() => projects?.map((item) => ({
-//     label: item.project_name,
-//     value: item.name,
-//   })) || [], [projects])
-
-//   const vendorValues = useMemo(() => vendors?.map((item) => ({
-//     label: item.vendor_name,
-//     value: item.name,
-//   })) || [], [vendors])
-
-//   const { getTotalAmount } = useOrderTotals()
-
-//   // const [phoneNumber, setPhoneNumber] = useState("");
-//   // const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
-
-//   // const { toggleShareDialog, shareDialog } = useDialogStore();
-
-//   // const handleOpenWhatsApp = () => {
-//   //   if (phoneNumber) {
-//   //     window.open(`https://wa.me/${phoneNumber}`, '_blank');
-//   //   }
-//   // };
-
-//   // const handleShareClick = (data : ProjectPayments) => {
-//   //   const vendorNumber = vendors?.find((i) => i?.name === data?.vendor)?.vendor_mobile || '';
-//   //   setPhoneNumber(vendorNumber);
-//   //   setScreenshotUrl(data?.payment_attachment || null); // Set screenshot URL
-//   //   toggleShareDialog();
-//   // };
-
-//   const { notifications, mark_seen_notification } = useNotificationStore();
-
-//   const { db } = useContext(FrappeContext) as FrappeConfig;
-
-//   const handleSeenNotification = useCallback((notification: NotificationType | undefined) => {
-//     if (notification) {
-//       mark_seen_notification(db, notification)
-//     }
-//   }, [db, mark_seen_notification])
-
-//   const columns: ColumnDef<ProjectPayments>[] = useMemo(
-//     () => [
-//       ...(tab === "Payments Done" ? [
-//         {
-//           accessorKey: "payment_date",
-//           header: ({ column }) => {
-//             return (
-//               <DataTableColumnHeader column={column} title="Payment Date" />
-//             )
-//           },
-//           cell: ({ row }) => {
-//             const data = row.original
-//             const isNew = notifications.find(
-//               (item) => item.docname === data?.name && item.seen === "false" && item.event_id === "payment:fulfilled"
-//             )
-//             return <div onClick={() => handleSeenNotification(isNew)} className="font-medium flex items-center gap-2 relative">
-//               {isNew && (
-//                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
-//               )}
-//               {formatDate(data?.payment_date || data?.creation)}
-//             </div>;
-//           },
-//         },
-//       ] : []),
-//       ...(tab === "Payments Pending" ? [
-//         {
-//           accessorKey: "creation",
-//           header: ({ column }) => {
-//             return (
-//               <DataTableColumnHeader column={column} title="Date Created" />
-//             )
-//           },
-//           cell: ({ row }) => {
-//             const data = row.original
-//             return <div className="font-medium flex items-center gap-2 relative">
-//               {formatDate(data?.creation)}
-//             </div>;
-//           },
-//         },
-//       ] : []),
-//       {
-//         accessorKey: "document_name",
-//         header: "#PO",
-//         cell: ({ row }) => {
-//           const data: ProjectPayments = row.original;
-//           let id;
-//           if (data?.document_type === "Procurement Orders") {
-//             id = data?.document_name.replaceAll("/", "&=")
-//           } else {
-//             id = data?.document_name
-//           }
-//           return <div className="font-medium flex items-center gap-1 min-w-[170px]">
-//             {data?.document_name}
-//             <HoverCard>
-//               <HoverCardTrigger>
-//                 <Info onClick={() => navigate(`/project-payments/${id}`)} className="w-4 h-4 text-blue-600 cursor-pointer" />
-//               </HoverCardTrigger>
-//               <HoverCardContent>
-//                 Click on to navigate to the PO screen!
-//               </HoverCardContent>
-//             </HoverCard>
-//           </div>;
-//         }
-//       },
-//       {
-//         accessorKey: "vendor",
-//         header: "Vendor",
-//         cell: ({ row }) => {
-//           const vendor = vendorValues.find(
-//             (vendor) => vendor.value === row.getValue("vendor")
-//           );
-//           return <div className="font-medium items-baseline min-w-[170px]">
-//             {vendor?.label || ""}
-//             <HoverCard>
-//               <HoverCardTrigger>
-//                 <Info onClick={() => navigate(`/vendors/${vendor?.value}`)} className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1" />
-//               </HoverCardTrigger>
-//               <HoverCardContent>
-//                 Click on to navigate to the Vendor screen!
-//               </HoverCardContent>
-//             </HoverCard>
-//           </div>;
-//         },
-//         filterFn: (row, id, value) => {
-//           return value.includes(row.getValue(id))
-//         }
-//       },
-//       ...(projectId ? [] : [
-//         {
-//           accessorKey: "project",
-//           header: "Project",
-//           cell: ({ row }) => {
-//             const project = projectValues.find(
-//               (project) => project.value === row.getValue("project")
-//             );
-//             return project ? <div className="font-medium">{project.label}</div> : null;
-//           },
-//           filterFn: (row, id, value) => {
-//             return value.includes(row.getValue(id))
-//           },
-//         },
-//       ]),
-//       ...(tab === "Payments Pending" ? [
-//         {
-//           id: "status",
-//           header: ({ column }) => {
-//             return (
-//               <DataTableColumnHeader column={column} title="Status" />
-//             )
-//           },
-//           cell: ({ row }) => {
-//             const data = row.original
-//             return <div className="font-medium">{data?.status}</div>;
-//           },
-//         },
-//       ] : []),
-//       {
-//         id: "po_amount_including_gst",
-//         header: ({ column }) => {
-//           return (
-//             <DataTableColumnHeader column={column} title="PO Amt" />
-//           )
-//         },
-//         cell: ({ row }) => {
-//           return <div className="font-medium">
-//             {formatToRoundedIndianRupee(getTotalAmount(row.original.document_name, row.original.document_type)?.totalWithTax)}
-//           </div>
-//         },
-//       },
-//       {
-//         accessorKey: "amount",
-//         header: ({ column }) => {
-//           return (
-//             <DataTableColumnHeader column={column} title={tab === "Payments Done" ? "Amount Paid" : "Amount To Pay"} />
-//           )
-//         },
-//         cell: ({ row }) => {
-//           return <div className="font-medium">
-//             {tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={row.original} /> : formatToRoundedIndianRupee(row.original?.amount)}
-//           </div>
-//         },
-//       },
-//       // {
-//       //   accessorKey: "status",
-//       //   header: "Status",
-//       //   cell: ({ row }) => {
-//       //       return <div className="font-medium">{row.original?.status}</div>;
-//       //   }
-//       // },
-//       ...(tab === "Payments Done" ? [
-//         {
-//           id: "download",
-//           header: "Download",
-//           cell: ({ row }) => {
-//             const data = row.original
-//             return (
-//               data?.payment_attachment && (
-//                 <a
-//                   href={`${SITEURL}${data?.payment_attachment}`}
-//                   target="_blank"
-//                   rel="noreferrer"
-//                 >
-//                   <Download className="text-blue-500" />
-//                 </a>
-//               )
-//             )
-//           }
-//         },
-
-//       ] : []),
-//     ],
-//     [projectValues, vendorValues, projectPayments, tab, getTotalAmount, projectId]
-//   );
-
-
-//   return (
-//     <div>
-//       {projectsLoading || vendorsLoading || projectPaymentsLoading ? (
-//         <TableSkeleton />
-//       ) : (
-//         <DataTable columns={columns} data={projectPayments || []} project_values={projectId ? undefined : projectValues} vendorData={vendors} approvedQuotesVendors={vendorValues} />
-//       )}
-
-//       {/* <Dialog open={shareDialog} onOpenChange={toggleShareDialog}>
-//                         <DialogContent>
-//                           <DialogHeader>
-//                             <DialogTitle className="text-center">Share Payment Screenshot via WhatsApp</DialogTitle>
-//                             <DialogDescription className="text-center">
-//                               {screenshotUrl && (
-//                                 <div className="flex items-center flex-col mb-4">
-//                                   <img
-//                                     src={import.meta.env.MODE === "development" ? `http://localhost:8000${screenshotUrl}` : `${SITEURL}${screenshotUrl}`}
-//                                     alt="Payment Screenshot"
-//                                     className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
-//                                   />
-//                                   <p className="mt-2 text-sm text-gray-600 text-center">
-//                                     To download, right-click on the image and select "Save Image As..."
-//                                   </p>
-//                                 </div>
-//                               )}
-//                               Download the Payment Screenshot and send it via WhatsApp to
-//                               <div className="ml-4 flex items-center gap-2 my-2">
-//                                 <Label>Mobile: </Label>
-//                                 <Input
-//                                   className=""
-//                                   type="text"
-//                                   value={phoneNumber}
-//                                   onChange={(e) => setPhoneNumber(e.target.value)}
-//                                   placeholder="Enter phone number"
-//                                 />
-//                               </div>
-//                             </DialogDescription>
-//                           </DialogHeader>
-//                           <div className="flex justify-center space-x-4">
-//                             <Button
-//                               disabled={!phoneNumber}
-//                               onClick={handleOpenWhatsApp}
-//                               className="bg-green-600 hover:bg-green-700"
-//                             >
-//                               <CheckCheck className="h-4 w-4 mr-2" />
-//                               Open WhatsApp
-//                             </Button>
-//                           </div>
-//                         </DialogContent>
-//                     </Dialog> */}
-//     </div>
-
-//   );
-// }
-
-// export default AllPayments;
-
-
-
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList, useFrappeDocTypeEventListener, Filter, FrappeDoc } from "frappe-react-sdk";
 import { Download, Info } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast"; // Assuming toast is used for errors
+import { useToast } from "@/components/ui/use-toast";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Badge } from "@/components/ui/badge"; // Assuming Badge might be used for status
-import { Checkbox } from "@/components/ui/checkbox"; // For optional selection
+import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
@@ -340,23 +17,23 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalAmountPaid, getPOTotal } from "@/utils/getAmounts"; // getSRTotal can be added if needed
+import { getTotalAmountPaid, getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-import SITEURL from "@/constants/siteURL"; // For download links
+import SITEURL from "@/constants/siteURL";
 
 // --- Types ---
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { DOC_TYPES, PAYMENT_STATUS } from "./approve-payments/constants"; // Adjust path if needed
+import { DOC_TYPES, PAYMENT_STATUS } from "./approve-payments/constants";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
-import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 
 // --- Helper Components ---
-// import { AmountPaidHoverCard } from "./AmountPaidHoverCard"; // If used
+import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
+import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
+import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
 
 interface SelectOption { label: string; value: string; }
 
@@ -372,14 +49,12 @@ interface AllPaymentsProps {
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
-// --- Component ---
 export const AllPayments: React.FC<AllPaymentsProps> = ({
     tab = "Payments Pending", // Default tab
     projectId,
     customerId,
     contextKey = "all" // Default context for URL key
 }) => {
-    const navigate = useNavigate();
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
@@ -398,9 +73,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         "Projects", { fields: ["name", "project_name"], filters: projectFiltersForLookup as Filter<FrappeDoc<Projects>>[], limit: 1000 },
         `Projects_AllPay_${customerId || projectId || 'all'}`
     );
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
-        "Vendors", { fields: ["name", "vendor_name"], limit: 10000 }, 'Vendors_AllPay'
-    );
+
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service", "Material", "Material & Service"]});
     // Fetch related POs and SRs for "PO Value" calculation
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
         DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "order_list", "loading_charges", "freight_charges"], limit: 100000 }, 'POs_AllPay'
@@ -441,11 +115,14 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // --- Static Filters for `useServerDataTable` ---
     const staticFilters = useMemo(() => {
         const filters: Array<[string, string, any]> = [];
-        if (tab === "Payments Done") {
-            filters.push(["status", "=", PAYMENT_STATUS.PAID]);
-        } else if (tab === "Payments Pending") {
-            filters.push(["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.APPROVED]]);
-        }
+
+        const getTabBasedFilters = getProjectPaymentsStaticFilters(tab)
+        filters.push(...getTabBasedFilters);
+        // if (tab === "Payments Done") {
+        //     filters.push(["status", "=", PAYMENT_STATUS.PAID]);
+        // } else if (tab === "Payments Pending") {
+        //     filters.push(["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.APPROVED]]);
+        // }
 
         if (projectId) {
             filters.push(["project", "=", projectId]);
@@ -460,47 +137,17 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
 
     // --- Fields to Fetch for the Main DataTable ---
-    const fieldsToFetch: (keyof ProjectPayments | 'name')[] = useMemo(() => [
-        "name", "creation", "modified", "owner", "project", "vendor",
-        "document_name", "document_type", "status", "amount", "payment_date",
-        "utr", "tds", "payment_attachment" // For "Payments Done" tab
-    ], []);
 
-    // --- Global Search Fields ---
-    const globalSearchFields = useMemo(() => [
-        "name", "project", "vendor", "document_name", "document_type", "status", "utr", "owner"
-    ], []);
+    const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(['creation', 'modified', 'payment_date', 'payment_attachment', 'tds', 'utr']), [])
+
+    const paymentsSearchableFields = useMemo(() => PP_SEARCHABLE_FIELDS.concat(tab === "Payments Done" ? [{value : "utr", label: "UTR", placeholder: "Search by UTR..."}] : tab === "Payments Pending" ? [{value : "status", label: "Status", placeholder: "Search by Status..."}] : []), [tab]);
 
     // --- Date Filter Columns ---
-    const dateColumns = useMemo(() => ["creation", "modified", "payment_date"], []);
+    const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);
 
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProjectPayments>[]>(() => [
-        {
-            id: 'select',
-            header: ({ table }) => (
-                <Checkbox
-                    disabled={true}
-                    checked={table.getIsAllPageRowsSelected()}
-                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                    aria-label="Select all rows"
-                    className="data_table_select-all"
-                />
-            ),
-            cell: ({ row }) => (
-                <Checkbox
-                    disabled={true}
-                    checked={row.getIsSelected()}
-                    onCheckedChange={(value) => row.toggleSelected(!!value)}
-                    aria-label="Select row"
-                    className="data_table_select-row"
-                />
-            ),
-            enableSorting: false,
-            enableHiding: false,
-            size: 40,
-        },
         { // Date column varies based on tab
             accessorKey: tab === "Payments Done" ? "payment_date" : "creation",
             header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "Payments Done" ? "Paid On" : "Created On"} />,
@@ -604,15 +251,19 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // --- useServerDataTable Hook Instantiation ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
-        globalFilter, setGlobalFilter,
-        isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
+        // globalFilter, setGlobalFilter,
+        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+        isRowSelectionActive,
         refetch,
     } = useServerDataTable<ProjectPayments>({
         doctype: DOCTYPE,
         columns: columns,
         fetchFields: fieldsToFetch,
-        globalSearchFieldList: globalSearchFields,
-        enableItemSearch: false, // Item search not applicable
+        searchableFields: paymentsSearchableFields,
+        // globalSearchFieldList: globalSearchFields,
+        // enableItemSearch: false, // Item search not applicable
         urlSyncKey: urlSyncKey,
         defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
         enableRowSelection: false, // No bulk actions currently
@@ -654,13 +305,21 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     isLoading={listIsLoading}
                     error={listError}
                     totalCount={totalCount}
-                    globalFilterValue={globalFilter}
-                    onGlobalFilterChange={setGlobalFilter}
-                    searchPlaceholder={`Search ${tab}...`}
-                    showItemSearchToggle={showItemSearchToggle} // Will be false
-                    itemSearchConfig={{ isEnabled: isItemSearchEnabled, toggle: toggleItemSearch, label: "Item Search"}}
+                    searchFieldOptions={paymentsSearchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    // globalFilterValue={globalFilter}
+                    // onGlobalFilterChange={setGlobalFilter}
+                    // searchPlaceholder={`Search ${tab}...`}
+                    // showItemSearchToggle={showItemSearchToggle} // Will be false
+                    // itemSearchConfig={{ isEnabled: isItemSearchEnabled, toggle: toggleItemSearch, label: "Item Search"}}
                     facetFilterOptions={facetFilterOptions}
                     dateFilterColumns={dateColumns}
+                    showExportButton={true} // Optional
+                    onExport={'default'}
+                    // toolbarActions={...} // Optional
                 />
             )}
         </div>
