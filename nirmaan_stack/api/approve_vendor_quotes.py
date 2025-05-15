@@ -55,7 +55,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
             po_doc.vendor_address = vendor_doc.vendor_address
             po_doc.vendor_gst = vendor_doc.vendor_gst
             # For custom, it seems all items in the PR's current list go into this PO
-            po_doc.order_list = json.dumps({"list": procurement_list_items}) # Store as JSON string
+            po_doc.order_list = {"list": procurement_list_items} # Store as JSON string
             po_doc.custom = "true" # Assuming this is a string field in DB
             po_doc.insert(ignore_permissions=True)
             latest_po_name = po_doc.name
@@ -68,7 +68,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                 updated_item['status'] = "Approved" # Or "PO Generated"
                 updated_procurement_list_items.append(updated_item)
 
-            pr_doc.procurement_list = json.dumps({'list': updated_procurement_list_items})
+            pr_doc.procurement_list = {'list': updated_procurement_list_items}
 
             # In custom mode, it seems the intention is to always go to Vendor Approved
             # This is fine IF the PR was in a state allowing transition to Vendor Approved.
@@ -109,7 +109,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                         
                         # Add 'makes' to the item copy that goes into the PO
                         item_for_po = updated_item.copy() # Copy again specifically for PO list
-                        item_for_po["makes"] = json.dumps(makes_formatted_for_po) # Store as JSON string
+                        item_for_po["makes"] = makes_formatted_for_po # Store as JSON string
 
                         if vendor_id not in vendor_items_for_po:
                             vendor_items_for_po[vendor_id] = []
@@ -122,7 +122,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
             if not vendor_items_for_po:
                  # This case should ideally be caught by the caller (handle_delayed_items)
                  # or means selected_items/selected_vendors was empty or mismatched.
-                 pr_doc.procurement_list = json.dumps({'list': updated_procurement_list_items})
+                 pr_doc.procurement_list = {'list': updated_procurement_list_items}
                  pr_doc.save(ignore_permissions=True) # Save updated item statuses even if no POs
                  return {"message": "No items/vendors provided for PO generation or items not found in PR.", "status": 200, "po": None}
 
@@ -138,13 +138,13 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                 po_doc.vendor_name = vendor_doc.vendor_name
                 po_doc.vendor_address = vendor_doc.vendor_address
                 po_doc.vendor_gst = vendor_doc.vendor_gst
-                po_doc.order_list = json.dumps({"list": items_for_this_po}) # Store as JSON string
+                po_doc.order_list = {"list": items_for_this_po} # Store as JSON string
                 po_doc.insert(ignore_permissions=True)
                 latest_po_name = po_doc.name # Keep track of the last PO name
 
 
             # Update the PR's procurement_list with new statuses
-            pr_doc.procurement_list = json.dumps({'list': updated_procurement_list_items})
+            pr_doc.procurement_list = {'list': updated_procurement_list_items}
 
             # --- Workflow State Logic for PR (Crucial Change) ---
             # The PR's workflow_state should have been set by the calling function (handle_delayed_items)

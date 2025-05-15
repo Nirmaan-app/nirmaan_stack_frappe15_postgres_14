@@ -16,6 +16,8 @@ export default function POReports() {
 
     const columns = React.useMemo(() => poColumns, []);
 
+    const delta = 100; // Small tolerance for floating point comparison
+
     const getPOExportData = (
         reportType: ReportType,
         allData: POReportRowData[]
@@ -25,10 +27,10 @@ export default function POReports() {
         switch (reportType) {
             case 'Pending Invoices':
                 // Total Invoice Amount is less than Total PO/SR Amount (use small tolerance for floating point)
-                return allData.filter(row => parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - 0.001);
+                return allData.filter(row => parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - delta);
             case 'PO with Excess Payments':
                 // Amount Paid is greater than Total PO/SR Amount (use small tolerance)
-                return allData.filter(row => parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + 0.001);
+                return allData.filter(row => parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + delta);
             default:
                 // Should not happen if selection is restricted, but return all as fallback
                 return allData;
