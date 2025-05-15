@@ -74,7 +74,7 @@ export const ReleasePOSelect: React.FC = () => {
             }
         });
         return unsubscribe; // Cleanup subscription
-    }, [tab, initialTab]); // Depend on `tab` to avoid stale closures
+    }, [initialTab]); // Depend on `tab` to avoid stale closures
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],

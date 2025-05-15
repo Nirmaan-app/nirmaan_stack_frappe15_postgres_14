@@ -116,11 +116,8 @@ export function DataTable<TData>({
 
     const searchInputId = React.useId();
 
-    console.log("columns", userDefinedColumns)
-
-
     const currentSearchFieldConfig = React.useMemo(
-        () => searchFieldOptions.find(opt => opt.value === selectedSearchField) || searchFieldOptions[0],
+        () => searchFieldOptions?.find(opt => opt.value === selectedSearchField) || searchFieldOptions?.[0],
         [selectedSearchField, searchFieldOptions]
     );
 
@@ -430,7 +427,7 @@ export function DataTable<TData>({
                         ))}
                     </TableHeader>
                     <TableBody>
-                        {isLoading ? ( <TableBodySkeleton colSpan={table.getAllFlatColumns().length} rows={table.getState().pagination.pageSize} />
+                        {isLoading ? ( <TableBodySkeleton shouldRenderSelectionColumn={shouldRenderSelectionColumn} colSpan={table.getAllFlatColumns().length} rows={table.getState().pagination.pageSize} />
                         ) : table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
                                 <TableRow key={(row.original as any)?.name || row.id} data-state={row.getIsSelected() && 'selected'}>

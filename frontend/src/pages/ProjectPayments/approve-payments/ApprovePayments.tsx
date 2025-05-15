@@ -247,6 +247,7 @@ export const ApprovePayments: React.FC = () => {
                 amount: amount, // Already a number
                 ...(payment_details && {payment_details: JSON.stringify(payment_details)}) // Add UTR, Date etc.
             });
+            refetch();
             closeDialog();
             toast({ title: "Success!", description: `Payment ${actionType} successfully!`, variant: "success" });
             // Refetch is handled by useServerDataTable on data change (via useFrappeDocTypeEventListener)

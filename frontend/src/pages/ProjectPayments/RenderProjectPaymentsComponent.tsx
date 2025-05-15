@@ -47,7 +47,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             }
         });
         return unsubscribe; // Cleanup subscription
-    }, [tab, initialTab]); // Depend on `tab` to avoid stale closures
+    }, [initialTab]); // Depend on `tab` to avoid stale closures
 
     // const [tab, setTab] = useStateSyncedWithParams<string>("tab", (role === "Nirmaan Admin Profile" ? "Approve Payments" : role === "Nirmaan Accountant Profile" ?  "New Payments" : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? "Payments Done" : "PO Wise"))
 

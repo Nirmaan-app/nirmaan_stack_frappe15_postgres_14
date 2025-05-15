@@ -1,6 +1,3 @@
-import { DataTable } from "@/components/data-table/data-table";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -10,13 +7,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription
-} from "@/components/ui/card";
 import {
   Command,
   CommandGroup,
@@ -29,26 +20,18 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import {
-  TableSkeleton
-} from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { Customers } from "@/types/NirmaanStack/Customers";
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
-import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { parseNumber } from "@/utils/parseNumber";
-import { ColumnDef } from "@tanstack/react-table";
 import {
   ConfigProvider,
   Menu,
@@ -74,18 +57,28 @@ import {
   useParams
 } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
-import { Component as ProjectEstimates } from './add-project-estimates';
+// import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
-import memoize from 'lodash/memoize';
-import { ProjectMakesTab } from "./ProjectMakesTab";
-import ProjectOverviewTab from "./ProjectOverviewTab";
-import ProjectSpendsTab from "./ProjectSpendsTab";
+// import { ProjectMakesTab } from "./ProjectMakesTab";
+// import ProjectOverviewTab from "./ProjectOverviewTab";
+// import ProjectSpendsTab from "./ProjectSpendsTab";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
+import { urlStateManager } from "@/utils/urlStateManager";
+// import ProjectPRSummaryTable from "./components/ProjectPRSummaryTable";
+// import ProjectSRSummaryTable from "./components/ProjectSRSummaryTable";
 
+const ProjectSRSummaryTable = React.lazy(() => import("./components/ProjectSRSummaryTable"));
+const ProjectPRSummaryTable = React.lazy(() => import("./components/ProjectPRSummaryTable"));
 const ProjectFinancialsTab = React.lazy(() => import("./ProjectFinancialsTab"));
+const ProjectMakesTab = React.lazy(() => import("./ProjectMakesTab"));
+const ProjectOverviewTab = React.lazy(() => import("./ProjectOverviewTab"));
+const ProjectSpendsTab = React.lazy(() => import("./ProjectSpendsTab"));
+const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
+const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -199,6 +192,21 @@ export const Component = Project;
 //   },
 // } satisfies ChartConfig;
 
+
+export const PROJECT_PAGE_TABS = {
+    OVERVIEW: 'overview',
+    PR_SUMMARY: 'prsummary',
+    SR_SUMMARY: 'srsummary',
+    POSUMMARY: 'posummary',
+    FINANCIALS: 'projectfinancials',
+    SPENDS: 'projectspends', // Example
+    MAKES: 'projectmakes',   // Example
+    ESTIMATES: 'projectestimates', // Example
+} as const;
+
+type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
+
+
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
   // console.log("modified-call", po_item_data)
@@ -208,7 +216,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const [newStatus, setNewStatus] = useState<string>("");
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-  const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
+  // const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
   const [options, setOptions] = useState<{ label: string; value: string }[]>([]);
@@ -219,37 +227,130 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     setEditSheetOpen((prevState) => !prevState);
   }, []);
 
-  // const [searchParams] = useSearchParams(); // Only for initialization
-  // const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
-  // const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || makeOptions?.[0]?.value);
+  // --- Tab State Management using urlStateManager ---
+  const initialActivePage = useMemo(() => {
+    return getUrlStringParam("page", PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
+}, []); // Calculate once
+
+const [activePage, setActivePage] = useState<ProjectPageTabValue>(initialActivePage);
+
+// Effect to sync activePage state TO URL
+useEffect(() => {
+    if (urlStateManager.getParam("page") !== activePage) {
+        urlStateManager.updateParam("page", activePage);
+    }
+}, [activePage]);
+
+// Effect to sync URL "page" param TO activePage state (for popstate/direct URL load)
+useEffect(() => {
+  const unsubscribe = urlStateManager.subscribe("page", (_, value) => {
+      const newPage = (value || PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
+      if (activePage !== newPage) {
+          setActivePage(newPage);
+      }
+  });
+  // Ensure initial sync if URL already has the param
+  const currentUrlPage = urlStateManager.getParam("page") as ProjectPageTabValue | null;
+  if (currentUrlPage && activePage !== currentUrlPage) {
+      setActivePage(currentUrlPage);
+  }
+  return unsubscribe;
+}, [activePage, initialActivePage]); // Rerun if initialTab logic changes or tab changes externally
 
   const [makesTab] = useStateSyncedWithParams<string>("makesTab", makeOptions?.[0]?.value)
-  const [activePage, setActivePage] = useStateSyncedWithParams<string>("page", "overview")
-  // const [_, setTab] = useStateSyncedWithParams<string>("tab", "All")
-  // const [__, setETab] = useStateSyncedWithParams<string>("eTab", "All")
-  // const [___, setFTab] = useStateSyncedWithParams<string>("fTab", "All Payments")
 
-  // const setProjectMakesTab = useCallback(
-  //   (tab: string) => {
-  //     if (makesTab !== tab) {
-  //       setMakesTab(tab);
-  //       // updateURL({ makesTab: tab });
-  //     }
-  //   }, [makesTab]);
-
-  const getTabsToRemove = useMemo(() => memoize((newPage: string) => {
-    const tabsToRemove = newPage === 'projectspends' ? ['eTab', 'makesTab', 'fTab'] : newPage === 'projectmakes' ? ['tab', 'eTab', 'fTab'] : newPage === 'projectestimates' ? ['tab', 'makesTab', 'fTab'] : newPage === 'projectfinancials' ? ['tab', 'makesTab', 'eTab'] : ['tab', 'eTab', 'makesTab', 'fTab'];
-    return tabsToRemove;
-  }, (newPage: string) => newPage), [])
-
-  const onClick: MenuProps['onClick'] = useCallback(
-    (e) => {
-      if (activePage === e.key) return;
-      const newPage = e.key;
-      const tabsToRemove = getTabsToRemove(newPage)
-      setActivePage(newPage, tabsToRemove)
+  const handlePageChange : MenuProps['onClick'] = useCallback((e) => {
+    const newPage = e.key as ProjectPageTabValue;
+    if (activePage !== newPage) {
+        setActivePage(newPage);
+        // If changing main page/tab, you might want to clear sub-tabs or specific filters
+        // Example: Clearing 'makesTab', 'eTab', 'fTab' when switching main 'page'
+        // urlStateManager.updateParam("makesTab", null);
+        // urlStateManager.updateParam("eTab", null);
+        // urlStateManager.updateParam("fTab", null);
     }
-    , [activePage, getTabsToRemove]);
+}, [activePage]);
+
+type MenuItem = Required<MenuProps>["items"][number];
+
+  const items: MenuItem[] = useMemo(() => [
+    {
+      label: "Overview",
+      key: PROJECT_PAGE_TABS.OVERVIEW,
+    },
+    // role === "Nirmaan Admin Profile"
+    //   ? {
+    //     label: "Project Tracking",
+    //     key: "projectTracking",
+    //   }
+    //   : null,
+    {
+      label: "PR Summary",
+      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+    },
+    {
+      label: "SR Summary",
+      key: PROJECT_PAGE_TABS.SR_SUMMARY,
+    },
+    {
+      label: "PO Summary",
+      key: PROJECT_PAGE_TABS.POSUMMARY,
+    },
+    // ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
+    //   role
+    // )
+    //   ? {
+    //     label: "Project Spends",
+    //     key: "projectspends",
+    //   }
+    //   : null,
+    {
+      label: "Project Spends",
+      key: PROJECT_PAGE_TABS.SPENDS,
+    },
+    {
+      label: "Financials",
+      key: PROJECT_PAGE_TABS.FINANCIALS,
+    },
+    {
+      label: "Project Estimates",
+      key: PROJECT_PAGE_TABS.ESTIMATES
+    },
+    {
+      label: "Project Makes",
+      key: PROJECT_PAGE_TABS.MAKES
+    }
+  ], [role]);
+
+// Define tabs available based on role or other logic
+// const availableTabs = useMemo(() => {
+//   const tabs = [
+//       { label: "Overview", value: PROJECT_PAGE_TABS.OVERVIEW },
+//       { label: "PR Summary", value: PROJECT_PAGE_TABS.PR_SUMMARY },
+//       { label: "SR Summary", value: PROJECT_PAGE_TABS.SR_SUMMARY },
+//       { label: "PO Summary", value: PROJECT_PAGE_TABS.POSUMMARY },
+//       { label: "Project Spends", value: PROJECT_PAGE_TABS.SPENDS },
+//       { label: "Financials", value: PROJECT_PAGE_TABS.FINANCIALS },
+//       { label: "Project Estimates", value: PROJECT_PAGE_TABS.ESTIMATES },
+//       { label: "Project Makes", value: PROJECT_PAGE_TABS.MAKES }, // Assuming makes are per project
+//   ];
+//   return tabs;
+// }, [role]);
+
+
+  // const getTabsToRemove = useMemo(() => memoize((newPage: string) => {
+  //   const tabsToRemove = newPage === 'projectspends' ? ['eTab', 'makesTab', 'fTab'] : newPage === 'projectmakes' ? ['tab', 'eTab', 'fTab'] : newPage === 'projectestimates' ? ['tab', 'makesTab', 'fTab'] : newPage === 'projectfinancials' ? ['tab', 'makesTab', 'eTab'] : ['tab', 'eTab', 'makesTab', 'fTab'];
+  //   return tabsToRemove;
+  // }, (newPage: string) => newPage), [])
+
+  // const onClick: MenuProps['onClick'] = useCallback(
+  //   (e) => {
+  //     if (activePage === e.key) return;
+  //     const newPage = e.key;
+  //     const tabsToRemove = getTabsToRemove(newPage)
+  //     setActivePage(newPage, tabsToRemove)
+  //   }
+  //   , [activePage, getTabsToRemove]);
 
   // const onClick: MenuProps['onClick'] = useCallback(
   //   (e) => {
@@ -306,10 +407,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     limit: 1000
   })
 
-  const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-    fields: ["*"],
-    limit: 1000,
-  }, 'Nirmaan Users');
+  // const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+  //   fields: ["*"],
+  //   limit: 1000,
+  // }, 'Nirmaan Users');
 
   const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
     "Procurement Requests",
@@ -334,24 +435,24 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   );
 
-  const {
-    data: po_data_for_posummary,
-    isLoading: po_data_for_posummary_loading,
-  } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
-    fields: ["*"],
-    filters: [
-      ["project", "=", projectId],
-      ["status", "!=", "Merged"],
-    ], // removed ["status", "!=", "PO Approved"] for now
-    limit: 1000,
-    orderBy: { field: "creation", order: "desc" },
-  });
+  // const {
+  //   data: po_data_for_posummary,
+  //   isLoading: po_data_for_posummary_loading,
+  // } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
+  //   fields: ["*"],
+  //   filters: [
+  //     ["project", "=", projectId],
+  //     ["status", "!=", "Merged"],
+  //   ], // removed ["status", "!=", "PO Approved"] for now
+  //   limit: 1000,
+  //   orderBy: { field: "creation", order: "desc" },
+  // });
 
-  const { data: allServiceRequestsData, isLoading: allServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-    fields: ["*"],
-    filters: [["project", "=", projectId]],
-    limit: 1000,
-  });
+  // const { data: allServiceRequestsData, isLoading: allServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
+  //   fields: ["*"],
+  //   filters: [["project", "=", projectId]],
+  //   limit: 1000,
+  // });
 
   const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
     fields: ["*"],
@@ -362,16 +463,16 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     limit: 1000,
   });
 
-  const { data: vendorsList } = useFrappeGetDocList<Vendors>("Vendors", {
-    fields: ["vendor_name", "vendor_type"],
-    filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
-    limit: 10000,
-  });
+  // const { data: vendorsList } = useFrappeGetDocList<Vendors>("Vendors", {
+  //   fields: ["vendor_name", "vendor_type"],
+  //   filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
+  //   limit: 10000,
+  // });
 
-  const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({
-    label: ven.vendor_name,
-    value: ven.vendor_name,
-  })), [vendorsList]);
+  // const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({
+  //   label: ven.vendor_name,
+  //   value: ven.vendor_name,
+  // })), [vendorsList]);
 
   const getTotalAmountPaid = useMemo(() => {
     if (!projectPayments) {
@@ -388,12 +489,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
     return { poAmount, srAmount, totalAmount: poAmount + srAmount };
   }, [projectPayments]);
-
-
-  const getUserFullName = useCallback(() => (id: string | undefined) => {
-    if (id === "Administrator") return id;
-    return usersList?.find((user) => user.name === id)?.full_name || "";
-  }, [usersList]);
 
   const totalPosRaised = useMemo(() => {
     if (!po_data || po_data.length === 0) {
@@ -423,56 +518,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //   };
   // };
 
-  type MenuItem = Required<MenuProps>["items"][number];
-
-  const items: MenuItem[] = useMemo(() => [
-    {
-      label: "Overview",
-      key: "overview",
-    },
-    // role === "Nirmaan Admin Profile"
-    //   ? {
-    //     label: "Project Tracking",
-    //     key: "projectTracking",
-    //   }
-    //   : null,
-    {
-      label: "PR Summary",
-      key: "prsummary",
-    },
-    {
-      label: "SR Summary",
-      key: "SRSummary",
-    },
-    {
-      label: "PO Summary",
-      key: "posummary",
-    },
-    // ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
-    //   role
-    // )
-    //   ? {
-    //     label: "Project Spends",
-    //     key: "projectspends",
-    //   }
-    //   : null,
-    {
-      label: "Project Spends",
-      key: "projectspends",
-    },
-    {
-      label: "Financials",
-      key: "projectfinancials",
-    },
-    {
-      label: "Project Estimates",
-      key: "projectestimates"
-    },
-    {
-      label: "Project Makes",
-      key: "projectmakes"
-    }
-  ], [role]);
 
   // const [areaNames, setAreaNames] = useState(null);
 
@@ -617,556 +662,326 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //   return [...staticColumns, ...dynamicColumns];
   // }, [mile_data]);
 
-  const { data: quote_data } = useFrappeGetDocList<ApprovedQuotations>("Approved Quotations", {
-    fields: ["item_id", "quote"],
-    limit: 100000,
-  }, ProjectQueryKeys.quotes({ fields: ["item_id", "quote"], limit: 100000 }));
+
+  // const getSRTotal = (order_id: string) => {
+  //   return useMemo(() => {
+  //     let total: number = 0;
+  //     const orderData = allServiceRequestsData?.find((item) => item.name === order_id)?.service_order_list;
+  //     orderData?.list.forEach((item) => {
+  //       const price = parseNumber(item.rate) * parseNumber(item.quantity);
+  //       total += price;
+  //     });
+  //     return total;
+  //   }, [allServiceRequestsData, order_id]);
+  // };
 
 
-  const getItemStatus = useMemo(
-    () => memoize((item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => {
-      return filteredPOs.some((po) =>
-        po?.order_list?.list.some((poItem) => poItem?.name === item.name)
-      );
-    }, (item: ProcurementItem, filteredPOs: ProcurementOrdersType[]) => JSON.stringify(item) + JSON.stringify(filteredPOs)),
-    []
-  );
+  // const srSummaryColumns: ColumnDef<ServiceRequests>[] = useMemo(
+  //   () => [
+  //     {
+  //       accessorKey: "name",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="SR Number" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         const data = row.original
+  //         const srId = data?.name;
+  //         return (
+  //           <div className="flex items-center gap-1">
+  //             <Link
+  //               className="text-blue-500 underline"
+  //               to={`/service-requests-list/${srId}`}
+  //             >
+  //               {srId?.slice(-5)}
+  //             </Link>
+  //             <ItemsHoverCard order_list={data?.service_order_list.list} isSR />
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "creation",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="Date Created" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="font-medium">
+  //             {formatDate(row.getValue("creation")?.split(" ")[0])}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "status",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="Status" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         return <div className="font-medium">{row.getValue("status")}</div>;
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "service_category_list",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="Categories" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="flex flex-col gap-1 items-start justify-center">
+  //             {row.getValue("service_category_list").list.map((obj) => (
+  //               <Badge className="inline-block">{obj["name"]}</Badge>
+  //             ))}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       id: "total",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader column={column} title="Estimated Price" />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="font-medium">
+  //             {formatToRoundedIndianRupee(getSRTotal(row.getValue("name")) || "--")}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       id: "Amount_paid",
+  //       header: "Amt Paid",
+  //       cell: ({ row }) => {
+  //         const data = row.original
+  //         const amountPaid = getTotalAmountPaidPOWise(data?.name);
+  //         return <div className="font-medium">
+  //           {formatToRoundedIndianRupee(amountPaid || "--")}
+  //         </div>
+  //       },
+  //     },
+  //   ],
+  //   [projectId, allServiceRequestsData, getSRTotal]
+  // );
 
-  const statusRender = useMemo(
-    () => memoize((status: string, prId: string) => {
-      const procurementRequest = pr_data?.find((pr) => pr?.name === prId);
-      const itemList = procurementRequest?.procurement_list?.list || [];
+  // const getPOTotal = (order_id: string) => {
+  //   return useMemo(() => {
+  //     let total: number = 0;
+  //     let totalWithGST: number = 0;
+  //     const po = po_data_for_posummary?.find((item) => item.name === order_id);
+  //     const loading_charges = parseNumber(po?.loading_charges);
+  //     const freight_charges = parseNumber(po?.freight_charges);
+  //     const orderData = po?.order_list;
 
-      if (['Pending', 'Approved', 'Rejected', 'Draft'].includes(status)) {
-        return 'New PR';
-      }
+  //     orderData?.list.forEach((item) => {
+  //       const price = parseNumber(item.quote);
+  //       const quantity = parseNumber(item?.quantity) || 1;
+  //       const gst = parseNumber(item?.tax);
+  //       total += price * quantity;
+  //       const gstAmount = (price * gst) / 100;
+  //       totalWithGST += (price + gstAmount) * quantity;
+  //     });
 
-      const filteredPOs = po_data?.filter((po) => po?.procurement_request === prId) || [];
-      const allItemsApproved = itemList.every(
-        (item) => item?.status === 'Deleted' || getItemStatus(item, filteredPOs)
-      );
+  //     total += loading_charges + freight_charges;
+  //     totalWithGST += loading_charges * 1.18 + freight_charges * 1.18;
 
-      return allItemsApproved ? 'Approved PO' : 'Open PR';
-    }, (status: string, prId: string) => JSON.stringify(status) + JSON.stringify(prId)),
-    [pr_data, po_data, getItemStatus]
-  );
+  //     return { totalWithoutGST: total, totalWithGST: totalWithGST };
+  //   }, [po_data_for_posummary, order_id]);
+  // }
 
-
-  const getTotal = useMemo(() => memoize((order_id: string) => {
-    let total = 0;
-    const procurementRequest = pr_data?.find((item) => item.name === order_id);
-    const orderData = procurementRequest?.procurement_list;
-    const status = statusRender(procurementRequest?.workflow_state || "", order_id);
-
-    if (status === "Approved PO") {
-      const filteredPOs = po_data?.filter((po) => po.procurement_request === order_id) || [];
-      filteredPOs.forEach((po) => {
-        po.order_list?.list.forEach((item) => {
-          if (item.quote && item.quantity) {
-            total += parseNumber(item.quote * item.quantity);
-          }
-        });
-      });
-    } else {
-      orderData?.list.forEach((item) => {
-        const minQuote = getThreeMonthsLowestFiltered(quote_data, item.name)?.averageRate
-        total += parseNumber(minQuote * item.quantity);
-      });
-    }
-    return total || "N/A";
-  }, (order_id: string) => order_id), [pr_data, po_data, quote_data, statusRender]);
-
-  useEffect(() => {
-    if (pr_data) {
-      const statusCounts = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
-      pr_data?.forEach((pr) => {
-        const status = statusRender(pr?.workflow_state, pr?.name);
-        statusCounts[status] += 1;
-      });
-      setStatusCounts(statusCounts);
-    }
-  }, [pr_data]);
-
-  const statusOptions = useMemo(() => [
-    { label: "New PR", value: "New PR" },
-    { label: "Open PR", value: "Open PR" },
-    { label: "Approved PO", value: "Approved PO" },
-  ], []);
-
-
-  const prSummaryColumns: ColumnDef<ProcurementRequest>[] = useMemo(() => [
-    {
-      accessorKey: "name",
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black"
-            column={column}
-            title="PR Id"
-          />
-        );
-      },
-      cell: ({ row }) => {
-        const data = row.original
-        const name = data?.name
-        return (
-          <div className="flex items-center gap-1">
-            <Link className="text-blue-500 underline" to={row.getValue("name")}>
-              <div>{name?.split("-")[2]}</div>
-            </Link>
-            <ItemsHoverCard order_list={data?.procurement_list.list} />
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: "creation",
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black"
-            column={column}
-            title="Date Created"
-          />
-        );
-      },
-      cell: ({ row }) => {
-        return (
-          <div className="text-[#11050599]">
-            {formatDate(row.getValue("creation"))}
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: "owner",
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black"
-            column={column}
-            title="Created By"
-          />
-        );
-      },
-      cell: ({ row }) => {
-        return (
-          <div className="text-[#11050599]">
-            {getUserFullName(row.getValue("owner"))}
-          </div>
-        );
-      },
-    },
-
-    {
-      accessorKey: "workflow_state",
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black"
-            column={column}
-            title="Status"
-          />
-        );
-      },
-      cell: ({ row }) => {
-        const data = row.original
-        const status = data.workflow_state;
-        const prId = data?.name;
-        return <div className="font-medium">{statusRender(status, prId)}</div>;
-      },
-      filterFn: (row, id, value) => {
-        const rowValue: string = row.getValue(id);
-        const prId: string = row.getValue("name");
-        const renderValue = statusRender(rowValue, prId);
-        return value.includes(renderValue);
-      },
-    },
-    {
-      accessorKey: "work_package",
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black"
-            column={column}
-            title="Package"
-          />
-        );
-      },
-      cell: ({ row }) => {
-        return (
-          <div className="text-[#11050599]">{row.getValue("work_package") || "Custom"}</div>
-        );
-      },
-    },
-    {
-      accessorKey: "category_list",
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black"
-            column={column}
-            title="Categories"
-          />
-        );
-      },
-      cell: ({ row }) => {
-        const categories: Set<string> = new Set();
-        const categoryList = row.getValue("category_list")?.list || [];
-        categoryList?.forEach((i) => {
-          categories.add(i?.name || "");
-        });
-
-        return (
-          <div className="flex flex-col gap-1 items-start justify-center">
-            {Array.from(categories)?.map((i) => (
-              <Badge className="inline-block">{i}</Badge>
-            ))}
-          </div>
-        );
-      },
-    },
-    {
-      id: "estimated_price",
-      header: ({ column }) => {
-        return (
-          <DataTableColumnHeader
-            className="text-black"
-            column={column}
-            title="Estimated Price"
-          />
-        );
-      },
-      cell: ({ row }) => {
-        const total = getTotal(row.getValue("name"));
-        return (
-          <div className="text-[#11050599]">
-            {total === "N/A" ? total : formatToRoundedIndianRupee(total)}
-          </div>
-        );
-      },
-    },
-  ], [pr_data, statusOptions, statusRender, getTotal, usersList]);
-
-  const getSRTotal = (order_id: string) => {
-    return useMemo(() => {
-      let total: number = 0;
-      const orderData = allServiceRequestsData?.find((item) => item.name === order_id)?.service_order_list;
-      orderData?.list.forEach((item) => {
-        const price = parseNumber(item.rate) * parseNumber(item.quantity);
-        total += price;
-      });
-      return total;
-    }, [allServiceRequestsData, order_id]);
-  };
+  // const getWorkPackageName = useMemo(() => memoize((poId: string) => {
+  //   const po = po_data_for_posummary?.find((j) => j?.name === poId);
+  //   return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
+  // }, (poId: string) => poId), [po_data_for_posummary, pr_data])
 
 
-  const srSummaryColumns: ColumnDef<ServiceRequests>[] = useMemo(
-    () => [
-      {
-        accessorKey: "name",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="SR Number" />;
-        },
-        cell: ({ row }) => {
-          const data = row.original
-          const srId = data?.name;
-          return (
-            <div className="flex items-center gap-1">
-              <Link
-                className="text-blue-500 underline"
-                to={`/service-requests-list/${srId}`}
-              >
-                {srId?.slice(-5)}
-              </Link>
-              <ItemsHoverCard order_list={data?.service_order_list.list} isSR />
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "creation",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Date Created" />;
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="font-medium">
-              {formatDate(row.getValue("creation")?.split(" ")[0])}
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "status",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Status" />;
-        },
-        cell: ({ row }) => {
-          return <div className="font-medium">{row.getValue("status")}</div>;
-        },
-      },
-      {
-        accessorKey: "service_category_list",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Categories" />;
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="flex flex-col gap-1 items-start justify-center">
-              {row.getValue("service_category_list").list.map((obj) => (
-                <Badge className="inline-block">{obj["name"]}</Badge>
-              ))}
-            </div>
-          );
-        },
-      },
-      {
-        id: "total",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader column={column} title="Estimated Price" />
-          );
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="font-medium">
-              {formatToRoundedIndianRupee(getSRTotal(row.getValue("name")) || "--")}
-            </div>
-          );
-        },
-      },
-      {
-        id: "Amount_paid",
-        header: "Amt Paid",
-        cell: ({ row }) => {
-          const data = row.original
-          const amountPaid = getTotalAmountPaidPOWise(data?.name);
-          return <div className="font-medium">
-            {formatToRoundedIndianRupee(amountPaid || "--")}
-          </div>
-        },
-      },
-    ],
-    [projectId, allServiceRequestsData, getSRTotal]
-  );
-
-  const getPOTotal = (order_id: string) => {
-    return useMemo(() => {
-      let total: number = 0;
-      let totalWithGST: number = 0;
-      const po = po_data_for_posummary?.find((item) => item.name === order_id);
-      const loading_charges = parseNumber(po?.loading_charges);
-      const freight_charges = parseNumber(po?.freight_charges);
-      const orderData = po?.order_list;
-
-      orderData?.list.forEach((item) => {
-        const price = parseNumber(item.quote);
-        const quantity = parseNumber(item?.quantity) || 1;
-        const gst = parseNumber(item?.tax);
-        total += price * quantity;
-        const gstAmount = (price * gst) / 100;
-        totalWithGST += (price + gstAmount) * quantity;
-      });
-
-      total += loading_charges + freight_charges;
-      totalWithGST += loading_charges * 1.18 + freight_charges * 1.18;
-
-      return { totalWithoutGST: total, totalWithGST: totalWithGST };
-    }, [po_data_for_posummary, order_id]);
-  }
-
-  const getWorkPackageName = useMemo(() => memoize((poId: string) => {
-    const po = po_data_for_posummary?.find((j) => j?.name === poId);
-    return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
-  }, (poId: string) => poId), [po_data_for_posummary, pr_data])
+  // const wpOptions = useMemo(() => {
+  //   try {
+  //     if (data && data.project_work_packages) {
+  //       const workPackages = JSON.parse(data.project_work_packages)?.work_packages;
+  //       return workPackages?.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })) || [];
+  //     }
+  //     return [];
+  //   } catch (error) {
+  //     console.error("Error parsing project_work_packages:", error);
+  //     return [];
+  //   }
+  // }, [data]);
 
 
-  const wpOptions = useMemo(() => {
-    try {
-      if (data && data.project_work_packages) {
-        const workPackages = JSON.parse(data.project_work_packages)?.work_packages;
-        return workPackages?.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })) || [];
-      }
-      return [];
-    } catch (error) {
-      console.error("Error parsing project_work_packages:", error);
-      return [];
-    }
-  }, [data]);
+  // const getTotalAmountPaidPOWise = useMemo(() => memoize((id: string) => {
+  //   const payments = projectPayments?.filter((payment) => payment.document_name === id);
+  //   return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
+  // }, (id: string) => id), [projectPayments]);
 
-
-  const getTotalAmountPaidPOWise = useMemo(() => memoize((id: string) => {
-    const payments = projectPayments?.filter((payment) => payment.document_name === id);
-    return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-  }, (id: string) => id), [projectPayments]);
-
-  const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
-    () => [
-      {
-        accessorKey: "name",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="ID" />;
-        },
-        cell: ({ row }) => {
-          const data = row.original
-          const id = data?.name;
-          return (
-            <div className="font-medium flex items-center gap-2 relative">
-              <Link
-                className="underline hover:underline-offset-2"
-                to={`po/${id.replaceAll("/", "&=")}`}
-              >
-                {id}
-              </Link>
-              <ItemsHoverCard order_list={data?.order_list.list} />
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "creation",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="PO Date Created" />;
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="font-medium">
-              {formatDate(row.getValue("creation")?.split(" ")[0])}
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "name",
-        id: "wp",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Work Package" />;
-        },
-        cell: ({ row }) => {
-          const po: string = row.getValue("name");
-          return <div className="font-medium">{getWorkPackageName(po) || "Custom"}</div>;
-        },
-        filterFn: (row, id, value) => {
-          const rowValue: string = row.getValue(id);
-          // console.log("rowvalue", rowValue)
-          // console.log("value", value)
-          const renderValue = getWorkPackageName(rowValue);
-          // console.log("renderValue", renderValue)
-          return value.includes(renderValue);
-        },
-      },
-      {
-        accessorKey: "vendor_name",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Vendor" />;
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="font-medium">{row.getValue("vendor_name")}</div>
-          );
-        },
-        filterFn: (row, id, value) => {
-          return value.includes(row.getValue(id));
-        },
-      },
-      {
-        accessorKey: "status",
-        header: ({ column }) => {
-          return <DataTableColumnHeader column={column} title="Status" />;
-        },
-        cell: ({ row }) => {
-          return (
-            <Badge
-              variant={
-                row.getValue("status") === "PO Approved"
-                  ? "default"
-                  : row.getValue("status") === "PO Sent"
-                    ? "yellow"
-                    : row.getValue("status") === "Dispatched"
-                      ? "orange"
-                      : "green"
-              }
-            >
-              {row.getValue("status") === "Partially Delivered"
-                ? "Delivered"
-                : row.getValue("status")}
-            </Badge>
-          );
-        },
-      },
-      // {
-      //   id: "totalWithoutGST",
-      //   header: ({ column }) => {
-      //     return (
-      //       <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
-      //     );
-      //   },
-      //   cell: ({ row }) => {
-      //     return (
-      //       <div className="font-medium">
-      //         {formatToRoundedIndianRupee(
-      //           getPOTotal(row.getValue("name")).totalWithoutGST
-      //         )}
-      //       </div>
-      //     );
-      //   },
-      // },
-      {
-        accessorKey: "owner",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader column={column} title="Approved By" />
-          );
-        },
-        cell: ({ row }) => {
-          const data = row.original
-          const ownerUser = usersList?.find((entry) => data?.owner === entry.name)
-          return (
-            <div className="font-medium">
-              {ownerUser?.full_name || data?.owner || "--"}
-            </div>
-          );
-        },
-      },
-      {
-        id: "totalWithGST",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
-          );
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="font-medium">
-              {formatToRoundedIndianRupee(
-                getPOTotal(row.getValue("name")).totalWithGST
-              )}
-            </div>
-          );
-        },
-      },
-      {
-        id: "Amount_paid",
-        header: "Amt Paid",
-        cell: ({ row }) => {
-          const data = row.original
-          const amountPaid = getTotalAmountPaidPOWise(data?.name);
-          return <div className="font-medium">
-            {formatToRoundedIndianRupee(amountPaid)}
-          </div>
-        },
-      },
-      {
-        accessorKey: 'order_list',
-        header: ({ column }) => {
-          return <h1 className="hidden">:</h1>
-        },
-        cell: ({ row }) => <span className="hidden">hh</span>
-      }
-    ],
-    [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal, usersList]
-  );
+  // const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
+  //   () => [
+  //     {
+  //       accessorKey: "name",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="ID" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         const data = row.original
+  //         const id = data?.name;
+  //         return (
+  //           <div className="font-medium flex items-center gap-2 relative">
+  //             <Link
+  //               className="underline hover:underline-offset-2"
+  //               to={`po/${id.replaceAll("/", "&=")}`}
+  //             >
+  //               {id}
+  //             </Link>
+  //             <ItemsHoverCard order_list={data?.order_list.list} />
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "creation",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="PO Date Created" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="font-medium">
+  //             {formatDate(row.getValue("creation")?.split(" ")[0])}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "name",
+  //       id: "wp",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="Work Package" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         const po: string = row.getValue("name");
+  //         return <div className="font-medium">{getWorkPackageName(po) || "Custom"}</div>;
+  //       },
+  //       filterFn: (row, id, value) => {
+  //         const rowValue: string = row.getValue(id);
+  //         // console.log("rowvalue", rowValue)
+  //         // console.log("value", value)
+  //         const renderValue = getWorkPackageName(rowValue);
+  //         // console.log("renderValue", renderValue)
+  //         return value.includes(renderValue);
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "vendor_name",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="Vendor" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="font-medium">{row.getValue("vendor_name")}</div>
+  //         );
+  //       },
+  //       filterFn: (row, id, value) => {
+  //         return value.includes(row.getValue(id));
+  //       },
+  //     },
+  //     {
+  //       accessorKey: "status",
+  //       header: ({ column }) => {
+  //         return <DataTableColumnHeader column={column} title="Status" />;
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <Badge
+  //             variant={
+  //               row.getValue("status") === "PO Approved"
+  //                 ? "default"
+  //                 : row.getValue("status") === "PO Sent"
+  //                   ? "yellow"
+  //                   : row.getValue("status") === "Dispatched"
+  //                     ? "orange"
+  //                     : "green"
+  //             }
+  //           >
+  //             {row.getValue("status") === "Partially Delivered"
+  //               ? "Delivered"
+  //               : row.getValue("status")}
+  //           </Badge>
+  //         );
+  //       },
+  //     },
+  //     // {
+  //     //   id: "totalWithoutGST",
+  //     //   header: ({ column }) => {
+  //     //     return (
+  //     //       <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+  //     //     );
+  //     //   },
+  //     //   cell: ({ row }) => {
+  //     //     return (
+  //     //       <div className="font-medium">
+  //     //         {formatToRoundedIndianRupee(
+  //     //           getPOTotal(row.getValue("name")).totalWithoutGST
+  //     //         )}
+  //     //       </div>
+  //     //     );
+  //     //   },
+  //     // },
+  //     {
+  //       accessorKey: "owner",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader column={column} title="Approved By" />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         const data = row.original
+  //         const ownerUser = usersList?.find((entry) => data?.owner === entry.name)
+  //         return (
+  //           <div className="font-medium">
+  //             {ownerUser?.full_name || data?.owner || "--"}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       id: "totalWithGST",
+  //       header: ({ column }) => {
+  //         return (
+  //           <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
+  //         );
+  //       },
+  //       cell: ({ row }) => {
+  //         return (
+  //           <div className="font-medium">
+  //             {formatToRoundedIndianRupee(
+  //               getPOTotal(row.getValue("name")).totalWithGST
+  //             )}
+  //           </div>
+  //         );
+  //       },
+  //     },
+  //     {
+  //       id: "Amount_paid",
+  //       header: "Amt Paid",
+  //       cell: ({ row }) => {
+  //         const data = row.original
+  //         const amountPaid = getTotalAmountPaidPOWise(data?.name);
+  //         return <div className="font-medium">
+  //           {formatToRoundedIndianRupee(amountPaid)}
+  //         </div>
+  //       },
+  //     },
+  //     {
+  //       accessorKey: 'order_list',
+  //       header: ({ column }) => {
+  //         return <h1 className="hidden">:</h1>
+  //       },
+  //       cell: ({ row }) => <span className="hidden">hh</span>
+  //     }
+  //   ],
+  //   [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal, usersList]
+  // );
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
 
@@ -1316,8 +1131,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     setWorkPackageTotalAmounts(totals);
   }, [po_item_data, project_estimates, projectPayments, poToWorkPackageMap]);
 
-  console.log("totals-arr", workPackageTotalAmounts)
-
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
 
@@ -1419,9 +1232,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   }, [data?.status, projectStatuses]);
 
-  const totalServiceOrdersAmt = useMemo(() => getAllSRsTotal(approvedServiceRequestsData)?.withoutGST, [approvedServiceRequestsData])
+  const totalServiceOrdersAmt = useMemo(() => getAllSRsTotal(approvedServiceRequestsData || [])?.withoutGST, [approvedServiceRequestsData])
 
-  const getAllSRsTotalWithGST = useMemo(() => getAllSRsTotal(approvedServiceRequestsData)?.withGST, [approvedServiceRequestsData])
+  const getAllSRsTotalWithGST = useMemo(() => getAllSRsTotal(approvedServiceRequestsData || [])?.withGST, [approvedServiceRequestsData])
 
   const handleConfirmStatus = async () => {
     try {
@@ -1455,10 +1268,39 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const estimatesTotal = useMemo(() => project_estimates?.reduce((acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)), 0) || 0, [project_estimates]);
 
-  if (po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || allServiceRequestsDataLoading) {
+  if (po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || prData_loading) {
     return <LoadingFallback />
   }
 
+
+  // --- Render specific tab content ---
+  const renderTabContent = () => {
+    if (!projectId) return <div>Project ID is missing.</div>;
+
+    switch (activePage) {
+        case PROJECT_PAGE_TABS.OVERVIEW:
+            // Pass necessary data to ProjectOverviewTab
+            return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
+        case PROJECT_PAGE_TABS.PR_SUMMARY:
+            return <ProjectPRSummaryTable projectId={projectId} />;
+        case PROJECT_PAGE_TABS.SR_SUMMARY:
+            return <ProjectSRSummaryTable projectId={projectId} />;
+        case PROJECT_PAGE_TABS.POSUMMARY:
+            return <ProjectPOSummaryTable projectId={projectId} />;
+        case PROJECT_PAGE_TABS.FINANCIALS:
+            return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
+            totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
+        case PROJECT_PAGE_TABS.SPENDS:
+            return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
+            categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
+        case PROJECT_PAGE_TABS.MAKES:
+            return <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />; // Example
+        case PROJECT_PAGE_TABS.ESTIMATES:
+            return <ProjectEstimates projectTab />; // Example
+        default:
+            return <div>Select a tab.</div>;
+    }
+};
 
   return (
     <div className="flex-1 space-y-4">
@@ -1595,19 +1437,24 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         >
           <Menu
             selectedKeys={[activePage]}
-            onClick={onClick}
+            onClick={handlePageChange}
             mode="horizontal"
             items={items}
           />
         </ConfigProvider>
       </div>
 
+      {/* Content Area for the Active Tab */}
+      <Suspense fallback={<LoadingFallback />}>
+                {renderTabContent()}
+        </Suspense>
+
       {/* Overview Section */}
 
-      {activePage === "overview" && (
+      {/* {activePage === "overview" && (
         <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
       )
-      }
+      } */}
 
       {/* {activePage === "projectTracking" && (
         <div className="pr-2">
@@ -1645,34 +1492,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
       )} */}
 
-      {activePage === "prsummary" && (
-        <div>
-          <Card className="py-4 max-sm:py-2">
-            <CardContent className="w-full flex flex-row items-center justify-around max-sm:justify-between py-2">
-              {Object.entries(statusCounts)?.map(([status, count]) => (
-                <div>
-                  <span className="font-semibold">{status}: </span>
-                  <p className="italic inline-block">{count}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          {prData_loading ? (
-            <TableSkeleton />
-          ) : (
-            <DataTable
-              columns={prSummaryColumns}
-              data={pr_data?.filter(i => !i?.procurement_list?.list?.every(j => j?.status === "Deleted")) || []}
-              statusOptions={statusOptions}
-            />
-          )}
-        </div>
-      )}
+        {/* {activePage === "prsummary" && (
+          <Suspense fallback={<LoadingFallback />}>
+            <ProjectPRSummaryTable projectId={projectId} />
+          </Suspense>
+      )} */}
 
-
-      {activePage === "posummary" && (
+      {/* {activePage === "posummary" && (
         <>
-          {/* Card for Totals */}
+
           <Card>
             <CardContent className="flex flex-row items-center justify-between p-4">
               <CardDescription>
@@ -1682,16 +1510,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                 </p>
               </CardDescription>
               <CardDescription className="text-right">
-                {/* Calculating Totals */}
-                {/* {(() => {
-                  let totalAmountWithTax = 0;
-
-                  Object.keys(workPackageTotalAmounts || {}).forEach((key) => {
-                    const wpTotal = workPackageTotalAmounts[key];
-                    totalAmountWithTax += wpTotal.amountWithTax || 0;
-                  });
-
-                  return ( */}
                 <div className="flex flex-col items-start">
                   <p className="text-gray-700">
                     <span className="font-bold">Total inc. GST:</span>{" "}
@@ -1712,8 +1530,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     </span>
                   </p>
                 </div>
-                {/* );
-                })()} */}
               </CardDescription>
             </CardContent>
           </Card>
@@ -1729,43 +1545,37 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   itemSearch={true}
                   wpOptions={
                     wpOptions
-                    // [
-                    //   ...wpOptions,
-                    //   {
-                    //     label: "Tool & Equipments",
-                    //     value: "Tool & Equipments",
-                    //   },
-                    // ]
+                    
                   }
                 />
               )
             }
           </div>
         </>
-      )}
+      )} */}
 
-      {activePage === "projectspends" && (
+      {/* {activePage === "projectspends" && (
         <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options}
           categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
-      )}
+      )} */}
 
 
-      {activePage === "projectfinancials" && (
+      {/* {activePage === "projectfinancials" && (
         <Suspense fallback={<LoadingFallback />}>
           <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
             totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />
         </Suspense>
-      )}
+      )} */}
 
-      {activePage === "projectestimates" && (
+      {/* {activePage === "projectestimates" && (
         <ProjectEstimates projectTab />
-      )}
+      )} */}
 
-      {activePage === "projectmakes" && (
+      {/* {activePage === "projectmakes" && (
         <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />
-      )}
+      )} */}
 
-      {activePage === "SRSummary" && (
+      {/* {activePage === "SRSummary" && (
         <>
           <Card>
             <CardContent className="flex flex-row items-center justify-between p-4">
@@ -1783,12 +1593,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                       {formatToRoundedIndianRupee(getAllSRsTotalWithGST)}
                     </span>
                   </p>
-                  {/* <p className="text-gray-700">
+                  <p className="text-gray-700">
                         <span className="font-bold">Total exc. GST:</span>{" "}
                         <span className="text-blue-600">
                           {formatToIndianRupee(totalServiceOrdersAmt)}
                         </span>
-                      </p> */}
+                      </p>
                   <p className="text-gray-700">
                     <span className="font-bold">Total Amt Paid:</span>{" "}
                     <span className="text-blue-600">
@@ -1804,7 +1614,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             data={allServiceRequestsData || []}
           />
         </>
-      )}
+      )} */}
+
+      {/* {activePage === "srsummary" && (
+        <Suspense fallback={<LoadingFallback />}>
+          <ProjectSRSummaryTable projectId={projectId} />
+        </Suspense>
+      )} */}
 
       {/* <div className="hidden">
         <div ref={componentRef} className="px-4 pb-1">

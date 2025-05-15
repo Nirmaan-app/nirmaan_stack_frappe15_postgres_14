@@ -37,7 +37,7 @@ export const ServiceRequestsTabs : React.FC = () => {
             if (tab !== newTab) setTab(newTab);
         });
         return unsubscribe;
-    }, [tab, initialTab]);
+    }, [initialTab]);
 
     const {pendingSRCount, adminPendingSRCount, approvedSRCount, adminApprovedSRCount, adminAmendedSRCount, amendedSRCount, adminSelectedSRCount, selectedSRCount} = useDocCountStore()
 

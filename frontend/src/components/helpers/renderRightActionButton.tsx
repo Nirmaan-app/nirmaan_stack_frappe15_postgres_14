@@ -53,8 +53,8 @@ export const RenderRightActionButton = ({
 
   const navigate = useNavigate();
   const {role, user_id} = useUserData()
-  const { selectedProject, toggleNewItemDialog } = useContext(UserContext);
-  const { toggleNewInflowDialog } = useDialogStore()
+  const { selectedProject } = useContext(UserContext);
+  const { toggleNewInflowDialog, toggleNewItemDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];

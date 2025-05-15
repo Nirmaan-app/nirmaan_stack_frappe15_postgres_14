@@ -74,7 +74,7 @@ export const ProcurementRequests: React.FC = () => {
             if (tab !== newTab) setTab(newTab);
         });
         return unsubscribe;
-    }, [tab, initialTab]);
+    }, [initialTab]);
 
 
     const projectsFetchOptions = getProjectListOptions();

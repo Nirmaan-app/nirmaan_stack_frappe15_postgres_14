@@ -17,7 +17,7 @@ from datetime import timedelta, datetime # Ensure datetime is imported
 # Define constants
 DEFAULT_PAGE_LENGTH = 10
 MAX_PAGE_LENGTH = 2000
-CACHE_EXPIRY = 10 # 10 secs
+CACHE_EXPIRY = 300 # 5 minutes
 JSON_ITEM_SEARCH_DOCTYPE_MAP = {
     # Renamed item_path to item_path_parts for clarity
     "Procurement Orders": {"json_field": "order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
@@ -305,7 +305,8 @@ def get_list_with_count_enhanced(
     search_term: str | None = None, 
     current_search_fields: str | None = None, # Now a JSON string of a single field, e.g., '["name"]' or '["order_list"]'
     is_item_search: bool | str = False,
-    require_pending_items: bool | str = False # Flag for PR filtering
+    require_pending_items: bool | str = False, # Flag for PR filtering
+    to_cache: bool = False # Flag for caching
 ) -> dict:
 
     """
@@ -576,16 +577,40 @@ def get_list_with_count_enhanced(
                 print(f"--- Executing Item Search Workaround (on {target_search_field_name}) ---")
                 # (The Two-Step Item Search Logic - uses `processed_base_filters` for step 1)
                 # ... (Keep this logic exactly as it was working before) ...
-                json_field_name = search_config["json_field"]; item_path_parts = search_config["item_path_parts"]; item_name_key_in_json = search_config.get("item_name_key_in_json", item_path_parts[-1] if item_path_parts else "item"); escaped_search_term_for_like = f"%{search_term}%"; parent_names_query_args = {"doctype": doctype, "filters": processed_base_filters, "fields": ["name"], "limit_page_length": 0}; potential_parent_docs = reportview_execute(**parent_names_query_args); potential_parent_names = [doc.get("name") for doc in potential_parent_docs if doc.get("name")]
-                if not potential_parent_names: total_records, data = 0, []
+                json_field_name = search_config["json_field"]
+                item_path_parts = search_config["item_path_parts"]
+                item_name_key_in_json = search_config.get("item_name_key_in_json", item_path_parts[-1] if item_path_parts else "item")
+                escaped_search_term_for_like = f"%{search_term}%"
+
+                parent_names_query_args = {"doctype": doctype, "filters": processed_base_filters, "fields": ["name"], "limit_page_length": 0}
+                potential_parent_docs = reportview_execute(**parent_names_query_args)
+                potential_parent_names = [doc.get("name") for doc in potential_parent_docs if doc.get("name")]
+                if not potential_parent_names:
+                    total_records, data = 0, []
                 else:
-                    if not item_path_parts or len(item_path_parts) < 2 or item_path_parts[-2] != "*": frappe.throw(_(f"Invalid config for {target_search_field_name}: {item_path_parts}"))
-                    json_array_key = item_path_parts[0]; json_search_sql_where_part = f"""EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb))AS item_obj WHERE item_obj->>'{item_name_key_in_json}'ILIKE%(search_term)s)"""; sql_params = {"search_term": escaped_search_term_for_like, "names_tuple": tuple(potential_parent_names)}; count_sql = f"""SELECT COUNT(DISTINCT name)FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_search_sql_where_part})"""; count_result = frappe.db.sql(count_sql, sql_params); total_records = count_result[0][0] if count_result and count_result[0] else 0
+                    if not item_path_parts or len(item_path_parts) < 2 or item_path_parts[-2] != "*": 
+                        frappe.throw(_(f"Invalid config for {target_search_field_name}: {item_path_parts}"))
+                    json_array_key = item_path_parts[0]
+                    json_search_sql_where_part = f"""EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb))AS item_obj WHERE item_obj->>'{item_name_key_in_json}'ILIKE%(search_term)s)"""
+
+                    sql_params = {"search_term": escaped_search_term_for_like, "names_tuple": tuple(potential_parent_names)}
+                    count_sql = f"""SELECT COUNT(DISTINCT name)FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_search_sql_where_part})"""
+
+                    count_result = frappe.db.sql(count_sql, sql_params)
+                    total_records = count_result[0][0] if count_result and count_result[0] else 0
+
                     if total_records > 0:
-                        data_names_sql = f"""SELECT DISTINCT name FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_search_sql_where_part})"""; final_matching_names_result = frappe.db.sql(data_names_sql, sql_params, as_list=True); final_matching_names = [r[0] for r in final_matching_names_result]
-                        if final_matching_names: data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": [["name", "in", final_matching_names]], "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length, "ignore_permissions": False, "strict": False }); data = reportview_execute(**data_args)
-                        else: data = []
-                    else: data = []
+                        data_names_sql = f"""SELECT DISTINCT name FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_search_sql_where_part})"""
+                        final_matching_names_result = frappe.db.sql(data_names_sql, sql_params, as_list=True)
+                        final_matching_names = [r[0] for r in final_matching_names_result]
+
+                        if final_matching_names: 
+                            data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": [["name", "in", final_matching_names]], "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length, "ignore_permissions": False, "strict": False })
+                            data = reportview_execute(**data_args)
+                        else: 
+                            data = []
+                    else: 
+                        data = []
                 print(f"--- Finished Item Search Workaround ---")
             else:
                 print(f"WARNING: is_item_search=True but target_search_field '{target_search_field_name}' not configured for JSON search for {doctype}. Falling to standard search.")
@@ -593,7 +618,7 @@ def get_list_with_count_enhanced(
 
         # ** CASE 2: Pending Item Filter (if NOT item search) **
         # This elif should only be entered if is_item_search_bool was false or became false.
-        if not is_item_search_bool and require_pending_items_bool and doctype == "Procurement Requests":
+        if not is_item_search_bool and require_pending_items_bool and (doctype == "Procurement Requests" or doctype == "Sent Back Category"):
             print("--- Executing Pending Item Filter (Two-Step) ---")
             # Add standard targeted search condition to `current_and_filters` for Step 1
             if search_term and target_search_field_name:
@@ -601,22 +626,43 @@ def get_list_with_count_enhanced(
             
             parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
             # ... (rest of the Pending Item logic, ensuring it uses `final_and_filters` in Step 1) ...
-            potential_parent_docs = reportview_execute(**parent_names_query_args); potential_parent_names=[doc.get("name")for doc in potential_parent_docs if doc.get("name")]
-            if not potential_parent_names:total_records,data=0,[]
+            potential_parent_docs = reportview_execute(**parent_names_query_args)
+            potential_parent_names=[doc.get("name")for doc in potential_parent_docs if doc.get("name")]
+            if not potential_parent_names:
+                total_records,data=0,[]
             else:
-                search_config=JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype];json_field_name=search_config["json_field"];item_path_parts=search_config["item_path_parts"];item_status_key_in_json=search_config.get("item_status_key","status")
-                if not item_path_parts or len(item_path_parts)<2 or item_path_parts[-2]!="*":frappe.throw(_(f"Invalid config:{item_path_parts}"))
-                json_array_key=item_path_parts[0];json_pending_sql_where_part=f"""EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb))AS item_obj WHERE item_obj->>'{item_status_key_in_json}'='Pending')""";sql_params={"names_tuple":tuple(potential_parent_names)};count_sql=f"""SELECT COUNT(DISTINCT name)FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_pending_sql_where_part})""";count_result=frappe.db.sql(count_sql,sql_params);total_records=count_result[0][0]if count_result and count_result[0]else 0
+                search_config=JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
+                json_field_name=search_config["json_field"]
+                item_path_parts=search_config["item_path_parts"]
+                item_status_key_in_json=search_config.get("item_status_key","status")
+                
+                if not item_path_parts or len(item_path_parts)<2 or item_path_parts[-2]!="*":
+                    frappe.throw(_(f"Invalid config:{item_path_parts}"))
+                json_array_key=item_path_parts[0]
+
+                json_pending_sql_where_part=f"""EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb))AS item_obj WHERE item_obj->>'{item_status_key_in_json}'='Pending')"""
+
+                sql_params={"names_tuple":tuple(potential_parent_names)}
+
+                count_sql=f"""SELECT COUNT(DISTINCT name)FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_pending_sql_where_part})""";count_result=frappe.db.sql(count_sql,sql_params)
+                total_records=count_result[0][0]if count_result and count_result[0]else 0
+
                 if total_records>0:
-                    data_names_sql=f"""SELECT DISTINCT name FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_pending_sql_where_part})""";final_matching_names=[r[0]for r in frappe.db.sql(data_names_sql,sql_params,as_list=True)]
-                    if final_matching_names:data_args=frappe._dict({"doctype":doctype,"fields":parsed_select_fields_str_list,"filters":[["name","in",final_matching_names]],"order_by":_formatted_order_by,"limit_start":start,"limit_page_length":page_length,"ignore_permissions":False,"strict":False});data=reportview_execute(**data_args)
-                    else:data=[]
-                else:data=[]
+                    data_names_sql=f"""SELECT DISTINCT name FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_pending_sql_where_part})"""
+                    final_matching_names=[r[0]for r in frappe.db.sql(data_names_sql,sql_params,as_list=True)]
+
+                    if final_matching_names:
+                        data_args=frappe._dict({"doctype":doctype,"fields":parsed_select_fields_str_list,"filters":[["name","in",final_matching_names]],"order_by":_formatted_order_by,"limit_start":start,"limit_page_length":page_length,"ignore_permissions":False,"strict":False})
+                        data=reportview_execute(**data_args)
+                    else:
+                        data=[]
+                else:
+                    data=[]
             print(f"--- Finished Pending Item Filter ---")
 
         # ** CASE 3: Standard Targeted Search (or No Search if no term/field) **
         # This executes if not JSON item search and not PR pending item search.
-        if not is_item_search_bool and not (require_pending_items_bool and doctype == "Procurement Requests"):
+        if not is_item_search_bool and not (require_pending_items_bool and (doctype == "Procurement Requests" or doctype == "Sent Back Category")):
             print("--- Executing Standard Targeted Search / Fetch ---")
             if search_term and target_search_field_name:
                 # Add the single targeted search condition
@@ -643,8 +689,10 @@ def get_list_with_count_enhanced(
 
         # --- Return Result ---
         final_result = {"data": data, "total_count": total_records}
-        frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)
-        print(f"DEBUG: Result stored in cache with key: {cache_key}")
+        if to_cache:
+            frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)
+        # frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)
+            print(f"DEBUG: Result stored in cache with key: {cache_key}")
         return final_result
 
     # ... (Exception Handling - KEEP AS IS) ...

@@ -1,20 +1,20 @@
-// src/features/invoice-reconciliation/components/PendingTasksTable.tsx
 import React, { useEffect, useMemo } from 'react';
 import { useInvoiceTasks } from '../hooks/useInvoiceTasks';
 import { useInvoiceTaskActions } from '../hooks/useInvoiceTaskActions';
 import { getPendingTaskColumns } from './columns';
 // import { DataTable } from '@/components/data-table/data-table'; // Adjust path
-import { TailSpin } from 'react-loader-spinner'; // Adjust path
 import { useToast } from '@/components/ui/use-toast'; // Adjust path
 import { ConfirmationDialog } from '@/pages/ProcurementRequests/ApproveVendorQuotes/components/ConfirmationDialog';
 import { useFrappeDocTypeEventListener, useFrappeGetDocList } from 'frappe-react-sdk';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { InvoiceApprovalTask } from '@/types/NirmaanStack/Task';
-import { DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH, INVOICE_TASK_DATE_COLUMNS, INVOICE_TASK_SEARCHABLE_FIELDS, PENDING_INVOICE_TASK_STATIC_FILTERS } from '../config/InvoiceTaskTable.config';
-import { INVOICE_TASK_TYPE } from '../constants';
+import { DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH, getInvoiceTaskStaticFilters, INVOICE_TASK_DATE_COLUMNS, INVOICE_TASK_SEARCHABLE_FIELDS } from '../config/InvoiceTaskTable.config';
 import { TableSkeleton } from '@/components/ui/skeleton';
 import { DataTable } from '@/components/data-table/new-data-table';
+import { useUserData } from '@/hooks/useUserData';
+import { Terminal } from 'lucide-react';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 
 // --- Constants ---
@@ -23,29 +23,8 @@ const URL_SYNC_KEY = 'inv_pending_tasks'; // Unique key for this table
 
 export const PendingTasksTable: React.FC = () => {
     const { toast } = useToast();
+    const { role, user_id } = useUserData();
     // const { tasks, isLoading, error, mutateTasks, attachmentsMap } = useInvoiceTasks('Pending');
-
-    // const {
-    //     openConfirmationDialog,
-    //     closeConfirmationDialog,
-    //     onConfirmAction,
-    //     confirmationState,
-    //     loadingTaskId,
-    //     isProcessing,
-    // } = useInvoiceTaskActions({
-    //     onActionSuccess: mutateTasks, // Refresh data on success
-    // });
-
-    // const columns = React.useMemo(
-    //     () => getPendingTaskColumns(openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap),
-    //     [openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap] // Dependencies
-    // );
-
-    // if (error) {
-    //     console.error("Error fetching pending tasks:", error);
-    //     toast({ title: "Error", description: "Could not load pending invoice tasks.", variant: "destructive" });
-    //     // Optionally return an error component
-    // }
 
     // --- Fetch Attachments (Supporting Data) ---
     // This logic remains, but its data will be passed to columns.
@@ -84,6 +63,12 @@ export const PendingTasksTable: React.FC = () => {
         [openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap]
     );
 
+    const staticFilters = useMemo(() => getInvoiceTaskStaticFilters("Pending", role, user_id), [role, user_id])
+
+    const fetchFields = useMemo(() => DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH, [])
+
+    const invoiceTaskSearchableFeilds = useMemo(() => INVOICE_TASK_SEARCHABLE_FIELDS, [])
+
 
     // --- Main Data Table Hook ---
     const {
@@ -93,15 +78,13 @@ export const PendingTasksTable: React.FC = () => {
     } = useServerDataTable<InvoiceApprovalTask>({
         doctype: DOCTYPE,
         columns: columns, // Columns passed dynamically later, including actions
-        fetchFields: DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH,
-        searchableFields: INVOICE_TASK_SEARCHABLE_FIELDS,
+        fetchFields: fetchFields,
+        searchableFields: invoiceTaskSearchableFeilds,
         urlSyncKey: URL_SYNC_KEY,
         defaultSort: 'modified desc',
-        additionalFilters: PENDING_INVOICE_TASK_STATIC_FILTERS,
+        additionalFilters: staticFilters,
         enableRowSelection: false, // No bulk actions defined for pending tasks yet
     });
-
-    console.log("tasks", tasks)
 
     // Effect to extract attachment IDs from fetched tasks
     useEffect(() => {
@@ -127,8 +110,6 @@ export const PendingTasksTable: React.FC = () => {
         }
     }, [tasks]);
 
-    console.log("attachmentIds", attachmentIds)
-
 
     // --- Realtime Event Listener ---
     useFrappeDocTypeEventListener(DOCTYPE, (event) => {
@@ -150,47 +131,30 @@ export const PendingTasksTable: React.FC = () => {
     const combinedError = listError || attachmentsError; // Primary error from task list fetch
 
     if (combinedError) {
-        toast({ title: "Error", description: combinedError.message || "Could not load pending invoice tasks.", variant: "destructive" });
+        // Display prominent error from data fetching/processing
+        return (
+             <Alert variant="destructive" className="m-4">
+                <Terminal className="h-4 w-4" />
+                <AlertTitle>Error Loading Pending Invoice Tasks</AlertTitle>
+                <AlertDescription>
+                    Failed to fetch or process pending invoice data: {combinedError.message}
+                </AlertDescription>
+            </Alert>
+        );
     }
 
     return (
-        <div className="space-y-4">
-            {/* {isLoading ? (
-                <div className="flex justify-center items-center p-8"><TailSpin color="red" width={50} height={50} /></div>
-            ) : (
-                <DataTable columns={columns} data={tasks || []} />
-            )}
-
-            <ConfirmationDialog
-                isOpen={confirmationState.isOpen}
-                onClose={closeConfirmationDialog}
-                onConfirm={onConfirmAction}
-                isLoading={loadingTaskId === confirmationState.taskId} // Show loader only for the specific task
-                title={confirmationState.action === "Approved" ? "Confirm Approval" : "Confirm Rejection"}
-                confirmText={confirmationState.action === "Approved" ? "Approve" : "Reject"}
-                confirmVariant={confirmationState.action === "Approved" ? "default" : "destructive"}
-            >
-                <p className='text-sm text-muted-foreground text-center pt-2'>
-                    Are you sure you want to{' '}
-                    <strong className={confirmationState.action === "Rejected" ? "text-destructive" : "text-primary"}>
-                        {confirmationState.action === "Approved" ? "Approve" : "Reject"}
-                    </strong>
-                    {' '}invoice{' '}
-                    <strong>{confirmationState.taskInvoiceNo || `Task ID ${confirmationState.taskId}`}</strong>?
-                </p>
-            </ConfirmationDialog> */}
-
+        <div className="flex-1 space-y-4">
             {isLoadingOverall && !tasks?.length ? ( // Show skeleton if main list is loading and no data yet
                 <TableSkeleton />
             ) : (
                 <DataTable<InvoiceApprovalTask>
                     table={table}
                     columns={columns} // Pass the memoized columns
-                    // userDefinedColumnsForExport={columns} // Same columns for default export
                     isLoading={listIsLoading} // Loading state for the table data itself
                     error={listError}
                     totalCount={totalCount}
-                    searchFieldOptions={INVOICE_TASK_SEARCHABLE_FIELDS}
+                    searchFieldOptions={invoiceTaskSearchableFeilds}
                     selectedSearchField={selectedSearchField}
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
@@ -200,15 +164,16 @@ export const PendingTasksTable: React.FC = () => {
                     showExportButton={true}
                     onExport={'default'}
                     exportFileName="Pending_Invoice_Tasks"
-                    showRowSelection={false} // Or true if needed for bulk actions
-                    // isSelectionFeatureEnabledOnTable={isSelectionActiveOnTable}
                 />
             )}
 
             <ConfirmationDialog
                 isOpen={confirmationState.isOpen}
                 onClose={closeConfirmationDialog}
-                onConfirm={onConfirmAction}
+                onConfirm={async () => {
+                    await onConfirmAction();
+                    refetch();
+                }}
                 isLoading={loadingTaskId === confirmationState.taskId}
                 title={confirmationState.action === "Approved" ? "Confirm Approval" : "Confirm Rejection"}
                 confirmText={confirmationState.action === "Approved" ? "Approve" : "Reject"}

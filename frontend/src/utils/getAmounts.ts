@@ -46,7 +46,6 @@ export const getPOTotal = memoize(
 }, (order : any, loadingCharges = 0, freightCharges = 0) => JSON.stringify(order) + loadingCharges + freightCharges);
 
 
-
 export const getSRTotal = memoize(
   (order: any) => {
   let orderData: ServiceItemType[] = [];

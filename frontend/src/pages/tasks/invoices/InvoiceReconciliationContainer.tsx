@@ -41,7 +41,7 @@ export default function InvoiceReconciliationContainer() {
             }
         });
         return unsubscribe; // Cleanup subscription
-    }, [tab, initialTab]); // Depend on `tab` to avoid stale closures
+    }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
     const tabs = useMemo(() => [

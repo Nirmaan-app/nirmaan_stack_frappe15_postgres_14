@@ -13,14 +13,14 @@ import { EstimatedPriceOverview } from "@/components/procurement/EstimatedPriceO
 import NewMilestones from "@/components/updates/NewMilestones";
 // import { SentBackSummary } from '@/components/procurement/sent-back-summary' // Example if needed
 
-import { ApprovedQuotationsTable } from "@/pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
+import ApprovedQuotationsPage from "@/pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
 import DeliveryNote from "@/pages/DeliveryNotes/deliverynote";
 import DeliveryNotes from "@/pages/DeliveryNotes/deliverynotes";
-import ItemsTesting from "@/pages/Items/ItemsTableTesting";
+// import ItemsTesting from "@/pages/Items/ItemsTableTesting";
 import { RenderPurchaseOrdersTab } from "@/pages/ProcurementOrders/RenderPurchaseOrdersTab";
 import { ReleasePOSelect } from "@/pages/ProcurementOrders/purchase-order/release-po-select";
 import { NewCustomPR } from "@/pages/ProcurementRequests/NewPR/NewCustomPR";
-import { NewProcurementRequest } from "@/pages/ProcurementRequests/NewPR/new-new-pr";
+// import { NewProcurementRequest } from "@/pages/ProcurementRequests/NewPR/new-new-pr";
 import { ProcurementRequests } from "@/pages/ProcurementRequests/procurement-requests";
 import { RenderProcurementRequest } from "@/pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
 import { RenderProjectPaymentsComponent } from "@/pages/ProjectPayments/RenderProjectPaymentsComponent";
@@ -47,14 +47,15 @@ import { UserForm } from "@/pages/users/user-form";
 import Profile from "@/pages/users/user-profile";
 import Users from "@/pages/users/users";
 import { NewVendor } from "@/pages/vendors/new-vendor";
-import Vendors from "@/pages/vendors/vendors";
+import Vendors from "@/pages/vendors/VendorsPage";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
 import ReportsContainer from "@/pages/reports/ReportsContainer";
-import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
+// import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
+import ItemsPage from "@/pages/Items/itemsPage";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -289,7 +290,8 @@ export const appRoutes: RouteObject[] = [
           {
             path: "products",
             children: [
-              { index: true, element: <ItemsTesting /> },
+              // { index: true, element: <ItemsTesting /> },
+              {index: true, element: <ItemsPage />},
               { path: ":productId", lazy: () => import("@/pages/Items/item") },
             ],
           },
@@ -345,14 +347,14 @@ export const appRoutes: RouteObject[] = [
           {
             path: "approved-quotes", // Keep separate from debug or merge?
             children: [
-              { index: true, element: <ApprovedQuotationsTable /> },
+              { index: true, element: <ApprovedQuotationsPage /> },
               { path: ":poId", lazy: () => import("@/components/POSummary") },
             ],
           },
           {
             path: "debug",
             children: [
-              { index: true, element: <ApprovedQuotationsTable /> }, // Same component as approved-quotes?
+              { index: true, element: <ApprovedQuotationsPage /> }, // Same component as approved-quotes?
               { path: ":poId", lazy: () => import("@/components/POSummary") },
             ],
           },

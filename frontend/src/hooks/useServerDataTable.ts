@@ -122,6 +122,7 @@ export interface ServerDataTableConfig<TData> {
      * If not provided and clientData is used, totalCount will be clientData.length.
      */
     clientTotalCount?: number;
+    shouldCache?: boolean;
     
 }
 
@@ -212,7 +213,8 @@ export function useServerDataTable<TData extends { name: string }>({
     // -----------
     requirePendingItems = false, // Default to false
     clientData,
-    clientTotalCount
+    clientTotalCount,
+    shouldCache = false
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
 
     // const { call, loading: isLoading } = useFrappePostCall<{message: { data: TData[]; total_count: number } }>("nirmaan_stack.api.data-table.get_list_with_count_via_reportview_logic"); // Get Frappe call method from context
@@ -224,11 +226,10 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- SWR Mutate for Cache Invalidation ---
     const { mutate } = useSWRConfig();
     // -----------------------------------------
-
     // --- State Management ---
     const [pagination, setPagination] = useState<PaginationState>(() => ({
         pageIndex: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageIdx`, 0) : (initialState.pagination?.pageIndex ?? 0),
-        pageSize: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageSize`, 10) : (initialState.pagination?.pageSize ?? 10),
+        pageSize: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageSize`, 50) : (initialState.pagination?.pageSize ?? 50),
     }));
 
     const [sorting, setSorting] = useState<SortingState>(() =>
@@ -482,6 +483,7 @@ export function useServerDataTable<TData extends { name: string }>({
             current_search_fields: searchTermForApi && selectedSearchField ? JSON.stringify([selectedSearchField]) : undefined,
             is_item_search: searchTermForApi && isJsonField, // NEW: True if selectedSearchField.is_json is true
             require_pending_items: requirePendingItems,
+            to_cache: shouldCache,
             // -----------------------------
         };
 

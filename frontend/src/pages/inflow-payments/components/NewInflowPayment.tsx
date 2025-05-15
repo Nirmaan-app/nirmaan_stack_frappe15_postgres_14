@@ -51,8 +51,12 @@ const INITIAL_FORM_STATE: NewInflowFormState = {
     utr: "",
 };
 
+interface NewInflowPaymentProps {
+    refetch?: () => void; // Optional refetch function
+}
+
 // --- Component ---
-export const NewInflowPayment: React.FC = () => {
+export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) => {
     const { newInflowDialog, toggleNewInflowDialog } = useDialogStore();
     const { toast } = useToast();
 
@@ -181,13 +185,13 @@ export const NewInflowPayment: React.FC = () => {
             };
 
             await createDoc("Project Inflows", docToCreate);
-
             // If file was uploaded to a temp name, and if Frappe < v15 doesn't auto-relink,
             // you might need a setValue call here to update the attachment on the *actual* newDoc.name.
             // However, with frappe-react-sdk v0.0.9+ and Frappe v14/15+, `file_url` is usually sufficient.
 
             toast({ title: "Success!", description: "Inflow payment added successfully!", variant: "success" });
             projectInflowsMutate(); // Revalidate the list of inflows
+            refetch?.();
             closeDialogAndReset();
         } catch (error: any) {
             console.error("Error adding inflow payment:", error);

@@ -127,7 +127,7 @@ export default function ProjectReports() {
                 <Terminal className="h-4 w-4" />
                 <AlertTitle>Error Loading Project Reports</AlertTitle>
                 <AlertDescription>
-                    Failed to fetch or process project data: {dataProcessingError.message}
+                    Failed to fetch or process project data: {dataProcessingError?.message}
                 </AlertDescription>
             </Alert>
         );

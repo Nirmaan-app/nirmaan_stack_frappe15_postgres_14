@@ -146,7 +146,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             cell: ({ row }) => {
                 const customerName = getCustomerName(row.original.customer);
                 return (
-                     <div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
+                     <div className="font-medium flex items-center gap-1.5 group">
                         <span className="truncate" title={customerName}>{customerName}</span>
                         <HoverCard><HoverCardTrigger asChild><Link to={`/customers/${row.original.customer}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100"/></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Customer</HoverCardContent></HoverCard>
                     </div>
@@ -248,7 +248,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 // }
             />
             )}
-            <NewInflowPayment />
+            <NewInflowPayment refetch={refetch} />
         </div>
     );
 };

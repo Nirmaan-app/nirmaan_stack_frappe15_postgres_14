@@ -685,6 +685,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     fieldname: "payment_attachment", isPrivate: true,
                 });
             }
+            refetch();
             toast({ title: "Success!", description: "Payment fulfilled successfully!", variant: "success" });
             closeFulfillDialog();
             // Refetch will be handled by useServerDataTable's listener or manual refetch call

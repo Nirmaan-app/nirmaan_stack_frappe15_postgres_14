@@ -3,6 +3,7 @@ import { ArrowLeft, CirclePlus } from "lucide-react";
 import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
+import { Row } from "@tanstack/react-table";
 
 function Skeleton({
   className,
@@ -62,16 +63,17 @@ export const TableSkeleton = () => {
 }
 
 interface TableBodySkeletonProps {
+  shouldRenderSelectionColumn?: boolean | ((row: Row<any>) => boolean);
   colSpan: number;
-  rows?: number; // number of skeleton rows to show, default to 6
+  rows?: number; // number of skeleton rows to show, default to 5
 }
 
-export const TableBodySkeleton: React.FC<TableBodySkeletonProps> = ({ colSpan, rows = 8 }) => {
+export const TableBodySkeleton: React.FC<TableBodySkeletonProps> = ({shouldRenderSelectionColumn,  colSpan, rows = 5 }) => {
   return (
     <>
       {[...Array(rows)].map((_, rowIndex) => (
         <TableRow key={`skeleton-row-${rowIndex}`} aria-busy="true">
-          <TableCell />
+          {shouldRenderSelectionColumn && <TableCell />}
           {[...Array(colSpan)].map((_, colIndex) => (
             <TableCell
               key={`skeleton-cell-${rowIndex}-${colIndex}`}
