@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom"; // Removed useSearchParams, will use urlStateManager
-import { useFrappeGetDocList, useFrappeDocTypeEventListener, useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
 import { Radio } from 'antd'; // Assuming Ant Design is installed and configured
 import { useToast } from "@/components/ui/use-toast";
 
@@ -191,18 +191,6 @@ export default function VendorsPage() {
         additionalFilters: additionalFilters,
         enableRowSelection: false, // Adjust if selection is needed
         shouldCache: true
-    });
-
-    useFrappeDocTypeEventListener(VENDOR_DOCTYPE, (event) => {
-        toast({ title: `${VENDOR_DOCTYPE} data updated`, description: `Vendor ${event?.doc.name} was ${event?.event_type}. Refreshing list.`, duration: 2500 });
-        refetchTable();
-        // Optionally refetch vendor type counts if they could change
-    });
-    useFrappeDocTypeEventListener(CATEGORY_DOCTYPE, (event) => {
-        toast({ title: `Category data updated`, description: `Category ${event?.doc.name} was ${event?.event_type}. Refreshing UI options.`, duration: 2500 });
-        // This might require refetching categoryListRaw if category names change
-        // For simplicity, assuming category names don't change frequently enough to auto-refetch categoryListRaw here.
-        // If they do, trigger a refetch for `category_list_for_vendor_facets` SWR key.
     });
 
     const radioOptions = useMemo(() => VENDOR_TYPE_OPTIONS.map(opt => {

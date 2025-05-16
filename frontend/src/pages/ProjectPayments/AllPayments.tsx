@@ -34,6 +34,7 @@ import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsers
 import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 interface SelectOption { label: string; value: string; }
 
@@ -270,26 +271,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         additionalFilters: staticFilters,
     });
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (AllPayments - tab: ${tab}):`, event);
-        refetch();
-        toast({ title: "Payments list updated.", duration: 2000 });
-        // const relevantStatuses = tab === "Payments Done" ? [PAYMENT_STATUS.PAID] : [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.APPROVED];
-        // if (event.doc && relevantStatuses.includes(event.doc.status)) {
-        //     refetch();
-        //     toast({ title: "Payments list updated.", duration: 2000 });
-        // } else if (event.doctype === DOCTYPE && !event.doc?.status) {
-        //      refetch(); // For deletes
-        // }
-    });
-
     // --- Combined Loading & Error States ---
     const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading;
     const combinedErrorOverall = projectsError || vendorsError || poError || srError || listError;
 
     if (combinedErrorOverall && !data?.length) {
-        toast({ title: "Error loading data", description: combinedErrorOverall.message, variant: "destructive" });
+        <AlertDestructive error={combinedErrorOverall} />
     }
 
 

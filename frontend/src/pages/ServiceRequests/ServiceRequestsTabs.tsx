@@ -1,10 +1,10 @@
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { TailSpin } from "react-loader-spinner";
 
 
 const ApproveSelectSR = React.lazy(() => import("./service-request/approve-service-request-list"));
@@ -125,9 +125,7 @@ export const ServiceRequestsTabs : React.FC = () => {
         </div>
 
          <Suspense fallback={
-            <div className="flex items-center h-[90vh] w-full justify-center">
-                <TailSpin color={"red"} />{" "}
-            </div>
+            <LoadingFallback />
         }>
             {tab === "choose-vendor" ? (
             <SelectServiceVendorList />

@@ -16,12 +16,13 @@ import {
     Row,
     getFilteredRowModel,
 } from '@tanstack/react-table';
-import { useFrappeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappeDocTypeEventListener, useFrappeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { debounce } from 'lodash';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { fuzzyFilter } from '@/components/data-table/data-table-models';
+import { toast } from '@/components/ui/use-toast';
 
 // --- Configuration ---
 const DEBOUNCE_DELAY = 500;
@@ -489,11 +490,11 @@ export function useServerDataTable<TData extends { name: string }>({
 
         // --- Define the SWR Key for THIS specific fetch ---
         // Needs to include all params that affect the result
-        const currentQueryKey = [
-            SWR_KEY_PREFIX,
-            apiEndpoint,
-            JSON.stringify(payload) // Key based on exact payload
-           ];
+        // const currentQueryKey = [
+        //     SWR_KEY_PREFIX,
+        //     apiEndpoint,
+        //     JSON.stringify(payload) // Key based on exact payload
+        //    ];
 
         // console.log("[useServerDataTable calling backend] Payload:", payload);
 
@@ -573,28 +574,23 @@ export function useServerDataTable<TData extends { name: string }>({
             // The second argument `false` means don't refetch immediately IF the hook isn't mounted/visible.
             // SWR will revalidate automatically on focus or mount if data is stale.
             // We might still want an immediate refetch if the table *is* visible.
-            mutate(
-                (key) => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint && key[2]?.includes(`"doctype":"${doctype}"`), // More precise invalidation if needed
-                undefined, // Setting data to undefined forces refetch on next render/focus
-                { revalidate: true } // Trigger revalidation (refetch) immediately if component is mounted
-            );
+            // mutate(
+            //     (key) => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint && key[2]?.includes(`"doctype":"${doctype}"`), // More precise invalidation if needed
+            //     undefined, // Setting data to undefined forces refetch on next render/focus
+            //     { revalidate: true } // Trigger revalidation (refetch) immediately if component is mounted
+            // );
         
             // OR a simpler invalidation (might be less precise but often works):
             // mutate(key => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint, undefined, { revalidate: true });
         
             // Since we manage data with useState now, we might need to directly trigger fetchData
             fetchData(true); // Call fetchData directly to update our local state
+            toast({ title: "Data Updated", description: "Data updated successfully.", variant: "success" });
         }
     }, [doctype, apiEndpoint, mutate, fetchData]); // Add fetchData to deps
     
-    // Subscribe to doctype-specific events
-    useFrappeEventListener(`po:new`, handleRealtimeEvent);
-    useFrappeEventListener(`po:updated`, handleRealtimeEvent);
-    useFrappeEventListener(`po:status_changed`, handleRealtimeEvent);
-    useFrappeEventListener(`po:deleted`, handleRealtimeEvent);
-    useFrappeEventListener(`po:cancelled`, handleRealtimeEvent);
-    // Optionally listen to generic Frappe events (can be noisy)
-    // useFrappeEventListener(`list_update`, handleRealtimeEvent);
+
+    useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
 
     // --- TanStack Table Instance ---
     const table = useReactTable<TData>({
@@ -632,7 +628,8 @@ export function useServerDataTable<TData extends { name: string }>({
         getFacetedUniqueValues: getFacetedUniqueValues(), // Useful for faceted filter UI options
         // Configuration
         enableRowSelection: configEnableRowSelection,
-        debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
+        // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
+        // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });
 
     // NEW: Toggle Item Search

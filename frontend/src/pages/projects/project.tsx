@@ -38,6 +38,7 @@ import {
   MenuProps
 } from "antd";
 import {
+  useFrappeDocumentEventListener,
   useFrappeGetCall,
   useFrappeGetDoc,
   useFrappeGetDocList,
@@ -79,6 +80,7 @@ const ProjectOverviewTab = React.lazy(() => import("./ProjectOverviewTab"));
 const ProjectSpendsTab = React.lazy(() => import("./ProjectSpendsTab"));
 const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
+const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -96,7 +98,7 @@ const projectStatuses = [
   },
 ];
 
-interface po_item_data_item {
+export interface po_item_data_item {
   po_number: string
   vendor_id: string
   vendor_name: string
@@ -130,14 +132,38 @@ export const ProjectQueryKeys = {
 const Project: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
+  if(!projectId) return <div>No Project ID Provided</div>
+
   const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? ProjectQueryKeys.project(projectId) : null);
 
-  const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? ProjectQueryKeys.customer(data?.customer) : null);
+  useFrappeDocumentEventListener("Projects", projectId, (event) => {
+    console.log("Project document updated (real-time):", event);
+    toast({
+            title: "Document Updated",
+            description: `Project ${event.name} has been modified.`,
+        });
+    project_mutate();
+  },
+  true // emitOpenCloseEventsOnMount
+);
+
+  const { data: projectCustomer, isLoading: projectCustomerLoading, mutate: projectCustomerMutate } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? ProjectQueryKeys.customer(data?.customer) : null);
+
+  useFrappeDocumentEventListener("Customers", data?.customer, (event) => {
+    console.log("Customer document updated (real-time):", event);
+    toast({
+            title: "Document Updated",
+            description: `Customer ${event.name} has been modified.`,
+        });
+        projectCustomerMutate();
+  },
+  true // emitOpenCloseEventsOnMount
+  );
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{
     message: {
       po_items: po_item_data_item[],
-      custom: po_item_data_item[]
+      custom_items: po_item_data_item[]
     }
   }>(
     "nirmaan_stack.api.procurement_orders.generate_po_summary",
@@ -157,7 +183,7 @@ const Project: React.FC = () => {
         projectCustomer={projectCustomer}
         po_item_data={[
           ...po_item_data?.message?.po_items.map(item => ({ ...item, isCustom: false })) || [],
-          ...po_item_data?.message?.custom.map(item => ({ ...item, isCustom: true })) || [],
+          ...po_item_data?.message?.custom_items.map(item => ({ ...item, isCustom: true })) || [],
         ]}
       />
     )
@@ -165,7 +191,7 @@ const Project: React.FC = () => {
 };
 
 interface ProjectViewProps {
-  projectId: string | undefined;
+  projectId: string;
   data: any;
   project_mutate: any;
   projectCustomer?: Customers;
@@ -197,11 +223,12 @@ export const PROJECT_PAGE_TABS = {
     OVERVIEW: 'overview',
     PR_SUMMARY: 'prsummary',
     SR_SUMMARY: 'srsummary',
-    POSUMMARY: 'posummary',
+    PO_SUMMARY: 'posummary',
     FINANCIALS: 'projectfinancials',
-    SPENDS: 'projectspends', // Example
-    MAKES: 'projectmakes',   // Example
-    ESTIMATES: 'projectestimates', // Example
+    SPENDS: 'projectspends',
+    MAKES: 'projectmakes',  
+    ESTIMATES: 'projectestimates',
+    MATERIAL_USAGE: 'projectmaterialusage', // need to create this
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -294,7 +321,7 @@ type MenuItem = Required<MenuProps>["items"][number];
     },
     {
       label: "PO Summary",
-      key: PROJECT_PAGE_TABS.POSUMMARY,
+      key: PROJECT_PAGE_TABS.PO_SUMMARY,
     },
     // ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
     //   role
@@ -319,7 +346,11 @@ type MenuItem = Required<MenuProps>["items"][number];
     {
       label: "Project Makes",
       key: PROJECT_PAGE_TABS.MAKES
-    }
+    },
+  {
+    label: "Material Usage",
+    key: PROJECT_PAGE_TABS.MATERIAL_USAGE
+  }
   ], [role]);
 
 // Define tabs available based on role or other logic
@@ -328,7 +359,7 @@ type MenuItem = Required<MenuProps>["items"][number];
 //       { label: "Overview", value: PROJECT_PAGE_TABS.OVERVIEW },
 //       { label: "PR Summary", value: PROJECT_PAGE_TABS.PR_SUMMARY },
 //       { label: "SR Summary", value: PROJECT_PAGE_TABS.SR_SUMMARY },
-//       { label: "PO Summary", value: PROJECT_PAGE_TABS.POSUMMARY },
+//       { label: "PO Summary", value: PROJECT_PAGE_TABS.PO_SUMMARY },
 //       { label: "Project Spends", value: PROJECT_PAGE_TABS.SPENDS },
 //       { label: "Financials", value: PROJECT_PAGE_TABS.FINANCIALS },
 //       { label: "Project Estimates", value: PROJECT_PAGE_TABS.ESTIMATES },
@@ -422,18 +453,18 @@ type MenuItem = Required<MenuProps>["items"][number];
     projectId ? `Procurement Requests ${projectId}` : null
   );
 
-  const { data: mergedPOData, isLoading: mergedPOLoading } = useFrappeGetDocList<ProcurementOrdersType>(
-    "Procurement Orders",
-    {
-      fields: ["*"],
-      filters: [
-        ["project", "=", projectId],
-        ["status", "=", "Merged"],
-      ], // removed ["status", "!=", "PO Approved"] for now
-      limit: 1000,
-      orderBy: { field: "creation", order: "desc" },
-    }
-  );
+  // const { data: mergedPOData, isLoading: mergedPOLoading } = useFrappeGetDocList<ProcurementOrdersType>(
+  //   "Procurement Orders",
+  //   {
+  //     fields: ["*"],
+  //     filters: [
+  //       ["project", "=", projectId],
+  //       ["status", "=", "Merged"],
+  //     ], // removed ["status", "!=", "PO Approved"] for now
+  //     limit: 1000,
+  //     orderBy: { field: "creation", order: "desc" },
+  //   }
+  // );
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
@@ -1298,7 +1329,7 @@ type MenuItem = Required<MenuProps>["items"][number];
             return <ProjectPRSummaryTable projectId={projectId} />;
         case PROJECT_PAGE_TABS.SR_SUMMARY:
             return <ProjectSRSummaryTable projectId={projectId} />;
-        case PROJECT_PAGE_TABS.POSUMMARY:
+        case PROJECT_PAGE_TABS.PO_SUMMARY:
             return <ProjectPOSummaryTable projectId={projectId} />;
         case PROJECT_PAGE_TABS.FINANCIALS:
             return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
@@ -1310,6 +1341,8 @@ type MenuItem = Required<MenuProps>["items"][number];
             return <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />; // Example
         case PROJECT_PAGE_TABS.ESTIMATES:
             return <ProjectEstimates projectTab />; // Example
+        case PROJECT_PAGE_TABS.MATERIAL_USAGE:
+            return <ProjectMaterialUsageTab projectId={projectId} />;
         default:
             return <div>Select a tab.</div>;
     }

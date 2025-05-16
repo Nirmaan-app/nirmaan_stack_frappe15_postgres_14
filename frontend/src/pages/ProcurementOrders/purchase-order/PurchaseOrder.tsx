@@ -65,6 +65,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
 import {
   useFrappeCreateDoc,
+  useFrappeDocumentEventListener,
   useFrappeGetDocList,
   useFrappePostCall,
   useFrappeUpdateDoc
@@ -97,6 +98,8 @@ import POPaymentTermsCard from "./components/POPaymentTermsCard";
 import TransactionDetailsCard from "./components/TransactionDetailsCard";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -117,6 +120,8 @@ export const PurchaseOrder = ({
   const params = useParams();
   const id = summaryPage ? params.poId : params.id;
 
+  if(!id) return <div>No PO ID Provided</div>
+
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
 
@@ -124,10 +129,22 @@ export const PurchaseOrder = ({
     list: []
   });
   const [PO, setPO] = useState<ProcurementOrder | null>(null)
+
   const { data: po, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
     fields: ["*"],
     filters: [["name", "=", poId]],
   });
+
+  useFrappeDocumentEventListener("Procurement Orders", poId, (event) => {
+          console.log("Procurement Orders document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Procurement Order ${event.name} has been modified.`,
+          });
+          poMutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
 
   const { errors, isValid } = usePOValidation(PO);
 
@@ -709,9 +726,7 @@ export const PurchaseOrder = ({
     poPaymentsLoading
   )
     return (
-      <div className="flex items-center h-[90vh] w-full justify-center">
-        <TailSpin color={"red"} />{" "}
-      </div>
+      <LoadingFallback />
     );
   if (
     associated_po_list_error ||
@@ -721,7 +736,7 @@ export const PurchaseOrder = ({
     poError ||
     poPaymentsError
   )
-    return <h1>Error</h1>;
+    return <AlertDestructive error={associated_po_list_error || usersListError || poError || poPaymentsError} />
   if (
     !summaryPage &&
     !accountsPage &&

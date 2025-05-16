@@ -22,7 +22,7 @@ def _calculate_sr_totals(sr_doc):
     return {"total_incl_gst":  total_excl_gst, "total_excl_gst": total_excl_gst}
 
 @frappe.whitelist()
-@redis_cache(ttl=5*60)
+@redis_cache(shared=True)
 def get_project_sr_summary_aggregates(project_id: str):
     """
     Calculates and returns aggregated summary for Service Requests of a given project.
@@ -160,7 +160,7 @@ def _get_pr_derived_status(pr_doc_dict, project_po_list):
 
 
 @frappe.whitelist()
-@redis_cache(ttl=5*60) # Cache for 5 minutes
+@redis_cache(shared=True)
 def get_project_pr_status_counts(project_id: str):
     if not project_id:
         frappe.throw(_("Project ID is required."))
@@ -289,7 +289,7 @@ def _calculate_po_totals_for_doc(po_doc_dict):
 
 
 @frappe.whitelist()
-@redis_cache(ttl=5*60) # Cache for 5 minutes
+@redis_cache(shared=True)
 def get_project_po_summary_aggregates(project_id: str):
     if not project_id:
         frappe.throw(_("Project ID is required."))

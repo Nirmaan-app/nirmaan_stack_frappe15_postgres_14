@@ -1,6 +1,6 @@
+import { useUrlParam } from "@/hooks/useUrlParam";
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
 
 
 const SentBackSummary = React.lazy(() => import("./sent-back-summary"));
@@ -8,9 +8,8 @@ const SentBackVendorQuotes = React.lazy(() => import("./SentBackVendorQuotes"));
 const SBQuotesSelectionReview = React.lazy(() => import("./SBQuotesSelectionReview"));
 
 export const RenderSentBackComponent : React.FC = () => {
-    const [searchParams] = useSearchParams();
 
-    const mode = searchParams.get("mode") || "summary";
+    const mode = useUrlParam("mode") || "summary";
 
     return (
         <Suspense fallback={

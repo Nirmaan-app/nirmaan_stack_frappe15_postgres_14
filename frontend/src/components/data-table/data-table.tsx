@@ -184,7 +184,7 @@ export function DataTable<TData, TValue>({
       rowSelection,
       globalFilter,
     },
-    manualPagination: false
+    manualPagination: false,
   });
 
 

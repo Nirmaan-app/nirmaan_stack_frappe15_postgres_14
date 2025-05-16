@@ -2,7 +2,6 @@ import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
-import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -26,6 +25,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "./hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "../config/prTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
@@ -33,7 +33,6 @@ const URL_SYNC_KEY = 'pr_new_approve'; // Unique key for this specific table ins
 
 // --- Component ---
 export const ApprovePR: React.FC = () => {
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
     
     const projectsFetchOptions = getProjectListOptions();
@@ -64,11 +63,6 @@ export const ApprovePR: React.FC = () => {
     ], []);
 
     // --- Fields to Fetch ---
-    // const fieldsToFetch: (keyof ProcurementRequest | 'name')[] = useMemo(() => [
-    //     "name", "creation", "modified", "owner", "project",
-    //     "work_package", "procurement_list", // Needed for ItemsHoverCard
-    //     "category_list", "workflow_state"
-    // ], []);
 
     const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(['creation',
         'modified', 'category_list', 'procurement_list']), [])
@@ -175,21 +169,15 @@ export const ApprovePR: React.FC = () => {
         additionalFilters: staticFilters, // Filter by workflow_state = Pending
     });
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event received for ${DOCTYPE} (ApprovePR View):`, event);
-        // Refetch if a PR is created or updated (could refine based on workflow state if needed)
-        refetch();
-        toast({ title: "Procurement Requests list updated.", duration: 2000 });
-    });
-
 
     // --- Combined Loading State & Error Handling ---
     const isLoading = projectsLoading || userListLoading;
     const error = projectsError || userError || listError;
 
     if (error) {
-        toast({ title: "Error loading data", description: error.message, variant: "destructive" });
+        return (
+            <AlertDestructive error={error as Error} />
+        );
     }
 
     return (
