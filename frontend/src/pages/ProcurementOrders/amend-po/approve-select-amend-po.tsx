@@ -1,9 +1,8 @@
 import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -28,6 +27,7 @@ import { useVendorsList } from "../../ProcurementRequests/VendorQuotesSelection/
 import { useUsersList } from "../../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PO_FIELDS_TO_FETCH, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS } from "../purchase-order/config/purchaseOrdersTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Orders';
@@ -35,7 +35,6 @@ const URL_SYNC_KEY = 'po_amend_approve'; // Unique key for this table instance
 
 // --- Component ---
 export const ApproveSelectAmendPO: React.FC = () => {
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     const projectsFetchOptions = getProjectListOptions();
@@ -181,24 +180,12 @@ export const ApproveSelectAmendPO: React.FC = () => {
     });
 
 
-    useFrappeDocTypeEventListener("Procurement orders", async (event) => {
-        const handleRealtimeUpdate = (eventData: any) => {
-            console.log(`Realtime event received for ${DOCTYPE}:`, eventData);
-            // Optionally check if the update is relevant (e.g., based on workflow_state)
-            // For simplicity, refetch on any relevant doctype event
-             refetch();
-             toast({ title: "Procurement Orders updated.", duration: 2000 });
-        };
-        handleRealtimeUpdate(event);
-    });
-
-
     // --- Combined Loading State & Error Handling ---
     const isLoading = projectsLoading || vendorsLoading || userListLoading;
     const error = projectsError || vendorsError || userError || listError;
 
     if (error) {
-        toast({ title: "Error loading data", description: error.message, variant: "destructive" });
+        return <AlertDestructive error={error} />
     }
 
     // TODO: Implement actual bulk approve/reject actions using table.getSelectedRowModel()

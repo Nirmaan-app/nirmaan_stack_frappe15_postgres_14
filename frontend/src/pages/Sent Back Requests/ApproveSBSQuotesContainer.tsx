@@ -10,10 +10,11 @@ import { useApproveSBSLogic } from './hooks/useApproveSBSLogic'; // Use SB logic
 import { NirmaanComments } from '@/types/NirmaanStack/NirmaanComments'; // Adjust path
 import { useVendorsList } from '../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 import { useApprovedQuotationsList } from '../ProcurementRequests/ApproveVendorQuotes/hooks/useApprovedQuotationsList';
-import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeDocumentEventListener, useFrappeGetDocList } from 'frappe-react-sdk';
 import { ProcurementItem } from '@/types/NirmaanStack/ProcurementRequests';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { useUsersList } from '../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
+import { toast } from '@/components/ui/use-toast';
 
 export const ApproveSBSQuotesContainer: React.FC = () => {
     const { id: sbId } = useParams<{ id: string }>(); // Use sbId
@@ -27,6 +28,18 @@ export const ApproveSBSQuotesContainer: React.FC = () => {
     // --- Data Fetching ---
     // Use the specific hook for Sent Back Category
     const { data: sbData, isLoading: sbLoading, error: sbError, mutate: sbMutate } = useSentBackCategoryDoc(sbId);
+
+    useFrappeDocumentEventListener("Sent Back Category", sbId, (event) => {
+          console.log("Sent Back Category document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Sent Back Category ${event.name} has been modified.`,
+          });
+          sbMutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
+
     const { data: vendorList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList();
     const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
     const { data: quotesData, isLoading: quotesLoading, error: quotesError } = useApprovedQuotationsList();

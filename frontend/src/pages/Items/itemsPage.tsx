@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -109,15 +109,6 @@ export default function ItemsPage() {
         urlSyncKey: 'items_master',
         enableRowSelection: false,
         shouldCache: true
-    });
-
-    useFrappeDocTypeEventListener(ITEM_DOCTYPE, (event) => {
-        toast({ title: `${ITEM_DOCTYPE} Updated`, description: `Item ${event?.doc.name} was ${event?.event_type}. Refreshing...`, duration: 2500 });
-        refetchTable();
-    });
-    useFrappeDocTypeEventListener(CATEGORY_DOCTYPE, (event) => { // If category changes affect item display significantly
-        toast({ title: `${CATEGORY_DOCTYPE} Updated`, description: `Category ${event?.doc.name} was ${event?.event_type}. Refreshing items...`, duration: 2500 });
-        refetchTable(); // Refetch items if category name might have changed and is displayed
     });
 
     const facetFilterOptions = useMemo(() => ({

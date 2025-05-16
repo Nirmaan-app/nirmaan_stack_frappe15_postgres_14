@@ -27,8 +27,6 @@ import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes"; 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal } from "lucide-react";
 
 // --- Config ---
 import {
@@ -37,6 +35,7 @@ import {
     PROJECT_DATE_COLUMNS,
     getProjectStaticFilters
 } from './config/projectTable.config';
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Projects';
@@ -315,39 +314,15 @@ export const Projects: React.FC<ProjectsProps> = ({
         // customer: { title: "Customer", options: customerOptions }, // If customer is a direct field on Project and searchable
     }), [statusOptions, projectTypeOptions]);
 
-
-    // --- Realtime Update Handling ---
-    // Refetch project list if a project is updated.
-    // More granular updates could be handled if other doctypes (PO, SR) change, triggering recalculation of processedProjects.
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (ProjectsList):`, event);
-        refetch(); // Refetch the main projects list
-        // Potentially trigger refetch of supporting data if necessary, e.g., by invalidating SWR keys
-        // For now, relying on hook's refetch for the primary list.
-    });
-    // useFrappeDocTypeEventListener("Procurement Requests", () => prDataLoading === false && prDataMutate()); // Example
-    // Add listeners for POs, SRs, Inflows, Payments if their changes should immediately reflect in financials/counts
-
-
     // --- Combined Loading & Error States ---
     const isLoadingOverall = poDataLoading || srDataLoading || projectInflowsLoading || projectPaymentsLoading || projectTypesLoading;
 
     const combinedErrorOverall = poDataError || srDataError || projectInflowsError || projectPaymentsError || projectTypesError || listError;
 
-    // if (combinedErrorOverall && !projectsDataForTable?.length) {
-    //     toast({ title: "Error loading project data", description: combinedErrorOverall.message, variant: "destructive" });
-    // }
-
     if (combinedErrorOverall && !projectsDataForTable?.length) {
             // Display prominent error from data fetching/processing
             return (
-                 <Alert variant="destructive" className="m-4">
-                    <Terminal className="h-4 w-4" />
-                    <AlertTitle>Error Loading Projects Data</AlertTitle>
-                    <AlertDescription>
-                        Failed to fetch or process project data: {combinedErrorOverall?.message}
-                    </AlertDescription>
-                </Alert>
+                 <AlertDestructive error={combinedErrorOverall} />
             );
         }
 

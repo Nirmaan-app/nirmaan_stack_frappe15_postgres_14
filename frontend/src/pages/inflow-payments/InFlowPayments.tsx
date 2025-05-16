@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useEffect, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs, Filter } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter } from "frappe-react-sdk";
 import { Download, Info } from "lucide-react";
 
 // --- UI Components ---
@@ -15,7 +15,6 @@ import SITEURL from "@/constants/siteURL";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useDialogStore } from "@/zustand/useDialogStore";
 import { memoize } from "lodash";
 
 // --- Types ---
@@ -34,7 +33,7 @@ import { getCustomerListOptions, getProjectListOptions, queryKeys } from "@/conf
 
 // --- Child Component (Dialog for new inflow) ---
 import { NewInflowPayment } from "./components/NewInflowPayment";
-import { toast } from "@/components/ui/use-toast";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Project Inflows';
@@ -194,28 +193,13 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
         additionalFilters: staticFilters,
     });
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (InFlowPayments):`, event);
-        // Refetch if the new/updated inflow matches current filters (projectId/customerId)
-        refetch();
-        toast({ title: "Inflow Payments list updated.", duration: 2000 });
-        // let shouldRefetch = true;
-        // if (projectId && event.doc?.project !== projectId) shouldRefetch = false;
-        // if (customerId && event.doc?.customer !== customerId) shouldRefetch = false;
-        // if (shouldRefetch) {
-        //     refetch();
-        //     toast({ title: "Inflow Payments list updated.", duration: 2000 });
-        // }
-    });
-
 
     // --- Combined Loading & Error States ---
     const isLoadingOverall = projectsLoading || customersLoading;
     const combinedErrorOverall = projectsError || customersError || listError;
 
     if (combinedErrorOverall && !data?.length) {
-        toast({ title: "Error loading data", description: combinedErrorOverall.message, variant: "destructive" });
+        <AlertDestructive error={combinedErrorOverall} />
     }
 
     return (

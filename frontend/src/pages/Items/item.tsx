@@ -1,4 +1,5 @@
 import { SelectUnit } from "@/components/helpers/SelectUnit"
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription } from "@/components/ui/card"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -8,7 +9,7 @@ import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
 import { Items } from "@/types/NirmaanStack/Items"
-import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { FilePenLine, ListChecks } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useParams } from "react-router-dom"
@@ -35,6 +36,17 @@ const ItemView = ({ productId }: { productId: string }) => {
             revalidateIfStale: false,
         }
     );
+
+    useFrappeDocumentEventListener("Items", productId, (event) => {
+          console.log("Items document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Items ${event.name} has been modified.`,
+          });
+          mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
 
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["category_name", "work_package"],
@@ -94,7 +106,7 @@ const ItemView = ({ productId }: { productId: string }) => {
             })
     }
 
-    if (error) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
+    if (error) return <AlertDestructive error={error} />
 
     return (
         <div className="flex-1 md:space-y-4">

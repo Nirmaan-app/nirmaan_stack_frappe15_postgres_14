@@ -4,7 +4,7 @@ import React, { Suspense } from "react";
 
 export const RenderPurchaseOrdersTab : React.FC = () => {
 
-  const tab = useUrlParam("tab");
+  const tab = useUrlParam("tab") || "Approve PO";
 
   // const ApprovePO = React.lazy(() => import("@/pages/ProcurementRequests/ApproveVendorQuotes/approve-r-reject-vendor-quotes"));
 

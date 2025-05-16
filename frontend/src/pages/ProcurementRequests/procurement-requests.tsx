@@ -1,10 +1,9 @@
 import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Radio } from "antd";
 import { Trash2 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -38,6 +37,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "./ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "./config/prTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Lazy Loaded Tab Components ---
 const ApprovePR = React.lazy(() => import("./ApproveNewPR/approve-pr"));
@@ -50,7 +50,6 @@ const URL_SYNC_KEY_BASE = 'pr'; // Base key for URL params for this page
 // --- Component ---
 export const ProcurementRequests: React.FC = () => {
     const { role } = useUserData();
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     // --- Tab State Management using urlStateManager ---
@@ -249,23 +248,6 @@ export const ProcurementRequests: React.FC = () => {
         }
     );
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => { // Correct hook usage
-        console.log(`Realtime event received for ${DOCTYPE} (Main View):`, event);
-        if (shouldRenderDataTable) {
-             serverDataTable.refetch();
-        }
-        // Optionally, trigger mutate for other components if they are visible and use useFrappeGetDocList
-        // e.g. if ApprovePR or SentBackRequest are visible and use their own useFrappeGetDocList
-        if (tab === "Approve PR" /* && ApprovePR is visible */) {
-             // Need a way to trigger mutate for ApprovePR if it's using useFrappeGetDocList
-             // This part might require ApprovePR to also use `refetch` from useServerDataTable
-             // or a global event bus / Zustand action.
-        }
-        toast({ title: `${DOCTYPE} list updated.`, duration: 2000 });
-    });
-
-
     // --- Combined Loading & Error States ---
     const isSupportingDataLoading = projectsLoading || userListLoading;
     const supportingDataError = projectsError || userError;
@@ -295,7 +277,7 @@ export const ProcurementRequests: React.FC = () => {
 
         if (shouldRenderDataTable) {
             if (isSupportingDataLoading) return <TableSkeleton />;
-            if (supportingDataError) return <div className="text-red-500 p-4">Error loading supporting data: {supportingDataError.message}</div>;
+            if (supportingDataError) return <AlertDestructive error={supportingDataError} />;
 
             return (
                 <DataTable<ProcurementRequest>

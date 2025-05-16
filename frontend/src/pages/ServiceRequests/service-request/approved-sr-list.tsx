@@ -30,6 +30,7 @@ import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { DEFAULT_SR_FIELDS_TO_FETCH, SR_DATE_COLUMNS, SR_SEARCHABLE_FIELDS } from "../config/srTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Service Requests';
@@ -224,31 +225,12 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         // requirePendingItems: false, // Not applicable for "Approved" SR list
     });
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (ApprovedSRList - for_vendor: ${for_vendor}):`, event);
-        refetch();
-        toast({ title: "Approved Service Requests list updated.", duration: 2000 });
-        // Refetch if the updated doc status is "Approved" and matches vendor filter if present
-        // if (event.doc && event.doc.status === "Approved") {
-        //     if (for_vendor && event.doc.vendor === for_vendor) {
-        //         refetch();
-        //         toast({ title: "Approved Service Requests list updated.", duration: 2000 });
-        //     } else if (!for_vendor) {
-        //         refetch();
-        //         toast({ title: "Approved Service Requests list updated.", duration: 2000 });
-        //     }
-        // } else if (event.doctype === DOCTYPE && !event.doc?.status) { // Generic update like delete
-        //      refetch();
-        // }
-    });
-
     // --- Combined Loading & Error States ---
     const isLoading = projectsLoading || vendorsLoading || userListLoading || projectPaymentsLoading;
     const combinedError = projectsError || vendorsError || userError || projectPaymentsError || listError;
 
     if (combinedError) {
-        toast({ title: "Error loading data", description: combinedError.message, variant: "destructive" });
+        return <AlertDestructive error={combinedError} />
     }
 
     return (

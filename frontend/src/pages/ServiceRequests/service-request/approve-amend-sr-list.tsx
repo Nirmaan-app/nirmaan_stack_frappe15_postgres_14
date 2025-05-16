@@ -1,8 +1,7 @@
 import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
-import { useToast } from "@/components/ui/use-toast";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -28,6 +27,7 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { DEFAULT_SR_FIELDS_TO_FETCH, SR_DATE_COLUMNS, SR_SEARCHABLE_FIELDS } from "../config/srTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 
 // --- Constants ---
@@ -36,7 +36,6 @@ const URL_SYNC_KEY = 'sr_amend_approve'; // Unique key for this table instance
 
 // --- Component ---
 export const ApproveSelectAmendSR: React.FC = () => {
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { getTotalAmount } = useOrderTotals()
 
@@ -174,27 +173,13 @@ export const ApproveSelectAmendSR: React.FC = () => {
         additionalFilters: staticFilters,
     });
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (ApproveSelectAmendSR):`, event);
-        refetch();
-        toast({ title: "Amended Service Requests list updated.", duration: 2000 });
-        // Refetch if the updated doc status is "Amendment"
-        // if (event.doc && event.doc.status === "Amendment") {
-        //      refetch();
-        //      toast({ title: "Amended Service Requests list updated.", duration: 2000 });
-        // } else if (event.doctype === DOCTYPE && !event.doc?.status) {
-        //     refetch();
-        // }
-    });
-
 
     // --- Combined Loading & Error States ---
     const isLoading = projectsLoading || vendorsLoading || userListLoading;
     const combinedError = projectsError || vendorsError || userError || listError;
 
     if (combinedError) {
-        toast({ title: "Error loading data", description: combinedError.message, variant: "destructive" });
+        return <AlertDestructive error={combinedError} />
     }
 
     return (

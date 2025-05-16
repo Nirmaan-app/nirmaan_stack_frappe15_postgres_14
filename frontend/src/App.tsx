@@ -10,12 +10,13 @@ import { SidebarProvider } from "./components/ui/sidebar";
 import { ThemeProvider } from "./components/ui/theme-provider";
 import { messaging } from "./firebase/firebaseConfig";
 import { UserProvider } from "./utils/auth/UserProvider";
+import { SocketInitializer } from "./config/SocketInitializer";
 
 // --- Router Creation ---
 const router = createBrowserRouter(
   appRoutes,
   {
-    basename: `/${import.meta.env.VITE_BASE_NAME}` ?? "",
+    basename: `/${import.meta.env.VITE_BASE_NAME}`,
   }
 );
 
@@ -51,7 +52,7 @@ const App: FC = () => {
     // }
     return window.frappe?.boot?.sitename !== undefined
       ? window.frappe?.boot?.sitename
-      : import.meta.env.VITE_SITE_NAME;
+      : (import.meta.env.VITE_SITE_NAME || window.location.hostname); // Default to hostname if VITE_SITE_NAME is missing
   };
 
   // const queryClient = new QueryClient()
@@ -59,16 +60,17 @@ const App: FC = () => {
   return (
     <FrappeProvider
       url={import.meta.env.VITE_FRAPPE_PATH ?? ""}
-      socketPort={
-        import.meta.env.VITE_SOCKET_PORT
-          ? import.meta.env.VITE_SOCKET_PORT
-          : undefined
-      }
+      // socketPort={
+      //   import.meta.env.VITE_SOCKET_PORT
+      //     ? import.meta.env.VITE_SOCKET_PORT
+      //     : undefined
+      // }
       //@ts-ignore
       siteName={getSiteName()}
       // enableSocket={false}
     >
       <UserProvider>
+        <SocketInitializer />
         <SidebarProvider>
           {/* <QueryClientProvider client={queryClient}> */}
           <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">

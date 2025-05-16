@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo } from 'react';
-import { useInvoiceTasks } from '../hooks/useInvoiceTasks';
 import { useInvoiceTaskActions } from '../hooks/useInvoiceTaskActions';
 import { getPendingTaskColumns } from './columns';
 // import { DataTable } from '@/components/data-table/data-table'; // Adjust path
-import { useToast } from '@/components/ui/use-toast'; // Adjust path
 import { ConfirmationDialog } from '@/pages/ProcurementRequests/ApproveVendorQuotes/components/ConfirmationDialog';
-import { useFrappeDocTypeEventListener, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { InvoiceApprovalTask } from '@/types/NirmaanStack/Task';
@@ -13,8 +11,7 @@ import { DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH, getInvoiceTaskStaticFilters, INVO
 import { TableSkeleton } from '@/components/ui/skeleton';
 import { DataTable } from '@/components/data-table/new-data-table';
 import { useUserData } from '@/hooks/useUserData';
-import { Terminal } from 'lucide-react';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 
 // --- Constants ---
@@ -22,7 +19,6 @@ const DOCTYPE = 'Task';
 const URL_SYNC_KEY = 'inv_pending_tasks'; // Unique key for this table
 
 export const PendingTasksTable: React.FC = () => {
-    const { toast } = useToast();
     const { role, user_id } = useUserData();
     // const { tasks, isLoading, error, mutateTasks, attachmentsMap } = useInvoiceTasks('Pending');
 
@@ -111,21 +107,6 @@ export const PendingTasksTable: React.FC = () => {
     }, [tasks]);
 
 
-    // --- Realtime Event Listener ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-
-        refetch();
-        toast({ title: "Pending invoice tasks updated.", duration: 2000 });
-        // if (event.doc && event.doc.task_type === INVOICE_TASK_TYPE) {
-        //     console.log(`Realtime event for ${DOCTYPE} (PendingTasksTable):`, event);
-        //     // Refetch if status becomes Pending or changes from Pending
-        //     if (event.doc.status === "Pending" || tasks?.find(t => t.name === event.doc.name)) {
-        //         refetch();
-        //         toast({ title: "Pending invoice tasks updated.", duration: 2000 });
-        //     }
-        // }
-    });
-
     // --- Combined Loading & Error State ---
     const isLoadingOverall =  attachmentsLoading; // Consider attachments loading
     const combinedError = listError || attachmentsError; // Primary error from task list fetch
@@ -133,13 +114,7 @@ export const PendingTasksTable: React.FC = () => {
     if (combinedError) {
         // Display prominent error from data fetching/processing
         return (
-             <Alert variant="destructive" className="m-4">
-                <Terminal className="h-4 w-4" />
-                <AlertTitle>Error Loading Pending Invoice Tasks</AlertTitle>
-                <AlertDescription>
-                    Failed to fetch or process pending invoice data: {combinedError.message}
-                </AlertDescription>
-            </Alert>
+             <AlertDestructive error={combinedError} />
         );
     }
 

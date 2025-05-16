@@ -18,7 +18,7 @@ import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
-import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { ArrowBigUpDash, BookOpenText, Building2, CheckCheck, Clock, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -231,6 +231,17 @@ export const VendorsSelectionSummary : React.FC = () => {
       },
       prId ? `Procurement Requests:${prId}` : null
   );
+
+  useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
+      console.log("Procurement Request document updated (real-time):", event);
+      toast({
+          title: "Document Updated",
+          description: `Procurement Request ${event.name} has been modified.`,
+      });
+      pr_mutate(); // Re-fetch this specific document
+    },
+    true // emitOpenCloseEventsOnMount (default)
+    )
 
   const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
     {

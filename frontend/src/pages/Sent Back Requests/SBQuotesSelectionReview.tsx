@@ -22,7 +22,7 @@ import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
 import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -30,6 +30,7 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { CategoryData, CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 
 export const COLUMN_WIDTHS = {
     category: "auto",
@@ -179,6 +180,8 @@ export const innerColumns: TableColumnsType<DataItem> = [
 export const SBQuotesSelectionReview: React.FC = () => {
 
     const { sbId } = useParams<{ sbId: string }>();
+
+    if(!sbId) return <div>No Sent Back ID Provided</div>
     const navigate = useNavigate();
     const [comment, setComment] = useState<string>("")
     const userData = useUserData()
@@ -192,12 +195,23 @@ export const SBQuotesSelectionReview: React.FC = () => {
 
     const [orderData, setOrderData] = useState<SentBackCategory | undefined>();
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading } = useFrappeGetDocList<SentBackCategory>("Sent Back Category", {
+    const { data: sent_back_list, isLoading: sent_back_list_loading, mutate: sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category", {
         fields: ["*"],
         filters: [["name", "=", sbId]]
     },
         sbId ? `Sent Back Category:${sbId}` : null
     );
+
+    useFrappeDocumentEventListener("Sent Back Category", sbId, (event) => {
+              console.log("Sent Back document updated (real-time):", event);
+              toast({
+                  title: "Document Updated",
+                  description: `Sent Back ${event.name} has been modified.`,
+              });
+              sent_back_list_mutate(); // Re-fetch this specific document
+            },
+            true // emitOpenCloseEventsOnMount (default)
+            )
 
     const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
         {
@@ -358,7 +372,7 @@ export const SBQuotesSelectionReview: React.FC = () => {
     } = generateActionSummary();
 
 
-    if (sent_back_list_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (sent_back_list_loading || vendor_list_loading) return <LoadingFallback />
 
     return (
         <>

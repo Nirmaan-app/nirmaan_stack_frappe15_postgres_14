@@ -1,15 +1,13 @@
 import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
@@ -29,6 +27,7 @@ import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsers
 import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_SB_FIELDS_TO_FETCH, SB_DATE_COLUMNS, SB_SEARCHABLE_FIELDS } from "./config/sentBackCategoryTables.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -36,7 +35,6 @@ const URL_SYNC_KEY = 'sb_approve';
 
 // --- Component ---
 export const ApproveSelectSentBack: React.FC = () => {
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     const projectsFetchOptions = getProjectListOptions();
@@ -177,23 +175,12 @@ export const ApproveSelectSentBack: React.FC = () => {
         requirePendingItems: true, // Filter for items with status="Pending"
     });
 
-     useFrappeDocTypeEventListener("Sent Back Category", async (event) => {
-        const handleRealtimeUpdate = (eventData: any) => {
-            console.log(`Realtime event received for ${DOCTYPE}:`, eventData);
-            // Optionally check if the update is relevant (e.g., based on workflow_state)
-            // For simplicity, refetch on any relevant doctype event
-             refetch();
-             toast({ title: "Procurement Requests updated.", duration: 2000 });
-        };
-        handleRealtimeUpdate(event);
-    });
-
     // --- Combined Loading State & Error Handling ---
     const isLoading = projectsLoading || userListLoading;
     const error = projectsError || userError || listError;
 
     if (error) {
-        toast({ title: "Error loading data", description: error.message, variant: "destructive" });
+        return <AlertDestructive error={error} />
     }
 
     return (

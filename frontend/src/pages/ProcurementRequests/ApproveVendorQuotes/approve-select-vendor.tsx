@@ -1,9 +1,8 @@
 import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
@@ -26,6 +25,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
@@ -33,7 +33,6 @@ const URL_SYNC_KEY = 'pr_approve'; // Unique key for this specific table instanc
 
 // --- Component ---
 export const ApproveSelectVendor: React.FC = () => {
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     const projectsFetchOptions = getProjectListOptions();
@@ -200,51 +199,13 @@ export const ApproveSelectVendor: React.FC = () => {
     });
 
 
-    useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
-        const handleRealtimeUpdate = (eventData: any) => {
-            console.log(`Realtime event received for ${DOCTYPE}:`, eventData);
-            // Optionally check if the update is relevant (e.g., based on workflow_state)
-            // For simplicity, refetch on any relevant doctype event
-             refetch();
-             toast({ title: "Procurement Requests updated.", duration: 2000 });
-        };
-        handleRealtimeUpdate(event);
-    });
-
-    // --- Realtime Update Handling ---
-    // Replace the useFrappeDocTypeEventListener with logic using the hook's refetch
-    // useEffect(() => {
-    //     // Define the handler function
-    //     const handleRealtimeUpdate = (eventData: any) => {
-    //         console.log(`Realtime event received for ${DOCTYPE}:`, eventData);
-    //         // Optionally check if the update is relevant (e.g., based on workflow_state)
-    //         // For simplicity, refetch on any relevant doctype event
-    //          refetch();
-    //          toast({ title: "Procurement Requests updated.", duration: 2000 });
-    //     };
-
-    //     // Subscribe to relevant events
-    //     frappe.realtime.on(`doc_update:${DOCTYPE}`, handleRealtimeUpdate); // When a PR is saved
-    //     frappe.realtime.on(`doc_creation:${DOCTYPE}`, handleRealtimeUpdate); // If new relevant PRs can be created
-
-    //     // Clean up subscriptions on unmount
-    //     return () => {
-    //         frappe.realtime.off(`doc_update:${DOCTYPE}`, handleRealtimeUpdate);
-    //         frappe.realtime.off(`doc_creation:${DOCTYPE}`, handleRealtimeUpdate);
-    //     };
-    // }, [refetch, toast]); // Add toast to dependencies if used inside
-
-
     // --- Combined Loading State ---
     const isLoading = projectsLoading || userListLoading;
     const error = projectsError || userError || listError;
 
 
     if (error) {
-        // Handle or display combined error state
-        toast({ title: "Error loading data", description: error.message, variant: "destructive" });
-        // You might want a more prominent error display than just a toast
-        // return <div className="text-red-500 p-4">Error loading data: {error.message}</div>;
+        return <AlertDestructive error={error} />
     }
 
 

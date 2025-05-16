@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList, useFrappeUpdateDoc, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { CircleCheck, CircleX, Info, SquarePen } from "lucide-react";
 
 // --- UI Components ---
@@ -35,6 +35,7 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PP_FIELDS_TO_FETCH, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "../config/projectPaymentsTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 
 // --- Constants ---
@@ -280,28 +281,13 @@ export const ApprovePayments: React.FC = () => {
         additionalFilters: staticFilters,
     });
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (ApprovePayments):`, event);
-        refetch();
-        toast({ title: "Payments list updated.", duration: 2000 });
-        // Refetch if a payment is created/updated and its status becomes "Requested"
-        // or if a payment we were showing changed status
-        // if (event.doc && (event.doc.status === PAYMENT_STATUS.REQUESTED || data.find(p => p.name === event.doc.name))) {
-        //      refetch();
-        //      toast({ title: "Payments list updated.", duration: 2000 });
-        // } else if (event.doctype === DOCTYPE && !event.doc?.status) { // e.g. delete
-        //     refetch();
-        // }
-    });
-
     // --- Combined Loading & Error States ---
     const isPageLoading = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading || paidPaymentsLoading;
+
     const combinedError = projectsError || vendorsError || userError || poError || srError || listError || paidPaymentsError;
 
     if (combinedError && !data) { // Show error prominently if main data fails to load
-        toast({ title: "Error loading data", description: combinedError.message, variant: "destructive" });
-        return <div className="p-4 text-red-500 text-center">Failed to load payment requests. Please try again.</div>;
+        <AlertDestructive error={combinedError} />
     }
 
     return (

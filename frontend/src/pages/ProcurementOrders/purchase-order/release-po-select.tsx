@@ -11,7 +11,6 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
 import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
@@ -24,12 +23,11 @@ import { PaymentsDataDialog } from "../../ProjectPayments/PaymentsDataDialog";
 import { InvoiceDataDialog } from "./components/InvoiceDataDialog";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
-import { toast } from '@/components/ui/use-toast';
 import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS } from './config/purchaseOrdersTable.config';
+import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../../Sent Back Requests/approve-select-sent-back"));
@@ -394,23 +392,6 @@ export const ReleasePOSelect: React.FC = () => {
         } : { // Provide minimal config when table shouldn't render to satisfy hook types
             doctype: DOCTYPE, columns: [], fetchFields: ["name"], searchableFields: [{ value: "name", label: "PO ID", placeholder: "Search by PO ID..." }]
         }));
-    
-        // --- Realtime Update Handling ---
-        useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-            console.log(`Realtime event for ${DOCTYPE} in Purchase Orders (tab: ${tab}):`, event);
-            // Potentially filter event based on event.doc.type === type before refetching
-            serverDataTable.refetch();
-            toast({ title: `Procurement Orders List updated.`, duration: 2000 });
-        });
-
-    // --- Export Handler ---
-    // const handleExport = useCallback(() => {
-    //     if (!shouldShowTable) return;
-    //     const selectedRowsData = serverDataTable.table.getSelectedRowModel().rows.map(row => row.original);
-    //     console.log("Exporting selected PO data:", selectedRowsData);
-    //     alert(`Exporting ${selectedRowsData.length} selected POs... (Check console)`);
-    //     serverDataTable.table.resetRowSelection();
-    // }, [serverDataTable.table, shouldShowTable]);
 
     // --- Tab Change Handler ---
     const handleTabClick = useCallback((value: string) => {
@@ -491,7 +472,7 @@ export const ReleasePOSelect: React.FC = () => {
     const combinedErrorOverall = projectsError || vendorsError || projectPaymentsError || userError || serverDataTable.error;
 
     if (combinedErrorOverall && !serverDataTable?.data?.length) { // Show prominent error if main list fails
-        toast({ title: "Error loading data", description: combinedErrorOverall.message, variant: "destructive" });
+        return <AlertDestructive error={combinedErrorOverall} />
     }
 
     return (

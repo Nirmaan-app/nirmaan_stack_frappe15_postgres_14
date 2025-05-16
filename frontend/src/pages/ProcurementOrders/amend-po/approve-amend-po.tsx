@@ -1,4 +1,6 @@
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,14 +12,15 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useToast } from "@/components/ui/use-toast";
+import { toast, useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
 import { formatDate } from "@/utils/FormatDate";
 import TextArea from "antd/es/input/TextArea";
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckCheck, Undo2, X } from 'lucide-react';
 import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -26,14 +29,24 @@ import { useNavigate, useParams } from "react-router-dom";
 const ApproveAmendPO = () => {
 
     const { id: po } = useParams<{ id: string }>()
+
+    if(!po) return <div>No PO ID Provided</div>
     const orderId = po?.replaceAll("&=", "/")
 
-    const { data: po_data, isLoading: po_loading, error: po_error } = useFrappeGetDoc("Procurement Orders", orderId, `Procurement Orders ${orderId}`);
+    const { data: po_data, isLoading: po_loading, error: po_error, mutate: po_mutate } = useFrappeGetDoc("Procurement Orders", orderId, `Procurement Orders ${orderId}`);
 
-    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
-        fields: ["name", "full_name"],
-        limit: 1000
-    })
+    useFrappeDocumentEventListener("Procurement Orders", orderId, (event) => {
+          console.log("Procurement Orders document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Procurement Order ${event.name} has been modified.`,
+          });
+          po_mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
+
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useUsersList();
 
     const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList<NirmaanVersionsType>("Nirmaan Versions", {
         fields: ["*"],
@@ -49,8 +62,10 @@ const ApproveAmendPO = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (po_loading || usersListLoading || versionsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-    if (po_error || usersListError || versionsError) return <h1>Error</h1>
+    if (po_loading || usersListLoading || versionsLoading) return <LoadingFallback />
+    
+    if (po_error || usersListError || versionsError) return <AlertDestructive error={po_error || usersListError || versionsError} />
+
     if (po_data?.status !== "PO Amendment") return (
         <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">

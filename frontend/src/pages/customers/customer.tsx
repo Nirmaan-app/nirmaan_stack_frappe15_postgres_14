@@ -2,13 +2,15 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ConfigProvider, Menu, MenuProps } from "antd";
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeGetDoc } from "frappe-react-sdk";
 import { FilePenLine } from "lucide-react";
 import React, { Suspense, useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import EditCustomer from "./edit-customer";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
+import { toast } from "@/components/ui/use-toast";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 const CustomerOverview = React.lazy(() => import("./CustomerOverview"));
 const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
@@ -16,6 +18,7 @@ const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
 export const Customer : React.FC = () => {
 
   const { customerId } = useParams<{ customerId: string }>();
+  if(!customerId) return <div>No Customer ID Provided</div>
   // const [searchParams] = useSearchParams(); 
 
   const [mainTab, setMainTab] = useStateSyncedWithParams<string>("main", "overview") // Default to overview if not specified
@@ -30,11 +33,22 @@ export const Customer : React.FC = () => {
     setEditSheetOpen((prevState) => !prevState);
   }, [setEditSheetOpen]);
 
-  const { data, isLoading, error } = useFrappeGetDoc<Customers>("Customers", customerId,`Customers ${customerId}`,
+  const { data, isLoading, error, mutate } = useFrappeGetDoc<Customers>("Customers", customerId,`Customers ${customerId}`,
     {
       revalidateIfStale: false,
     }
   );
+
+  useFrappeDocumentEventListener("Customers", customerId, (event) => {
+          console.log("Customers document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Customers ${event.name} has been modified.`,
+          });
+          mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
 
   // const updateURL = useCallback(
   //     (params: Record<string, string>, removeParams: string[] = []) => {
@@ -82,9 +96,7 @@ export const Customer : React.FC = () => {
 
   if (error)
     return (
-      <h1 className="text-red-700">
-        There is an Error while fetching the account
-      </h1>
+      <AlertDestructive error={error} />
     );
 
   return (

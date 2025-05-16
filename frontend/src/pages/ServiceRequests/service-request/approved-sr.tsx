@@ -1,6 +1,6 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -51,6 +51,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 
 // const { Sider, Content } = Layout;
 
@@ -66,11 +67,24 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
   
     const id = accountsPage ? params.id : params.srId;
 
+    if(!id) return <div>No Service Request ID Provided</div>
+
     const {toggleRequestPaymentDialog, toggleNewInvoiceDialog} = useDialogStore()
 
     const [selectedGST, setSelectedGST] = useState<{gst : string | undefined, location? : string | undefined} | null>(null);
 
     const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
+
+    useFrappeDocumentEventListener("Service Requests", id, (event) => {
+            console.log("Service Requests document updated (real-time):", event);
+            toast({
+                title: "Document Updated",
+                description: `Service Requests ${event.name} has been modified.`,
+            });
+            service_request_mutate(); // Re-fetch this specific document
+          },
+          true // emitOpenCloseEventsOnMount (default)
+          )
 
     const [orderData, setOrderData] = useState<ServiceRequests | undefined>()
     const [notes, setNotes] = useState<{id : string, note : string}[]>([])
@@ -362,9 +376,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         projectPaymentsLoading
       )
         return (
-          <div className="flex items-center h-[90vh] w-full justify-center">
-            <TailSpin color={"red"} />{" "}
-          </div>
+          <LoadingFallback />
         );
 
     // Handler for the dialog confirmation

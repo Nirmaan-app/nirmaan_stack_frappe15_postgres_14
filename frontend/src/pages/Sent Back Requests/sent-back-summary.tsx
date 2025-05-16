@@ -2,10 +2,9 @@ import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments"
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from "lucide-react";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -15,19 +14,35 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../components/ui/hover-card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
+import { toast } from "@/components/ui/use-toast";
+import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 
 export const SentBackSummary = () => {
 
     const { sbId: id } = useParams<{ sbId: string }>()
     const navigate = useNavigate();
 
+    if (!id) return <div>No Sent Back Provided</div>
+
     const { data: sent_back_list, isLoading: sent_back_list_loading, mutate: sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
         {
             fields: ['*'],
             filters: [["name", "=", id]]
         },
-        id ? undefined : null
+        id ? `Sent Back Category ${id}` : null
     );
+
+    useFrappeDocumentEventListener("Sent Back Category", id, (event) => {
+        console.log("Sent Back document updated (real-time):", event);
+        toast({
+            title: "Document Updated",
+            description: `Sent Back ${event.name} has been modified.`,
+        });
+        sent_back_list_mutate(); // Re-fetch this specific document
+      },
+      true // emitOpenCloseEventsOnMount (default)
+      )
 
     const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
 
@@ -41,10 +56,7 @@ export const SentBackSummary = () => {
         id ? undefined : null
     )
 
-    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["*"],
-        limit: 1000,
-    })
+    const {data: usersList, isLoading: usersListLoading} = useUsersList()
 
     const getFullName = useMemo(() => (id: string | undefined) => {
         return usersList?.find((user) => user.name == id)?.full_name || ""
@@ -59,7 +71,7 @@ export const SentBackSummary = () => {
         }
     }, [sent_back_list]);
 
-    if (sent_back_list_loading || usersListLoading || universalCommentsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (sent_back_list_loading || usersListLoading || universalCommentsLoading) return <LoadingFallback />
 
     if (orderData?.workflow_state !== "Pending") {
         return (

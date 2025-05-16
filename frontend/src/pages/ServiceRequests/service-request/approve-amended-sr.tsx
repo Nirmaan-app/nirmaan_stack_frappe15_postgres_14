@@ -1,5 +1,7 @@
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
 import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -10,14 +12,15 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useToast } from "@/components/ui/use-toast";
+import { toast, useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
 import TextArea from "antd/es/input/TextArea";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckCheck, Undo2, X } from 'lucide-react';
 import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -26,12 +29,22 @@ import { useNavigate, useParams } from "react-router-dom";
 const ApproveAmendSO = () => {
 
     const { srId } = useParams<{ srId: string }>()
-    const { data: so_data, isLoading: so_data_loading, error: so_data_error } = useFrappeGetDoc("Service Requests", srId, `Service Requests ${srId}`);
 
-    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
-        fields: ["name", "full_name"],
-        limit: 1000
-    })
+    if(!srId) return <div>No Service Request ID Provided</div>
+    const { data: so_data, isLoading: so_data_loading, error: so_data_error, mutate: so_data_mutate } = useFrappeGetDoc("Service Requests", srId, `Service Requests ${srId}`);
+
+    useFrappeDocumentEventListener("Service Requests", srId, (event) => {
+          console.log("Service Requests document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Service Requests ${event.name} has been modified.`,
+          });
+          so_data_mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
+
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useUsersList()
 
     const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList<NirmaanVersionsType>("Nirmaan Versions", {
         fields: ["*"],
@@ -49,8 +62,9 @@ const ApproveAmendSO = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (so_data_loading || versionsLoading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
-    if (so_data_error || versionsError || usersListError) return <h1>Error</h1>
+    if (so_data_loading || versionsLoading || usersListLoading) return <LoadingFallback />
+
+    if (so_data_error || versionsError || usersListError) return <AlertDestructive error={so_data_error || versionsError || usersListError} />
     if (so_data?.status !== "Amendment") return (
         <div className="flex items-center justify-center h-[90vh]">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -105,11 +119,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
         filters: [["reference_name", "=", so_data?.name], ["subject", "=", "sr amendment"]]
     })
 
-    const {data : vendorsList} = useFrappeGetDocList<Vendors>("Vendors", {
-        fields: ["*"],
-        filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
-        limit: 10000
-    })
+    const {data : vendorsList} = useVendorsList({vendorTypes: ["Service", "Material & Service"]})
 
     const [previousVendor, setPreviousVendor] = useState("")
     const [amendedVendor, setAmendedVendor] = useState("")
@@ -208,7 +218,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                 }
             }
 
-            await deleteDoc("Nirmaan Versions", versionsData[0].name)
+            await deleteDoc("Nirmaan Versions", versionsData?.[0].name)
 
             toast({
                 title: "Success",

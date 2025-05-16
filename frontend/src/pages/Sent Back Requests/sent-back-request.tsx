@@ -36,6 +36,7 @@ import { ItemsHoverCard } from "../../components/helpers/ItemsHoverCard";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_SB_FIELDS_TO_FETCH, getSentBackStaticFilters, SB_DATE_COLUMNS, SB_SEARCHABLE_FIELDS } from "./config/sentBackCategoryTables.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -212,22 +213,6 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         requirePendingItems: true, // This is crucial and should be handled correctly
     });
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} in SentBackRequest (tab: ${tab}):`, event);
-
-        refetch();
-        toast({ title: `Sent Back list updated.`, duration: 2000 });
-        // Potentially filter event based on event.doc.type === type before refetching
-        // if (event.doc && event.doc.type === tab) {
-        //     refetch();
-        //     toast({ title: `Sent Back list (${tab}) updated.`, duration: 2000 });
-        // } else if (!event.doc?.type) { // Generic update, refetch
-        //     refetch();
-        //     toast({ title: `Sent Back list updated.`, duration: 2000 });
-        // }
-    });
-
      // --- Delete Handler ---
     const { handleDeleteSB, deleteLoading } = usePRorSBDelete(refetch); // Pass refetch to the delete hook
 
@@ -242,10 +227,10 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
 
     // --- Combined Loading & Error States ---
     const isLoading = projectsLoading || userListLoading;
-    const combinedError = projectsError || userError || listError; // Changed variable name
+    const combinedError = projectsError || userError || listError;
 
-    if (combinedError) { // Changed variable name
-        toast({ title: "Error loading data", description: combinedError.message, variant: "destructive" });
+    if (combinedError) {
+        <AlertDestructive error={combinedError} />
     }
 
     return (

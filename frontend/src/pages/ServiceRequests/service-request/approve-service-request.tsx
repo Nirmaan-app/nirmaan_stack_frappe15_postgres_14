@@ -1,16 +1,17 @@
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard"
 import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments"
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback"
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList"
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests"
 import formatToIndianRupee from "@/utils/FormatPrice"
 import { parseNumber } from "@/utils/parseNumber"
 import { ConfigProvider, Table } from "antd"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { CheckCheck, ListChecks, ListX, Undo2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
@@ -18,6 +19,9 @@ import { useNavigate, useParams } from "react-router-dom"
 
 export const ApproveServiceRequest : React.FC = () => {
     const { srId: id } = useParams<{ srId: string }>()
+
+    if(!id) return <div>No Service Request ID Provided</div>
+
     const navigate = useNavigate()
     const [serviceOrderData, setServiceOrderData] = useState<ServiceItemType[] | null>(null)
     const [isLoading, setIsLoading] = useState<string | null>(null);
@@ -25,13 +29,22 @@ export const ApproveServiceRequest : React.FC = () => {
     const userData = useUserData()
     const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
 
-    const { data: service_request, isLoading: service_request_loading } = useFrappeGetDoc("Service Requests", id)
+    const { data: service_request, isLoading: service_request_loading, mutate: srMutate } = useFrappeGetDoc("Service Requests", id)
+
+    useFrappeDocumentEventListener("Service Requests", id, (event) => {
+        console.log("Service Requests document updated (real-time):", event);
+        toast({
+            title: "Document Updated",
+            description: `Service Requests ${event.name} has been modified.`,
+        });
+        srMutate(); // Re-fetch this specific document
+      },
+      true // emitOpenCloseEventsOnMount (default)
+      )
+
     const { data: serviceVendor, isLoading: serviceVendor_loading } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request ? service_request?.vendor : null)
 
-    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["name", "full_name"],
-        limit: 1000
-    })
+    const { data: usersList, isLoading: usersListLoading } = useUsersList()
 
     const { data: universalComment, isLoading: universalCommentLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
             fields: ["*"],
@@ -220,9 +233,7 @@ export const ApproveServiceRequest : React.FC = () => {
 
     if(serviceVendor_loading || service_request_loading || usersListLoading || universalCommentLoading) {
         return (
-            <div className="flex items-center justify-center h-[90vh]">
-                <TailSpin color={"red"} />{" "}
-            </div>
+            <LoadingFallback />
         )
     } 
 

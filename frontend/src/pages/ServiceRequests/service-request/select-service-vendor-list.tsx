@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Trash2 } from 'lucide-react';
-import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -28,6 +27,7 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { DEFAULT_SR_FIELDS_TO_FETCH, SR_DATE_COLUMNS, SR_SEARCHABLE_FIELDS } from "../config/srTable.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 // --- Constants ---
 const DOCTYPE = 'Service Requests';
@@ -35,7 +35,6 @@ const URL_SYNC_KEY = 'sr_select_vendor'; // Unique key for this table instance
 
 // --- Component ---
 export const SelectServiceVendorList: React.FC = () => {
-    const { toast } = useToast();
     const { role, user_id } = useUserData(); // Get user_id for delete check
     // const { db } = useContext(FrappeContext) as FrappeConfig;
 
@@ -232,29 +231,12 @@ export const SelectServiceVendorList: React.FC = () => {
     //     }
     // };
 
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (SelectServiceVendorList):`, event);
-        
-            refetch();
-            toast({ title: "Service Requests list updated.", duration: 2000 });
-        // Refetch if the updated doc status is one of the relevant statuses for this view
-        // const relevantStatuses = ["Created", "Rejected", "Edit"];
-        // if (event.doc && relevantStatuses.includes(event.doc.status)) {
-        //      refetch();
-        //      toast({ title: "Service Requests list updated.", duration: 2000 });
-        // } else if (event.doctype === DOCTYPE && !event.doc?.status) { // General update, might be delete
-        //     refetch();
-        // }
-    });
-
-
     // --- Combined Loading & Error States ---
     const isLoading = projectsLoading || userListLoading;
     const combinedError = projectsError || userError || listError;
 
     if (combinedError) {
-        toast({ title: "Error loading data", description: combinedError.message, variant: "destructive" });
+        return <AlertDestructive error={combinedError} />
     }
 
     return (

@@ -1,8 +1,6 @@
 import React, { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link, useNavigate } from "react-router-dom";
-import { useFrappeDocTypeEventListener } from "frappe-react-sdk";
-import { useToast } from "@/components/ui/use-toast";
 
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -18,7 +16,6 @@ import {
 } from "./customers.constants"; // Adjust path
 
 export default function CustomersPage() {
-    const { toast } = useToast();
 
     const columns = useMemo<ColumnDef<CustomersType>[]>(() => [
         {
@@ -96,11 +93,6 @@ export default function CustomersPage() {
         urlSyncKey: 'customers_list',
         enableRowSelection: false, // Adjust if selection is needed
         shouldCache: true
-    });
-
-    useFrappeDocTypeEventListener(CUSTOMER_DOCTYPE, (event) => {
-        toast({ title: `${CUSTOMER_DOCTYPE} Data Updated`, description: `Customer ${event?.doc.name} was ${event?.event_type}. Refreshing list.`, duration: 2500 });
-        refetchTable();
     });
 
     // const facetFilterOptions = useMemo(() => ({

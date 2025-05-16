@@ -1,9 +1,3 @@
-// import { Button } from "@/components/ui/button"
-// import { Vendors } from "@/types/NirmaanStack/Vendors"
-// import { useFrappeGetDoc } from "frappe-react-sdk"
-// import { ArrowLeft } from "lucide-react"
-// import { Link, useNavigate, useParams } from "react-router-dom"
-
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
@@ -37,7 +31,7 @@ import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPri
 import { parseNumber } from "@/utils/parseNumber";
 import { ColumnDef } from "@tanstack/react-table";
 import { ConfigProvider, Menu, MenuProps } from "antd";
-import { useFrappeFileUpload, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { debounce } from "lodash";
 import {
   CheckCircleIcon,
@@ -51,6 +45,7 @@ import { TailSpin } from "react-loader-spinner";
 import { Link, useParams } from "react-router-dom";
 import { ApprovedSRList } from "../ServiceRequests/service-request/approved-sr-list";
 import { EditVendor } from "./edit-vendor";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 const Vendor : React.FC = () => {
   const { vendorId } = useParams<{ vendorId: string }>();
@@ -97,6 +92,17 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
   const { call, loading: callLoading } = useFrappePostCall('frappe.client.set_value')
 
   const { data, error, isLoading, mutate } = useFrappeGetDoc("Vendors", vendorId, `Vendors ${vendorId}`);
+
+  useFrappeDocumentEventListener("Vendors", vendorId, (event) => {
+          console.log("Vendors document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Vendors ${event.name} has been modified.`,
+          });
+          mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
 
   useEffect(() => {
     if (data) {
@@ -671,18 +677,16 @@ const AddScreenShot = async () => {
   }
 }
 
+const combinedError = error ||
+vendorAddressError ||
+procurementOrdersError ||
+procurementRequestsError ||
+projectPaymentsError
+
   if (
-    error ||
-    vendorAddressError ||
-    procurementOrdersError ||
-    procurementRequestsError ||
-    projectPaymentsError
+    combinedError
   )
-    return (
-      <h1 className="text-red-700">
-        There is an error while fetching the document, please check!
-      </h1>
-    );
+    return <AlertDestructive error={combinedError} />
 
   return (
     <div className="flex-1 space-y-2 md:space-y-4">

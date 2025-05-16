@@ -3,13 +3,12 @@ import { ProcessedProject, useProjectReportsData } from "../hooks/useProjectRepo
 import React from "react";
 import { projectColumns } from "./columns/projectColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal } from "lucide-react";
 import { ReportType, useReportStore } from "../store/useReportStore";
 // import { useServerDataTable } from "@/hooks/useServerDataTable";
 // import { PROJECT_REPORTS_DATE_COLUMNS, PROJECT_REPORTS_SEARCHABLE_FIELDS } from "../config/projectReportsTable.config";
 import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 // import { DataTable } from "@/components/data-table/new-data-table";
 
 export default function ProjectReports() {
@@ -123,13 +122,7 @@ export default function ProjectReports() {
     if (dataProcessingError) {
         // Display prominent error from data fetching/processing
         return (
-             <Alert variant="destructive" className="m-4">
-                <Terminal className="h-4 w-4" />
-                <AlertTitle>Error Loading Project Reports</AlertTitle>
-                <AlertDescription>
-                    Failed to fetch or process project data: {dataProcessingError?.message}
-                </AlertDescription>
-            </Alert>
+             <AlertDestructive error={dataProcessingError} />
         );
     }
 

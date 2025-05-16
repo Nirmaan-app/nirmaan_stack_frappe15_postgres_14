@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
@@ -34,6 +33,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 import {
+  useFrappeDocumentEventListener,
   useFrappeGetDoc,
   useFrappeGetDocList
 } from "frappe-react-sdk";
@@ -53,6 +53,8 @@ import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useParams } from "react-router-dom";
 import EditUserForm from "./EditUserForm";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { toast } from "@/components/ui/use-toast";
 
 interface SelectOption {
   label: string;
@@ -63,7 +65,8 @@ export default function Profile() {
   const [curProj, setCurProj] = useState("");
 
   const { userId: id } = useParams<{ userId: string }>();
-  const { toast } = useToast();
+
+  if(!id) return <div>No User ID Provided</div>
   const userData = useUserData();
 
   const [projectSelected, setProjectSelected] = useState<string | null>(null);
@@ -93,7 +96,18 @@ export default function Profile() {
     setResetPasswordDialog((prevState) => !prevState);
   }, []);
 
-  const { data, isLoading, error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users",id, id ? `Nirmaan Users ${id}` : null);
+  const { data, isLoading, error, mutate: user_mutate } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users",id, id ? `Nirmaan Users ${id}` : null);
+
+  useFrappeDocumentEventListener("Nirmaan Users", id, (event) => {
+          console.log("Nirmaan Users document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Nirmaan Users ${event.name} has been modified.`,
+          });
+          user_mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
 
   const { data: permission_list, isLoading: permission_list_loading, mutate: permission_list_mutate } = useFrappeGetDocList<NirmaanUserPermissions>("User Permission",
     {
@@ -153,11 +167,7 @@ export default function Profile() {
   }
 
   if (error) {
-    toast({
-      title: "Error!",
-      description: `Error ${error?.message}`,
-      variant: "destructive",
-    });
+    return <AlertDestructive error={error} />
   }
   return (
     <div className="flex-1 space-y-4">

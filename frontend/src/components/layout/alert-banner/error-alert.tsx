@@ -1,4 +1,4 @@
-import { AlertCircle } from "lucide-react"
+import { Terminal } from "lucide-react"
 
 import {
     Alert,
@@ -6,13 +6,17 @@ import {
     AlertTitle,
 } from "@/components/ui/alert"
 
-export function AlertDestructive({ error }) {
+interface ErrorAlertProps {
+    error?: any;
+}
+
+export function AlertDestructive({ error }: ErrorAlertProps) {
     return (
         <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
+            <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>
-                {error.message}
+                {error?.message || "An unknown error occurred."}
             </AlertDescription>
         </Alert>
     )

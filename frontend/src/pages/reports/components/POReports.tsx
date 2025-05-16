@@ -3,12 +3,11 @@ import { POReportRowData, usePOReportsData } from "../hooks/usePOReportsData";
 import React, { useMemo } from "react";
 import { poColumns } from "./columns/poColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal } from "lucide-react";
 import { ReportType, useReportStore } from "../store/useReportStore";
 import { parseNumber } from "@/utils/parseNumber";
 import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 export default function POReports() {
 
@@ -88,15 +87,7 @@ export default function POReports() {
     if (error) {
         console.error("Error fetching PO/SR reports data:", error);
         return (
-            <Alert variant="destructive" className="m-4">
-                <Terminal className="h-4 w-4" />
-                <AlertTitle>Error Loading PO/SR Reports</AlertTitle>
-                <AlertDescription>
-                    Failed to fetch the necessary data. Please try refreshing the page or contact support.
-                    <br />
-                    <span className="text-xs">{error?.message}</span>
-                </AlertDescription>
-            </Alert>
+            <AlertDestructive error={error} />
         )
     }
 

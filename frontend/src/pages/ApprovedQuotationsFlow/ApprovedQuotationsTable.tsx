@@ -2,17 +2,14 @@ import React, { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
-import { useToast } from "@/components/ui/use-toast";
 
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Badge } from "@/components/ui/badge"; // Assuming you might use badges
 
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { ApprovedQuotations as ApprovedQuotationsType } from "@/types/NirmaanStack/ApprovedQuotations";
 import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items";
-import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice"; // Assuming you have a rounded version too
@@ -25,7 +22,6 @@ import {
 } from "./approvedQuotations.constants";
 
 export default function ApprovedQuotationsPage() {
-    const { toast } = useToast();
 
     // Fetch supporting data for column rendering and facet options
     const { data: vendorsList, isLoading: vendorsLoading } = useFrappeGetDocList<VendorsType>(
@@ -165,14 +161,6 @@ export default function ApprovedQuotationsPage() {
         enableRowSelection: false,
         shouldCache: true,
     });
-
-    useFrappeDocTypeEventListener(APPROVED_QUOTATION_DOCTYPE, (event) => {
-        toast({ title: `${APPROVED_QUOTATION_DOCTYPE} Data Updated`, description: `Quote ${event?.doc.name} was ${event?.event_type}. Refreshing list.`, duration: 2500 });
-        refetchTable();
-    });
-    // Optional: Listen to Vendor/Item changes if they might affect display significantly
-    // useFrappeDocTypeEventListener(VENDOR_DOCTYPE, () => refetchTable());
-    // useFrappeDocTypeEventListener(ITEM_DOCTYPE, () => refetchTable());
 
     const vendorFacetOptions = useMemo(() =>
         vendorsList?.map(v => ({ label: v.vendor_name, value: v.name })) || [],

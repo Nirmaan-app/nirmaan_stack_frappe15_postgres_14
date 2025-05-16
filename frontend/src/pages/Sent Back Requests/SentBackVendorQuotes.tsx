@@ -9,7 +9,7 @@ import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementReques
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { parseNumber } from "@/utils/parseNumber";
-import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { CirclePlus, Info } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -18,6 +18,7 @@ import GenerateRFQDialog from "../ProcurementRequests/VendorQuotesSelection/comp
 import { SelectVendorQuotesTable } from "../ProcurementRequests/VendorQuotesSelection/SelectVendorQuotesTable";
 import { Vendor } from "../ServiceRequests/service-request/select-service-vendor";
 import { NewVendor } from "../vendors/new-vendor";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -70,6 +71,8 @@ const useProcurementUpdates = (sbId: string, sbMutate: any) => {
 export const SentBackVendorQuotes: React.FC = () => {
 
   const { sbId } = useParams<{ sbId: string }>()
+
+  if(!sbId) return <div>No Sent Back ID Provided</div>
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
   const [selectedVendors, setSelectedVendors] = useState<Vendor[]>([])
@@ -88,6 +91,17 @@ export const SentBackVendorQuotes: React.FC = () => {
   },
     sbId ? `Sent Back Category ${sbId}` : null
   );
+
+  useFrappeDocumentEventListener("Sent Back Category", sbId, (event) => {
+          console.log("Sent Back document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Sent Back ${event.name} has been modified.`,
+          });
+          sent_back_list_mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
 
   const { data: vendors, isLoading: vendors_loading } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
@@ -223,7 +237,7 @@ export const SentBackVendorQuotes: React.FC = () => {
     await updateProcurementData(formData, updatedOrderList, "review");
   };
 
-  if (sent_back_list_loading || vendors_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+  if (sent_back_list_loading || vendors_loading) return <LoadingFallback />
 
   return (
     <>
