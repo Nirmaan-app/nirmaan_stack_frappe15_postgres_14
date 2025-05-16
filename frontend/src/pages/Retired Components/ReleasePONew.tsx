@@ -27,7 +27,7 @@ import { Dialog, DialogTrigger, DialogTitle, DialogDescription, DialogContent, D
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radiogroup';
 import { Button as ShadButton } from "@/components/ui/button";
 import { Separator } from '../../components/ui/separator';
-import { ProcurementOrders as ProcurementOrdersType } from '@/types/NirmaanStack/ProcurementOrders';
+import { ProcurementOrder as ProcurementOrdersType } from '@/types/NirmaanStack/ProcurementOrders';
 import { TailSpin } from 'react-loader-spinner';
 import logo from "@/assets/logo-svg.svg"
 import { Switch } from '../../components/ui/switch';

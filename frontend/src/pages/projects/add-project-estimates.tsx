@@ -24,6 +24,8 @@ import { Input } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Textarea } from "../../components/ui/textarea";
 import { toast } from "../../components/ui/use-toast";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
+import { urlStateManager } from "@/utils/urlStateManager";
 
 const chartConfig = {
     visitors: {
@@ -79,7 +81,9 @@ type WorkPackageCategoryList = {
     [workPackage: string]: Category[];
 };
 
-const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_mutate, projectTab }: AddProjectEstimatesPageProps) => {
+export const Component = AddProjectEstimates;
+
+export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_mutate, projectTab }: AddProjectEstimatesPageProps) => {
     const [defaultValues, setDefaultValues] = useState<null | string[]>(null)
     const [workPackageCategoryList, setWorkPackageCategoryList] = useState<WorkPackageCategoryList>({});
     const [curCategory, setCurCategory] = useState({})
@@ -104,26 +108,58 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [categoryTotals, setCategoryTotals] = useState({})
     const [overAllCategoryTotals, setOverAllCategoryTotals] = useState({})
     const [categoryWisePieChartData, setCategoryWisePieChartData] = useState([])
-    const [searchParams] = useSearchParams(); // Only for initialization
-    const [selectedPackage, setSelectedPackage] = useState(searchParams.get("eTab") || "All")
+    // const [searchParams] = useSearchParams(); // Only for initialization
+
+    const initialTab = useMemo(() => {
+        return getUrlStringParam("eTab", "All");
+    }, []); // Calculate once
 
 
-    const updateURL = useCallback((params: Record<string, string>) => {
-        const url = new URL(window.location.href);
-        Object.entries(params).forEach(([key, value]) => {
-          url.searchParams.set(key, value);
+    const [selectedPackage, setSelectedPackage] = useState(initialTab)
+
+    useEffect(() => {
+        const unsubscribe = urlStateManager.subscribe("eTab", (_, value) => {
+            const newTab = value || initialTab;
+            if (selectedPackage !== newTab) {
+                setSelectedPackage(newTab);
+            }
         });
-        window.history.pushState({}, '', url);
-    }, []);
+        return unsubscribe;
+    }, [initialTab]);
+
+    useEffect(() => {
+        if(urlStateManager.getParam("eTab") !== selectedPackage) {
+            urlStateManager.updateParam("eTab", selectedPackage)
+        }
+        
+    }, [selectedPackage])
+
+
+    // const updateURL = useCallback((params: Record<string, string>) => {
+    //     const url = new URL(window.location.href);
+    //     Object.entries(params).forEach(([key, value]) => {
+    //       url.searchParams.set(key, value);
+    //     });
+    //     window.history.pushState({}, '', url);
+    // }, []);
+
+    // const handleSetSelectedPackage = useCallback(
+    // (value : string) => {
+    //     if (selectedPackage === value) return
+    //     setSelectedPackage(value)
+    //     setCurCategory({ [value]: null })
+    //     setSelectedItem({ [value]: null })
+    //     updateURL({ eTab: value })
+    // }, [selectedPackage, updateURL])
 
     const handleSetSelectedPackage = useCallback(
-    (value : string) => {
-        if (selectedPackage === value) return
-        setSelectedPackage(value)
-        setCurCategory({ [value]: null })
-        setSelectedItem({ [value]: null })
-        updateURL({ eTab: value })
-    }, [selectedPackage, updateURL])
+        (value: string) => {
+            if (selectedPackage === value) return
+            setSelectedPackage(value)
+            setCurCategory({ [value]: null })
+            setSelectedItem({ [value]: null })
+            // updateURL({ eTab: value })
+        }, [selectedPackage])
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -1003,7 +1039,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     )
 }
 
-export const Component = AddProjectEstimates;
+export default AddProjectEstimates;
 
 export const CategoryWiseEstimateCard = ({ selectedPackage, categorizedData, columns, innerColumns,
     curCategory, workPackageCategoryList, handleCategoryChange, selectedItem, categoryItemList, handleItemChange,

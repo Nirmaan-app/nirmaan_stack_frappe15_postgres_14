@@ -64,7 +64,7 @@ export const useInvoiceTaskActions = ({ onActionSuccess }: UseInvoiceTaskActions
         setConfirmationState({
             isOpen: true,
             taskId: task.name,
-            taskInvoiceNo: task.reference_value_2,
+            taskInvoiceNo: task.reference_value_2 || task.task_docname,
             action: action,
         });
     }, []);

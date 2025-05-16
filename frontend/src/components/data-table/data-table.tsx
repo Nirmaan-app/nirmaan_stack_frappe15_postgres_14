@@ -4,6 +4,7 @@ import {
   SortingState,
   VisibilityState,
   flexRender,
+  Table as TanstackTable,
   getCoreRowModel,
   getFacetedRowModel,
   getFacetedUniqueValues,
@@ -21,25 +22,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useFrappeDataStore } from "@/zustand/useFrappeDataStore";
 import { debounce } from "lodash";
-import { Download, FileUp } from "lucide-react";
 import * as React from "react";
-import { useSearchParams } from "react-router-dom";
 import { Button } from "../ui/button";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
-import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
-import { toast } from "../ui/use-toast";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { fuzzyFilter } from "./data-table-models";
-import { DataTablePagination } from "./data-table-pagination";
 import { DataTableViewOptions } from "./data-table-view-options";
 import { ReportType, useReportStore } from "@/pages/reports/store/useReportStore";
-import { exportToCsv } from "@/utils/exportToCsv";
 
 type OptionsType = {
   label: string;
@@ -65,17 +56,10 @@ interface DataTableProps<TData, TValue> {
   wpOptions?: OptionsType[];
   projectStatusOptions?: OptionsType[];
   customerOptions?: OptionsType[];
-  vendorData?: any;
   totalPOsRaised?: any;
   itemSearch?: boolean;
-  isExport?: boolean;
-  inFlowButton?: boolean;
   sortColumn?: string;
-  // --- New Props for Generic Export ---
-    /** Prefix for the downloaded CSV file (e.g., "projects", "po_pending_invoices") */
-    exportFileNamePrefix?: string;
-    /** Function to filter/prepare data specifically for export based on report type */
-    getExportData?: ExportDataGetter<TData>;
+  onExport?: () => void; // Callback to handle export logic
 }
 
 export function DataTable<TData, TValue>({
@@ -94,56 +78,54 @@ export function DataTable<TData, TValue>({
   itemOptions = undefined,
   wpOptions = undefined,
   projectStatusOptions = undefined,
-  isExport = false,
-  vendorData = undefined,
   customerOptions = undefined,
-  inFlowButton = false,
   sortColumn = undefined,
-  exportFileNamePrefix, // New prop
-    getExportData,      // New prop
+  onExport
 }: DataTableProps<TData, TValue>) {
+
   const [sorting, setSorting] = React.useState<SortingState>([]);
-
-  const [searchParams] = useSearchParams();
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-
   const [rowSelection, setRowSelection] = React.useState({});
 
-  const [pageIndex, setPageIndex] = React.useState(0);
-  const [pageSize, setPageSize] = React.useState(10);
+
+  // const [pageIndex, setPageIndex] = React.useState(0);
+  // const [pageSize, setPageSize] = React.useState(10);
 
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ type: false, });
 
-  // Get selectedReportType from the store
-  const selectedReportType = useReportStore((state) => state.selectedReportType);
+  // --- Global Filter State Management with URL Sync ---
+  const initialSearchFromUrl = useUrlParam("search") || ""; // Get initial value using your hook
+  const [globalFilter, setGlobalFilter] = React.useState<string>(initialSearchFromUrl);
 
-  // const currentRoute = window.location.pathname;
+  // Debounced function to update URL
+  const debouncedUpdateUrlSearch = React.useCallback(
+    debounce((value: string) => {
+      urlStateManager.updateParam("search", value || null); // Pass null to delete if empty
+    }, 500), // Adjust debounce delay as needed
+    []
+  );
 
-  // const globalSearch = useFilterStore((state) => state.getTextSearch(currentRoute));
-  // const [globalFilter, setGlobalFilter] = React.useState(globalSearch || '')
+  // Effect to update URL when local globalFilter changes
+  React.useEffect(() => {
+    debouncedUpdateUrlSearch(globalFilter);
+  }, [globalFilter, debouncedUpdateUrlSearch]);
 
-  // React.useEffect(() => {
-  //     if (globalSearch) {
-  //         setGlobalFilter(globalSearch);
-  //     }
-  // }, [globalSearch]);
 
-  // const handleGlobalFilterChange = (value: string) => {
-  //     setGlobalFilter(value);
-  //     useFilterStore.getState().setTextSearch(currentRoute, value);
-  // };
-
-  // const customGlobalFilter = (row, columnId, filterValue) => {
-  //     const name = row.getValue("name");
-  //     const vendorName = row.getValue("vendor_name");
-  //     const orderList = row.getValue("order_list");
-
-  //     // Combine all fields into a single string for searching
-  //     const combinedString = `${name || ""} ${vendorName || ""} ${JSON.stringify(orderList) || ""
-  //         }`.toLowerCase();
-
-  //     return combinedString.includes(filterValue.toLowerCase());
-  // };
+  // Effect to subscribe to URL changes for "search" and update local state
+  React.useEffect(() => {
+    const unsubscribe = urlStateManager.subscribe("search", (key, value) => {
+      if (globalFilter !== (value || "")) { // Prevent loop if value is already same
+        setGlobalFilter(value || "");
+      }
+    });
+    // Ensure initial state is correct if useUrlParam provides initial value after first render
+    const currentUrlSearch = urlStateManager.getParam("search");
+    if (globalFilter !== (currentUrlSearch || "")) {
+        setGlobalFilter(currentUrlSearch || "");
+    }
+    return unsubscribe;
+  }, []); // Add globalFilter to dependencies to re-subscribe if it changes from other means (though unlikely here)
+  // --- End Global Filter State Management ---
 
   React.useEffect(() => {
     if(columns) {
@@ -167,44 +149,6 @@ export function DataTable<TData, TValue>({
     }
   }, [columns])
 
-  const [globalFilter, setGlobalFilter] = React.useState(searchParams.get("search") || "");
-
-  const { toggleNewInflowDialog } = useDialogStore();
-  React.useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-
-    const initialPageIndex = Number(urlParams.get("pageIdx") || "0");
-    const initialPageSize = Number(urlParams.get("rows") || "10");
-
-    setPageIndex(initialPageIndex);
-    setPageSize(initialPageSize);
-
-    // Initialize global search filter
-    const initialSearch = urlParams.get("search") || "";
-    setGlobalFilter(initialSearch);
-  }, []);
-
-  const updateURL = React.useCallback((key: string, value: string) => {
-    console.log("key", key, value)
-    const url = new URL(window.location.href);
-    if (value) {
-      url.searchParams.set(key, value);
-    } else {
-      url.searchParams.delete(key);
-    }
-    window.history.pushState({}, "", url);
-  }, []);
-
-  const handleGlobalFilterChange = React.useCallback(
-    debounce((value: string) => {
-      // setGlobalFilter(value);
-
-      setGlobalFilter(value);
-      updateURL("search", value);
-    }, 1000),
-    []
-  );
-
   const customGlobalFilter = React.useCallback((row: any, columnId: string, filterValue: string) => {
     const name = row.getValue("name");
     const vendorName = row.getValue("vendor_name");
@@ -215,19 +159,6 @@ export function DataTable<TData, TValue>({
 
     return combinedString.includes(filterValue.toLowerCase());
   }, []);
-
-  const handlePageChange = React.useCallback((newPageIndex: string) => {
-    setPageIndex(parseInt(newPageIndex));
-    updateURL("pageIdx", newPageIndex);
-  }, [pageIndex, updateURL]);
-
-  const handlePageSizeChange = React.useCallback((newPageSize: string) => {
-    setPageSize(parseInt(newPageSize));
-    updateURL("rows", newPageSize);
-    handlePageChange("0");
-  }, [pageSize, updateURL]);
-
-  const { setSelectedData, selectedData } = useFrappeDataStore()
 
   const table = useReactTable({
     data,
@@ -246,122 +177,21 @@ export function DataTable<TData, TValue>({
     onGlobalFilterChange: setGlobalFilter,
     globalFilterFn: itemSearch ? customGlobalFilter : fuzzyFilter,
     state: {
-      pagination: { pageIndex, pageSize },
+      // pagination: { pageIndex, pageSize },
       sorting,
       columnFilters,
       columnVisibility,
       rowSelection,
       globalFilter,
     },
+    manualPagination: false
   });
 
 
-  // Get the actual rows being displayed after filtering and pagination
-  const currentVisibleRows = table.getRowModel().rows.map(row => row.original);
-  // OR If you want to export ALL filtered data regardless of pagination:
-  const allFilteredRows = table.getFilteredRowModel().rows.map(row => row.original);
-  // Choose which dataset to use for export based on requirements. Let's use ALL filtered data.
 
-  // --- New Export Handler ---
-  const handleExport = () => {
-      if (!exportFileNamePrefix || !getExportData) {
-          console.error("Export configuration (prefix or data getter) is missing.");
-          toast({ title: "Export Error", description: "Export functionality not configured.", variant: "destructive" });
-          return;
-      }
-      if (loading || data.length === 0) {
-           toast({ title: "Export", description: "No data available to export or still loading.", variant: "default" });
-          return;
-      }
-
-      try {
-          // 1. Get the data specifically prepared for this export type
-          //    We pass ALL original data (`data` prop) to the getter,
-          //    so it can apply report-type filtering before any table filtering.
-          const dataToExportRaw = getExportData(selectedReportType, data);
-
-          // 2. OPTIONAL: Apply table's current filters (search, column filters) to the report-specific data
-          //    This is more complex as it requires replicating table filtering logic outside the table.
-          //    Easier approach: Export based on Report Type filter applied to the *full* dataset.
-          //    Let's stick to the easier approach for now: export data filtered *only* by the report type.
-          const dataToExport = dataToExportRaw;
-
-           // OR, if you want to export exactly what's visible *after* table filters:
-           // const visibleFilteredData = getExportData(selectedReportType, allFilteredRows); // Apply report type filter to table-filtered data
-
-          if (!dataToExport || dataToExport.length === 0) {
-               toast({ title: "Export", description: `No data found matching report type: ${selectedReportType}`, variant: "default" });
-               return;
-          }
-
-          // 3. Determine filename based on prefix and maybe the report type
-           const finalFileName = `${exportFileNamePrefix}${selectedReportType ? `_${selectedReportType.replace(/\s+/g, '_')}` : ''}`;
-
-
-          // 4. Call the generic export utility
-          exportToCsv(finalFileName, dataToExport, columns);
-
-          toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success"});
-
-      } catch (error) {
-           console.error("Export failed:", error);
-           toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive"});
-      }
-  };
-
-
-
-  React.useEffect(() => {
-    setSelectedData(table.getSelectedRowModel().rows)
-  }, [table.getSelectedRowModel().rows])
-
-  const [dialogOpen, setDialogOpen] = React.useState(false);
-
-  const toggleDialog = React.useCallback(() => {
-    setDialogOpen((prevState) => !prevState);
-  }, [dialogOpen]);
-  const [debitAccountNumber, setDebitAccountNumber] = React.useState("093705003327")
-
-  const [paymentMode, setPaymentMode] = React.useState("IMPS")
-
-  const exportToCSV = () => {
-    const csvHeaders = ['PYMT_PROD_TYPE_CODE', 'PYMT_MODE', 'DEBIT_ACC_NO', 'BNF_NAME', 'BENE_ACC_NO', 'BENE_IFSC',
-      'AMOUNT', 'DEBIT_NARR', 'CREDIT_NARR', 'MOBILE_NUM', 'EMAIL_ID', 'REMARK', 'PYMT_DATE',
-      'REF_NO', 'ADDL_INFO1', 'ADDL_INFO2', 'ADDL_INFO3', 'ADDL_INFO4', 'ADDL_INFO5', 'LEI_NUMBER'
-    ];
-
-    const csvRows = [];
-
-    const todayDate = formatDateToDDMMYYYY(new Date());
-
-    csvRows.push(csvHeaders.join(','));
-    selectedData?.forEach(i => {
-      const data = i?.original;
-      const vendor = vendorData?.find(v => v.name === data.vendor);
-      const row = ['PAB_VENDOR', paymentMode, debitAccountNumber, vendor?.account_name, vendor?.account_number, vendor?.ifsc,
-        data?.amount, '', '', '', '', data.document_name, todayDate, '', '', '', '', '', '', ''
-      ]
-      csvRows.push(row.join(','));
-    });
-
-    const csvString = csvRows.join('\n');
-
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${formatDateToDDMMYYYY(new Date())}_payments.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    toast({
-      title: "Success!",
-      description: "Payments CSV Exported Successfully!",
-      variant: "success"
-    })
-    toggleDialog()
-  };
+  // React.useEffect(() => {
+  //   setSelectedData(table.getSelectedRowModel().rows)
+  // }, [table.getSelectedRowModel().rows])
 
   // Show selected rows
   // ------------------
@@ -379,81 +209,33 @@ export function DataTable<TData, TValue>({
       <div className="flex justify-between items-center">
         <div className="flex justify-between items-center py-4 w-full">
           <Input
-            id="globalFilter"
+            id="globalFilterInput"
             placeholder="Search..."
-            //value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
-            value={globalFilter ?? ""}
-            onChange={(e) => {
-              setGlobalFilter(e.target.value); // Update local state
-              handleGlobalFilterChange(e.target.value); // Debounced update
-            }}
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)} // Update local state directly, useEffect handles debounced URL update
+
             className="w-[50%] max-sm:w-[60%]"
             // className="max-w-sm w-full sm:w-auto" // Responsive width
           />
 
-          {inFlowButton && (
-            <Button onClick={toggleNewInflowDialog}>Add New Entry</Button>
-          )}
 
           {/* Generic Export Button */}
-          {exportFileNamePrefix && getExportData && (
-                        <Button
-                            onClick={handleExport}
-                            size="sm"
-                            disabled={loading || data.length === 0}
-                        >
-                            <Download className="mr-2 h-4 w-4" />
-                            Export
-                        </Button>
-                    )}
-
-          {/* {inFlowButton && <NewInflowPayment />} */}
-
-          {isExport && (
-            <Button onClick={toggleDialog} disabled={!selectedData?.length} variant={"outline"} className="flex items-center gap-1 h-8 px-2 border-primary text-primary">
-              Export
-              <FileUp className="w-4 h-4" />
-            </Button>
+          {onExport && (
+              <Button
+                  onClick={onExport}
+                  variant="outline"
+                  size="sm" // Smaller button
+                  className="data_table_export_button h-9" // Consistent height
+                  disabled={loading || data.length === 0}
+              >
+                  <FileUp className="mr-2 h-4 w-4" />
+                  Export
+              </Button>
           )}
-
-          <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle className="text-center">Export to CSV</DialogTitle>
-              </DialogHeader>
-              <h2 className="font-semibold text-primary">Debit Account</h2>
-              <RadioGroup defaultValue="ICICI" className="space-y-2" >
-                {/* 1️⃣ Custom Amount */}
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="ICICI" id="icici" />
-                  <div className="flex items-center space-x-6">
-                    <Label htmlFor="icici">ICICI</Label>
-                    <Input
-                      className="h-8"
-                      value={debitAccountNumber}
-                      onChange={(e) => setDebitAccountNumber(e.target.value)}
-                    />
-                  </div>
-                  <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="border border-gray-300 rounded-md">
-                    <option value="IMPS">IMPS</option>
-                    <option value="NEFT">NEFT</option>
-                  </select>
-                </div>
-              </RadioGroup>
-
-              <div className="mt-2 flex items-center justify-center space-x-2">
-                <DialogClose className="flex-1" asChild>
-                  <Button variant={"outline"}>
-                    Cancel
-                  </Button>
-                </DialogClose>
-                <Button onClick={exportToCSV} className="flex-1">Confirm</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
 
           {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
         </div>
+        
         {totalPOsRaised && (
           <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
             <span className=" whitespace-nowrap">Total PO's raised</span>
@@ -633,38 +415,16 @@ export function DataTable<TData, TValue>({
               </TableRow>
             ))}
           </TableHeader>
-          {/* <TableBody>
-                        {table.getRowModel().rows?.length ? (
-                            table.getRowModel().rows.map((row) => (
-                                <TableRow
-                                    key={row.id}
-                                    data-state={row.getIsSelected() && "selected"}
-                                >
-                                    {row.getVisibleCells().map((cell) => (
-                                        <TableCell className="py-6 px-4" key={cell.id}>
-                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                        </TableCell>
-                                    ))}
-                                </TableRow>
-                            ))
-                        ) : (
-                            <TableRow>
-                                <TableCell colSpan={columns.length} className="h-24 text-center">
-                                    No results.
-                                </TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody> */}
 
           <TableBody>
             {/* Loading State Overlay or Indicator (Optional) */}
             {loading && (
-                             <TableRow>
-                                 <TableCell colSpan={columns.length + 1} className="h-24 text-center"> {/* +1 if view options was in header row */}
-                                     Loading data... {/* Or use a spinner component */}
-                                 </TableCell>
-                             </TableRow>
-                         )}
+                  <TableRow>
+                      <TableCell colSpan={columns.length + 1} className="h-24 text-center"> {/* +1 if view options was in header row */}
+                          Loading data... {/* Or use a spinner component */}
+                      </TableCell>
+                  </TableRow>
+              )}
             {!loading && table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
@@ -699,8 +459,154 @@ export function DataTable<TData, TValue>({
           </TableBody>
         </Table>
       </div>
-      <DataTablePagination onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange} table={table} />
+      <DataTablePagination table={table} />
+    </div>
+  );
+}
+
+
+
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  DoubleArrowLeftIcon,
+  DoubleArrowRightIcon,
+} from "@radix-ui/react-icons";
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"; // Adjust path
+import { urlStateManager } from "@/utils/urlStateManager";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { FileUp } from "lucide-react";
+
+interface DataTablePaginationProps<TData> {
+  table: TanstackTable<TData>;
+  // Remove onPageChange and onPageSizeChange as they will now use urlStateManager
+  // totalCount is still needed for pageCount calculation if table.getPageCount() isn't reliable
+  // For client-side pagination (which this old component does), table.getPageCount() should be fine.
+}
+
+export function DataTablePagination<TData>({
+  table,
+}: DataTablePaginationProps<TData>) {
+
+  // --- URL State for Pagination ---
+  // Use a prefix if multiple tables on one page might conflict, e.g., "myTable_pageIdx"
+  // For simplicity, assuming global keys for now.
+  const urlPageIndex = useUrlParam("pageIdx"); // Use your hook
+  const urlPageSize = useUrlParam("rows");
+
+  // --- Sync Tanstack Table state WITH URL on initial load & URL changes ---
+  React.useEffect(() => {
+    const newPageIndex = parseInt(urlPageIndex || "0", 10);
+    if (table.getState().pagination.pageIndex !== newPageIndex) {
+      table.setPageIndex(newPageIndex);
+    }
+  }, [urlPageIndex, table]);
+
+  React.useEffect(() => {
+    const newPageSize = parseInt(urlPageSize || "10", 10);
+    if (table.getState().pagination.pageSize !== newPageSize) {
+      table.setPageSize(newPageSize);
+    }
+  }, [urlPageSize, table]);
+
+  // --- Handlers to update URL (and thus trigger table state update via subscription) ---
+  const handlePageIndexChange = (newIndex: number) => {
+    urlStateManager.updateParam("pageIdx", newIndex.toString());
+    // Tanstack table will update via the useEffect subscription to urlPageIndex
+  };
+
+  const handlePageSizeChange = (newPageSize: string) => {
+    urlStateManager.updateParam("rows", newPageSize);
+    urlStateManager.updateParam("pageIdx", "0"); // Reset to first page on size change
+    // Tanstack table will update pageIndex and pageSize via useEffect subscriptions
+  };
+
+  // Use table.getPageCount() which is calculated based on data and pageSize
+  const pageCount = table.getPageCount();
+  const currentPageIndex = table.getState().pagination.pageIndex; // Get from table state
+
+  return (
+    <div className="flex max-md:flex-col space-y-2 items-center md:justify-between px-2 py-1"> {/* Added padding */}
+      <div className="flex-1 text-sm text-muted-foreground">
+        {table.getFilteredSelectedRowModel().rows.length} of{" "}
+        {table.getFilteredRowModel().rows.length} row(s) selected. {/* Use getFilteredRowModel for total visible after client filter */}
+      </div>
+
+      <div className="flex max-md:justify-between max-md:w-full items-center">
+        <div className="flex items-center space-x-6 lg:space-x-8">
+          <div className="flex items-center space-x-2">
+            <p className="text-sm font-medium">Rows per page</p>
+            <Select
+              value={`${table.getState().pagination.pageSize}`}
+              onValueChange={(value) => {
+                handlePageSizeChange(value);
+              }}
+            >
+              <SelectTrigger className="h-8 w-[70px]">
+                <SelectValue placeholder={table.getState().pagination.pageSize} />
+              </SelectTrigger>
+              <SelectContent side="top">
+                {[10, 20, 30, 40, 50, 100].map((size) => ( // Added more options
+                  <SelectItem key={size} value={`${size}`}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex items-center"> {/* Group page count and buttons */}
+          <div className="flex w-[100px] items-center justify-center text-sm font-medium">
+            Page {currentPageIndex + 1} of {pageCount > 0 ? pageCount : 1}
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              className="hidden h-8 w-8 p-0 lg:flex"
+              onClick={() => handlePageIndexChange(0)}
+              disabled={!table.getCanPreviousPage()}
+            >
+              <span className="sr-only">Go to first page</span>
+              <DoubleArrowLeftIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              className="h-8 w-8 p-0"
+              onClick={() => handlePageIndexChange(currentPageIndex - 1)}
+              disabled={!table.getCanPreviousPage()}
+            >
+              <span className="sr-only">Go to previous page</span>
+              <ChevronLeftIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              className="h-8 w-8 p-0"
+              onClick={() => handlePageIndexChange(currentPageIndex + 1)}
+              disabled={!table.getCanNextPage()}
+            >
+              <span className="sr-only">Go to next page</span>
+              <ChevronRightIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              className="hidden h-8 w-8 p-0 lg:flex"
+              onClick={() => handlePageIndexChange(table.getPageCount() - 1)}
+              disabled={!table.getCanNextPage()}
+            >
+              <span className="sr-only">Go to last page</span>
+              <DoubleArrowRightIcon className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

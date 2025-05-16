@@ -25,9 +25,12 @@
   {
    "fieldname": "item_name",
    "fieldtype": "Data",
+   "in_global_search": 1,
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Item Name",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "description",
@@ -37,9 +40,12 @@
   {
    "fieldname": "unit_name",
    "fieldtype": "Data",
+   "in_global_search": 1,
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Unit Name",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "make_name",
@@ -54,9 +60,13 @@
   {
    "fieldname": "category",
    "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Category",
    "options": "Category",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "image_url",
@@ -64,9 +74,10 @@
    "label": "Image Url"
   }
  ],
+ "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:46:49.730010",
+ "modified": "2025-05-06 12:51:52.368680",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Items",

@@ -19,8 +19,6 @@ export default function ProjectSelect({ onChange, universal = true, all = false 
     // First build the filters array dynamically
     const projectFilters = [["status", "not in", ["Completed", "Halted"]]];
 
-
-
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager", "status"],
         filters: all ? undefined : projectFilters,

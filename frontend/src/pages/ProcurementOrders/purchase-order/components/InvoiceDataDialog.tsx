@@ -14,14 +14,15 @@ import { useMemo } from "react";
 interface InvoiceDataDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  invoiceData: InvoiceDataType | string;
+  invoiceData?: {data : InvoiceDataType};
   project?: string;
   poNumber?: string;
   vendor?: string;
 }
 
-const getInvoiceDetails = (data: InvoiceDataType | string) => {
+const getInvoiceDetails = (data: {data : InvoiceDataType} | undefined) => {
   try {
+    if(!data) return { isValid: false, items: [] };
     const parsedData = typeof data === 'string' ? JSON.parse(data)?.data : data?.data;
     const items = Object.entries(parsedData || {}) as [string, InvoiceItem][];
     

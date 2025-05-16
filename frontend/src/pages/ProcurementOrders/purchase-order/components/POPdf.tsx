@@ -8,12 +8,12 @@ import { MessageCircleMore, Printer } from "lucide-react";
 import * as pdfjsLib from 'pdfjs-dist';
 import { useEffect, useRef, useState } from "react";
 import { useReactToPrint } from "react-to-print";
-import { AddressView } from "../../components/address-view";
-import { Button } from "../../components/ui/button";
+import { AddressView } from "@/components/address-view";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent
-} from "../../components/ui/sheet";
+} from "@/components/ui/sheet";
 
 interface POPdfProps {
   po: ProcurementOrder | null

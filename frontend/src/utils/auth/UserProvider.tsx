@@ -10,8 +10,6 @@ interface UserContextProps {
   updateCurrentUser: VoidFunction;
   selectedProject: string | undefined;
   setSelectedProject: any;
-  newItemDialog: boolean;
-  toggleNewItemDialog: () => void;
   deleteDialog: boolean;
   toggleDeleteDialog: () => void;
 }
@@ -28,8 +26,6 @@ export const UserContext = createContext<UserContextProps>({
   updateCurrentUser: () => {},
   selectedProject: undefined,
   setSelectedProject: () => {},
-  newItemDialog: false,
-  toggleNewItemDialog: () => {},
   deleteDialog: false,
   toggleDeleteDialog: () => {},
 });
@@ -43,11 +39,6 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
   >("idle");
 
   const [selectedProject, setSelectedProject] = useState();
-  const [newItemDialog, setNewItemDialog] = useState(false);
-
-  const toggleNewItemDialog = () => {
-    setNewItemDialog((prevState) => !prevState);
-  };
 
   const [deleteDialog, setDeleteDialog] = useState(false);
   const toggleDeleteDialog = () => {
@@ -122,8 +113,6 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
         currentUser: currentUser ?? "",
         selectedProject,
         setSelectedProject,
-        newItemDialog,
-        toggleNewItemDialog,
         deleteDialog,
         toggleDeleteDialog
       }}

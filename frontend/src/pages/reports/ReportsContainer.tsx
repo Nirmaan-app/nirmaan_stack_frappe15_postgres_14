@@ -1,11 +1,12 @@
-import { useStateSyncedWithParams } from '@/hooks/useSearchParamsManager';
-import React, { Suspense, useCallback, useEffect, useMemo } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useUserData } from "@/hooks/useUserData";
 import { Radio } from "antd";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { POReportType, ProjectReportType, ReportType, useReportStore } from './store/useReportStore';
+import { getUrlStringParam } from '@/hooks/useServerDataTable';
+import { urlStateManager } from '@/utils/urlStateManager';
 
 const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
 const POReports = React.lazy(() => import('./components/POReports'));
@@ -23,11 +24,34 @@ const poReportOptions: { label: string; value: POReportType }[] = [
 
 export default function ReportsContainer() {
 
-    const { role } = useUserData();
-    const [activeTab, setActiveTab] = useStateSyncedWithParams<string>(
-        "tab",
-        REPORTS_TABS.PROJECTS
-    );
+    const {role} = useUserData();
+
+    const initialTab = useMemo(() => {
+        return getUrlStringParam("tab", REPORTS_TABS.PROJECTS);
+    }, []); // Calculate once
+
+
+    const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+    // Effect to sync tab state TO URL
+    useEffect(() => {
+        // Only update URL if the state `tab` is different from the URL's current 'tab' param
+        if (urlStateManager.getParam("tab") !== activeTab) {
+            urlStateManager.updateParam("tab", activeTab);
+        }
+    }, [activeTab]);
+
+    // Effect to sync URL state TO tab state (for popstate/direct URL load)
+    useEffect(() => {
+        const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
+            // Update state only if the new URL value is different from current state
+            const newTab = value || initialTab; // Fallback to initial if param removed
+            if (activeTab !== newTab) {
+                setActiveTab(newTab);
+            }
+        });
+        return unsubscribe; // Cleanup subscription
+    }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
     // Get state and actions from Zustand store
@@ -84,10 +108,9 @@ export default function ReportsContainer() {
 
 
     return (
-        <div
-            className="flex-1 space-y-4"
-        >
-
+        <div 
+        className="flex-1 space-y-4"
+        > 
             <div className="flex justify-between items-center gap-4 flex-wrap">
                 {tabs && (
                     <Radio.Group
@@ -103,14 +126,6 @@ export default function ReportsContainer() {
                 {/* Report Type Selector */}
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">Report Type:</span>
-                    {/* Example using Ant Design Select */}
-                    {/* <AntSelect
-                         style={{ width: 200 }}
-                         value={selectedReportType}
-                         onChange={handleReportTypeChange}
-                         options={currentReportOptions}
-                         disabled={currentReportOptions.length === 0}
-                     /> */}
 
                     {/* --- OR --- Example using Shadcn UI Select */}
                     <Select

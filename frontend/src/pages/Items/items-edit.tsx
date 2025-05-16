@@ -5,6 +5,7 @@ import {  useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ListChecks } from "lucide-react";
+import { SelectUnit } from "@/components/helpers/SelectUnit";
 
 interface SelectOption {
     label: string;
@@ -69,7 +70,9 @@ export default function EditItems({data}) {
                             </div>
                             <div className="mb-4">
                                 <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
-                                <Select onValueChange={(value) => setUnit(value)}>
+
+                                <SelectUnit value={unit} onChange={setUnit} />
+                                {/* <Select onValueChange={(value) => setUnit(value)}>
                                     <SelectTrigger className="w-[180px]">
                                         <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
                                     </SelectTrigger>
@@ -88,7 +91,7 @@ export default function EditItems({data}) {
                                         <SelectItem value="BUNDLE">BUNDLE</SelectItem>
                                         <SelectItem value="FEET">FEET</SelectItem>
                                     </SelectContent>
-                                </Select>
+                                </Select> */}
                             </div>
                             <div className="mb-4">
                                 <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
