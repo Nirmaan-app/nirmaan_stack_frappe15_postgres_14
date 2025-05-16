@@ -1,8 +1,9 @@
-import { cn } from "@/lib/utils"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card"
-import { Button } from "./button"
-import { ArrowLeft, CirclePlus } from "lucide-react"
+import { cn } from "@/lib/utils";
+import { ArrowLeft, CirclePlus } from "lucide-react";
+import { Button } from "./button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
+import { Row } from "@tanstack/react-table";
 
 function Skeleton({
   className,
@@ -60,6 +61,36 @@ export const TableSkeleton = () => {
     </>
   )
 }
+
+interface TableBodySkeletonProps {
+  shouldRenderSelectionColumn?: boolean | ((row: Row<any>) => boolean);
+  colSpan: number;
+  rows?: number; // number of skeleton rows to show, default to 5
+}
+
+export const TableBodySkeleton: React.FC<TableBodySkeletonProps> = ({shouldRenderSelectionColumn,  colSpan, rows = 5 }) => {
+  return (
+    <>
+      {[...Array(rows)].map((_, rowIndex) => (
+        <TableRow key={`skeleton-row-${rowIndex}`} aria-busy="true">
+          {shouldRenderSelectionColumn && <TableCell />}
+          {[...Array(colSpan)].map((_, colIndex) => (
+            <TableCell
+              key={`skeleton-cell-${rowIndex}-${colIndex}`}
+              className="py-4 px-4"
+              aria-label="Loading..."
+            >
+              <div className="animate-pulse flex space-x-2">
+                <div className="h-8 bg-gray-200 rounded w-3/4" />
+              </div>
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </>
+  );
+};
+
 
 
 export const WPSkeleton = () => {
@@ -712,4 +743,5 @@ export const NewPRSkeleton = () => {
 
 
 
-export { Skeleton }
+export { Skeleton };
+

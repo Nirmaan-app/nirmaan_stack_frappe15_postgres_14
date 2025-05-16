@@ -1,5 +1,5 @@
 import { useParams } from "react-router-dom";
-import { PurchaseOrder } from "../ProcurementOrders/PurchaseOrder";
+import { PurchaseOrder } from "../ProcurementOrders/purchase-order/PurchaseOrder";
 import ApprovedSR from "../ServiceRequests/service-request/approved-sr";
 
 // const OrderPaymentSummary = () => {
@@ -1651,7 +1651,7 @@ const OrderPaymentSummary = () => {
     const { id } = useParams<{ id: string }>();
     const poId = id?.replace(/&=/g, "/");
 
-    const isPO = poId.split("/")[0] === "PO";
+    const isPO = poId?.split("/")[0] === "PO";
 
   if (isPO) {
     return <PurchaseOrder accountsPage={true} />

@@ -1,537 +1,234 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
-// import { ClientSideRowModelModule } from "@ag-grid-community/client-side-row-model";
-// import {
-//     ChartToolPanelsDef,
-//   type ColDef,
-//   type GetRowIdFunc,
-//   type GetRowIdParams,
-//   type ValueFormatterFunc,
-//   type ValueGetterParams,
-// } from "@ag-grid-community/core";
-// import { ModuleRegistry } from "@ag-grid-community/core";
-// import { AgGridReact } from "@ag-grid-community/react";
-// import "@ag-grid-community/styles/ag-grid.css";
-// import "@ag-grid-community/styles/ag-theme-material.css";
-// import { AdvancedFilterModule } from "@ag-grid-enterprise/advanced-filter";
-// import { GridChartsModule } from "@ag-grid-enterprise/charts-enterprise";
-// import { ColumnsToolPanelModule } from "@ag-grid-enterprise/column-tool-panel";
-// import { ExcelExportModule } from "@ag-grid-enterprise/excel-export";
-// import { FiltersToolPanelModule } from "@ag-grid-enterprise/filter-tool-panel";
-// import { MenuModule } from "@ag-grid-enterprise/menu";
-// import { RangeSelectionModule } from "@ag-grid-enterprise/range-selection";
-// import { RichSelectModule } from "@ag-grid-enterprise/rich-select";
-// import { RowGroupingModule } from "@ag-grid-enterprise/row-grouping";
-// import { SetFilterModule } from "@ag-grid-enterprise/set-filter";
-// import { SparklinesModule } from "@ag-grid-enterprise/sparklines";
-// import { StatusBarModule } from "@ag-grid-enterprise/status-bar";
-import React, {
-    useMemo
-} from "react";
-
-import { DataTable } from "@/components/data-table/data-table";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { TableSkeleton } from "@/components/ui/skeleton";
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
-import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import React, { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import memoize from "lodash/memoize";
 import { Link } from "react-router-dom";
-// import { CsvExportModule } from "@ag-grid-community/csv-export";
+import { useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useToast } from "@/components/ui/use-toast";
 
-interface Props {
-    gridTheme?: string;
-    isDarkMode?: boolean;
-  }
+import { DataTable } from '@/components/data-table/new-data-table';
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge"; // Assuming you might use badges
 
-  // ModuleRegistry.registerModules([
-  //   ClientSideRowModelModule,
-  //   CsvExportModule
-  //   // AdvancedFilterModule,
-  //   // ColumnsToolPanelModule,
-  //   // ExcelExportModule,
-  //   // FiltersToolPanelModule,
-  //   // GridChartsModule,
-  //   // MenuModule,
-  //   // RangeSelectionModule,
-  //   // RowGroupingModule,
-  //   // SetFilterModule,
-  //   // RichSelectModule,
-  //   // StatusBarModule,
-  //   // SparklinesModule,
-  // ]);
-  
+import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { ApprovedQuotations as ApprovedQuotationsType } from "@/types/NirmaanStack/ApprovedQuotations";
+import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
+import { Items as ItemsType } from "@/types/NirmaanStack/Items";
+import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 
-export const ApprovedQuotationsTable: React.FC<Props> = ({
-    gridTheme = "ag-theme-material",
-    isDarkMode = false,
-  }) => {
+import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice"; // Assuming you have a rounded version too
 
-    // const [itemIds, setItemIds] = useState([])
+import {
+    APPROVED_QUOTATION_DOCTYPE, AQ_LIST_FIELDS_TO_FETCH, AQ_SEARCHABLE_FIELDS, AQ_DATE_COLUMNS,
+    VENDOR_DOCTYPE, VENDOR_LOOKUP_FIELDS,
+    ITEM_DOCTYPE, ITEM_LOOKUP_FIELDS,
+    CATEGORY_DOCTYPE, CATEGORY_LOOKUP_FIELDS
+} from "./approvedQuotations.constants";
 
-    const {data : approvedQuotations, isLoading: approvedQuotationsLoading} = useFrappeGetDocList("Approved Quotations", {
-        fields: ["*"],
-        limit: 100000
-    })
+export default function ApprovedQuotationsPage() {
+    const { toast } = useToast();
 
-    const {data: vendorsList} = useFrappeGetDocList("Vendors", {
-        fields: ["*"],
-        limit: 10000
-    })
+    // Fetch supporting data for column rendering and facet options
+    const { data: vendorsList, isLoading: vendorsLoading } = useFrappeGetDocList<VendorsType>(
+        VENDOR_DOCTYPE,
+        { fields: VENDOR_LOOKUP_FIELDS, limit: 10000 },
+        'vendors_for_aq_page'
+    );
+    // Fetch Items if you need to display item-specific info not on AQ or for linking
+    const { data: itemsList, isLoading: itemsLoading } = useFrappeGetDocList<ItemsType>(
+        ITEM_DOCTYPE,
+        { fields: ITEM_LOOKUP_FIELDS, limit: 10000 },
+        'items_for_aq_page'
+    );
+    // const { data: categoryList, isLoading: categoriesLoading } = useFrappeGetDocList<CategoryType>(
+    //     CATEGORY_DOCTYPE,
+    //     { fields: CATEGORY_LOOKUP_FIELDS, limit: 10000 },
+    //     'categories_for_aq_page'
+    // );
 
-  //   const {data : approvedItems} = useFrappeGetDocList("Items", {
-  //     fields: ["*"],
-  //     filters: [["name", "not in", itemIds]],
-  //     limit: 10000
-  //   },
-  //   itemIds?.length ? undefined : null
-  // )
+    const vendorMap = useMemo(() => {
+        const map = new Map<string, string>();
+        vendorsList?.forEach(vendor => map.set(vendor.name, vendor.vendor_name));
+        return map;
+    }, [vendorsList]);
 
-    // useEffect(() => {
-    //   if(approvedQuotations) {
-    //     const itemIds = approvedQuotations?.map((ap) => ap?.item_id)
-    //     setItemIds(itemIds)
-    //   }
-    // }, [approvedQuotations])
-
-    // console.log("itemIds", itemIds)
-    // console.log("approvedItems", approvedItems)
-
-    const  findVendorName = useMemo(() => memoize((id: string | undefined) => {
-        if(vendorsList) {
-            return vendorsList?.find((i) => i?.name === id)?.vendor_name || ""
-        }
-    }, (id: string | undefined) =>  id),[vendorsList])
-
-    // const findItemId = (name) => {
-    //     if(approvedQuotations) {
-    //         return approvedQuotations?.find((i) => i?.name === name)?.item_id
-    //     }
-    // }
-
-    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })), [vendorsList])
-
-    const getItemOptions = useMemo(() => {
-        const options: Set<string>  = new Set()
-        const itemOptions: {label: string, value: string}[] = []
-        if(approvedQuotations) {
-            approvedQuotations?.forEach((aq) => {
-                if(!options?.has(aq.item_name)){
-                    const op = ({ label: aq.item_name, value: aq.item_name })
-                    itemOptions.push(op)
-                    options.add(aq.item_name)
-                }
-            })
-        }
-
-        return itemOptions
-    }, [approvedQuotations])
-
-    const columns: ColumnDef<ApprovedQuotations>[]  = useMemo(
-        () => [
-            {
-                accessorKey: "name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Quote ID" />
-                    )
-                }
-            },
-            {
-                accessorKey: "creation",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Date Created" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {formatDate(row.getValue("creation"))}
-                        </div>
-                    )
-                },
-                hide: true
-            }, 
-            {
-                accessorKey : "item_name",
-                header: ({column}) => {
-                    return (
-                            <DataTableColumnHeader column={column} title="Item" />
-                    )
-                },
-                cell: ({ row }) => {
-                    // const itemId = findItemId(row.getValue("name"))
-                    return (
-                        // <Link className="underline hover:underline-offset-2" to={`/items/${itemId}`}>
-                        //     {row.getValue("item_name")}
-                        // </Link>
-                        <div className="font-medium">
-                            {row.getValue("item_name")}
-                        </div>
-                    )
-                },
-                filterFn: (row, id, value) => {
-                    return value.includes(row.getValue(id))
-                }
-            },
-            {
-                accessorKey : "unit",
-                header: ({column}) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Unit" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("unit")}
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey : "quote",
-                header: ({column}) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Quote" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {formatToIndianRupee(row.getValue("quote"))}
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey : "make",
-                header: ({column}) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Make" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("make") || "--"} 
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey : "vendor",
-                header: ({column}) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Vendor" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const vendorName = findVendorName(row.getValue("vendor"))
-                    return (
-                        <div className="font-medium">
-                            {vendorName}
-                        </div>
-                    )
-                },
-                filterFn: (row, id, value) => {
-                    return value.includes(row.getValue(id))
-                }
-            },
-            {
-                accessorKey : "procurement_order",
-                header: ({column}) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="#PO" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const poId: string = row.getValue("procurement_order")
-                    return (
-                        <Link className="underline hover:underline-offset-2" to={poId?.replaceAll("/", "&=")}>
-                            {poId}
-                        </Link>
-                    )
-                }
-            }
-
-        ],
-        [approvedQuotations, vendorsList]
-    )
+    const itemMap = useMemo(() => { // If you need to map item_id to a richer item object
+        const map = new Map<string, ItemsType>();
+        itemsList?.forEach(item => map.set(item.name, item));
+        return map;
+    }, [itemsList]);
 
 
-    // AG GRID CONFIGURATION STARTS FROM HERE
+    const columns = useMemo<ColumnDef<ApprovedQuotationsType>[]>(() => [
+        {
+            accessorKey: "name",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Quote ID" />,
+            cell: ({ row }) => (
+                // Assuming no dedicated detail page for an Approved Quotation,
+                // but you might link to the related PO or Item.
+                <div className="font-medium whitespace-nowrap">{row.getValue("name")}</div>
+            ), size: 180,
+        },
+        {
+            accessorKey: "item_name",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Item" />,
+            cell: ({ row }) => {
+                const itemId = row.original.item_id;
+                return itemId ? (
+                    <Link className="text-blue-600 hover:underline font-medium" to={`/products/${itemId}`}>
+                        {row.getValue("item_name")}
+                    </Link>
+                ) : (
+                    <div className="font-medium">{row.getValue("item_name")}</div>
+                );
+            }, size: 250,
+        },
+        {
+            accessorKey: "vendor",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
+            cell: ({ row }) => {
+                const vendorId = row.getValue<string>("vendor");
+                const vendorName = vendorMap.get(vendorId) || vendorId;
+                return vendorId ? (
+                    <Link className="text-blue-600 hover:underline font-medium" to={`/vendors/${vendorId}`}>
+                        {vendorName}
+                    </Link>
+                ) : (
+                    <div className="font-medium">{"--"}</div>
+                );
+            }, size: 220,
+        },
+        {
+            accessorKey: "quote",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Quoted Price" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.getValue("quote"))}</div>,
+            meta: {isNumeric: true}, // For styling if needed
+            size: 150,
+        },
+        {
+            accessorKey: "quantity",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Qty" />,
+            cell: ({ row }) => <div className="font-medium text-center">{row.getValue("quantity") || "1"}</div>, // Default to 1 if not present
+            meta: {isNumeric: true},
+            size: 80,
+        },
+        {
+            accessorKey: "unit",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Unit" />,
+            cell: ({ row }) => <div className="font-medium">{row.getValue("unit")}</div>,
+            size: 100,
+        },
+        {
+            accessorKey: "make",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Make" />,
+            cell: ({ row }) => <div className="font-medium">{row.getValue("make") || "--"}</div>,
+            size: 120,
+        },
+        {
+            accessorKey: "procurement_order",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="PO #" />,
+            cell: ({ row }) => {
+                const poId = row.getValue<string>("procurement_order");
+                return poId ? (
+                    <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replaceAll("/", "&=")}`}> {/* Adjust PO link */}
+                        {poId}
+                    </Link>
+                ) : (
+                    <span className="text-xs text-muted-foreground">N/A</span>
+                );
+            }, size: 180,
+        },
+        {
+            accessorKey: "creation",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Date Approved" />,
+            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            size: 150,
+        },
+        // {
+        //     accessorKey: "category", // Assuming 'category' is a Link field to Category Doctype
+        //     header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+        //     cell: ({ row }) => <div className="font-medium">{row.getValue("category") || "--"}</div>,
+        //     size: 150,
+        // },
+    ], [vendorMap, itemMap]); // itemMap included if used
 
-  // const [rowData, setRowData] = useState([]);
+    const {
+        table, totalCount, isLoading: aqTableLoading, error: aqTableError,
+        searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
+        refetch: refetchTable,
+    } = useServerDataTable<ApprovedQuotationsType>({
+        doctype: APPROVED_QUOTATION_DOCTYPE,
+        columns: columns,
+        fetchFields: AQ_LIST_FIELDS_TO_FETCH as string[],
+        searchableFields: AQ_SEARCHABLE_FIELDS,
+        defaultSort: 'creation desc',
+        urlSyncKey: 'approved_quotations_list',
+        enableRowSelection: false,
+    });
 
-  // const [rowData2, setRowData2] = useState([]);
+    useFrappeDocTypeEventListener(APPROVED_QUOTATION_DOCTYPE, (event) => {
+        toast({ title: `${APPROVED_QUOTATION_DOCTYPE} Data Updated`, description: `Quote ${event?.doc.name} was ${event?.event_type}. Refreshing list.`, duration: 2500 });
+        refetchTable();
+    });
+    // Optional: Listen to Vendor/Item changes if they might affect display significantly
+    // useFrappeDocTypeEventListener(VENDOR_DOCTYPE, () => refetchTable());
+    // useFrappeDocTypeEventListener(ITEM_DOCTYPE, () => refetchTable());
 
-  // const gridRef = useRef<AgGridReact>(null);
+    const vendorFacetOptions = useMemo(() =>
+        vendorsList?.map(v => ({ label: v.vendor_name, value: v.name })) || [],
+    [vendorsList]);
 
-  // const gridRef2 = useRef<AgGridReact>(null)
+    // Deriving item options from the actual approved quotes or from a full Items list
+    const itemFacetOptions = useMemo(() => {
+        // If you want options based on items *actually present* in approved quotes:
+        // You would need to fetch all AQs first (not good for performance if many AQs)
+        // Or, fetch unique item_name values from backend.
+        // For now, using the fetched itemsList for consistency:
+        return itemsList?.map(i => ({ label: i.item_name, value: i.item_name })) || [];
+         // If filtering by item_id: itemsList?.map(i => ({ label: i.item_name, value: i.item_id }))
+    }, [itemsList]);
 
-  // const navigate = useNavigate()
-
-  // useEffect(() => {
-  //   if(approvedQuotations) {
-  //       setRowData(approvedQuotations)
-  //   }
-  // }, [approvedQuotations])
-
-  // useEffect(() => {
-  //   if(approvedItems) {
-  //       setRowData2(approvedItems)
-  //   }
-  // }, [approvedItems])
+    // const categoryFacetOptions = useMemo(() =>
+    //     categoryList?.map(c => ({ label: c.name, value: c.name })) || [],
+    // [categoryList]);
 
 
-  // const colDefs = useMemo<ColDef[]>(
-  //   () => [
-  //     {
-  //       field: "name",
-  //       headerName: "Quote ID",
-  //       chartDataType: "category",
-  //       minWidth: 100,
-  //       editable: true,
-  //       // cellEditor: "agSelectCellEditor",
-  //       // cellEditorParams: {
-  //       //     values: ['Tesla', 'Ford', 'Toyota'],
-  //       // },
-  //       // cellRenderer: "agGroupCellRenderer"
-  //     },
-  //     {
-  //       headerName: "Creation",
-  //       chartDataType: "category",
-  //       cellDataType: "text",
-  //       valueGetter: ({data} : ValueGetterParams) => data && formatDate(data?.creation), 
-  //       minWidth: 120,
-  //     },
-  //     {
-  //       field: "item_name",
-  //       chartDataType: "category",
-  //       headerName: "Item",
-  //       cellDataType: "text",
-  //       minWidth: 300,
-  //       onCellClicked: ({data}) =>  navigate(`/items/${data?.item_id}`),
-  //       cellClass: "underline hover:underline-offset-2 hover:text-blue-500 cursor-pointer"
-  //     },
-  //   {
-  //       field: "unit",
-  //       chartDataType: "category",
-  //       cellDataType: "text",
-  //       // type: "rightAligned",
-  //       minWidth: 100,
-  //     },
-  //     {
-  //       field: "quote",
-  //       chartDataType: "series",
-  //       // type: "rightAligned",
-  //       minWidth: 100,
-  //       valueGetter: ({data} : ValueGetterParams) => data && parseFloat(data?.quote),
-  //       valueFormatter: params => "₹" + params?.value?.toLocaleString(),
-  //     },
-  //     {
-  //       headerName: "Vendor",
-  //       // type: "rightAligned",
-  //       chartDataType: "category",
-  //       cellDataType: "text",
-  //       valueGetter: ({data} : ValueGetterParams) => data && findVendorName(data?.vendor),
-  //       minWidth: 200,
-  //       // filter: true,
-  //       // floatingFilter: true
-  //     },
-  //     {
-  //       headerName: "PO",
-  //       chartDataType: "category",
-  //       field: "procurement_order",
-  //       cellDataType: "text",
-  //       // type: "rightAligned",
-  //       minWidth: 120,
-  //       onCellClicked: ({data}) =>  navigate(`${data?.procurement_order?.replaceAll("/", "&=")}`),
-  //       valueGetter: ({data} : ValueGetterParams) => data && data?.procurement_order?.slice(3, 12),
-  //       cellClass: "underline hover:underline-offset-2 hover:text-blue-500 cursor-pointer",
-  //     },
-  //   ],
-  //   [vendorsList, approvedQuotations]
-  // );
+    const facetFilterOptions = useMemo(() => ({
+        vendor: { title: "Vendor", options: vendorFacetOptions },
+        item_name: { title: "Item Name", options: itemFacetOptions }, // If filtering by item_name
+        // If your AQ doctype has 'category' as a Link field to the Category doctype,
+        // and you want to filter by the category's name:
+        // category: { title: "Category", options: categoryFacetOptions },
+    }), [vendorFacetOptions, itemFacetOptions]);
 
-  // const colDefs2 = useMemo<ColDef[]>(
-  //   () => [
-  //     {
-  //       field: "name",
-  //       headerName: "Item ID",
-  //       chartDataType: "category",
-  //       minWidth: 100,
-  //       editable: true,
-  //     },
-  //     {
-  //       headerName: "Creation",
-  //       chartDataType: "category",
-  //       cellDataType: "text",
-  //       valueGetter: ({data} : ValueGetterParams) => data && formatDate(data?.creation), 
-  //       minWidth: 120,
-  //     },
-  //     {
-  //       field: "item_name",
-  //       chartDataType: "category",
-  //       headerName: "Item",
-  //       cellDataType: "text",
-  //       minWidth: 300,
-  //       onCellClicked: ({data}) =>  navigate(`/items/${data?.item_id}`),
-  //       cellClass: "underline hover:underline-offset-2 hover:text-blue-500 cursor-pointer"
-  //     },
-  //   {
-  //       field: "unit_name",
-  //       headerName: "Unit",
-  //       chartDataType: "category",
-  //       cellDataType: "text",
-  //       // type: "rightAligned",
-  //       minWidth: 100,
-  //     },
-  //     {
-  //       field: "make_name",
-  //       headerName: "Make Name",
-  //       chartDataType: "category",
-  //       cellDataType: "text",
-  //       // type: "rightAligned",
-  //       minWidth: 100,
-  //     },
-  //     {
-  //       field: "category",
-  //       chartDataType: "category",
-  //       cellDataType: "text",
-  //       // type: "rightAligned",
-  //       minWidth: 100,
-  //     }
-  //   ],
-  //   [approvedItems, itemIds]
-  // );
+    const overallIsLoading = aqTableLoading || vendorsLoading || itemsLoading;
+    const overallError = aqTableError; // Simplification, can combine errors if needed
 
-  // const defaultColDef: ColDef = useMemo(
-  //   () => ({
-  //     flex: 1,
-  //     filter: true,
-  //   //   enableRowGroup: true,
-  //   //   enableValue: true,
-  //   }),
-  //   []
-  // );
+    return (
+        <div className="flex-1 space-y-4">
+            {/* <div className="flex items-center justify-between">
+                <h1 className="text-2xl font-semibold">Approved Quotations</h1>
+            </div> */}
 
-  // const chartToolPanelsDef = useMemo<ChartToolPanelsDef>(() => {
-  //   return {
-  //     defaultToolPanel: "settings",
-  //   };
-  // }, []);
+            {/* No summary card for now, add if needed */}
 
-  // const getRowId = useCallback<GetRowIdFunc>(
-  //   ({ data: { name } }: GetRowIdParams) => name,
-  //   []
-  // );
-
-  // const statusBar = useMemo(
-  //   () => ({
-  //     statusPanels: [
-  //       { statusPanel: "agTotalAndFilteredRowCountComponent" },
-  //       { statusPanel: "agTotalRowCountComponent" },
-  //       { statusPanel: "agFilteredRowCountComponent" },
-  //       { statusPanel: "agSelectedRowCountComponent" },
-  //       { statusPanel: "agAggregationComponent" },
-  //     ],
-  //   }),
-  //   []
-  // );
-
-//     const pagination = true;
-//     const paginationPageSize = 50;
-//     const paginationPageSizeSelector = [50, 100, 500];
-
-//   const rowSelection = useMemo(() => { 
-// 	return {
-//       mode: 'multiRow',
-//     };
-// }, []);
-
-// const onBtnExport = useCallback(() => {
-//     gridRef.current!.api.exportDataAsCsv();
-// }, []);
-
-// const onBtnExport2 = useCallback(() => {
-//   gridRef2.current!.api.exportDataAsCsv();
-// }, []);
-
-//   const themeClass = `${gridTheme}${isDarkMode ? "-dark" : ""}`;
-
-  return (
-    <div className="flex-1 space-y-4">
-        {/* <div className="flex items-center justify-between space-y-2">
-               <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Approved Quotations</h2>
-         </div> */}
-
-        <div>
-            {/* <h2 className="font-semibold text-lg text-primary">Tanstack Table</h2> */}
-            {approvedQuotationsLoading ? (<TableSkeleton />) : (
-                   <DataTable columns={columns} data={approvedQuotations || []} approvedQuotesVendors={vendorOptions} itemOptions={getItemOptions} />
-            )}
+            <DataTable<ApprovedQuotationsType>
+                table={table}
+                columns={columns}
+                isLoading={overallIsLoading}
+                error={overallError}
+                totalCount={totalCount}
+                searchFieldOptions={AQ_SEARCHABLE_FIELDS}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                dateFilterColumns={AQ_DATE_COLUMNS}
+                showExportButton={true}
+                onExport={'default'}
+                exportFileName="approved_quotations_data"
+                showRowSelection={false}
+            />
         </div>
-        {/* <Separator className="my-6" />
-    <div className={styles.wrapper}>
-    <h2 className="font-semibold text-lg py-4 text-primary">AG Grid Table (inc. Enterprise, Recommended for flexible, dynamic and robust interface)</h2>
-    <Button onClick={onBtnExport}>Download CSV export file</Button>
-      <div className={styles.container}>
-        <div className={`${themeClass} ${styles.grid}`}>
-          <AgGridReact
-            ref={gridRef}
-            getRowId={getRowId}
-            rowData={rowData}
-            columnDefs={colDefs}
-            defaultColDef={defaultColDef}
-            cellSelection = {true}
-            enableCharts={true}
-            chartToolPanelsDef={chartToolPanelsDef}
-            rowSelection={rowSelection}
-            rowGroupPanelShow={"always"}
-            suppressAggFuncInHeader
-            groupDefaultExpanded={-1}
-            statusBar={statusBar}
-            pagination={pagination}
-            paginationPageSize={paginationPageSize}
-            paginationPageSizeSelector={paginationPageSizeSelector}
-            onCellValueChanged={(e) => console.log("New Cell Value: ", e)} // when editing a column value, we can track that using this event
-            // masterDetail
-          />
-        </div>
-      </div>
-    </div>
-
-    <div className={styles.wrapper}>
-    <h2 className="font-semibold text-lg py-4 text-primary">AG Grid Table (inc. Enterprise, Recommended for flexible, dynamic and robust interface)</h2>
-    <Button onClick={onBtnExport2}>Download CSV export file</Button>
-      <div className={styles.container}>
-        <div className={`${themeClass} ${styles.grid}`}>
-          <AgGridReact
-            ref={gridRef2}
-            getRowId={getRowId}
-            rowData={rowData2}
-            columnDefs={colDefs2}
-            defaultColDef={defaultColDef}
-            // cellSelection = {true}
-            // enableCharts={true}
-            chartToolPanelsDef={chartToolPanelsDef}
-            rowSelection={rowSelection}
-            rowGroupPanelShow={"always"}
-            suppressAggFuncInHeader
-            groupDefaultExpanded={-1}
-            statusBar={statusBar}
-            pagination={pagination}
-            paginationPageSize={paginationPageSize}
-            paginationPageSizeSelector={paginationPageSizeSelector}
-            onCellValueChanged={(e) => console.log("New Cell Value: ", e)} // when editing a column value, we can track that using this event
-            // masterDetail
-          />
-        </div>
-      </div>
-    </div> */}
-    </div>
-  );
+    );
 }

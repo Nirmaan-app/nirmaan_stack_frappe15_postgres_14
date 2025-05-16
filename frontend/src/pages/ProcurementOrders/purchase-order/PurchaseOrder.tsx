@@ -54,8 +54,8 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
-import { PODetails } from "@/pages/ProcurementOrders/PODetails";
-import { POPdf } from "@/pages/ProcurementOrders/POPdf";
+import { PODetails } from "@/pages/ProcurementOrders/purchase-order/components/PODetails";
+import { POPdf } from "./components/POPdf";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -90,13 +90,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import DeliveryHistory from "../DeliveryNotes/components/DeliveryHistory";
-import { InvoiceDialog } from "./invoices-and-dcs/components/InvoiceDialog";
-import POAttachments from "./POAttachments";
-import POPaymentTermsCard from "./POPaymentTermsCard";
-import TransactionDetailsCard from "./TransactionDetailsCard";
-import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog"; // Import the dialog component
-import { DocumentAttachments } from "./invoices-and-dcs/DocumentAttachments";
+import DeliveryHistory from "@/pages/DeliveryNotes/components/DeliveryHistory";
+import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
+import POAttachments from "./components/POAttachments";
+import POPaymentTermsCard from "./components/POPaymentTermsCard";
+import TransactionDetailsCard from "./components/TransactionDetailsCard";
+import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog"; // Import the dialog component
+import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;

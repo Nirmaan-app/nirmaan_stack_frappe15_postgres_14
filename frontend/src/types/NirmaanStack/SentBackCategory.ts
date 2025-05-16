@@ -1,5 +1,7 @@
 import { Category, ProcurementItem, RFQData } from "./ProcurementRequests"
 
+export interface SentBackItem extends ProcurementItem {}
+
 export interface SentBackCategory{
 	name: string
 	creation: string
@@ -21,7 +23,7 @@ export interface SentBackCategory{
 		}
 	/**	Item List : JSON	*/
 	item_list: {
-			list: ProcurementItem[]
+			list: SentBackItem[]
 		}
 	/**	RFQ Data : JSON	*/
 	rfq_data : RFQData

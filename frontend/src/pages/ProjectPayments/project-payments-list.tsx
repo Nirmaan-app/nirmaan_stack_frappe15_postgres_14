@@ -26,7 +26,7 @@ import { SquarePlus } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-import { InvoiceDataDialog } from "../ProcurementOrders/InvoiceDataDialog";
+import { InvoiceDataDialog } from "../ProcurementOrders/purchase-order/components/InvoiceDataDialog";
 import { PaymentsDataDialog } from "./PaymentsDataDialog";
 
 type ProjectFilter = Filter<FrappeDoc<Projects>>;

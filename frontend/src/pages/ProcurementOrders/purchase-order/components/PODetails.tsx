@@ -13,16 +13,16 @@ import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer
 import React, { useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
-import { VendorHoverCard } from "../../components/helpers/vendor-hover-card";
-import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
+import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   CardTitle,
-} from "../../components/ui/card";
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogClose,
@@ -32,21 +32,21 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "../../components/ui/dialog";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { Separator } from "../../components/ui/separator";
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle
-} from "../../components/ui/sheet";
-import { Textarea } from "../../components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
-import { toast } from "../../components/ui/use-toast";
-import { ValidationIndicator } from "../../components/validations/ValidationIndicator";
-import { ValidationMessages } from "../../components/validations/ValidationMessages";
+} from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/use-toast";
+import { ValidationIndicator } from "@/components/validations/ValidationIndicator";
+import { ValidationMessages } from "@/components/validations/ValidationMessages";
 
 interface PODetailsProps {
   po: ProcurementOrder | null

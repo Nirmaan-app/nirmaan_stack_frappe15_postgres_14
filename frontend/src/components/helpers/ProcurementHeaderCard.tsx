@@ -58,7 +58,7 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
       )}
       {sentBack && (
         <div className="border-0 flex flex-col">
-          <p className="text-left py-1 font-light text-sm text-red-700">{orderData.type} By</p>
+          <p className="text-left py-1 font-light text-sm text-red-700">{orderData?.type} By</p>
           <p className="text-left font-bold py-1 text-base text-black">
             {approverData?.full_name || (orderData?.modified_by === "Administrator" ? "Administrator" : orderData?.modified_by)}
           </p>
