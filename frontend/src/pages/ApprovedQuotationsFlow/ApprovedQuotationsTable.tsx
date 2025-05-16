@@ -163,6 +163,7 @@ export default function ApprovedQuotationsPage() {
         defaultSort: 'creation desc',
         urlSyncKey: 'approved_quotations_list',
         enableRowSelection: false,
+        shouldCache: true,
     });
 
     useFrappeDocTypeEventListener(APPROVED_QUOTATION_DOCTYPE, (event) => {

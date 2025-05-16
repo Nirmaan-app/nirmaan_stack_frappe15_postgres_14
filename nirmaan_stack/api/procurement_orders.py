@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-
+from frappe.utils.caching import redis_cache
 
 
 # @frappe.whitelist()
@@ -108,6 +108,7 @@ from frappe import _
 
 
 @frappe.whitelist()
+@redis_cache(ttl=2*60*60)
 def generate_po_summary(project_id: str):
     """
     API to get PO summary rows item-wise for a project

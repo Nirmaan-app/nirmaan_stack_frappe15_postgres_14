@@ -632,7 +632,8 @@ export function useServerDataTable<TData extends { name: string }>({
         getFacetedUniqueValues: getFacetedUniqueValues(), // Useful for faceted filter UI options
         // Configuration
         enableRowSelection: configEnableRowSelection,
-        debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
+        // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
+        debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });
 
     // NEW: Toggle Item Search

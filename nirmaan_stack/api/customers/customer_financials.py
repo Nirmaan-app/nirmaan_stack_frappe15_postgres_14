@@ -1,6 +1,7 @@
 import frappe
 from frappe import _
 from frappe.utils import cint
+from frappe.utils.caching import redis_cache
 
 def get_customer_financial_details(customer_id):
     """
@@ -128,6 +129,7 @@ def get_customer_financial_details(customer_id):
         frappe.throw(_("An error occurred while fetching financial details: {}").format(e))
 
 @frappe.whitelist()
+@redis_cache(shared=True)
 def get_customer_financial_details_api(customer_id):
     """
     Whitelist function to expose the API.
