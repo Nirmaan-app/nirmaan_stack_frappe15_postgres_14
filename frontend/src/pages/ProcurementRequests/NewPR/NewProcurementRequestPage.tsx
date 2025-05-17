@@ -1,7 +1,6 @@
-// src/features/procurement-requests/pages/NewProcurementRequestPage.tsx
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useFrappeGetDoc } from 'frappe-react-sdk';
+import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
 
 // Import UI Components
 import { WorkPackageSelector } from './components/WorkPackageSelector';
@@ -12,8 +11,6 @@ import { PreviousComments } from './components/PreviousComments';
 import { NewItemDialog } from './components/NewItemDialog';
 import { EditItemDialog } from './components/EditItemDialog';
 
-
-import { TableSkeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { MessageCircleWarning } from 'lucide-react';
@@ -26,6 +23,9 @@ import { useProcurementRequestData } from './hooks/useProcurementRequestData';
 import { useProcurementRequestForm } from './hooks/useProcurementRequestForm';
 import { useSubmitProcurementRequest } from './hooks/useSubmitProcurementRequest';
 import { Projects, WorkPackage } from '@/types/NirmaanStack/Projects';
+import { toast } from '@/components/ui/use-toast';
+import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
+import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 
 
 type PageState = 'loading' | 'wp-selection' | 'item-selection' | 'error';
@@ -77,7 +77,8 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
     const [showNewItemDialog, setShowNewItemDialog] = useState(false);
     const [itemToEdit, setItemToEdit] = useState<ProcurementRequestItem | null>(null);
 
-    // --- Store Initialization ---
+    // --- Store Initialization --- 
+    const setStoreComment = useProcurementRequestStore(state => state.setNewPRComment);
     const initializeStore = useProcurementRequestStore(state => state.initialize);
     const wpFromStore = useProcurementRequestStore(state => state.selectedWP);
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
@@ -86,13 +87,32 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
     const initialCategoryMakes = useProcurementRequestStore(state => state.initialCategoryMakes)
 
     // Fetch existing PR data only if in edit/resolve mode
-    const { data: existingPRData, isLoading: existingPRLoading } = useFrappeGetDoc<ProcurementRequest>(
+    const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useFrappeGetDoc<ProcurementRequest>(
         "Procurement Requests",
         prId!,
         !!prId && (mode === 'edit' || mode === 'resolve') ? undefined : null
         // Correct options syntax for conditional fetching
         // { enabled: !!prId && (mode === 'edit' || mode === 'resolve') }
     );
+
+    const {emitDocOpen} =  useFrappeDocumentEventListener("Procurment Requests", prId, (event) => {
+        if(prId) {
+            existingPRDataMutate();
+            console.log("Procurement Request document updated (real-time):", event);
+            toast({
+                title: "Document Updated",
+                description: `Procurement Request ${event.name} has been modified.`,
+            });
+        }
+        },
+        false
+    )
+
+    useEffect(() => {
+        if (prId) {
+            emitDocOpen();
+        }
+    }, [prId, emitDocOpen]);
 
 
     // --- Data Hooks ---
@@ -197,14 +217,24 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
 
     // --- Render Logic ---
     if (page === 'loading') {
-        return <div className="p-4"><TableSkeleton /></div>;
+        return <LoadingFallback />
     }
 
     if (page === 'error') {
-        return <div className="p-4 text-red-500">Error loading procurement request data. Please check URL parameters or try again.</div>;
+        return <AlertDestructive error={dataError} />
     }
 
-    const handleSubmitAction = mode === 'create' ? submitNewPR : resolveOrUpdatePR;
+    const handleSubmitWithComment = async (finalCommentFromDialog: string) => {
+        // Optionally, update the store here if you still want the store to hold the
+        // comment that was *actually* submitted.
+        setStoreComment(finalCommentFromDialog); // Update Zustand store
+
+        if (mode === 'create') {
+            await submitNewPR(finalCommentFromDialog);
+        } else {
+            await resolveOrUpdatePR(finalCommentFromDialog);
+        }
+    }
 
     return (
         <div className="flex-1 space-y-4 px-4 py-4">
@@ -292,7 +322,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                             /> */}
                             <ActionButtons
                                 mode={mode}
-                                onSubmit={handleSubmitAction}
+                                onSubmit={handleSubmitWithComment}
                                 isSubmitting={isSubmitting}
                                 disabled={procList.length === 0 || isSubmitting} // Also disable if submitting
                                 comment={newPRComment}

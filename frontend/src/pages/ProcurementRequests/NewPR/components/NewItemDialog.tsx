@@ -20,12 +20,12 @@ import { useToast } from "@/components/ui/use-toast"; // Adjust path
 import { TailSpin } from 'react-loader-spinner';
 import { ListChecks, CirclePlus } from "lucide-react";
 
-import { Category } from '../types'; // Adjust path
 import { ProcurementRequestItem, CategoryOption } from '../types'; // Adjust path
 import { useUserData } from '@/hooks/useUserData'; // Adjust path
 import Fuse, { FuseResult } from 'fuse.js';
 import { ItemStatus } from '../constants';
 import { Items } from '@/types/NirmaanStack/Items';
+import { Category } from '@/types/NirmaanStack/Category';
 
 
 interface NewItemDialogProps {
@@ -34,9 +34,9 @@ interface NewItemDialogProps {
     categories: Category[]; // Full category details needed for new_items check
     workPackage: string; // Display only
     // Callback to add the item (created or requested) to the Zustand store list
-    onSubmit: (itemData: ProcurementRequestItem, isRequest: boolean) => void;
+    onSubmit: (itemData: Omit<ProcurementRequestItem, "uniqueId" | "status">, isRequest?: boolean) => void
     fuzzySearch: (input: string) => FuseResult<Items>[];
-    itemList?: Item[]; // Full item list for fuzzy search display & adding existing
+    itemList?: Items[]; // Full item list for fuzzy search display & adding existing
     itemMutate: () => Promise<any>; // To refresh item list after creation
 }
 
@@ -72,7 +72,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
     // Local State for the dialog form
     const [selectedCategory, setSelectedCategory] = useState<SingleValue<CategoryOption>>(null);
     const [newItem, setNewItem] = useState<NewItemState>(initialNewItemState);
-    const [fuzzyMatches, setFuzzyMatches] = useState<Fuse.FuseResult<Item>[]>([]);
+    const [fuzzyMatches, setFuzzyMatches] = useState<FuseResult<Items>[]>([]);
     const [isFocused, setIsFocused] = useState(false); // Track focus for fuzzy list
 
     // Derived state and options
@@ -120,7 +120,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
         onOpenChange(false);
     }, [onOpenChange]);
 
-    const handleSelectExistingItem = (item: Item) => {
+    const handleSelectExistingItem = (item: Items) => {
          if (!selectedCategory) return; // Should not happen if fuzzy results are shown
 
          // Call the onSubmit prop to add *this existing* item to the list
@@ -132,8 +132,9 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
             category: selectedCategory.value,
             tax: selectedCategory.tax,
             comment: '', // No comment initially
-            status: ItemStatus.PENDING, // It's an existing item
-            uniqueId: uuidv4(),
+            // status: ItemStatus.PENDING, // It's an existing item
+            // uniqueId: uuidv4(), // will be added by addProcItem in the store
+            // work_package: currentSelectedWP // will be added by addProcItem in the store
          }, false); // false indicates it's not a request
 
          closeDialog();
@@ -151,7 +152,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
 
         if (isRequest) {
             // --- Handle as a Request Item ---
-            const requestItemData: ProcurementRequestItem = {
+            const requestItemData: Omit<ProcurementRequestItem, "uniqueId" | "status"> = {
                 name: `REQ-${uuidv4()}`, // Generate a temporary unique ID for requests
                 item: newItem.itemName.trim(),
                 unit: newItem.unitName,
@@ -159,8 +160,8 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                 category: selectedCategory.value,
                 tax: selectedCategory.tax,
                 comment: newItem.comment.trim() || undefined,
-                status: ItemStatus.REQUEST,
-                uniqueId: uuidv4(), // Add client-side unique ID
+                // status: ItemStatus.REQUEST,
+                // uniqueId: uuidv4(), // Add client-side unique ID
             };
             onSubmit(requestItemData, true); // True indicates it's a request
             closeDialog();
@@ -177,7 +178,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                 const res = await createDoc("Items", itemDocData);
 
                 // Now add this newly created item to the PR list via the callback
-                const newItemForList: ProcurementRequestItem = {
+                const newItemForList: Omit<ProcurementRequestItem, "uniqueId" | "status"> = {
                     name: res.name, // Use the actual DocName from response
                     item: res.item_name,
                     unit: res.unit_name,
@@ -185,8 +186,8 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                     category: res.category,
                     tax: selectedCategory.tax, // Get tax from selected category
                     comment: newItem.comment.trim() || undefined,
-                    status: ItemStatus.PENDING,
-                    uniqueId: uuidv4(),
+                    // status: ItemStatus.PENDING,
+                    // uniqueId: uuidv4(),
                 };
                 onSubmit(newItemForList, false); // False indicates it's not a request
 

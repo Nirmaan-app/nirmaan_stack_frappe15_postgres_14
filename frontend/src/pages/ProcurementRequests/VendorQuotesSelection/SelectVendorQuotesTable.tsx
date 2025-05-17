@@ -53,7 +53,7 @@ export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = fal
       },
     }))
   
-  const isValidQuote = quote && parseFloat(quote) > 0;
+  const isValidQuote = quote && parseNumber(quote) > 0;
   if (!isValidQuote) {
     setSelectedVendorQuotes(prev => {
       const updated = new Map(prev);
@@ -64,6 +64,15 @@ export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = fal
     });
   }
   }, [setFormData, setSelectedVendorQuotes]);
+
+  // Define type guards (if not already defined elsewhere)
+function isProcurementRequest(doc: DocumentType): doc is ProcurementRequest {
+  return 'procurement_list' in doc;
+}
+
+function isSentBackCategory(doc: DocumentType): doc is SentBackCategory {
+  return 'item_list' in doc;
+}
 
   const removeVendor = useCallback((vendorId: string) => {
         setFormData((prev) => {
@@ -102,25 +111,55 @@ export function SelectVendorQuotesTable <T extends DocumentType>({sentBack = fal
           return updatedQuotes
         })
       
-        if(sentBack) {
-          setOrderData((prev) => ({
-            ...prev,
-            item_list: {
-              list: prev?.item_list.list.map((item) => 
-              item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
-              )
-            }
-          }))
-        } else {
-          setOrderData((prev) => ({
-              ...prev,
-              procurement_list: {
-                list: prev.procurement_list.list.map((item) => 
-                item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
+        // if(sentBack) {
+        //   setOrderData((prev) => ({
+        //     ...prev,
+        //     item_list: {
+        //       list: prev?.item_list.list.map((item) => 
+        //       item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
+        //       )
+        //     }
+        //   }))
+        // } else {
+        //   setOrderData((prev) => ({
+        //       ...prev,
+        //       procurement_list: {
+        //         list: prev.procurement_list.list.map((item) => 
+        //         item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
+        //         )
+        //       }
+        //     }))
+        // }
+
+        // In removeVendor
+        setOrderData((prevOrderData) => {
+          if (!prevOrderData) return null;
+        
+          if (sentBack && isSentBackCategory(prevOrderData)) {
+            return {
+              ...prevOrderData, // Now prevOrderData is correctly typed as SentBackCategory
+              item_list: {
+                ...(prevOrderData.item_list || { list: [] }),
+                list: (prevOrderData.item_list?.list || []).map((item: any) =>
+                  item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
                 )
               }
-            }))
-        }
+            }; // No 'as T' needed here, TypeScript infers it
+          } else if (!sentBack && isProcurementRequest(prevOrderData)) {
+            return {
+              ...prevOrderData, // Now prevOrderData is correctly typed as ProcurementRequest
+              procurement_list: {
+                ...(prevOrderData.procurement_list || { list: [] }),
+                list: (prevOrderData.procurement_list?.list || []).map((item: any) =>
+                  item?.vendor === vendorId ? omit(item, ["vendor", "quote", "make"]) : item
+                )
+              }
+            }; // No 'as T' needed here
+          }
+          // Fallback or error if type doesn't match expectation, though this shouldn't happen with your logic
+          console.warn("Type mismatch in setOrderData for removeVendor");
+          return prevOrderData; // Or null, or throw error
+        });
       }, [setOrderData, setSelectedVendorQuotes, setFormData]);
     
 

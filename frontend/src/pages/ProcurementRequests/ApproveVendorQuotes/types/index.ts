@@ -1,7 +1,7 @@
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
-import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementItemWithVendor } from "@/types/NirmaanStack/ProcurementRequests";
 
-export interface VendorItemDetails extends ProcurementItem { // Extend ProcurementItem
+export interface VendorItemDetails extends ProcurementItemWithVendor { // Extend ProcurementItem
     vendor_name: string; // Always expect vendor name here
     amount: number;
     threeMonthsLowestAmount?: number;

@@ -4,13 +4,11 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor"
 import { NewVendor } from "@/pages/vendors/new-vendor"
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
-import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
-import { Vendors } from "@/types/NirmaanStack/Vendors"
+import { ProcurementItem, ProcurementItemBase, ProcurementItemWithVendor, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { parseNumber } from "@/utils/parseNumber"
-import { useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
-import { CirclePlus, Info, Undo2 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { FrappeConfig, FrappeContext, useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
+import { AlertCircle, CirclePlus, Info, Undo2 } from "lucide-react"
+import { useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard"
@@ -20,6 +18,9 @@ import { toast } from "../../../components/ui/use-toast"
 import GenerateRFQDialog from "./components/GenerateRFQDialog"
 import { SelectVendorQuotesTable } from "./SelectVendorQuotesTable"
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback"
+import { useUserData } from "@/hooks/useUserData"
+import { useVendorsList } from "./hooks/useVendorsList"
+import { useUsersList } from "../ApproveNewPR/hooks/useUsersList"
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -84,6 +85,7 @@ export const ProcurementProgress : React.FC = () => {
   const navigate = useNavigate()
 
   const {prId} = useParams<{ prId: string }>()
+  const currentUser = useUserData().user_id
 
   // Ensure prId exists early
   if (!prId) {
@@ -91,7 +93,7 @@ export const ProcurementProgress : React.FC = () => {
   }
 
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
-  const [orderData, setOrderData] = useState<ProcurementRequest | undefined>()
+  const [orderData, setOrderData] = useState<ProcurementRequest | null>(null)
   const [addVendorsDialog, setAddVendorsDialog] = useState(false)
   const [selectedVendors, setSelectedVendors] = useState<Vendor[]>([])
 
@@ -108,7 +110,25 @@ export const ProcurementProgress : React.FC = () => {
     filters: [["name", "=", prId]]
   }, prId ? `Procurement Requests ${prId}` : null)
 
-  useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
+  const [revertDialog, setRevertDialog] = useState(false);
+
+
+  const toggleRevertDialog = useCallback(() => {
+    setRevertDialog(!revertDialog);
+  }, [revertDialog]);
+
+
+  const {data: vendors, isLoading: vendors_loading} = useVendorsList({vendorTypes: ["Material", "Material & Service"]})
+
+  const {data: usersList, isLoading: usersListLoading} = useUsersList()
+
+  const userFullNameMap = useMemo(() => {
+      const map = new Map<string, string>();
+      usersList?.forEach(user => map.set(user.name, user.full_name || user.name));
+      return map;
+  }, [usersList]);
+
+  const {viewers, emitDocClose, emitDocOpen} = useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
     console.log("Procurement Request document updated (real-time):", event);
     toast({
         title: "Document Updated",
@@ -119,38 +139,61 @@ export const ProcurementProgress : React.FC = () => {
   true // emitOpenCloseEventsOnMount (default)
   )
 
-  const [revertDialog, setRevertDialog] = useState(false);
+  const [otherEditors, setOtherEditors] = useState<string[]>([]);
 
-  const toggleRevertDialog = useCallback(() => {
-    setRevertDialog(!revertDialog);
-  }, [revertDialog]);
+  useEffect(() => {
+    if (prId) {
+      emitDocOpen();
 
-  const {data: vendors, isLoading: vendors_loading} = useFrappeGetDocList<Vendors>("Vendors", {
-    fields: ["vendor_name", "vendor_type", "name", "vendor_city", "vendor_state"],
-    filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
-    limit: 10000,
-    orderBy: { field: "vendor_name", order: "asc" },
-  }, "Material Vendors")
+      return () => {
+        emitDocClose();
+      }
+    }
+  }, [prId,]);
 
-  const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-      fields: ["*"],
-      limit: 1000,
-    },
-    `Nirmaan Users`
-  )
+  // Logic to determine active editor and lock state
+  useEffect(() => {
+    if (!prId) return;
+
+    // `viewers` contains all users currently subscribed to this document's room, including the current user.
+    // `emitDocOpen` is called by the hook on mount, adding current user to the list.
+    // `emitDocClose` is called on unmount.
+    console.log("Viewers changed:", viewers, "Current user:", currentUser);
+
+    if(viewers.length > 0) {
+      setOtherEditors(viewers.filter(user => user !== currentUser));
+    } else {
+      setOtherEditors([]);
+    }
+    
+
+}, [viewers]); // Re-run when viewers or activeEditor changes
+
   
-  const getFullName = useMemo(() => (id : string | undefined) => {
-    return usersList?.find((user) => user?.name == id)?.full_name || ""
-  }, [usersList]);
+  const getFullName = useMemo(() => (id: string | undefined | null): string => {
+    if (!id) return "Unknown User";
+    return userFullNameMap.get(id) || id;
+}, [userFullNameMap]);
+
 
   const { updateProcurementData, update_loading } = useProcurementUpdates(prId, procurement_request_mutate)
 
+  function isProcurementItemWithVendor(item: ProcurementItem): item is ProcurementItemWithVendor {
+    // Check for properties specific to ProcurementItemWithVendor
+    // You can check for 'vendor' or 'quote', or both if they always appear together.
+    // Checking for 'vendor' is often sufficient if it's the distinguishing factor.
+    return (item as ProcurementItemWithVendor).vendor !== undefined;
+    // Alternatively, if 'quote' is also a good indicator:
+    // return (item as ProcurementItemWithVendor).vendor !== undefined || (item as ProcurementItemWithVendor).quote !== undefined;
+  }
+  
+
   useEffect(() => {
-    if (procurement_request) {
+    if (procurement_request && procurement_request.length > 0) {
       const request = procurement_request[0]
       const  itemToVendorMap = new Map()
-      request.procurement_list.list.forEach((item) => {
-        if(item?.vendor) {
+      request.procurement_list.list.forEach((item: ProcurementItem) => {
+        if(isProcurementItemWithVendor(item)) {
           itemToVendorMap.set(item?.name, item?.vendor)
         }
       })
@@ -209,7 +252,7 @@ const onClick = async (value : string) => {
     if (mode === value) return;
     if(value === "view" && JSON.stringify(formData) !== JSON.stringify(orderData?.rfq_data || {})) {
         setIsRedirecting("view")
-        const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
+        const updatedOrderList: ProcurementItem[] = orderData?.procurement_list?.list?.map((item: ProcurementItem): ProcurementItem => {
           if (selectedVendorQuotes.has(item.name)) {
             const vendorId : string = selectedVendorQuotes.get(item.name);
             const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
@@ -218,18 +261,28 @@ const onClick = async (value : string) => {
                 ...item,
                 vendor: vendorId,
                 quote: parseNumber(vendorData.quote),
-                make: vendorData.make || item?.make,
+                make: (isProcurementItemWithVendor(item) ? item.make : undefined), // Preserve original make if it had one
               };
             }
-            return { ...item };
-          } else {
-            const { vendor, quote, ...rest } = item;
-            return rest;
           }
-        });
-      
-        setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
-        await updateProcurementData(formData, updatedOrderList, value)
+
+          if (isProcurementItemWithVendor(item)) {
+            const { vendor, quote, make, ...restOfItemBase } = item;
+            return restOfItemBase; // Now it's ProcurementItemBase
+        }
+        return item; // It was already ProcurementItemBase
+        }) || [];
+
+        if (orderData) {
+          setOrderData(prevOrderData => {
+              if (!prevOrderData) return null;
+              return {
+                  ...prevOrderData,
+                  procurement_list: { list: updatedOrderList }
+              };
+          });
+          await updateProcurementData(formData, updatedOrderList, value);
+      }
     }
     setMode(value);
     updateURL("mode", value);
@@ -243,7 +296,7 @@ const onClick = async (value : string) => {
 
 
 const handleReviewChanges = async () => {
-  const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
+  const updatedOrderList: ProcurementItem[] = orderData?.procurement_list?.list?.map((item: ProcurementItem): ProcurementItem => {
     if (selectedVendorQuotes.has(item.name)) {
       const vendorId : string = selectedVendorQuotes.get(item.name);
       const vendorData = formData.details?.[item.name]?.vendorQuotes?.[vendorId];
@@ -252,35 +305,66 @@ const handleReviewChanges = async () => {
           ...item,
           vendor: vendorId,
           quote: parseNumber(vendorData.quote),
-          make: vendorData.make || item.make,
+          make: vendorData.make || (isProcurementItemWithVendor(item) ? item.make : undefined),
         };
       }
-      return { ...item };
-    } else {
-      const { vendor, quote, ...rest } = item;
-      return rest;
     }
+
+    if(isProcurementItemWithVendor(item)) {
+      const { vendor, quote, make, ...restOfItemBase } = item;
+      return restOfItemBase;
+    }
+    return item;
   }) || [];
 
-  setOrderData({ ...orderData, procurement_list: { list: updatedOrderList } });
-
-  setIsRedirecting("review");
-
-  await updateProcurementData(formData, updatedOrderList, "review");
+  if (orderData) {
+    setOrderData(prevOrderData => {
+        if (!prevOrderData) return null;
+        return {
+            ...prevOrderData,
+            procurement_list: { list: updatedOrderList }
+        };
+    });
+    setIsRedirecting("review");
+    await updateProcurementData(formData, updatedOrderList, "review");
+} else {
+    toast({ title: "Error", description: "Order data is not available to review changes.", variant: "destructive" });
+}
 };
 
 const handleRevertPR = async () => {
-  const updatedOrderList = orderData?.procurement_list?.list?.map((item) => {
-      const { vendor, quote, ...rest } = item;
-      return rest;
+  const updatedOrderList: ProcurementItem[] = orderData?.procurement_list?.list?.map((item: ProcurementItem): ProcurementItemBase => { // Return type is ProcurementItemBase
+      // When reverting, we always want to strip vendor/quote/make details
+      if (isProcurementItemWithVendor(item)) {
+          const { vendor, quote, make, ...restOfItemBase } = item;
+          return restOfItemBase;
+      }
+      // If it's already ProcurementItemBase, just return it
+      return item;
   }) || [];
 
-  setOrderData({ ...orderData, procurement_list: { list: updatedOrderList }, rfq_data: { selectedVendors : [], details : {}} });
+  if (orderData) {
+      setOrderData(prevOrderData => {
+          if (!prevOrderData) return null;
+          // Ensure the list being set matches the expected type for procurement_list.list
+          const correctlyTypedList: ProcurementItem[] = updatedOrderList.map(baseItem => baseItem as ProcurementItem);
 
-  setIsRedirecting("revert");
+          return {
+              ...prevOrderData,
+              procurement_list: { list: correctlyTypedList },
+              rfq_data: { selectedVendors: [], details: {} }
+          };
+      });
+      setIsRedirecting("revert");
+      // Pass updatedOrderList, which is now ProcurementItemBase[]
+      // updateProcurementData might need to accept ProcurementItemBase[] or handle the union.
+      // For simplicity, if updateProcurementData expects ProcurementItem[], we cast.
+      await updateProcurementData(undefined, updatedOrderList as ProcurementItem[], "revert");
+  } else {
+      toast({ title: "Error", description: "Order data is not available to revert.", variant: "destructive" });
+  }
+};
 
-  await updateProcurementData(undefined, updatedOrderList, "revert"); 
-} 
 
 if (procurement_request_loading || vendors_loading || usersListLoading) return <LoadingFallback />
 
@@ -317,6 +401,14 @@ if (procurement_request_loading || vendors_loading || usersListLoading) return <
 
   return (
     <>
+    {/* Lock Information Banner */}
+    {otherEditors?.length > 0 && (
+                <div className="sticky top-0 z-40 p-3 bg-yellow-100 border-b border-yellow-300 text-yellow-800 text-sm flex items-center justify-center shadow-md">
+                    <AlertCircle className="h-5 w-5 mr-2" />
+                    This Procurement Request is currently being edited by{" "}
+                    <strong className="mx-1">{otherEditors.map(getFullName).join(", ")}</strong>.
+                </div>
+            )}
     <div className="flex-1 space-y-4">
       <ProcurementHeaderCard orderData={orderData} />
       <div className="flex max-sm:flex-col max-sm:items-start items-center justify-between max-sm:gap-4">

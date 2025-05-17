@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react'; // Added useMemo
 import { useParams, useNavigate } from 'react-router-dom';
-import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
-import { TailSpin } from 'react-loader-spinner';
+import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 
 import { ApprovePRView } from './ApprovePRView';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic';
@@ -16,6 +15,8 @@ import { useCategoryList } from './hooks/useCategoryList';
 import { useItemList } from './hooks/useItemList';
 import { usePRComments } from './hooks/usePRComments';
 import { useRelatedPRData } from './hooks/useRelatedPRData';
+import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
+import { toast } from '@/components/ui/use-toast';
 
 export const ApprovePRContainer: React.FC = () => {
     const { prId } = useParams<{ prId: string }>();
@@ -34,6 +35,17 @@ export const ApprovePRContainer: React.FC = () => {
         prQueryKey
     );
 
+    useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
+          console.log("Procurement Requests document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Procurement Requests ${event.name} has been modified.`,
+          });
+          prMutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
+
     const { make_list, makeListMutate, allMakeOptions, categoryMakelist, categoryMakeListMutate } = useRelatedPRData({ prDoc });
 
     // --- 2. Fetch Project Document (conditional) ---
@@ -45,8 +57,8 @@ export const ApprovePRContainer: React.FC = () => {
     );
 
     // --- 3. Fetch Related Data using Individual Hooks ---
-    const workPackage = prDoc?.work_package;
-    const prName = prDoc?.name;
+    const workPackage = useMemo(() => prDoc?.work_package, [prDoc]);
+    const prName = useMemo(() => prDoc?.name, [prDoc]);
 
     // Fetch Users
     const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
@@ -65,6 +77,7 @@ export const ApprovePRContainer: React.FC = () => {
 
     // --- 4. Instantiate the Logic Hook (Unconditionally) ---
     const logicProps = useApprovePRLogic({
+        workPackage,
         // Pass data fetched above. Handle potential undefined values gracefully inside the hook or here.
         prDoc: prDoc!, // Assert prDoc is available based on checks below
         projectDoc,
@@ -92,9 +105,7 @@ export const ApprovePRContainer: React.FC = () => {
     // Initial Data Loading State (Focus on PR doc first)
     if (prLoading && !prDoc) {
         return (
-            <div className="flex items-center justify-center h-[90vh]">
-                <TailSpin color="red" height={50} width={50} />
-            </div>
+            <LoadingFallback />
         );
     }
 
@@ -150,10 +161,7 @@ export const ApprovePRContainer: React.FC = () => {
     // Show loading indicator if PR is loaded but related data is still fetching
     if (isDataLoading) {
         return (
-            <div className="flex items-center justify-center h-[90vh]">
-                <TailSpin color="red" height={50} width={50} />
-                <span className='ml-2'>Loading details...</span>
-            </div>
+            <LoadingFallback />
         );
     }
 

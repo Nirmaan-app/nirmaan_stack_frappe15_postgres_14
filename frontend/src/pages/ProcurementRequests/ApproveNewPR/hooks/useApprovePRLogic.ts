@@ -25,6 +25,7 @@ import { extractMakesForWP } from '../../NewPR/NewProcurementRequestPage';
 import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import the type
 
 interface UseApprovePRLogicProps {
+    workPackage?: string; // Work package name
     prDoc: PRDocType;
     projectDoc?: Project; // Pass the fetched project data
     usersList?: User[];
@@ -43,6 +44,7 @@ interface UseApprovePRLogicProps {
 }
 
 export const useApprovePRLogic = ({
+    workPackage,
     prDoc,
     projectDoc,
     usersList = [],
@@ -198,7 +200,6 @@ export const useApprovePRLogic = ({
                 console.error("Error initializing orderData:", error);
                 toast({ title: "Error", description: "Failed to process initial PR details.", variant: "destructive" });
             }
-
         }
     }, [prDoc, orderData, toast]);
 
@@ -318,6 +319,7 @@ export const useApprovePRLogic = ({
             name: currentItemOption.value, // item docname
             unit: currentItemOption.unit,
             quantity: quantityValue,
+            work_package: workPackage,
             category: currentItemOption.category, // category docname
             tax: currentItemOption.tax,
             status: "Pending", // New items are pending
@@ -561,6 +563,7 @@ export const useApprovePRLogic = ({
                 name: createdItemDoc.name, // Use the new docname
                 unit: createdItemDoc.unit_name,
                 quantity: (quantityValue),
+                work_package: workPackage,
                 category: createdItemDoc.category,
                 tax: parseNumber(currentCategoryForNewItem.tax),
                 comment: newItem.comment?.trim() || undefined,
@@ -657,6 +660,7 @@ export const useApprovePRLogic = ({
                         item: createdItemDoc.item_name,
                         name: createdItemDoc.name, // IMPORTANT: Update to the NEW item's docname
                         unit: createdItemDoc.unit_name,
+                        work_package: workPackage,
                         category: createdItemDoc.category,
                         quantity: quantityValue, // Use the validated quantity
                         tax: parseNumber(categoryDoc.tax),
@@ -678,7 +682,7 @@ export const useApprovePRLogic = ({
                     let makes = orderData?.category_list?.list?.find(c => c.name === item.category)?.makes || [];
                     if (makes?.length === 0 && item.status === "Pending" && projectDoc?.project_work_packages) {
                         try {
-                            makes = JSON.parse(projectDoc.project_work_packages).work_packages
+                            makes = (typeof projectDoc.project_work_packages === 'string' ? JSON.parse(projectDoc.project_work_packages) : projectDoc.project_work_packages).work_packages
                                 .flatMap((wp: any) => wp.category_list?.list || [])
                                 .find((cat: any) => cat.name === item.category) // Use find for single category
                                 ?.makes || []; // Get makes or empty array
@@ -769,6 +773,7 @@ export const useApprovePRLogic = ({
             name: match.name, // docname of the matching item
             unit: match.unit_name,
             quantity: quantityValue, // Use quantity from original request
+            work_package: workPackage,
             category: match.category,
             tax: parseNumber(categoryDoc.tax),
             status: "Pending",

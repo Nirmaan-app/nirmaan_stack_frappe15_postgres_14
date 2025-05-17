@@ -10,9 +10,7 @@ import {
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { COLUMN_WIDTHS } from "@/pages/Sent Back Requests/SBQuotesSelectionReview";
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { ProcurementItemWithVendor, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
@@ -24,14 +22,15 @@ import { ArrowBigUpDash, BookOpenText, Building2, CheckCheck, Clock, ListChecks,
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { v4 as uuidv4 } from "uuid";
 import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { toast } from "../../../components/ui/use-toast";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useVendorsList } from "./hooks/useVendorsList";
+import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 
-export interface DataItem extends ProcurementItem {
+export interface DataItem extends ProcurementItemWithVendor {
   amount: number;
   vendor_name?: string;
   lowestQuotedAmount: number;
@@ -220,7 +219,7 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   const {call : sendForApprCall, loading : sendForApprCallLoading} = useFrappePostCall("nirmaan_stack.api.send_vendor_quotes.handle_delayed_items")
 
-  const [orderData, setOrderData] = useState<ProcurementRequest | undefined>();
+  const [orderData, setOrderData] = useState<ProcurementRequest | null>(null);
 
   const {getItemEstimate} = useItemEstimate()
 
@@ -243,25 +242,16 @@ export const VendorsSelectionSummary : React.FC = () => {
     true // emitOpenCloseEventsOnMount (default)
     )
 
-  const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
-    {
-        fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type', 'vendor_state', 'vendor_city'],
-        filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
-        limit: 10000
-  });
-  
-  const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["*"],
-        limit: 1000,
-      }, "Nirmaan Users"
-  )
+  const {data: usersList, isLoading: usersListLoading} = useUsersList()
+
+  const {data: vendor_list, isLoading: vendor_list_loading} = useVendorsList({vendorTypes: ["Material", "Material & Service"]})
       
   const getFullName = useMemo(() => (id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 
   useEffect(() => {
-    if(procurement_request_list) {
+    if(procurement_request_list && procurement_request_list.length) {
       const procurementRequest = procurement_request_list[0]
       setOrderData(procurementRequest)
     }
@@ -366,17 +356,17 @@ export const VendorsSelectionSummary : React.FC = () => {
 
 interface VendorWiseApprovalItems {
   [vendor : string] : {
-    items : (ProcurementItem & {potentialLoss? : number})[];
+    items : (ProcurementItemWithVendor & {potentialLoss? : number})[];
     total : number;
   }
 }
 
   const generateActionSummary = useCallback(() => {
-    let allDelayedItems : ProcurementItem[] = [];
+    let allDelayedItems : ProcurementItemWithVendor[] = [];
     let vendorWiseApprovalItems : VendorWiseApprovalItems  = {};
     let approvalOverallTotal : number = 0;
 
-    orderData?.procurement_list?.list.forEach((item) => {
+    orderData?.procurement_list?.list.forEach((item: ProcurementItemWithVendor) => {
         const vendor = item?.vendor;
         const targetRate = getItemEstimate(item?.name)?.averageRate
         const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)

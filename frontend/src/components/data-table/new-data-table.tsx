@@ -384,6 +384,9 @@ export function DataTable<TData>({
                     <TableHeader className="sticky top-0 z-10 bg-red-50 shadow-sm">
                         {table.getHeaderGroups().map((headerGroup: HeaderGroup<TData>) => (
                             <TableRow key={headerGroup.id}>
+                                <TableHead className="w-[20px] px-1 md:px-2 print:hidden"> {/* Small width, adjust px as needed */}
+                                        {/* Header for indicator can be empty or have a small icon/title if needed */}
+                                </TableHead>
                                 {/* --- Render Selection Header Conditionally --- */}
                                 {shouldRenderSelectionColumn && (
                                     <TableHead className="w-[40px] px-2">
@@ -431,6 +434,10 @@ export function DataTable<TData>({
                         ) : table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
                                 <TableRow key={(row.original as any)?.name || row.id} data-state={row.getIsSelected() && 'selected'}>
+                                    <TableCell className="w-[30px] px-1 md:px-2 print:hidden">
+                                            {/* Render the indicator if the condition is met for this row */}
+                                            {/* {isNewRow(row) ? newRowIndicatorComponent : null} */}
+                                    </TableCell>
                                     {/* --- Render Selection Cell Conditionally --- */}
                                     {shouldRenderSelectionColumn && (
                                         <TableCell className="px-2">

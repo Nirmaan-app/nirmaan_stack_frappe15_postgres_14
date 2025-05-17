@@ -120,7 +120,7 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             // --- Actions ---
             initialize: (mode, projectId, prId, wpSpecificInitialMakes = {}, initialPrData) => {
                 const currentState = get();
-                if (!currentState.isInitialized || currentState.projectId !== projectId || currentState.prId !== prId || currentState.mode !== mode) {
+                if (!currentState.isInitialized || currentState.projectId !== projectId || ( currentState.prId != prId) || currentState.mode !== mode) {
                     console.log("Initializing store:", { mode, projectId, prId });
                     const initialProcList = initialPrData?.procList || [];
                     // Ignore initialPrData.categories - we will derive them fresh
@@ -275,6 +275,7 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
                 newPRComment: state.newPRComment,
                 initialCategoryMakes: state.initialCategoryMakes,
                 sessionAddedMakes: state.sessionAddedMakes, // <<< PERSIST session makes
+                undoStack: state.undoStack,
             }),
             onRehydrateStorage: (state) => {
                 console.log("Rehydrating state v4");

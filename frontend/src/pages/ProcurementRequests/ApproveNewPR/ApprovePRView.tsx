@@ -19,17 +19,19 @@ import { PRCommentsSection } from './components/PRCommentsSection';
 
 
 // Import types
-import { Project } from './types';
+import { Category, Project } from './types';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic'; // Get hook's return type
 import { parseNumber } from '@/utils/parseNumber';
 import { CategoryMakesMap } from '../NewPR/types';
 import { extractMakesForWP } from '../NewPR/NewProcurementRequestPage';
+import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 // import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
 
 // Props Type for the View Component
 interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
     // Add any additional props needed specifically for rendering that are NOT in the logic hook
     projectDoc?: Project; // Pass project details if needed
+    categoryList?: Category[]; // Pass category list if needed
 }
 
 export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
@@ -158,13 +160,13 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
 
     if (!orderData) {
         // Should be handled by Container, but good practice
-        return <div>Loading PR data...</div>;
+        return <LoadingFallback />
     }
 
 
     return (
         <>
-            <div className="flex-1 space-y-4 p-4"> {/* Add padding */}
+            <div className="flex-1 space-y-4"> {/* Add padding */}
                 <div className='space-y-4'>
                     {/* Header Section */}
                     <div className="flex justify-between items-center">

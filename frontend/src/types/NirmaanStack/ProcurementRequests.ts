@@ -1,18 +1,44 @@
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor";
 
-export interface ProcurementItem {
-  name: string;
+
+export interface ProcurementItemBase {
+	name: string;
   item: string;
   unit: string;
   quantity: number;
   category: string;
-  vendor?: string;
-  quote?: number;
+	work_package?: string;
   make?: string;
   status: string;
   tax? : number;
   comment?: string;
 }
+
+export interface ProcurementItemWithVendor extends ProcurementItemBase {
+  vendor?: string; // Optional: Vendor ID if selected/quoted
+  quote?: number;  // Optional: Quoted amount
+}
+
+
+// The type for items in procurement_list.list
+// This could be a union if items can exist with or without vendor details yet
+export type ProcurementItem = ProcurementItemBase | ProcurementItemWithVendor;
+
+
+// export interface ProcurementItem {
+//   name: string;
+//   item: string;
+//   unit: string;
+//   quantity: number;
+//   category: string;
+// 	work_package?: string;
+//   vendor?: string;
+//   quote?: number;
+//   make?: string;
+//   status: string;
+//   tax? : number;
+//   comment?: string;
+// }
 
 export interface Category {
   name: string;
@@ -24,7 +50,7 @@ export interface RFQData {
 	details: {
 		[itemId: string]: {
 			initialMake?: string;
-			vendorQuotes: { [vendorId: string]: { quote?: string ; make?: string } };
+			vendorQuotes: { [vendorId: string]: { quote?: string | number ; make?: string } };
 			makes: string[];
 		};
 	};

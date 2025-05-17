@@ -24,10 +24,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { ActionSummary } from '../../../components/helpers/ActionSummary';
-import { RenderPRorSBComments } from '../../../components/helpers/RenderPRorSBComments';
-import { SelectionState, VendorDataSourceItem, VendorItemDetails, VendorWiseData } from './types';
-import { VendorApprovalTable } from './components/VendorApprovalTable';
+import { ActionSummary } from '../../components/helpers/ActionSummary';
+import { RenderPRorSBComments } from '../../components/helpers/RenderPRorSBComments';
+import { SelectionState, VendorDataSourceItem, VendorItemDetails, VendorWiseData } from '../ProcurementRequests/ApproveVendorQuotes/types';
+import { VendorApprovalTable } from '../ProcurementRequests/ApproveVendorQuotes/components/VendorApprovalTable';
 
 const ApproveRejectVendorQuotes : React.FC = () => {
 
