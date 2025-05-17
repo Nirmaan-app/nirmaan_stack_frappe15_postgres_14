@@ -188,8 +188,6 @@ export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelis
     const newPRComment = useProcurementRequestStore(state => state.newPRComment);
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
 
-    console.log("newPrComment", newPRComment)
-
     // Actions are stable references, so selecting them is fine
     const setSelectedWP = useProcurementRequestStore(state => state.setSelectedWP);
     const addProcItem = useProcurementRequestStore(state => state.addProcItem);
@@ -209,9 +207,11 @@ export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelis
 
     // Renamed for clarity: This adds NEW items or REQUESTS
     const addOrUpdateItem = useCallback((itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest = false) => {
+        const currentSelectedWP = useProcurementRequestStore.getState().selectedWP; // Get latest WP
         const success = addProcItem({
             ...itemData,
             status: isRequest ? 'Request' : 'Pending',
+            work_package: currentSelectedWP
         });
 
         if (success) {
@@ -250,7 +250,7 @@ export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelis
 
     const setComment = useCallback((comment: string) => {
       setNewPRComment(comment);
-  }, [setNewPRComment]);
+    }, [setNewPRComment]);
 
 
     // Setup Fuse instance
