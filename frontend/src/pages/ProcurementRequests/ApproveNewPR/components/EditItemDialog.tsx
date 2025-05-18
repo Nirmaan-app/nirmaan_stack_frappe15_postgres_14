@@ -1,11 +1,8 @@
-// src/features/approve-pr/components/EditItemDialog.tsx
-
-// ... other imports ...
 import ReactSelect, { SingleValue } from 'react-select';
 import { ListChecks, Trash2, CirclePlus, Pencil, X } from "lucide-react";
 import { EditItemState as ExtendedEditItemState, PRCategory } from '../types'; // Adjust types if needed
 import { Makelist } from '@/types/NirmaanStack/Makelist';
-import { CategoryMakesMap, CategorySelection, MakeOption } from '../../NewPR/types';
+import { CategoryMakesMap, MakeOption } from '../../NewPR/types';
 import { useCallback, useMemo, useState } from 'react';
 import { parseNumber } from '@/utils/parseNumber';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -19,15 +16,15 @@ import { ManageCategoryMakesDialog } from '../../NewPR/components/ManageCategory
 import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist';
 
 // Extend EditItemState locally if not done globally
-interface EditState extends ExtendedEditItemState {
-    makeValue?: string; // Store make value
-}
+// interface EditState extends ExtendedEditItemState {
+//     makeValue?: string; // Store make value
+// }
 
 interface EditItemDialogProps {
     isOpen: boolean;
     onClose: () => void;
     editItem: ExtendedEditItemState | null; // Use extended type if defined globally
-    handleEditItemChange: (field: keyof ExtendedEditItemState, value: string | number | undefined) => void; // Allow undefined for make/comment
+    handleEditItemChange: (field: keyof ExtendedEditItemState, value: string | number) => void; // Allow undefined for make/comment
     onSave: () => void;
     onDelete: (itemToDelete: ExtendedEditItemState) => void;
     isLoading: boolean;
@@ -178,7 +175,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     // --- Handlers ---
     const handleMakeChange = (selectedOption: SingleValue<MakeOption>) => {
         // Call the prop handler to update the parent state
-        handleEditItemChange('make', selectedOption?.value || undefined);
+        handleEditItemChange('make', selectedOption?.value || "");
     };
 
     const handleOpenManageMakesDialog = useCallback(() => {

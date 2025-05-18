@@ -36,6 +36,7 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                     "quote": item.get("quote"),
                     "unit": item["unit"],
                     "category": item["category"],
+                    "work_package": item.get("work_package"),
                     "status": "Pending",
                     "comment": item.get("comment"),
                     "make": item.get("make"),

@@ -34,11 +34,11 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
 import { v4 as uuidv4 } from "uuid";
-import { SelectUnit } from "../../../components/helpers/SelectUnit";
-import { Alert, AlertDescription, AlertTitle } from "../../../components/ui/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
-import { Button } from "../../../components/ui/button";
-import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
+import { SelectUnit } from "../../components/helpers/SelectUnit";
+import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "../../components/ui/avatar";
+import { Button } from "../../components/ui/button";
+import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   Dialog,
   DialogClose,
@@ -47,21 +47,21 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger
-} from "../../../components/ui/dialog";
+} from "../../components/ui/dialog";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from "../../../components/ui/hover-card";
-import { Input } from "../../../components/ui/input";
+} from "../../components/ui/hover-card";
+import { Input } from "../../components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../../components/ui/select";
-import { toast } from "../../../components/ui/use-toast";
+} from "../../components/ui/select";
+import { toast } from "../../components/ui/use-toast";
 
 export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const { projectId, prId } = useParams();

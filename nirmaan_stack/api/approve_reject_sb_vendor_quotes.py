@@ -127,6 +127,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                     "tax": item.get("tax"),
                     "status": "Pending",
                     "category": item["category"],
+                    "work_package": item.get("work_package"),
                     "comment": item.get("comment"),
                     "make": item.get("make"),
                     "vendor": item.get("vendor"),
