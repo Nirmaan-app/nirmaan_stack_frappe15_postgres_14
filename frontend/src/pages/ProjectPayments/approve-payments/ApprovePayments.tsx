@@ -56,15 +56,15 @@ export const ApprovePayments: React.FC = () => {
 
     // --- Supporting Data Fetches (Keep these for lookups/calculations) ---
     const projectsFetchOptions = getProjectListOptions();
-        
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         DOC_TYPES.PROJECTS, projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service", "Material", "Material & Service"]});
-    
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
+
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
@@ -76,10 +76,10 @@ export const ApprovePayments: React.FC = () => {
     // For "Amt Paid" - fetch all paid payments for relevant documents
     const { data: allPaidPayments, isLoading: paidPaymentsLoading, error: paidPaymentsError } = useFrappeGetDocList<ProjectPayments>(
         DOC_TYPES.PROJECT_PAYMENTS, {
-            fields: ["name", "document_name", "amount"],
-            filters: [["status", "=", PAYMENT_STATUS.PAID]],
-            limit: 100000
-        }, 'AllPaidPayments_ApprovePay'
+        fields: ["name", "document_name", "amount"],
+        filters: [["status", "=", PAYMENT_STATUS.PAID]],
+        limit: 100000
+    }, 'AllPaidPayments_ApprovePay'
     );
 
 
@@ -107,7 +107,7 @@ export const ApprovePayments: React.FC = () => {
         } else if (docType === DOC_TYPES.SERVICE_REQUESTS) {
             const order = serviceOrders?.find(sr => sr.name === docName);
             if (!order || !order.service_order_list?.list) return 0;
-            
+
             const srTotal = order.service_order_list.list.reduce((acc, item) => acc + (parseNumber(item.rate) * parseNumber(item.quantity)), 0);
             return order.gst === "true" ? srTotal * 1.18 : srTotal;
         }
@@ -167,11 +167,19 @@ export const ApprovePayments: React.FC = () => {
                     </div>
                 );
             }, size: 200,
+            meta: {
+                exportHeaderName: "PO/SR ID",
+                exportValue: (row: ProjectPayments) => row.document_name,
+            }
         },
         {
             accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Req. On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Requested On",
+                exportValue: (row: ProjectPayments) => formatDate(row.creation),
+            }
         },
         {
             accessorKey: "vendor", header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
@@ -180,6 +188,10 @@ export const ApprovePayments: React.FC = () => {
                 return <div className="font-medium truncate" title={vendor?.label}>{vendor?.label || row.original.vendor}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Vendor",
+                exportValue: (row: ProjectPayments) => vendorOptions.find(v => v.value === row.vendor)?.label || row.vendor,
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -188,6 +200,10 @@ export const ApprovePayments: React.FC = () => {
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row: ProjectPayments) => projectOptions.find(p => p.value === row.project)?.label || row.project,
+            }
         },
         {
             id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value" />,
@@ -195,6 +211,10 @@ export const ApprovePayments: React.FC = () => {
                 const totalValue = getDocumentTotal(row.original.document_name, row.original.document_type);
                 return <div className="font-medium pr-2">{formatToRoundedIndianRupee(totalValue)}</div>;
             }, size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "PO Value",
+                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getDocumentTotal(row.document_name, row.document_type)),
+            }
         },
         {
             id: "total_paid_for_doc", header: ({ column }) => <DataTableColumnHeader column={column} title="Total Paid" />,
@@ -202,11 +222,19 @@ export const ApprovePayments: React.FC = () => {
                 const amountPaid = getAmountPaid(row.original.document_name);
                 return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid)}</div>;
             }, size: 180, enableSorting: false,
+            meta: {
+                exportHeaderName: "Total Paid",
+                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getAmountPaid(row.document_name)),
+            }
         },
         {
             accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amt" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Requested Amount",
+                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(parseNumber(row.amount)),
+            }
         },
         {
             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Requested By" />,
@@ -214,6 +242,10 @@ export const ApprovePayments: React.FC = () => {
                 const ownerUser = userList?.find((user) => user.name === row.original.owner);
                 return <div className="font-medium truncate">{ownerUser?.full_name || row.original.owner}</div>;
             }, size: 180,
+            meta: {
+                exportHeaderName: "Requested By",
+                exportValue: (row: ProjectPayments) => userList?.find((user) => user.name === row.owner)?.full_name || row.owner,
+            }
         },
         {
             id: "actions", header: "Actions",
@@ -224,6 +256,9 @@ export const ApprovePayments: React.FC = () => {
                     <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.EDIT)}><SquarePen className="h-4 w-4" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Edit & Approve</HoverCardContent></HoverCard>
                 </div>
             ), size: 120,
+            meta: {
+                excludedFromExport: true, // Exclude from export
+            }
         },
     ], [notifications, projectOptions, vendorOptions, userList, handleNewPaymentSeen, openDialog, getDocumentTotal, getAmountPaid, allPaidPayments]);
 
@@ -246,7 +281,7 @@ export const ApprovePayments: React.FC = () => {
             await updateDoc(DOCTYPE, selectedPayment.name, {
                 status: newStatus,
                 amount: amount, // Already a number
-                ...(payment_details && {payment_details: JSON.stringify(payment_details)}) // Add UTR, Date etc.
+                ...(payment_details && { payment_details: JSON.stringify(payment_details) }) // Add UTR, Date etc.
             });
             refetch();
             closeDialog();
@@ -319,12 +354,12 @@ export const ApprovePayments: React.FC = () => {
                     dateFilterColumns={dateColumns}
                     showExportButton={true} // Optional
                     onExport={'default'}
-                    // toolbarActions={...} // Optional
+                // toolbarActions={...} // Optional
                 />
             )}
 
             {selectedPayment && (
-                 <PaymentActionDialog
+                <PaymentActionDialog
                     isOpen={isDialogOpen}
                     onOpenChange={setIsDialogOpen}
                     type={dialogActionType}

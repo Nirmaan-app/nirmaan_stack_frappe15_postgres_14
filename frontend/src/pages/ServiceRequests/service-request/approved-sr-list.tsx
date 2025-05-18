@@ -31,6 +31,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { DEFAULT_SR_FIELDS_TO_FETCH, SR_DATE_COLUMNS, SR_SEARCHABLE_FIELDS } from "../config/srTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { ExceptionMap } from "antd/es/result";
 
 // --- Constants ---
 const DOCTYPE = 'Service Requests';
@@ -49,13 +50,13 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
 }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
-    const {getTotalAmount} = useOrderTotals()
+    const { getTotalAmount } = useOrderTotals()
 
     // Unique URL key for this instance of the table
     const urlSyncKey = useMemo(() => `sr_${urlSyncKeySuffix}`, [urlSyncKeySuffix]);
 
     const projectsFetchOptions = getProjectListOptions();
-                
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -63,7 +64,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service", "Material & Service"]});
+    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material & Service"] });
 
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>(
@@ -115,11 +116,11 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     const fieldsToFetch = useMemo(() => DEFAULT_SR_FIELDS_TO_FETCH.concat([
         "creation", "modified", 'service_order_list', 'service_category_list'
     ]), [])
-         
+
     const srSearchableFields = useMemo(() => SR_SEARCHABLE_FIELDS.concat([
         { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
     ]), [])
-     
+
     // --- Date Filter Columns ---
     const dateColumns = useMemo(() => SR_DATE_COLUMNS, []);
 
@@ -136,22 +137,34 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                 );
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewSRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {isNew && ( <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" /> )}
+                        {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap"
-                              to={for_vendor ? `/vendor-portal/service-requests/${srId}` : `/service-requests/${srId}?tab=approved-sr`} >
+                            to={for_vendor ? `/vendor-portal/service-requests/${srId}` : `/service-requests/${srId}?tab=approved-sr`} >
                             {srId?.slice(-5)}
                         </Link>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
+                            <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
                         </div>
                     </div>
                 );
             }, size: 150,
+            meta: {
+                exportHeaderName: "#SR",
+                exportValue: (row) => {
+                    return row.name;
+                }
+            }
         },
         {
-            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created on" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Created on",
+                exportValue: (row) => {
+                    return formatDate(row.creation);
+                }
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -161,17 +174,30 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(p => p.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
         },
         {
             accessorKey: "vendor", // Filter by vendor ID
             header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
             cell: ({ row }) => <div className="font-medium truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>,
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Vendor",
+                exportValue: (row) => {
+                    return getVendorName(row.vendor);
+                }
+            }
         },
         {
             accessorKey: "service_category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
             cell: ({ row }) => {
-                const categories = row.getValue("service_category_list") as { list: {name : string}[] } | undefined;
+                const categories = row.getValue("service_category_list") as { list: { name: string }[] } | undefined;
                 const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
                 return (
                     <div className="flex flex-wrap gap-1 items-start justify-start max-w-[200px]">
@@ -179,18 +205,34 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                     </div>
                 );
             }, size: 180, enableSorting: false,
+            meta: {
+                excludeFromExport: true,
+            }
         },
         {
             id: "service_total_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="SR Value" />,
             cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmount(row.original.name, 'Service Requests')?.totalWithTax)}</p>),
             size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "SR Value",
+                exportValue: (row) => {
+                    return formatToRoundedIndianRupee(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
+                }
+            }
         },
         {
-            id: "amount_paid_sr", header: ({column}) => <DataTableColumnHeader column={column} title="Amt Paid" /> ,
+            id: "amount_paid_sr", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
             cell: ({ row }) => {
                 const amountPaid = getAmountPaidForSR(row.original.name);
                 return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid || 0)}</div>;
             }, size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "Amt Paid",
+                exportValue: (row) => {
+                    const amountPaid = getAmountPaidForSR(row.name);
+                    return formatToRoundedIndianRupee(amountPaid || 0);
+                }
+            }
         },
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, getTotalAmount, getAmountPaidForSR, for_vendor]);
 

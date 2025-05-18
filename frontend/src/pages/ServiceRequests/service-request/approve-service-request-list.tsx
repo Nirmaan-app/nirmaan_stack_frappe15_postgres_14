@@ -39,7 +39,7 @@ export const ApproveSelectSR: React.FC = () => {
     const { getTotalAmount } = useOrderTotals()
 
     const projectsFetchOptions = getProjectListOptions();
-            
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -47,7 +47,7 @@ export const ApproveSelectSR: React.FC = () => {
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service", "Material & Service"]});
+    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material & Service"] });
 
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { notifications, mark_seen_notification } = useNotificationStore();
@@ -80,8 +80,8 @@ export const ApproveSelectSR: React.FC = () => {
         { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
     ]), [])
 
-     // --- Date Filter Columns ---
-     const dateColumns = useMemo(() => SR_DATE_COLUMNS, []);
+    // --- Date Filter Columns ---
+    const dateColumns = useMemo(() => SR_DATE_COLUMNS, []);
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ServiceRequests>[]>(() => [
@@ -95,22 +95,34 @@ export const ApproveSelectSR: React.FC = () => {
                 );
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewSRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {isNew && ( <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" /> )}
+                        {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
                         {/* Link to the page where SR can be approved (e.g., service-request/:id?tab=approve-service-order) */}
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/service-requests/${srId}?tab=approve-service-order`} >
                             {srId?.slice(-5)}
                         </Link>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
+                            <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
                         </div>
                     </div>
                 );
             }, size: 150,
+            meta: {
+                exportHeaderName: "#SR",
+                exportValue: (row) => {
+                    return row.name;
+                }
+            }
         },
         {
             accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Created On",
+                exportValue: (row) => {
+                    return formatDate(row.creation);
+                }
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -119,17 +131,30 @@ export const ApproveSelectSR: React.FC = () => {
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(p => p.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
         },
         {
             accessorKey: "vendor", // Filter by vendor ID
             header: ({ column }) => <DataTableColumnHeader column={column} title="Selected Vendor" />,
             cell: ({ row }) => <div className="font-medium truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>,
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Selected Vendor",
+                exportValue: (row) => {
+                    return getVendorName(row.vendor);
+                }
+            }
         },
         {
             accessorKey: "service_category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
             cell: ({ row }) => {
-                const categories = row.getValue("service_category_list") as { list: {name : string}[] } | undefined;
+                const categories = row.getValue("service_category_list") as { list: { name: string }[] } | undefined;
                 const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
                 return (
                     <div className="flex flex-wrap gap-1 items-start justify-start max-w-[200px]">
@@ -137,18 +162,34 @@ export const ApproveSelectSR: React.FC = () => {
                     </div>
                 );
             }, size: 180, enableSorting: false,
+            meta: {
+                excludeFromExport: true,
+            }
         },
         {
-             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-             cell: ({ row }) => {
-                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-             }, size: 180,
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
         },
         {
             id: "sr_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value" />,
             cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmount(row.original.name, 'Service Requests')?.totalWithTax)}</p>),
             size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "Est. Value",
+                exportValue: (row) => {
+                    return formatToRoundedIndianRupee(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
+                }
+            }
         }
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, getTotalAmount]);
 
@@ -220,7 +261,7 @@ export const ApproveSelectSR: React.FC = () => {
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
-                    // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions
+                // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions
                 />
             )}
         </div>

@@ -60,7 +60,7 @@ const DOCTYPE = 'Procurement Requests';
 const URL_SYNC_KEY = 'pr'; // Base key for URL params for this page
 
 interface ProjectPRSummaryTableProps {
-  projectId: string | undefined; // Make it potentially undefined if component can render without it
+    projectId: string | undefined; // Make it potentially undefined if component can render without it
 }
 
 // Define a type for the data that will actually be in the table rows
@@ -72,15 +72,15 @@ interface ProjectPRSummaryTableProps {
 
 
 interface PRStatusCounts {
-  "New PR": number;
-  "Open PR": number;
-  "Approved PO": number;
-  [key: string]: number;
+    "New PR": number;
+    "Open PR": number;
+    "Approved PO": number;
+    [key: string]: number;
 }
 
 interface PRStatusDataResponse {
-  status_counts: PRStatusCounts;
-  pr_statuses: { [key: string]: string };
+    status_counts: PRStatusCounts;
+    pr_statuses: { [key: string]: string };
 }
 
 
@@ -94,34 +94,34 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
 
     // --- API Call for Aggregated Status Counts ---
     const {
-      call: fetchPrStatusesData,
-      loading: statusCountsLoading,
-      error: statusCountsError
-  } = useFrappePostCall<{message : PRStatusDataResponse}>('nirmaan_stack.api.projects.project_aggregates.get_project_pr_status_counts');
+        call: fetchPrStatusesData,
+        loading: statusCountsLoading,
+        error: statusCountsError
+    } = useFrappePostCall<{ message: PRStatusDataResponse }>('nirmaan_stack.api.projects.project_aggregates.get_project_pr_status_counts');
 
-  useEffect(() => {
-    if (projectId) {
-        fetchPrStatusesData({ project_id: projectId })
-            .then(res => {
-                setStatusCounts(prev => ({...prev, ...res.message.status_counts}))
-                setPrStatuses(prev => ({...prev, ...res.message.pr_statuses}))
-            }
-            ) // Merge with defaults
-            .catch(err => console.error("Failed to fetch PR statuses data:", err));
-    } else {
-        // Reset counts if no projectId (e.g., if component can be shown for all projects)
-        setStatusCounts({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
-        setPrStatuses({});
-    }
-}, [projectId, fetchPrStatusesData]);
+    useEffect(() => {
+        if (projectId) {
+            fetchPrStatusesData({ project_id: projectId })
+                .then(res => {
+                    setStatusCounts(prev => ({ ...prev, ...res.message.status_counts }))
+                    setPrStatuses(prev => ({ ...prev, ...res.message.pr_statuses }))
+                }
+                ) // Merge with defaults
+                .catch(err => console.error("Failed to fetch PR statuses data:", err));
+        } else {
+            // Reset counts if no projectId (e.g., if component can be shown for all projects)
+            setStatusCounts({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
+            setPrStatuses({});
+        }
+    }, [projectId, fetchPrStatusesData]);
 
     // Fetch POs related to the current project for status and total calculations
     const { data: po_data, isLoading: poDataLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
         "Procurement Orders", {
-            fields: ["name", "procurement_request", "order_list", "status"],
-            filters: projectId ? [["project", "=", projectId]] : [],
-            limit: 10000, 
-        }, !!projectId ? `POsForPRSummary_${projectId}` : null
+        fields: ["name", "procurement_request", "order_list", "status"],
+        filters: projectId ? [["project", "=", projectId]] : [],
+        limit: 10000,
+    }, !!projectId ? `POsForPRSummary_${projectId}` : null
     );
 
     // Fetch Approved Quotations (quote_data)
@@ -168,16 +168,16 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
                 const filteredPOsForThisPR = projectPOs?.filter((po) => po.procurement_request === pr.name) || [];
                 filteredPOsForThisPR.forEach((po) => {
                     po.order_list?.list.forEach((item) => {
-                        if (item.quote && item.quantity) {
-                            total += parseNumber(item.quote * item.quantity);
+                        if (item.quote && item.quantity && item.tax) {
+                            total += parseNumber((item.quote * item.quantity) * (1 + parseNumber(item.tax) / 100));
                         }
                     });
                 });
             } else { // New PR or Open PR - use estimated quotes
                 pr.procurement_list?.list.forEach((item) => {
                     if (item.status !== 'Deleted') { // Only consider non-deleted items for estimation
-                         const minQuoteInfo = getThreeMonthsLowestFiltered(quote_data, item.name); // Use item_code or item
-                         total += parseNumber(minQuoteInfo?.averageRate || 0) * parseNumber(item.quantity);
+                        const minQuoteInfo = getThreeMonthsLowestFiltered(quote_data, item.name); // Use item_code or item
+                        total += parseNumber(minQuoteInfo?.averageRate || 0) * parseNumber(item.quantity);
                     }
                 });
             }
@@ -200,75 +200,116 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
 
     // --- Column Definitions for ProcessedPR ---
     const columns = useMemo<ColumnDef<ProcurementRequest>[]>(() => [
-      {
-          accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="PR ID" />,
-          cell: ({ row }) => {
-              const data = row.original;
-              return (
-                  <div className="flex items-center gap-1">
-                      <Link className="text-blue-600 hover:underline whitespace-nowrap" to={`${data.name}`}>
-                          {data.name?.slice(-6)} {/* Example: Show last 6 chars */}
-                      </Link>
-                      <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
-                  </div>
-              );
-          }, size: 150,
-      },
-      {
-          accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
-          cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
-          size: 150,
-      },
-      {
-          accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-          cell: ({ row }) => {
-               const ownerUser = userList?.find((user) => user.name === row.original.owner);
-               return <div className="font-medium truncate">{ownerUser?.full_name || row.original.owner}</div>;
-          }, size: 180,
-      },
-      {
-          accessorKey: "derived_status", // Use the processed status
-          header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-          cell: ({ row }) => {
-            // const derived_status = statusRender(row.original, po_data);
-            const derived_status = prStatuses[row.original.name];
-            return (
-              <Badge variant={
-                derived_status === "New PR" ? "default" :
-                derived_status === "Open PR" ? "gray" : "green"
-            }>{derived_status}</Badge>
-            )
-          },
-          // enableColumnFilter: true, // Enable faceted filter on this derived status
-          size: 120,
-      },
-      {
-          accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
-          cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "Custom"}</div>,
-          size: 150,
-      },
-      {
-          accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
-          cell: ({ row }) => {
-              const categories = row.original.category_list as { list: Category[] } | undefined;
-              const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
-              return ( <div className="flex flex-wrap gap-1">{categoryItems.map((cat) => <Badge key={cat.name} variant="outline">{cat.name}</Badge>)}</div> );
-          }, size: 180, enableSorting: false,
-      },
-      {
-          accessorKey: "estimated_total_value", // Use the processed total
-          header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value" />,
-          cell: ({ row }) => {
-              // const derivedStatus = statusRender(row.original, po_data);
-              const derivedStatus = prStatuses[row.original.name];
-              const estimateTotal = getPREstimatedTotal(row.original, derivedStatus, po_data);
+        {
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="PR ID" />,
+            cell: ({ row }) => {
+                const data = row.original;
+                return (
+                    <div className="flex items-center gap-1">
+                        <Link className="text-blue-600 hover:underline whitespace-nowrap" to={`${data.name}`}>
+                            {data.name?.slice(-6)} {/* Example: Show last 6 chars */}
+                        </Link>
+                        <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                    </div>
+                );
+            }, size: 150,
+            meta: {
+                exportHeaderName: "PR ID",
+            }
+        },
+        {
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Creation Date" />,
+            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            size: 150,
+            meta: {
+                exportHeaderName: "PO Creation Date",
+            }
+        },
+        {
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((user) => user.name === row.original.owner);
+                return <div className="font-medium truncate">{ownerUser?.full_name || row.original.owner}</div>;
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row: ProcurementRequest) => {
+                    const ownerUser = userList?.find((user) => user.name === row.owner);
+                    return ownerUser?.full_name || row.owner;
+                }
+            }
+        },
+        {
+            accessorKey: "derived_status", // Use the processed status
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            cell: ({ row }) => {
+                // const derived_status = statusRender(row.original, po_data);
+                const derived_status = prStatuses[row.original.name];
+                return (
+                    <Badge variant={
+                        derived_status === "New PR" ? "secondary" :
+                            derived_status === "Open PR" ? "yellow" :
+                                derived_status === "Approved PO" ? "green" : "default"
+                    }>{derived_status}</Badge>
+                )
+            },
+            // enableColumnFilter: true, // Enable faceted filter on this derived status
+            size: 120,
+            meta: {
+                exportHeaderName: "Status",
+                exportValue: (row: ProcurementRequest) => {
+                    // const derived_status = statusRender(row, po_data);
+                    const derived_status = prStatuses[row.name];
+                    return derived_status;
+                }
+            }
 
-            return <div className="font-medium pr-2">{estimateTotal === "N/A" ? "N/A" : formatToRoundedIndianRupee(estimateTotal)}</div>
-          }
+        },
+        {
+            accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
+            cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "Custom"}</div>,
+            size: 150,
+            meta: {
+                exportHeaderName: "Package",
+                exportValue: (row: ProcurementRequest) => {
+                    return row.work_package || "Custom";
+                }
+            }
+        },
+        {
+            accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
+            cell: ({ row }) => {
+                const categories = row.original.category_list as { list: Category[] } | undefined;
+                const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
+                return (<div className="flex flex-wrap gap-1">{categoryItems.map((cat) => <Badge key={cat.name} variant="outline">{cat.name}</Badge>)}</div>);
+            }, size: 180, enableSorting: false,
+            meta: {
+                excludeFromExport: true
+            }
+        },
+        {
+            accessorKey: "estimated_total_value", // Use the processed total
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value(Incl. GST)" />,
+            cell: ({ row }) => {
+                // const derivedStatus = statusRender(row.original, po_data);
+                const derivedStatus = prStatuses[row.original.name];
+                const estimateTotal = getPREstimatedTotal(row.original, derivedStatus, po_data);
+
+                return <div className="font-medium pr-2">{estimateTotal === "N/A" ? "N/A" : formatToRoundedIndianRupee(estimateTotal)}</div>
+            }
             ,
-          size: 150, enableSorting: false, // Sorting on calculated values is client-side
-      },
-  ], [userList, prStatuses, getPREstimatedTotal, quote_data, po_data]);
+            size: 150, enableSorting: false, // Sorting on calculated values is client-side
+            meta: {
+                exportHeaderName: "Est. Value(Incl. GST)",
+                exportValue: (row: ProcurementRequest) => {
+                    const derivedStatus = prStatuses[row.name];
+                    const estimateTotal = getPREstimatedTotal(row, derivedStatus, po_data);
+                    return formatToRoundedIndianRupee(estimateTotal)
+                }
+            }
+
+        },
+    ], [userList, prStatuses, getPREstimatedTotal, quote_data, po_data]);
 
 
     // --- useServerDataTable Hook ---
@@ -343,8 +384,8 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
 
 
     // --- Combined Loading & Error States ---
-    const isLoading =  poDataLoading || quoteDataLoading || userListLoading || statusCountsLoading;
-    const combinedError = quoteError || poError  || listError || statusCountsError;
+    const isLoading = poDataLoading || quoteDataLoading || userListLoading || statusCountsLoading;
+    const combinedError = quoteError || poError || listError || statusCountsError;
 
     if (combinedError && !pr_data_from_hook?.length) {
         toast({ title: "Error loading PR Summary", description: combinedError.message, variant: "destructive" });

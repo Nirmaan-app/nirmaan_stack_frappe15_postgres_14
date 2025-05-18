@@ -62,7 +62,7 @@ const UsersSummaryCard: React.FC = () => {
     const { data: totalCountData, isLoading: totalCountLoading } = useFrappeGetDocCount(USER_DOCTYPE, undefined, true, false, `${USER_DOCTYPE}_total_count`);
 
     // const {db, call} = useContext(FrappeContext) as FrappeConfig;
-    const {call} = useFrappePostCall("frappe.client.get_count")
+    const { call } = useFrappePostCall("frappe.client.get_count")
 
     useEffect(() => {
         setTotalUsers({ count: totalCountData, isLoading: totalCountLoading });
@@ -74,11 +74,11 @@ const UsersSummaryCard: React.FC = () => {
         const fetchCounts = async () => {
             const countsPromises = USER_ROLE_PROFILE_OPTIONS.map(role =>
                 call({
-                        doctype: USER_DOCTYPE,
-                        filters: { role_profile: role.value },
-                        cache: true
-                        // cache: true // Consider caching on backend if Frappe supports it for get_count
-                    },
+                    doctype: USER_DOCTYPE,
+                    filters: { role_profile: role.value },
+                    cache: true
+                    // cache: true // Consider caching on backend if Frappe supports it for get_count
+                },
                 ).then(res => ({
                     ...role,
                     count: res.message,
@@ -151,22 +151,40 @@ export default function UsersPage() {
                     </Link>
                 ),
                 size: 250,
+                meta: {
+                    exportHeaderName: "Email",
+                    exportValue: (row: NirmaanUsers) => {
+                        return row.name;
+                    }
+                }
             },
             {
                 accessorKey: "full_name",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Full Name" />,
                 cell: ({ row }) => (
-                     <Link className="hover:underline font-medium" to={`/users/${row.original.name}`}>
+                    <Link className="hover:underline font-medium" to={`/users/${row.original.name}`}>
                         {row.getValue("full_name")}
                     </Link>
                 ),
                 size: 200,
+                meta: {
+                    exportHeaderName: "Full Name",
+                    exportValue: (row: NirmaanUsers) => {
+                        return row.full_name;
+                    }
+                }
             },
             {
                 accessorKey: "creation",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Date Joined" />,
                 cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
                 size: 150,
+                meta: {
+                    exportHeaderName: "Date Joined",
+                    exportValue: (row: NirmaanUsers) => {
+                        return formatDate(row.creation);
+                    }
+                }
             },
             {
                 accessorKey: "role_profile",
@@ -177,6 +195,14 @@ export default function UsersPage() {
                     return <Badge variant="outline">{roleLabel}</Badge>;
                 },
                 size: 180,
+                meta: {
+                    exportHeaderName: "Role",
+                    exportValue: (row: NirmaanUsers) => {
+                        const roleValue = row.role_profile;
+                        const roleLabel = USER_ROLE_PROFILE_OPTIONS.find(opt => opt.value === roleValue)?.label || roleValue?.replace("Nirmaan ", "").replace(" Profile", "");
+                        return roleLabel;
+                    }
+                }
             },
             // {
             //     accessorKey: "enabled",
@@ -193,6 +219,12 @@ export default function UsersPage() {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Mobile No." />,
                 cell: ({ row }) => <div className="font-medium">{row.getValue("mobile_no") || "--"}</div>,
                 size: 150,
+                meta: {
+                    exportHeaderName: "Mobile No.",
+                    exportValue: (row: NirmaanUsers) => {
+                        return row.mobile_no;
+                    }
+                }
             },
         ],
         []
@@ -249,7 +281,7 @@ export default function UsersPage() {
                 onExport={'default'}
                 exportFileName="nirmaan_users_list"
                 showRowSelection={false}
-                // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions
+            // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions
             />
         </div>
     );

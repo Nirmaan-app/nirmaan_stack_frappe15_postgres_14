@@ -57,13 +57,13 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     // Dynamic URL key for this table instance
     const urlSyncKey = useMemo(() =>
         `inflow_${urlContext}_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')}`,
-    [urlContext, customerId, projectId]);
+        [urlContext, customerId, projectId]);
 
 
     // --- Supporting Data Fetches ---
     const projectFiltersForLookup = useMemo(() =>
         customerId ? [["customer", "=", customerId]] : (projectId ? [["name", "=", projectId]] : []),
-    [customerId, projectId]);
+        [customerId, projectId]);
 
     const projectsFetchOptions = getProjectListOptions({ filters: projectFiltersForLookup as Filter<FrappeDoc<Projects>>[] });
 
@@ -94,7 +94,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     // --- Static Filters for `useServerDataTable` ---
     const staticFilters = useMemo(() =>
         getInflowStaticFilters(customerId, projectId),
-    [customerId, projectId]);
+        [customerId, projectId]);
 
 
     // --- Fields, Search, Date Columns from Config ---
@@ -109,6 +109,12 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             accessorKey: "payment_date", header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.original.payment_date || row.original.creation)}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Payment Date",
+                exportValue: (row) => {
+                    return formatDate(row.payment_date || row.creation)
+                }
+            }
         },
         {
             accessorKey: "utr", header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Ref (UTR)" />,
@@ -123,6 +129,12 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     ) : <div className="font-medium">{data.utr || '--'}</div>
                 );
             }, size: 180,
+            meta: {
+                exportHeaderName: "Payment Ref (UTR)",
+                exportValue: (row) => {
+                    return row.utr || '--'
+                }
+            }
         },
         ...(!projectId ? [
             {
@@ -132,12 +144,18 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     return (
                         <div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
                             <span className="truncate" title={projectName}>{projectName}</span>
-                            <HoverCard><HoverCardTrigger asChild><Link to={`/projects/${row.original.project}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100"/></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
+                            <HoverCard><HoverCardTrigger asChild><Link to={`/projects/${row.original.project}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
                         </div>
                     );
                 },
                 enableColumnFilter: true, // Only enable if not already filtered by a project
                 size: 200,
+                meta: {
+                    exportHeaderName: "Project",
+                    exportValue: (row) => {
+                        return getProjectName(row.project)
+                    }
+                }
             } as ColumnDef<ProjectInflows>
         ] : []),
         ...(!customerId ? [{ // Conditionally show Customer column
@@ -145,24 +163,39 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             cell: ({ row }) => {
                 const customerName = getCustomerName(row.original.customer);
                 return (
-                     <div className="font-medium flex items-center gap-1.5 group">
+                    <div className="font-medium flex items-center gap-1.5 group">
                         <span className="truncate" title={customerName}>{customerName}</span>
-                        <HoverCard><HoverCardTrigger asChild><Link to={`/customers/${row.original.customer}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100"/></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Customer</HoverCardContent></HoverCard>
+                        <HoverCard><HoverCardTrigger asChild><Link to={`/customers/${row.original.customer}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Customer</HoverCardContent></HoverCard>
                     </div>
                 );
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Customer",
+                exportValue: (row) => {
+                    return getCustomerName(row.customer)
+                }
+            }
         } as ColumnDef<ProjectInflows>
         ] : []),
         {
             accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Amount Received" />,
             cell: ({ row }) => <div className="font-medium text-green-600 pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Amount Received",
+                exportValue: (row) => {
+                    return formatToRoundedIndianRupee(row.amount)
+                }
+            }
         },
         {
             id: "download_proof", header: "Proof",
             cell: ({ row }) => row.original.inflow_attachment ? (<a href={SITEURL + row.original.inflow_attachment} target="_blank" rel="noreferrer" download><Download className="h-4 w-4 text-blue-500" /></a>) : null,
             size: 80, enableSorting: false,
+            meta: {
+                excludeFromExport: true, // Exclude from export
+            }
         },
     ], [projectOptions, customerOptions, getProjectName, getCustomerName, projectId, customerId]);
 
@@ -207,22 +240,22 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             {isLoadingOverall ? (
                 <TableSkeleton />
             ) : (
-            <DataTable<ProjectInflows>
-                table={table}
-                columns={columns}
-                isLoading={listIsLoading}
-                error={listError}
-                totalCount={totalCount}
-                searchFieldOptions={searchableFields}
-                selectedSearchField={selectedSearchField}
-                onSelectedSearchFieldChange={setSelectedSearchField}
-                searchTerm={searchTerm}
-                onSearchTermChange={setSearchTerm}
-                facetFilterOptions={facetFilterOptions}
-                dateFilterColumns={dateColumns}
-                showExportButton={true}
-                onExport={'default'} // Use default CSV export
-                exportFileName={`Inflow_Payments_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')}`}
+                <DataTable<ProjectInflows>
+                    table={table}
+                    columns={columns}
+                    isLoading={listIsLoading}
+                    error={listError}
+                    totalCount={totalCount}
+                    searchFieldOptions={searchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    facetFilterOptions={facetFilterOptions}
+                    dateFilterColumns={dateColumns}
+                    showExportButton={true}
+                    onExport={'default'} // Use default CSV export
+                    exportFileName={`Inflow_Payments_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')}`}
                 // toolbarActions={
                 //     !projectId && !customerId && ( // Only show if not in specific project/customer context
                 //         <Button onClick={toggleNewInflowDialog} size="sm">
@@ -230,7 +263,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 //         </Button>
                 //     )
                 // }
-            />
+                />
             )}
             <NewInflowPayment refetch={refetch} />
         </div>

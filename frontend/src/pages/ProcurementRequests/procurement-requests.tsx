@@ -77,7 +77,7 @@ export const ProcurementRequests: React.FC = () => {
 
 
     const projectsFetchOptions = getProjectListOptions();
-        
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -144,7 +144,7 @@ export const ProcurementRequests: React.FC = () => {
 
     const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'procurement_list', 'category_list']), [])
 
-    const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{value : "owner", label: "Created By", placeholder: "Search by Created By..."}]), []);
+    const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Created By", placeholder: "Search by Created By..." }]), []);
     // --- Date Filter Columns ---
     const dateColumnsForDataTable = useMemo(() => PR_DATE_COLUMNS, []);
 
@@ -165,16 +165,28 @@ export const ProcurementRequests: React.FC = () => {
                         </Link>
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                            <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
                         </div>
                     </div>
                 );
             }, size: 170,
+            meta: {
+                exportHeaderName: "PR ID",
+                exportValue: (row) => {
+                    return row.name
+                }
+            }
         },
         {
             accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Created",
+                exportValue: (row) => {
+                    return formatDate(row.creation)
+                }
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -183,11 +195,19 @@ export const ProcurementRequests: React.FC = () => {
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(p => p.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
         },
         {
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
             size: 150,
+
         },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
@@ -200,22 +220,35 @@ export const ProcurementRequests: React.FC = () => {
                     </div>
                 );
             }, size: 180, enableSorting: false,
+            meta: {
+                excludeFromExport: true,
+            }
         },
         {
-             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-             cell: ({ row }) => {
-                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-             }, size: 180,
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
         },
         // Conditional Delete Column
         ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{
             id: "actions", header: "Actions",
-            cell: ({row}) => (
+            cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
             ), size: 80,
+            meta: {
+                excludeFromExport: true,
+            }
         } as ColumnDef<ProcurementRequest>] : []),
     ], [tab, role, notifications, projectOptions, userList, handleNewPRSeen]); // Dependencies for columns
 
@@ -229,7 +262,7 @@ export const ProcurementRequests: React.FC = () => {
     // --- useServerDataTable Hook Instantiation for Data Table Tabs ---
     const shouldRenderDataTable = useMemo(() =>
         ["New PR Request", "In Progress"].includes(tab),
-    [tab]);
+        [tab]);
 
     const serverDataTable = useServerDataTable<ProcurementRequest>(
         shouldRenderDataTable ? {
@@ -257,7 +290,7 @@ export const ProcurementRequests: React.FC = () => {
             await handleDeletePR(deleteFlagged.name); // handleDeletePR should handle toast/mutate
             setDeleteFlagged(null); // Clear after action
             toggleDeleteDialog(); // Close dialog
-             if (shouldRenderDataTable) serverDataTable.refetch(); // Refetch table data
+            if (shouldRenderDataTable) serverDataTable.refetch(); // Refetch table data
         }
     };
 
@@ -304,7 +337,7 @@ export const ProcurementRequests: React.FC = () => {
                     dateFilterColumns={dateColumnsForDataTable}
                     showExportButton={true}
                     onExport={'default'}
-                    // toolbarActions={...} // Add if needed
+                // toolbarActions={...} // Add if needed
                 />
             );
         }

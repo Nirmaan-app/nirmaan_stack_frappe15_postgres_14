@@ -63,6 +63,12 @@ export default function ApprovedQuotationsPage() {
                 // but you might link to the related PO or Item.
                 <div className="font-medium whitespace-nowrap">{row.getValue("name")}</div>
             ), size: 180,
+            meta: {
+                exportHeaderName: "Quote ID",
+                exportValue: (row) => {
+                    return row.name
+                }
+            }
         },
         {
             accessorKey: "item_name",
@@ -77,6 +83,12 @@ export default function ApprovedQuotationsPage() {
                     <div className="font-medium">{row.getValue("item_name")}</div>
                 );
             }, size: 250,
+            meta: {
+                exportHeaderName: "Item Name",
+                exportValue: (row) => {
+                    return row.item_name
+                }
+            }
         },
         {
             accessorKey: "vendor",
@@ -92,19 +104,37 @@ export default function ApprovedQuotationsPage() {
                     <div className="font-medium">{"--"}</div>
                 );
             }, size: 220,
+            meta: {
+                exportHeaderName: "Vendor Name",
+                exportValue: (row) => {
+                    return vendorMap.get(row.vendor) || row.vendor
+                }
+            }
         },
         {
             accessorKey: "quote",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Quoted Price" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.getValue("quote"))}</div>,
-            meta: {isNumeric: true}, // For styling if needed
+            meta: {
+                isNumeric: true,
+                exportHeaderName: "Quoted Price",
+                exportValue: (row) => {
+                    return formatToRoundedIndianRupee(row.quote)
+                }
+            }, // For styling if needed
             size: 150,
         },
         {
             accessorKey: "quantity",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Qty" />,
             cell: ({ row }) => <div className="font-medium text-center">{row.getValue("quantity") || "1"}</div>, // Default to 1 if not present
-            meta: {isNumeric: true},
+            meta: {
+                isNumeric: true,
+                exportHeaderName: "Quantity",
+                exportValue: (row) => {
+                    return row.quantity || 1
+                }
+            },
             size: 80,
         },
         {
@@ -112,12 +142,24 @@ export default function ApprovedQuotationsPage() {
             header: ({ column }) => <DataTableColumnHeader column={column} title="Unit" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("unit")}</div>,
             size: 100,
+            meta: {
+                exportHeaderName: "Unit",
+                exportValue: (row) => {
+                    return row.unit
+                }
+            }
         },
         {
             accessorKey: "make",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Make" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("make") || "--"}</div>,
             size: 120,
+            meta: {
+                exportHeaderName: "Make",
+                exportValue: (row) => {
+                    return row.make || "--"
+                }
+            }
         },
         {
             accessorKey: "procurement_order",
@@ -132,12 +174,25 @@ export default function ApprovedQuotationsPage() {
                     <span className="text-xs text-muted-foreground">N/A</span>
                 );
             }, size: 180,
+            meta: {
+                exportHeaderName: "PO #",
+                exportValue: (row) => {
+                    return row.procurement_order
+                }
+            }
         },
         {
             accessorKey: "creation",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Date Approved" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                isDate: true,
+                exportHeaderName: "Date Approved",
+                exportValue: (row) => {
+                    return formatDate(row.creation)
+                }
+            }
         },
         // {
         //     accessorKey: "category", // Assuming 'category' is a Link field to Category Doctype
@@ -164,7 +219,7 @@ export default function ApprovedQuotationsPage() {
 
     const vendorFacetOptions = useMemo(() =>
         vendorsList?.map(v => ({ label: v.vendor_name, value: v.name })) || [],
-    [vendorsList]);
+        [vendorsList]);
 
     // Deriving item options from the actual approved quotes or from a full Items list
     const itemFacetOptions = useMemo(() => {
@@ -173,7 +228,7 @@ export default function ApprovedQuotationsPage() {
         // Or, fetch unique item_name values from backend.
         // For now, using the fetched itemsList for consistency:
         return itemsList?.map(i => ({ label: i.item_name, value: i.item_name })) || [];
-         // If filtering by item_id: itemsList?.map(i => ({ label: i.item_name, value: i.item_id }))
+        // If filtering by item_id: itemsList?.map(i => ({ label: i.item_name, value: i.item_id }))
     }, [itemsList]);
 
     // const categoryFacetOptions = useMemo(() =>

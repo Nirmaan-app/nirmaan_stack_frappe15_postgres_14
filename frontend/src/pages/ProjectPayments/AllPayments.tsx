@@ -62,20 +62,20 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // --- Dynamic URL Sync Key based on context and tab ---
     const urlSyncKey = useMemo(() =>
         `all_pay_${contextKey}_${tab.toLowerCase().replace(/\s+/g, '_')}`,
-    [contextKey, tab]);
+        [contextKey, tab]);
 
 
     // --- Supporting Data Fetches (for lookups, calculations, and initial filtering if customerId is present) ---
     const projectFiltersForLookup = useMemo(() =>
         customerId ? [["customer", "=", customerId]] : (projectId ? [["name", "=", projectId]] : []),
-    [customerId, projectId]);
+        [customerId, projectId]);
 
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", { fields: ["name", "project_name"], filters: projectFiltersForLookup as Filter<FrappeDoc<Projects>>[], limit: 1000 },
         `Projects_AllPay_${customerId || projectId || 'all'}`
     );
 
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service", "Material", "Material & Service"]});
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
     // Fetch related POs and SRs for "PO Value" calculation
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
         DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "order_list", "loading_charges", "freight_charges"], limit: 100000 }, 'POs_AllPay'
@@ -141,7 +141,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(['creation', 'modified', 'payment_date', 'payment_attachment', 'tds', 'utr']), [])
 
-    const paymentsSearchableFields = useMemo(() => PP_SEARCHABLE_FIELDS.concat(tab === "Payments Done" ? [{value : "utr", label: "UTR", placeholder: "Search by UTR..."}] : tab === "Payments Pending" ? [{value : "status", label: "Status", placeholder: "Search by Status..."}] : []), [tab]);
+    const paymentsSearchableFields = useMemo(() => PP_SEARCHABLE_FIELDS.concat(tab === "Payments Done" ? [{ value: "utr", label: "UTR", placeholder: "Search by UTR..." }] : tab === "Payments Pending" ? [{ value: "status", label: "Status", placeholder: "Search by Status..." }] : []), [tab]);
 
     // --- Date Filter Columns ---
     const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);
@@ -164,28 +164,49 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     </div>
                 );
             }, size: 150,
+            meta: {
+                exportHeaderName: tab === "Payments Done" ? "payment_date" : "creation",
+                exportValue: (row: ProjectPayments) => {
+                    const payment = row;
+                    const dateValue = tab === "Payments Done" ? payment.payment_date : payment.creation;
+                    return formatDate(dateValue || payment.creation);
+                }
+            }
         },
         {
             accessorKey: "document_name", header: "#PO / #SR",
             cell: ({ row }) => { /* ... (Doc # link logic as before) ... */
-                 const data = row.original;
+                const data = row.original;
                 const docLink = data.document_name.replaceAll("/", "&=")
-                 return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
+                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
                     <span className="max-w-[150px] truncate" title={data.document_name}>{data.document_name}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={`/project-payments/${docLink}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100"/></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
+                    <HoverCard><HoverCardTrigger asChild><Link to={`/project-payments/${docLink}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
                 </div>);
             }, size: 200,
+            meta: {
+                exportHeaderName: "PO/SR",
+                exportValue: (row: ProjectPayments) => {
+                    return row.document_name;
+
+                }
+            }
         },
         {
             accessorKey: "vendor", header: "Vendor",
             cell: ({ row }) => {
                 const vendorName = getVendorName(row.original.vendor);
-                    return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
-                        <span className="max-w-[150px] truncate" title={vendorName}>{vendorName}</span>
-                        <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100"/></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
-                    </div>);
+                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
+                    <span className="max-w-[150px] truncate" title={vendorName}>{vendorName}</span>
+                    <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
+                </div>);
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Vendor",
+                exportValue: (row: ProjectPayments) => {
+                    return getVendorName(row.vendor);
+                }
+            }
         },
         ...(!projectId ? [{ // Conditionally show Project column
             accessorKey: "project", header: "Project",
@@ -194,11 +215,24 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 return <div className="font-medium truncate max-w-[150px]" title={projectLabel}>{projectLabel || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 180,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row: ProjectPayments) => {
+                    const projectLabel = projects?.find(p => p.name === row.project)?.project_name;
+                    return projectLabel || row.project;
+                }
+            }
         } as ColumnDef<ProjectPayments>] : []),
         {
             id: "doc_value_col", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getDocumentTotal(row.original.document_name, row.original.document_type))}</div>,
             size: 130, enableSorting: false,
+            meta: {
+                exportHeaderName: "PO Value",
+                exportValue: (row: ProjectPayments) => {
+                    return formatToRoundedIndianRupee(getDocumentTotal(row.document_name, row.document_type));
+                }
+            }
         },
         { // Requested/Paid Amount
             accessorKey: "amount",
@@ -209,12 +243,25 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 return tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={payment} /> : <div className="font-medium pr-2">{formatToRoundedIndianRupee(displayAmount)}</div>;
             },
             size: 130,
+            meta: {
+                exportHeaderName: tab === "Payments Done" ? "Amt. Paid" : "Amt. To Pay",
+                exportValue: (row: ProjectPayments) => {
+                    const displayAmount = parseNumber(row.amount);
+                    return formatToRoundedIndianRupee(displayAmount);
+                }
+            }
         },
         ...(tab === "Payments Done" ? [ // Columns only for "Payments Done"
             {
                 accessorKey: "utr", header: "UTR",
-                cell: ({ row }) => ( row.original.payment_attachment ? (<a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noreferrer" className="font-medium text-blue-600 underline">{row.original.utr || "View Proof"}</a>) : <div className="font-medium">{row.original.utr || '--'}</div> ),
+                cell: ({ row }) => (row.original.payment_attachment ? (<a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noreferrer" className="font-medium text-blue-600 underline">{row.original.utr || "View Proof"}</a>) : <div className="font-medium">{row.original.utr || '--'}</div>),
                 size: 150,
+                meta: {
+                    exportHeaderName: "UTR",
+                    exportValue: (row: ProjectPayments) => {
+                        return row.utr || "--";
+                    }
+                }
             },
             // {
             //     accessorKey: "tds", header: ({ column }) => <DataTableColumnHeader column={column} title="TDS" />,
@@ -225,11 +272,14 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 id: "download_action", header: "Proof",
                 cell: ({ row }) => row.original.payment_attachment ? (<a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noreferrer"><Download className="h-4 w-4 text-blue-500" /></a>) : null,
                 size: 80,
+                meta: {
+                    excludeFromExport: true
+                }
             }
         ] as ColumnDef<ProjectPayments>[] : []),
         ...(tab === "Payments Pending" ? [{
             accessorKey: "status", header: "Status",
-            cell: ({row}) => <Badge variant={row.original.status === PAYMENT_STATUS.APPROVED ? "default" : "outline"}>{row.original.status}</Badge>,
+            cell: ({ row }) => <Badge variant={row.original.status === PAYMENT_STATUS.APPROVED ? "default" : "outline"}>{row.original.status}</Badge>,
             enableColumnFilter: true, size: 120
         } as ColumnDef<ProjectPayments>] : []),
     ], [tab, projectId, notifications, projectOptions, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification]);
@@ -243,7 +293,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             opts.project = { title: "Project", options: projectOptions };
         }
         if (tab === "Payments Pending") {
-            opts.status = { title: "Status", options: [{value: PAYMENT_STATUS.REQUESTED, label: "Requested"}, {value: PAYMENT_STATUS.APPROVED, label: "Approved"}] };
+            opts.status = { title: "Status", options: [{ value: PAYMENT_STATUS.REQUESTED, label: "Requested" }, { value: PAYMENT_STATUS.APPROVED, label: "Approved" }] };
         }
         return opts;
     }, [projectOptions, vendorOptions, projectId, tab]);
@@ -306,7 +356,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     dateFilterColumns={dateColumns}
                     showExportButton={true} // Optional
                     onExport={'default'}
-                    // toolbarActions={...} // Optional
+                // toolbarActions={...} // Optional
                 />
             )}
         </div>

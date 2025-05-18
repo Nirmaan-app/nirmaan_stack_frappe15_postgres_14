@@ -10,11 +10,16 @@ import { formatToRoundedIndianRupee } from './FormatPrice';
  * Returns an empty string if the date is invalid or null/undefined.
  */
 const safeFormatDate = (value: any, formatString: string = 'dd/MM/yyyy'): string => {
-    if (!value) return '';
+    if (value === null || value === undefined || value === '') return '';
     try {
         const date = new Date(value);
         // Check if the date is valid after parsing
         if (isNaN(date.getTime())) {
+            // Try to see if it's already a formatted string that might be misparsed
+            if (typeof value === 'string' && value.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+                return value; // Assume it's already in 'dd/MM/yyyy'
+            }
+            console.warn("Invalid date value for formatting:", value);
             return ''; // Return empty for invalid dates
         }
         return formatDateFn(date, formatString);
@@ -95,55 +100,55 @@ const safeFormatDate = (value: any, formatString: string = 'dd/MM/yyyy'): string
  */
 // Return type should be primitive values suitable for CSV cells
 const getCellValue = (row: any, column: ColumnDef<any, any>): string | number | boolean | null => {
-  const accessorKey = column.accessorKey as string | undefined;
-  const exportValueGetter = (column.meta as any)?.exportValue;
+    const accessorKey = column.accessorKey as string | undefined;
+    const exportValueGetter = (column.meta as any)?.exportValue;
 
-  // 1. Use custom export function if provided (Most specific)
-  //    Assume the function returns the final string representation needed.
-  if (typeof exportValueGetter === 'function') {
-      // Execute the custom formatter defined in the column meta
-      return exportValueGetter(row);
-  }
+    // 1. Use custom export function if provided (Most specific)
+    //    Assume the function returns the final string representation needed.
+    if (typeof exportValueGetter === 'function') {
+        // Execute the custom formatter defined in the column meta
+        return exportValueGetter(row);
+    }
 
-  // 2. If no custom export function, get the raw value using accessorKey
-  let rawValue: any;
-  if (accessorKey) {
-      const keys = accessorKey.split('.');
-      rawValue = keys.reduce((obj, key) => (obj && typeof obj === 'object' && obj[key] !== undefined) ? obj[key] : undefined, row);
-  } else {
-      // Cannot reliably get value without accessorKey or exportValueGetter
-      console.warn(`Column "${String(column.header) || 'ID: ' + column.id}" lacks accessorKey or meta.exportValue for export.`);
-      rawValue = ''; // Fallback to empty string
-  }
+    // 2. If no custom export function, get the raw value using accessorKey
+    let rawValue: any;
+    if (accessorKey) {
+        const keys = accessorKey.split('.');
+        rawValue = keys.reduce((obj, key) => (obj && typeof obj === 'object' && obj[key] !== undefined) ? obj[key] : undefined, row);
+    } else {
+        // Cannot reliably get value without accessorKey or exportValueGetter
+        console.warn(`Column "${String(column.header) || 'ID: ' + column.id}" lacks accessorKey or meta.exportValue for export.`);
+        rawValue = ''; // Fallback to empty string
+    }
 
-  // 3. Apply basic default formatting to the raw value IF no exportValueGetter was used
-  if (rawValue === null || rawValue === undefined) {
-      return ''; // Represent null/undefined as empty string in CSV
-  }
-  if (rawValue instanceof Date || column.accessorKey === 'creation') {
-      return safeFormatDate(rawValue); // Default date format
-  }
-  if (typeof rawValue === 'number') {
-      // For numbers without specific export formatting, convert to string
-      // to prevent potential scientific notation or interpretation issues in Excel/Sheets.
-      // Or return the raw number if PapaParse/spreadsheet handling is preferred.
-      return rawValue.toString();
-  }
-  if (typeof rawValue === 'boolean') {
-      return rawValue ? 'TRUE' : 'FALSE'; // Explicit TRUE/FALSE strings often work better in CSV
-  }
-  if (typeof rawValue === 'object') {
-      // Avoid exporting complex objects directly
-      console.warn(`Exporting complex object for column "${String(column.header) || accessorKey}". Use meta.exportValue.`);
-      try {
-          return JSON.stringify(rawValue); // Simple JSON stringify as last resort
-      } catch {
-          return '[Object]';
-      }
-  }
+    // 3. Apply basic default formatting to the raw value IF no exportValueGetter was used
+    if (rawValue === null || rawValue === undefined) {
+        return ''; // Represent null/undefined as empty string in CSV
+    }
+    if (rawValue instanceof Date || column.accessorKey === 'creation') {
+        return safeFormatDate(rawValue); // Default date format
+    }
+    if (typeof rawValue === 'number') {
+        // For numbers without specific export formatting, convert to string
+        // to prevent potential scientific notation or interpretation issues in Excel/Sheets.
+        // Or return the raw number if PapaParse/spreadsheet handling is preferred.
+        return rawValue.toString();
+    }
+    if (typeof rawValue === 'boolean') {
+        return rawValue ? 'TRUE' : 'FALSE'; // Explicit TRUE/FALSE strings often work better in CSV
+    }
+    if (typeof rawValue === 'object') {
+        // Avoid exporting complex objects directly
+        console.warn(`Exporting complex object for column "${String(column.header) || accessorKey}". Use meta.exportValue.`);
+        try {
+            return JSON.stringify(rawValue); // Simple JSON stringify as last resort
+        } catch {
+            return '[Object]';
+        }
+    }
 
-  // Default: convert any other type to string
-  return String(rawValue);
+    // Default: convert any other type to string
+    return String(rawValue);
 };
 
 /**
@@ -152,74 +157,95 @@ const getCellValue = (row: any, column: ColumnDef<any, any>): string | number | 
  * @param data - The array of data objects (or rows) to export.
  * @param columns - The Tanstack Table column definitions to determine headers and accessors.
  */
-export const exportToCsv = <TData>(
+export const exportToCsv = <TData extends RowData>(
     filename: string,
     data: TData[],
     columns: ColumnDef<TData, any>[]
 ) => {
     if (!data || data.length === 0) {
         console.warn('No data provided for CSV export.');
-        // Optionally show a toast message to the user
+        // Optionally show a toast message to the user: toast.info("No data to export.");
         return;
     }
 
     try {
         // 1. Filter columns intended for export
-        const exportableColumns = columns.filter(col =>
-            (col.header || col.accessorKey) && !(col.meta as any)?.excludeFromExport
-        );
+        const exportableColumns = columns.filter(col => {
+            const meta = col.meta as any;
+            if (meta?.excludeFromExport) {
+                return false;
+            }
+            // A column is exportable if it has an accessorKey, or an ID (implying it might have meta.exportValue),
+            // or an explicit exportHeaderName (strongest indicator for inclusion).
+            return col.accessorKey || col.id || meta?.exportHeaderName;
+        });
+
+        if (exportableColumns.length === 0) {
+            console.warn('No columns are configured for export.');
+            // Optionally show a toast message: toast.info("No columns configured for export.");
+            return;
+        }
 
         // 2. Extract Headers
-        const headers = exportableColumns.map(col =>
-             // Prefer header string, fallback to accessorKey
-            typeof col.header === 'string'
-                ? col.header
-                : String(col.accessorKey || 'Unknown Column')
-        );
+        // Priority:
+        // 1. meta.exportHeaderName (explicitly defined for export)
+        // 2. col.header (if it's a simple string)
+        // 3. col.accessorKey (if column is data-driven by accessor)
+        // 4. col.id (for columns identified by ID, especially if no accessorKey)
+        // 5. 'Unknown Column' (fallback)
+        const headers = exportableColumns.map(col => {
+            const meta = col.meta as any;
+            if (meta?.exportHeaderName && String(meta.exportHeaderName).trim() !== '') {
+                return String(meta.exportHeaderName).trim();
+            }
+            if (typeof col.header === 'string' && col.header.trim() !== '') {
+                return col.header.trim();
+            }
+            if (col.accessorKey) {
+                return String(col.accessorKey);
+            }
+            if (col.id) { // This will be used for columns with 'id' but no accessorKey/exportHeaderName
+                return String(col.id);
+            }
+            return 'Unknown Column';
+        });
 
         // 3. Extract Row Data using getCellValue
-        //    Result should be an array of arrays, where inner arrays contain string/number/boolean values
-        const rows = data.map(row =>
-            exportableColumns.map(col => getCellValue(row, col))
+        const rows = data.map(rowDataItem => // rowDataItem is an individual object from your TData[]
+            exportableColumns.map(col => getCellValue(rowDataItem, col))
         );
 
-        // 4. Convert data (including headers) to CSV string using PapaParse.unparse
-        //    Pass data as an array where the first element is the header array,
-        //    followed by the data rows.
+        // 4. Convert data (including headers) to CSV string
         const csvString = unparse(
-            [headers, ...rows], // Combine headers and rows into a single array of arrays
+            [headers, ...rows],
             {
-                // Optional configuration for unparse (delimiters, quotes etc.)
-                // header: false, // We are providing headers manually in the data array
                 skipEmptyLines: true,
             }
         );
 
-        // Ensure csvString is actually a string before creating Blob
         if (typeof csvString !== 'string') {
-             throw new Error("PapaParse unparse did not return a string.");
+            throw new Error("PapaParse unparse did not return a string.");
         }
 
         // 5. Create Blob and Trigger Download
-        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' }); // csvString is now correct
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        const timestamp = formatDateFn(new Date(), 'yyyyMMdd_HHmmss'); // Use date-fns here too
+        const timestamp = formatDateFn(new Date(), 'yyyyMMdd_HHmmss');
         link.href = url;
         link.setAttribute('download', `${filename}_${timestamp}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(url); // Clean up blob URL
+        URL.revokeObjectURL(url);
 
         console.log(`Successfully exported ${data.length} rows to ${filename}_${timestamp}.csv`);
-         // Optionally show success toast
+        // Optionally show success toast: toast.success("Data exported successfully!");
 
     } catch (error) {
         console.error('Error exporting data to CSV:', error);
-         // Optionally show error toast
-         // Re-throw or handle as needed
-         throw error; // Optional: re-throw if calling function needs to know about the error
+        // Optionally show error toast: toast.error("Failed to export data.");
+        // throw error; // Optional: re-throw if calling function needs to handle it
     }
 };
 
@@ -252,6 +278,54 @@ export const exportToCsv = <TData>(
     cell: ({ row }) => <Button onClick={() => console.log(row.original.id)}>Action</Button>,
     meta: {
         excludeFromExport: true, // Don't include this column in export
+    }
+}
+*/
+
+// --- Example usage in column definition meta for headers ---
+/*
+// In your column definitions:
+
+// Column with accessorKey, header is a component, want specific export name
+{
+    accessorKey: "name",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="PO ID" />,
+    cell: ({ row }) => { ... },
+    meta: {
+        exportHeaderName: "PO ID" // Explicit export header
+        // exportValue: (procOrder) => procOrder.name // Only if 'name' needs special formatting for export
+    }
+},
+
+// Column with ID, header is component, want ID as export name
+{
+    id: "work_package",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
+    cell: ({ row }) => <div className="font-medium truncate">{getWorkPackageName(row.original)}</div>,
+    meta: {
+        // No exportHeaderName here, so it will use "work_package" (the ID)
+        exportValue: (procOrder) => getWorkPackageName(procOrder)
+    }
+},
+
+// Column with ID, header is component, want DIFFERENT name than ID for export
+{
+    id: "po_value_inc_gst",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value (inc. GST)" />,
+    cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(poAmountsDict?.[row.original.name]?.total_incl_gst)}</div>,
+    meta: {
+        exportHeaderName: "Total PO Value (GST Inclusive)", // Explicit, different from ID
+        exportValue: (procOrder) => formatToRoundedIndianRupee(poAmountsDict?.[procOrder.name]?.total_incl_gst)
+    }
+},
+
+// Column with simple string header
+{
+    accessorKey: "status",
+    header: "Status", // This string "Status" will be used if no exportHeaderName
+    cell: ({ row }) => <Badge>{row.original.status}</Badge>,
+    meta: {
+        exportValue: (procOrder) => procOrder.status
     }
 }
 */

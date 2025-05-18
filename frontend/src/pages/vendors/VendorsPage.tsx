@@ -36,19 +36,19 @@ export default function VendorsPage() {
 
     const [vendorTypeCounts, setVendorTypeCounts] = useState<VendorTypeCount[]>([]);
 
-    const {call} = useFrappePostCall('frappe.client.get_count')
+    const { call } = useFrappePostCall('frappe.client.get_count')
 
     // Fetch counts for each vendor type for the Radio Group
     useEffect(() => {
         const fetchCounts = async () => {
             const countsPromises = VENDOR_TYPE_OPTIONS.map(opt =>
                 call({
-                    doctype: VENDOR_DOCTYPE, 
+                    doctype: VENDOR_DOCTYPE,
                     filters: { vendor_type: opt.value },
                     cache: true,
-                  },
+                },
                 ).then(res => ({ type: opt.value, count: res.message, isLoading: false }))
-                  .catch(() => ({ type: opt.value, count: 0, isLoading: false }))
+                    .catch(() => ({ type: opt.value, count: 0, isLoading: false }))
             );
             const resolvedCounts = await Promise.all(countsPromises);
             setVendorTypeCounts(resolvedCounts as VendorTypeCount[]);
@@ -62,7 +62,7 @@ export default function VendorsPage() {
             setCurrentVendorType(value || VENDOR_TYPE_OPTIONS[0].value);
         };
         const unsubscribe = urlStateManager.subscribe('type', handleUrlTypeChange);
-        
+
         // Ensure initial state matches URL if it was set by something else before mount
         const initialUrlType = urlStateManager.getParam('type') || VENDOR_TYPE_OPTIONS[0].value;
         if (currentVendorType !== initialUrlType) {
@@ -101,15 +101,21 @@ export default function VendorsPage() {
             cell: ({ row }) => {
                 const vendor = row.original;
                 const typePrefix = vendor.vendor_type === "Material" ? "M"
-                                : vendor.vendor_type === "Service" ? "S"
-                                : vendor.vendor_type === "Material & Service" ? "MS"
-                                : "V";
+                    : vendor.vendor_type === "Service" ? "S"
+                        : vendor.vendor_type === "Material & Service" ? "MS"
+                            : "V";
                 return (
                     <Link className="text-blue-600 hover:underline font-medium whitespace-nowrap" to={`/vendors/${vendor.name}`}>
                         {typePrefix}-{vendor.name.slice(-4)}
                     </Link>
                 );
             }, size: 120,
+            meta: {
+                exportHeaderName: "Vendor ID",
+                exportValue: (row) => {
+                    return row.name
+                }
+            }
         },
         {
             accessorKey: "vendor_name",
@@ -119,6 +125,12 @@ export default function VendorsPage() {
                     {row.getValue("vendor_name")}
                 </Link>
             ), size: 250,
+            meta: {
+                exportHeaderName: "Vendor Name",
+                exportValue: (row) => {
+                    return row.vendor_name
+                }
+            }
         },
         // {
         //     accessorKey: "vendor_type",
@@ -155,6 +167,9 @@ export default function VendorsPage() {
                 );
             },
             size: 250,
+            meta: {
+                excludeFromExport: true, // Exclude from export if needed
+            }
         },
         {
             id: "vendor_address", // Using id because it's derived from multiple fields
@@ -164,12 +179,25 @@ export default function VendorsPage() {
                 if (!vendor_city && !vendor_state) return <span className="text-xs text-muted-foreground">N/A</span>;
                 return <div className="font-medium text-sm">{`${vendor_city || ''}${vendor_city && vendor_state ? ', ' : ''}${vendor_state || ''}`}</div>;
             }, size: 200,
+            meta: {
+                exportHeaderName: "Address",
+                exportValue: (row) => {
+                    const { vendor_city, vendor_state } = row;
+                    return `${vendor_city || ''}${vendor_city && vendor_state ? ', ' : ''}${vendor_state || ''}`;
+                }
+            }
         },
         {
             accessorKey: "creation",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Date Created" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Date Created",
+                exportValue: (row) => {
+                    return formatDate(row.creation)
+                }
+            }
         },
     ], []);
 
@@ -215,8 +243,8 @@ export default function VendorsPage() {
         <div className="flex-1 space-y-4">
 
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"> */}
-                 <VendorsOverallSummaryCard />
-                {/* Add other summary cards if needed */}
+            <VendorsOverallSummaryCard />
+            {/* Add other summary cards if needed */}
             {/* </div> */}
 
             <div className="pb-4">

@@ -26,7 +26,7 @@ export function DataTablePagination<TData>({
     table,
     totalCount,
     isLoading = false,
-    pageSizeOptions = [10, 20, 30, 40, 50, 500], // Default options
+    pageSizeOptions = [50, 100, 500, 1000, 2000], // Default options
 }: DataTablePaginationProps<TData>) {
 
     const pagination = table.getState().pagination;
@@ -41,17 +41,17 @@ export function DataTablePagination<TData>({
             {/* Row Selection Info */}
             <div className="flex-1 text-sm text-muted-foreground">
                 {table.getFilteredSelectedRowModel().rows.length > 0 && (
-                     <span>
-                         {table.getFilteredSelectedRowModel().rows.length} of{' '}
-                         {totalCount} row(s) selected.
-                     </span>
-                 )}
+                    <span>
+                        {table.getFilteredSelectedRowModel().rows.length} of{' '}
+                        {totalCount} row(s) selected.
+                    </span>
+                )}
             </div>
 
             {/* Pagination Controls */}
             <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 lg:gap-8">
-                 {/* Page Size Selector */}
-                 <div className="flex items-center space-x-2">
+                {/* Page Size Selector */}
+                <div className="flex items-center space-x-2">
                     <p className="text-sm font-medium whitespace-nowrap">Rows per page</p>
                     <Select
                         value={`${pagination.pageSize}`}
@@ -73,14 +73,14 @@ export function DataTablePagination<TData>({
                     </Select>
                 </div>
 
-                 {/* Page Indicator */}
-                 <div className="flex w-[130px] items-center justify-center text-sm font-medium whitespace-nowrap">
+                {/* Page Indicator */}
+                <div className="flex w-[130px] items-center justify-center text-sm font-medium whitespace-nowrap">
                     Page {totalCount === 0 ? 0 : pagination.pageIndex + 1} of{' '}
                     {pageCount} ({startItem}-{endItem} of {totalCount})
-                 </div>
+                </div>
 
-                 {/* Navigation Buttons */}
-                 <div className="flex items-center space-x-2">
+                {/* Navigation Buttons */}
+                <div className="flex items-center space-x-2">
                     <Button
                         variant="outline"
                         className="hidden h-8 w-8 p-0 lg:flex"

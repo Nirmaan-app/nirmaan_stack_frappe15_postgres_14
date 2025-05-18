@@ -36,7 +36,7 @@ export const ApproveSelectVendor: React.FC = () => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     const projectsFetchOptions = getProjectListOptions();
-        
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -73,16 +73,16 @@ export const ApproveSelectVendor: React.FC = () => {
     ], []);
 
     const prSearchableFields: SearchFieldOption[] = useMemo(() => [
-            { value: "name", label: "PR ID", placeholder: "Search by PR ID..." , default: true},
-            { value: "project", label: "Project ID", placeholder: "Search by Project ID..." }, // Search by Project Link ID
-            { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
-            // { value: "project_name", label: "Project", placeholder: "Search by Project..." },
-            // { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },   // Search by Vendor Link ID
-            // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." },
-            { value: "work_package", label: "Work Package", placeholder: "Search by Work Package..." },
-            { value: "status", label: "Status", placeholder: "Search by Status..." },
-            { value: "procurement_list", label: "Item in PR", placeholder: "Search by Item in PR...", is_json: true },
-        ], [])
+        { value: "name", label: "PR ID", placeholder: "Search by PR ID...", default: true },
+        { value: "project", label: "Project ID", placeholder: "Search by Project ID..." }, // Search by Project Link ID
+        { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
+        // { value: "project_name", label: "Project", placeholder: "Search by Project..." },
+        // { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },   // Search by Vendor Link ID
+        // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." },
+        { value: "work_package", label: "Work Package", placeholder: "Search by Work Package..." },
+        { value: "status", label: "Status", placeholder: "Search by Status..." },
+        { value: "procurement_list", label: "Item in PR", placeholder: "Search by Item in PR...", is_json: true },
+    ], [])
 
     // --- Fields to Fetch ---
     const fieldsToFetch: (keyof ProcurementRequest | 'name')[] = useMemo(() => [
@@ -90,8 +90,8 @@ export const ApproveSelectVendor: React.FC = () => {
         "work_package", "procurement_list", "category_list", "workflow_state" // Fetch workflow_state if needed for display/logic
     ], []);
 
-     // --- Date Filter Columns ---
-     const dateColumns = useMemo(() => ["creation", "modified"], []);
+    // --- Date Filter Columns ---
+    const dateColumns = useMemo(() => ["creation", "modified"], []);
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementRequest>[]>(() => [
@@ -105,34 +105,60 @@ export const ApproveSelectVendor: React.FC = () => {
                 );
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative group"> {/* Added group for hover effect */}
-                        {isNew && ( <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" /> )}
+                        {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
                         <Link className="underline hover:underline-offset-2" to={`/purchase-orders/${prId}?tab=Approve PO`} >
                             {prId?.slice(-4)} {/* Display last 4 chars */}
                         </Link>
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity"> {/* Show hover card on group hover */}
-                           <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                            <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
                         </div>
                     </div>
                 );
             }, size: 150, // Adjusted size
+            meta: {
+                exportHeaderName: "PR ID",
+                exportValue: (row) => {
+                    return row.name
+                }
+            }
         },
         {
             accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Created On",
+                exportValue: (row) => {
+                    return row.creation
+                }
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
             cell: ({ row }) => {
                 const project = projectOptions.find(i => i.value === row.original.project);
-            return <div className="font-medium truncate" title={project?.label}>{project?.label}</div> },
+                return <div className="font-medium truncate" title={project?.label}>{project?.label}</div>
+            },
             enableColumnFilter: true, size: 200, // Enable faceted filter
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(i => i.value === row.project);
+                    return project?.label || row.project
+                }
+            }
         },
         {
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
-             size: 150,
+            size: 150,
+            meta: {
+                exportHeaderName: "Package",
+                exportValue: (row) => {
+                    return row.work_package
+                }
+            },
         },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
@@ -147,13 +173,23 @@ export const ApproveSelectVendor: React.FC = () => {
                     </div>
                 );
             }, size: 180, enableSorting: false,
+            meta: {
+                excludeFromExport: true, // Exclude from export if not needed
+            }
         },
         {
-             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-             cell: ({ row }) => {
-                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-             }, size: 180,
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
         },
         {
             id: "estimated_total", header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value" />,
@@ -161,6 +197,13 @@ export const ApproveSelectVendor: React.FC = () => {
                 const total = getTotal(row.original.procurement_list);
                 return <p className="font-medium pr-2">{total === 0 ? "N/A" : formatToRoundedIndianRupee(total)}</p>;
             }, size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "Est. Value",
+                exportValue: (row) => {
+                    const total = getTotal(row.procurement_list);
+                    return total === 0 ? "N/A" : formatToRoundedIndianRupee(total);
+                }
+            }
         }
 
     ], [notifications, projectOptions, userList, handleNewPRSeen, getTotal]); // Added dependencies

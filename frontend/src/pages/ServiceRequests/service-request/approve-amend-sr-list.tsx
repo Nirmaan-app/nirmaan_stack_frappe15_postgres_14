@@ -40,7 +40,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
     const { getTotalAmount } = useOrderTotals()
 
     const projectsFetchOptions = getProjectListOptions();
-            
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -48,7 +48,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({vendorTypes: ["Service", "Material & Service"]});
+    const { data: vendorsList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material & Service"] });
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
     const { notifications, mark_seen_notification } = useNotificationStore();
 
@@ -78,7 +78,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
     const fieldsToFetch = useMemo(() => DEFAULT_SR_FIELDS_TO_FETCH.concat([
         "creation", "modified", 'service_order_list', 'service_category_list'
     ]), [])
-     
+
     const srSearchableFields = useMemo(() => SR_SEARCHABLE_FIELDS.concat([
         { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
     ]), [])
@@ -98,22 +98,30 @@ export const ApproveSelectAmendSR: React.FC = () => {
                 );
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewSRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {isNew && ( <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" /> )}
+                        {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
                         {/* Link to the page where Amended SR can be approved */}
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/service-requests/${srId}?tab=approve-amended-so`} >
                             {srId?.slice(-5)}
                         </Link>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
+                            <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
                         </div>
                     </div>
                 );
             }, size: 150,
+            meta: {
+                exportHeaderName: "SR ID",
+                exportValue: (row) => row.name,
+            }
         },
         {
             accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Created On",
+                exportValue: (row) => formatDate(row.creation),
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -122,24 +130,46 @@ export const ApproveSelectAmendSR: React.FC = () => {
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(p => p.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
         },
         {
             accessorKey: "vendor", // Filter by vendor ID
             header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
             cell: ({ row }) => <div className="font-medium truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>,
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Vendor",
+                exportValue: (row) => getVendorName(row.vendor),
+            }
         },
         {
-             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-             cell: ({ row }) => {
-                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-             }, size: 180,
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
         },
         {
             id: "amended_sr_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Amended Value" />,
             cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmount(row.original.name, 'Service Requests')?.totalWithTax)}</p>),
             size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "Amended Value",
+                exportValue: (row) => formatToRoundedIndianRupee(getTotalAmount(row.name, 'Service Requests')?.totalWithTax),
+            }
         }
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, getTotalAmount]);
 
@@ -211,7 +241,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
                     dateFilterColumns={dateColumns}
                     showExportButton={true} // Enable if needed
                     onExport={'default'}
-                    // toolbarActions={<Button size="sm">Bulk Approve Amended...</Button>} // Placeholder
+                // toolbarActions={<Button size="sm">Bulk Approve Amended...</Button>} // Placeholder
                 />
             )}
         </div>

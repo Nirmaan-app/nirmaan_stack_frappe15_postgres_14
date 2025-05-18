@@ -38,7 +38,7 @@ export const ApproveSelectSentBack: React.FC = () => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     const projectsFetchOptions = getProjectListOptions();
-        
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -95,29 +95,47 @@ export const ApproveSelectSentBack: React.FC = () => {
                 );
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewSBSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {isNew && ( <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" /> )}
-                         {/* Update Link target as needed */}
+                        {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
+                        {/* Update Link target as needed */}
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/purchase-orders/${sbId}?tab=Approve Sent Back PO`} >
                             {sbId?.slice(-5)} {/* Display last 5 chars */}
                         </Link>
                         <Badge variant="secondary" className="text-xs">{data.type || 'Unknown Type'}</Badge>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           {/* Pass correct item structure to hover card */}
-                           <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
+                            {/* Pass correct item structure to hover card */}
+                            <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
                         </div>
                     </div>
                 );
             }, size: 170, // Adjusted size
+            meta: {
+                exportHeaderName: "SB ID",
+                exportValue: (row: SentBackCategory) => {
+                    return row.name
+                }
+            }
         },
         {
             accessorKey: "procurement_request", header: ({ column }) => <DataTableColumnHeader column={column} title="PR No." />,
             cell: ({ row }) => (<div className="font-medium">{row.getValue("procurement_request")?.slice(-4) ?? '--'}</div>),
             size: 100,
+            meta: {
+                exportHeaderName: "PR No.",
+                exportValue: (row: SentBackCategory) => {
+                    return row.procurement_request
+                }
+            }
         },
         {
-            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created on" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Created on",
+                exportValue: (row: SentBackCategory) => {
+                    return formatDate(row.creation)
+                }
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -127,18 +145,38 @@ export const ApproveSelectSentBack: React.FC = () => {
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row: SentBackCategory) => {
+                    const project = projectOptions.find(i => i.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
         },
         {
-             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-             cell: ({ row }) => {
-                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-             }, size: 180,
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row: SentBackCategory) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
         },
         {
             id: "sent_back_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
             cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.item_list))}</p>),
             size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "Value",
+                exportValue: (row: SentBackCategory) => {
+                    return formatToRoundedIndianRupee(getTotal(row.item_list))
+                }
+            }
         }
 
     ], [notifications, projectOptions, userList, handleNewSBSeen, getTotal]); // Updated dependencies
@@ -213,7 +251,7 @@ export const ApproveSelectSentBack: React.FC = () => {
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
-                    // toolbarActions={<Button size="sm">Bulk Actions...</Button>}
+                // toolbarActions={<Button size="sm">Bulk Actions...</Button>}
                 />
             )}
         </div>

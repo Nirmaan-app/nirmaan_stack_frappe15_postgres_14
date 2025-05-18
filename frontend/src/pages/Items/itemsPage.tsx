@@ -50,13 +50,19 @@ export default function ItemsPage() {
     const columns = useMemo<ColumnDef<ItemsType>[]>(() => [
         {
             accessorKey: "name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Product ID" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
             cell: ({ row }) => (
                 <Link className="text-blue-600 hover:underline font-medium whitespace-nowrap"
-                      to={`${row.original.name}`}> {/* Adjust route */}
-                    {row.getValue<string>("name")?.slice(-8) || row.getValue("name")}
+                    to={`${row.original.name}`}> {/* Adjust route */}
+                    {row.getValue("name").slice(-6)}
                 </Link>
             ), size: 150,
+            meta: {
+                exportHeaderName: "SKU",
+                exportValue: (row: ItemsType) => {
+                    return row.name.slice(-6);
+                }
+            }
         },
         {
             accessorKey: "item_name",
@@ -66,11 +72,19 @@ export default function ItemsPage() {
                 const makeName = row.original.make_name;
                 return (
                     <Link className="hover:underline font-medium"
-                          to={`${row.original.name}`}> {/* Adjust route */}
+                        to={`${row.original.name}`}> {/* Adjust route */}
                         {makeName ? `${itemName} - ${makeName}` : itemName}
                     </Link>
                 );
             }, size: 300,
+            meta: {
+                exportHeaderName: "Product Name",
+                exportValue: (row: ItemsType) => {
+                    const itemName = row.item_name;
+                    const makeName = row.make_name;
+                    return makeName ? `${itemName} - ${makeName}` : itemName;
+                }
+            }
         },
         {
             accessorKey: "category",
@@ -78,21 +92,37 @@ export default function ItemsPage() {
             cell: ({ row }) => {
                 const catName = row.getValue<string>("category");
                 const catDetail = categoryList?.find(c => c.name === catName);
-                const displayLabel = catDetail ? `${catName} (${catDetail.work_package?.slice(0,4).toUpperCase() || 'N/A'})` : catName;
+                const displayLabel = catDetail ? `${catName} (${catDetail.work_package?.slice(0, 4).toUpperCase() || 'N/A'})` : catName;
                 return <Badge variant="outline">{displayLabel || "N/A"}</Badge>;
             }, size: 220,
+            meta: {
+                exportHeaderName: "Category",
+                exportValue: (row: ItemsType) => {
+                    const catName = row.category;
+                    const catDetail = categoryList?.find(c => c.name === catName);
+                    return catDetail ? `${catName} (${catDetail.work_package?.slice(0, 4).toUpperCase() || 'N/A'})` : catName;
+                }
+            }
         },
         {
             accessorKey: "unit_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Unit" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("unit_name") || "--"}</div>,
             size: 100,
+            meta: {
+                exportHeaderName: "Unit",
+                exportValue: (row: ItemsType) => row.unit_name || "--"
+            }
         },
         {
             accessorKey: "creation",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Date Created" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Item Creation Date" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Item Creation Date",
+                exportValue: (row: ItemsType) => formatDate(row.creation)
+            }
         },
     ], [categoryList]); // Dependency on categoryList for rendering category names
 
@@ -121,8 +151,8 @@ export default function ItemsPage() {
         <div className="flex-1 space-y-4">
 
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"> */}
-                <ItemsSummaryCard />
-                {/* You can add more summary cards here */}
+            <ItemsSummaryCard />
+            {/* You can add more summary cards here */}
             {/* </div> */}
 
             <DataTable<ItemsType>

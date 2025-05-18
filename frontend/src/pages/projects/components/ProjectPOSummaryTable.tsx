@@ -79,7 +79,7 @@ export const PO_SUMMARY_STATUS_OPTIONS = [
 const DOCTYPE = 'Procurement Orders';
 
 interface ProjectPOSummaryTableProps {
-  projectId: string | undefined;
+    projectId: string | undefined;
 }
 
 interface POAmountsDict {
@@ -120,8 +120,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
         if (projectId) {
             fetchPOAggregates({ project_id: projectId })
                 .then(data => {
-                  setPOAggregates(omit(data.message, ["po_amounts_dict"]))
-                  setPOAmountsDict(data.message.po_amounts_dict)
+                    setPOAggregates(omit(data.message, ["po_amounts_dict"]))
+                    setPOAmountsDict(data.message.po_amounts_dict)
                 })
                 .catch(err => console.error("Failed to fetch PO aggregates:", err));
         } else {
@@ -132,18 +132,18 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
 
 
     // --- Supporting Data for Columns (Vendor Names, PR for WP, Users) ---
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: [ "Material", "Material & Service"] });
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Material", "Material & Service"] });
 
     const { data: pr_data, isLoading: prDataLoading, error: prDataError } = useFrappeGetDocList<ProcurementRequest>(
         "Procurement Requests", { fields: ["name", "work_package"], filters: projectId ? [["project", "=", projectId]] : [], limit: 10000 },
-        !!projectId ?`PRsForPOSummary_${projectId || 'all'}` : null
+        !!projectId ? `PRsForPOSummary_${projectId || 'all'}` : null
     );
 
 
     const { data: userList, isLoading: userListLoading, error: userListError } = useUsersList();
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>(
-        "Project Payments", { fields: ["document_name", "amount", "status"], filters:[["document_type", "=", "Procurement Orders"], ["status", "=", "Paid"], ["project", "=", projectId]], limit: 100000 },
+        "Project Payments", { fields: ["document_name", "amount", "status"], filters: [["document_type", "=", "Procurement Orders"], ["status", "=", "Paid"], ["project", "=", projectId]], limit: 100000 },
         !!projectId ? `PaidPaymentsForPOSummary_${projectId || 'all'}` : null
     );
 
@@ -183,61 +183,103 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementOrder>[]>(() => [
-      {
-          accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="PO ID" />,
-          cell: ({ row }) => {
-              const po = row.original;
-              return (
-                  <div className="font-medium flex items-center gap-1 group">
-                      <Link className="text-blue-600 hover:underline whitespace-nowrap" to={`po/${po.name.replaceAll("/", "&=")}`}>
-                          {po.name}
-                      </Link>
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                        <ItemsHoverCard order_list={Array.isArray(po.order_list?.list) ? po.order_list.list : []} />
-                      </div>
-                      {po.custom === "true" && <Badge variant="outline" className="text-xs">Custom</Badge>}
-                  </div>
-              );
-          }, size: 200,
-      },
-      {
-          accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
-          cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
-          size: 150,
-      },
-      {
-          id: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
-          cell: ({ row }) => <div className="font-medium truncate">{getWorkPackageName(row.original)}</div>,
-          size: 150, // Add filterFn if client-side filtering on this derived value is needed
-      },
-      {
-          accessorKey: "vendor", header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
-          cell: ({ row }) => <div className="font-medium truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>,
-          enableColumnFilter: true, size: 180,
-      },
-      {
-          accessorKey: "status", header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-          cell: ({ row }) => <Badge variant={row.original.status === "PO Approved" ? "green" : "secondary"}>{row.original.status}</Badge>,
-          enableColumnFilter: true, size: 150,
-      },
-      {
-          accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
-           cell: ({ row }) => {
-               const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-               return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-           }, size: 180,
-      },
-      {
-          id: "po_value_inc_gst", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value (inc. GST)" />,
-          cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(poAmountsDict?.[row.original.name]?.total_incl_gst)}</div>,
-          size: 160, enableSorting: false,
-      },
-      {
-          id: "amount_paid_po", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
-          cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmountPaidForPO(row.original.name))}</div>,
-          size: 130, enableSorting: false,
-      },
-  ], [getVendorName, getWorkPackageName, getTotalAmountPaidForPO, userList, poAmountsDict]);
+        {
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="PO ID" />,
+            cell: ({ row }) => {
+                const po = row.original;
+                return (
+                    <div className="font-medium flex items-center gap-1 group">
+                        <Link className="text-blue-600 hover:underline whitespace-nowrap" to={`po/${po.name.replaceAll("/", "&=")}`}>
+                            {po.name}
+                        </Link>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ItemsHoverCard order_list={Array.isArray(po.order_list?.list) ? po.order_list.list : []} />
+                        </div>
+                        {po.custom === "true" && <Badge variant="outline" className="text-xs">Custom</Badge>}
+                    </div>
+                );
+            }, size: 200,
+            meta: {
+                exportHeaderName: "PO ID",
+            }
+        },
+        {
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Creation Date" />,
+            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            size: 150,
+            meta: {
+                exportHeaderName: "PO Creation Date",
+            }
+        },
+        {
+            id: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
+            cell: ({ row }) => <div className="font-medium truncate">{getWorkPackageName(row.original)}</div>,
+            size: 150, // Add filterFn if client-side filtering on this derived value is needed
+            meta: {
+                exportHeaderName: "Package",
+                exportValue: (row: ProcurementOrder) => {
+                    return getWorkPackageName(row);
+                }
+            }
+        },
+        {
+            accessorKey: "vendor", header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
+            cell: ({ row }) => <div className="font-medium truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>,
+            enableColumnFilter: true, size: 180,
+            meta: {
+                exportHeaderName: "Vendor",
+                exportValue: (row: ProcurementOrder) => {
+                    return getVendorName(row.vendor);
+                }
+            }
+        },
+        {
+            accessorKey: "status", header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            cell: ({ row }) => <Badge variant={row.original.status === "PO Approved" ? "green" : "secondary"}>{row.original.status}</Badge>,
+            enableColumnFilter: true, size: 150,
+            meta: {
+                exportValue: (row: ProcurementOrder) => {
+                    return row.status;
+                }
+            }
+        },
+        {
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Approved By",
+                exportValue: (row: ProcurementOrder) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
+        },
+        {
+            id: "po_value_inc_gst", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value (inc. GST)" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(poAmountsDict?.[row.original.name]?.total_incl_gst)}</div>,
+            size: 160, enableSorting: false,
+            meta: {
+                exportHeaderName: "PO Value (inc. GST)",
+                exportValue: (row: ProcurementOrder) => {
+                    return formatToRoundedIndianRupee(poAmountsDict?.[row.name]?.total_incl_gst);
+                }
+            }
+        },
+        {
+            id: "amount_paid_po", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmountPaidForPO(row.original.name))}</div>,
+            size: 130, enableSorting: false,
+            meta: {
+                exportHeaderName: "Amt. Paid",
+                exportValue: (row: ProcurementOrder) => {
+                    return formatToRoundedIndianRupee(getTotalAmountPaidForPO(row.name));
+                }
+            }
+        },
+    ], [getVendorName, getWorkPackageName, getTotalAmountPaidForPO, userList, poAmountsDict]);
 
 
     // --- useServerDataTable Hook for the paginated PO list ---
@@ -277,11 +319,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
         // }
     });
     useFrappeDocTypeEventListener("Procurement Requests", (event) => { // For PRs (affects WP)
-      refetch();
-      // if (!projectId || event.doc?.project === projectId) refetch();
+        refetch();
+        // if (!projectId || event.doc?.project === projectId) refetch();
     });
     useFrappeDocTypeEventListener("Project Payments", (event) => { // For Payments (affects Amt Paid)
-      fetchPOAggregates({ project_id: projectId }); // Refetch aggregates
+        fetchPOAggregates({ project_id: projectId }); // Refetch aggregates
         // if (event.doc?.document_type === DOCTYPE && (!projectId || event.doc.project === projectId)) {
         //     fetchPOAggregates({ project_id: projectId }); // Refetch aggregates
         // }
@@ -299,22 +341,22 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
             <Card>
                 <CardContent className="flex flex-row items-center justify-between p-4">
                     <CardDescription>
-                        <p className="text-lg font-semibold text-gray-700">PO Summary 
-                          {/* ({getProjectName(projectId) || "All Projects"}) */}
-                          
+                        <p className="text-lg font-semibold text-gray-700">PO Summary
+                            {/* ({getProjectName(projectId) || "All Projects"}) */}
+
                         </p>
                         <p className="text-sm text-gray-500">Overview of Purchase Order totals</p>
                     </CardDescription>
                     <CardDescription className="text-right">
-                        {aggregatesLoading && !poAggregates ? <TailSpin height={20} width={20}/> :
-                         aggregatesError ? <span className="text-xs text-destructive">Error loading totals</span> :
-                         poAggregates ? (
-                            <div className="flex flex-col items-end text-sm">
-                                <p><span className="font-medium">Total (inc. GST):</span> <span className="text-blue-600 font-semibold">{formatToRoundedIndianRupee(poAggregates.total_po_value_inc_gst)}</span></p>
-                                <p><span className="font-medium">Total (exc. GST):</span> <span className="text-blue-600 font-semibold">{formatToRoundedIndianRupee(poAggregates.total_po_value_excl_gst)}</span></p>
-                                <p><span className="font-medium">Total Amt Paid:</span> <span className="text-green-600 font-semibold">{formatToRoundedIndianRupee(poAggregates.total_amount_paid_for_pos)}</span></p>
-                            </div>
-                        ) : <span className="text-xs text-muted-foreground">No summary data.</span>}
+                        {aggregatesLoading && !poAggregates ? <TailSpin height={20} width={20} /> :
+                            aggregatesError ? <span className="text-xs text-destructive">Error loading totals</span> :
+                                poAggregates ? (
+                                    <div className="flex flex-col items-end text-sm">
+                                        <p><span className="font-medium">Total (inc. GST):</span> <span className="text-blue-600 font-semibold">{formatToRoundedIndianRupee(poAggregates.total_po_value_inc_gst)}</span></p>
+                                        <p><span className="font-medium">Total (exc. GST):</span> <span className="text-blue-600 font-semibold">{formatToRoundedIndianRupee(poAggregates.total_po_value_excl_gst)}</span></p>
+                                        <p><span className="font-medium">Total Amt Paid:</span> <span className="text-green-600 font-semibold">{formatToRoundedIndianRupee(poAggregates.total_amount_paid_for_pos)}</span></p>
+                                    </div>
+                                ) : <span className="text-xs text-muted-foreground">No summary data.</span>}
                     </CardDescription>
                 </CardContent>
             </Card>

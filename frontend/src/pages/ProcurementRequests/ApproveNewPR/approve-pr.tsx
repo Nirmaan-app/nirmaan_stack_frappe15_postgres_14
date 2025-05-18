@@ -34,9 +34,9 @@ const URL_SYNC_KEY = 'pr_new_approve'; // Unique key for this specific table ins
 // --- Component ---
 export const ApprovePR: React.FC = () => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
-    
+
     const projectsFetchOptions = getProjectListOptions();
-    
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -68,12 +68,12 @@ export const ApprovePR: React.FC = () => {
         'modified', 'category_list', 'procurement_list']), [])
 
     const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([
-        {value: 'work_package', label: 'Work Package', placeholder: 'Search by Work Package...'},
-        {value: 'owner', label: 'Created By', placeholder: 'Search by Created By...'},
+        { value: 'work_package', label: 'Work Package', placeholder: 'Search by Work Package...' },
+        { value: 'owner', label: 'Created By', placeholder: 'Search by Created By...' },
     ]), [])
 
-     // --- Date Filter Columns ---
-     const dateColumns = useMemo(() => PR_DATE_COLUMNS, []);
+    // --- Date Filter Columns ---
+    const dateColumns = useMemo(() => PR_DATE_COLUMNS, []);
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementRequest>[]>(() => [
@@ -87,22 +87,34 @@ export const ApprovePR: React.FC = () => {
                 );
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {isNew && ( <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" /> )}
+                        {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/procurement-requests/${prId}?tab=Approve PR`} >
                             {prId?.slice(-4)}
                         </Link>
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                            <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
                         </div>
                     </div>
                 );
             }, size: 150,
+            meta: {
+                exportHeaderName: "PR ID",
+                exportValue: (row) => {
+                    return row.name
+                }
+            }
         },
         {
             accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Created On",
+                exportValue: (row) => {
+                    return formatDate(row.creation)
+                }
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -111,11 +123,24 @@ export const ApprovePR: React.FC = () => {
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(i => i.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
         },
         {
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
-             size: 150,
+            size: 150,
+            meta: {
+                exportHeaderName: "Package",
+                exportValue: (row) => {
+                    return row.work_package || "--";
+                }
+            }
         },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
@@ -130,13 +155,23 @@ export const ApprovePR: React.FC = () => {
                     </div>
                 );
             }, size: 180, enableSorting: false,
+            meta: {
+                excludeFromExport: true,
+            }
         },
         {
-             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-             cell: ({ row }) => {
-                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-             }, size: 180,
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
         },
         // Removed Estimated Price column as per original component's commented-out code
     ], [notifications, projectOptions, userList, handleNewPRSeen]); // Removed getTotal dependency
@@ -210,7 +245,7 @@ export const ApprovePR: React.FC = () => {
                     dateFilterColumns={dateColumns}
                     showExportButton={true} // Enable if needed
                     onExport={'default'}
-                    // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
+                // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
                 />
             )}
         </div>

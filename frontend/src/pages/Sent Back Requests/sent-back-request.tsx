@@ -59,7 +59,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     const urlSyncKey = useMemo(() => `sb_${tab?.toLowerCase().replace(/\s+/g, '_')}`, [tab]);
 
     const projectsFetchOptions = getProjectListOptions();
-    
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -106,7 +106,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     // --- Fields to Fetch ---
     const fieldsToFetch = useMemo(() => DEFAULT_SB_FIELDS_TO_FETCH.concat([
         'creation', 'modified', 'item_list', 'procurement_request'
-    ]),[])
+    ]), [])
 
     const sbSearchableFields = useMemo(() => SB_SEARCHABLE_FIELDS.concat([
         { value: "procurement_request", label: "PR ID", placeholder: "Search by PR ID..." },
@@ -136,21 +136,33 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                         </Link>
                         {/* {data.type && <Badge variant="secondary" className="text-xs">{data.type}</Badge>} */}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
+                            <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
                         </div>
                     </div>
                 );
             }, size: 180,
+            meta: {
+                exportHeaderName: "SB ID",
+                exportValue: (row) => row.name,
+            }
         },
         {
             accessorKey: "procurement_request", header: ({ column }) => <DataTableColumnHeader column={column} title="#PR" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("procurement_request")?.slice(-4) ?? '--'}</div>,
             size: 100,
+            meta: {
+                exportHeaderName: "PR ID",
+                exportValue: (row) => row.procurement_request,
+            }
         },
         {
-            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Created" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Date Created",
+                exportValue: (row) => formatDate(row.creation),
+            }
         },
         {
             accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
@@ -159,26 +171,47 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                 return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(p => p.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
         },
         {
-             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-             cell: ({ row }) => {
-                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
-             }, size: 180,
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
         },
         {
             id: "sent_back_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Estd. Value" />,
             cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.item_list))}</p>),
             size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "Estd. Value",
+                exportValue: (row) => formatToRoundedIndianRupee(getTotal(row.item_list)),
+            }
         },
         ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{ // Assuming Admins/Leads can delete sent-back items
             id: "actions", header: "Actions",
-            cell: ({row}) => (
+            cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
             ), size: 80,
+            meta: {
+                excludeFromExport: true,
+            }
         } as ColumnDef<SentBackCategory>] : []),
     ], [tab, notifications, projectOptions, userList, handleNewSBSeen, getTotal, role]);
 
@@ -213,7 +246,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         requirePendingItems: true, // This is crucial and should be handled correctly
     });
 
-     // --- Delete Handler ---
+    // --- Delete Handler ---
     const { handleDeleteSB, deleteLoading } = usePRorSBDelete(refetch); // Pass refetch to the delete hook
 
     const handleConfirmDelete = async () => {
@@ -262,7 +295,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                     dateFilterColumns={dateColumns}
                     showExportButton={true} // Optional
                     onExport={'default'}
-                    // toolbarActions={...} // Optional
+                // toolbarActions={...} // Optional
                 />
             )}
             {/* Delete Confirmation Dialog */}

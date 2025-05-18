@@ -84,7 +84,7 @@ export const ReleasePOSelect: React.FC = () => {
     // })
 
     const projectsFetchOptions = getProjectListOptions();
-        
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -95,7 +95,7 @@ export const ReleasePOSelect: React.FC = () => {
 
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useVendorsList()
 
-    const {data: userList, isLoading: userListLoading, error: userError } = useUsersList()
+    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList()
 
     const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
 
@@ -128,7 +128,7 @@ export const ReleasePOSelect: React.FC = () => {
     const staticFiltersForTab = useMemo(
         () => getReleasePOSelectStaticFilters(tab, role),
         [tab, role]
-    ); 
+    );
 
     const fieldsToFetch = useMemo(() => DEFAULT_PO_FIELDS_TO_FETCH.concat(['creation', 'modified', 'order_list', 'loading_charges', 'freight_charges', 'invoice_data']), []);
 
@@ -228,12 +228,12 @@ export const ReleasePOSelect: React.FC = () => {
 
 
     // --- Define columns using TanStack's ColumnDef ---
-        const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
-            {
-                accessorKey: 'name',
-                header: ({ column }) => <DataTableColumnHeader column={column} title="#PO" />,
-                cell: ({ row }) => (
-                    <>
+    const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
+        {
+            accessorKey: 'name',
+            header: ({ column }) => <DataTableColumnHeader column={column} title="#PO" />,
+            cell: ({ row }) => (
+                <>
                     <div className="flex gap-1 items-center">
                         <Link
                             className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
@@ -245,137 +245,194 @@ export const ReleasePOSelect: React.FC = () => {
                         <ItemsHoverCard order_list={row.original?.order_list?.list} />
                     </div>
                     {row.original?.custom === "true" && (
-                         <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
-                     )}
-                     </>
-                ),
-                size: 200,
-            },
-            {
-                accessorKey: 'creation',
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
-                cell: ({ row }) => (
-                    <div className="font-medium whitespace-nowrap">
-                        {formatDate(row.getValue<string>('creation'))}
-                    </div>
-                ),
-                enableColumnFilter: false,
-                size: 150,
-            },
-            {
-                accessorKey: 'project',
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
-                cell: ({ row }) => (
-                    <div className="font-medium">{row.original.project_name}</div>
-                ),
-                enableColumnFilter: true, // Enable faceted filter for project
-                size: 250,
-            },
-            {
-                accessorKey: 'vendor',
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
-                cell: ({ row }) => (
-                    <div className="font-medium">{row.original.vendor_name}</div>
-                ),
-                enableColumnFilter: true, // Enable faceted filter for vendor
-                size: 250,
-            },
+                        <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
+                    )}
+                </>
+            ),
+            size: 200,
+            meta: {
+                exportHeaderName: "PO ID",
+                exportValue: (row) => {
+                    return row.name;
+                }
+            }
+        },
+        {
+            accessorKey: 'creation',
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
+            cell: ({ row }) => (
+                <div className="font-medium whitespace-nowrap">
+                    {formatDate(row.getValue<string>('creation'))}
+                </div>
+            ),
+            enableColumnFilter: false,
+            size: 150,
+            meta: {
+                exportHeaderName: "Created On",
+                exportValue: (row) => {
+                    return formatDate(row.creation);
+                }
+            }
+        },
+        {
+            accessorKey: 'project',
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+            cell: ({ row }) => (
+                <div className="font-medium">{row.original.project_name}</div>
+            ),
+            enableColumnFilter: true, // Enable faceted filter for project
+            size: 250,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    return row.project_name;
+                }
+            }
+        },
+        {
+            accessorKey: 'vendor',
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
+            cell: ({ row }) => (
+                <div className="font-medium">{row.original.vendor_name}</div>
+            ),
+            enableColumnFilter: true, // Enable faceted filter for vendor
+            size: 250,
+            meta: {
+                exportHeaderName: "Vendor",
+                exportValue: (row) => {
+                    return row.vendor_name;
+                }
+            }
+        },
 
-            {
-                accessorKey: "owner",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
-                cell: ({ row }) => {
-                    const data = row.original
-                    const ownerUser = userList?.find((entry) => data?.owner === entry.name)
-                    return (
-                        <div className="font-medium">
-                            {ownerUser?.full_name || data?.owner || "--"}
-                        </div>
-                    );
-                },
-                size: 180,
+        {
+            accessorKey: "owner",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
+            cell: ({ row }) => {
+                const data = row.original
+                const ownerUser = userList?.find((entry) => data?.owner === entry.name)
+                return (
+                    <div className="font-medium">
+                        {ownerUser?.full_name || data?.owner || "--"}
+                    </div>
+                );
             },
+            size: 180,
+            meta: {
+                exportHeaderName: "Approved By",
+                exportValue: (row) => {
+                    const data = row
+                    const ownerUser = userList?.find((entry) => data?.owner === entry.name)
+                    return ownerUser?.full_name || data?.owner || "--";
+                }
+            }
+        },
+        {
+            id: "po_amount",
+            header: ({ column }) => {
+                return (
+                    <DataTableColumnHeader column={column} title="PO Amt" />
+                )
+            },
+            cell: ({ row }) => {
+                const orderData = Array.isArray(row.original?.order_list?.list) ? row.original.order_list.list : [];
+                const loading = parseNumber(row.original?.loading_charges);
+                const freight = parseNumber(row.original?.freight_charges);
+
+                const poTotal = getPOTotal({ order_list: { list: orderData } }, loading, freight);
+                return (<div className="font-medium pr-2">{formatToRoundedIndianRupee(poTotal?.totalAmt)}</div>);
+
+            },
+            size: 200,
+            enableSorting: false,
+            meta: {
+                exportHeaderName: "PO Amount",
+                exportValue: (row) => {
+                    const orderData = Array.isArray(row.order_list?.list) ? row.order_list.list : [];
+                    const loading = parseNumber(row.loading_charges);
+                    const freight = parseNumber(row.freight_charges);
+
+                    const poTotal = getPOTotal({ order_list: { list: orderData } }, loading, freight);
+                    return formatToRoundedIndianRupee(poTotal?.totalAmt);
+                }
+            }
+        },
+        ...(["Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab) ? [
             {
-                id: "po_amount",
+                id: "invoice_amount",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="PO Amt" />
+                        <DataTableColumnHeader column={column} title="Inv Amt" />
                     )
                 },
                 cell: ({ row }) => {
-                    const orderData = Array.isArray(row.original?.order_list?.list) ? row.original.order_list.list : [];
-                    const loading = parseNumber(row.original?.loading_charges);
-                    const freight = parseNumber(row.original?.freight_charges);
-
-                    const poTotal = getPOTotal({ order_list: { list: orderData } }, loading, freight);
-                    return (<div className="font-medium pr-2">{formatToRoundedIndianRupee(poTotal?.totalAmt)}</div>);
-
+                    const invoiceAmount = getTotalInvoiceAmount(row.original?.invoice_data);
+                    return (
+                        <div className={`font-medium pr-2 ${invoiceAmount ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : ""}`} onClick={() => invoiceAmount && setSelectedInvoicePO(row.original)} >
+                            {formatToRoundedIndianRupee(invoiceAmount || 0)} {/* Show 0 if no amount */}
+                        </div>
+                    )
                 },
                 size: 200,
                 enableSorting: false,
-            },
-            ...(["Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab) ? [
-                {
-                    id: "invoice_amount",
-                    header: ({ column }) => {
-                        return (
-                            <DataTableColumnHeader column={column} title="Inv Amt" />
-                        )
-                    },
-                    cell: ({ row }) => {
-                        const invoiceAmount = getTotalInvoiceAmount(row.original?.invoice_data);
-                        return (
-                            <div className={`font-medium pr-2 ${invoiceAmount ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : ""}`} onClick={() => invoiceAmount && setSelectedInvoicePO(row.original)} >
-                        {formatToRoundedIndianRupee(invoiceAmount || 0)} {/* Show 0 if no amount */}
+                meta: {
+                    exportHeaderName: "Invoice Amount",
+                    exportValue: (row) => {
+                        const invoiceAmount = getTotalInvoiceAmount(row.invoice_data);
+                        return formatToRoundedIndianRupee(invoiceAmount || 0);
+                    }
+                }
+            } as ColumnDef<ProcurementOrdersType>,
+        ] : []),
+        {
+            id: "Amount_paid",
+            header: "Amt Paid",
+            cell: ({ row }) => {
+                const amountPaid = getAmountPaid(row.original?.name);
+                return (
+                    <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
+                        {formatToRoundedIndianRupee(amountPaid || 0)}
                     </div>
-                        )
-                    },
-                    size: 200,
-                    enableSorting: false,
-                } as ColumnDef<ProcurementOrdersType>,
-            ] : []),
-            {
-                id: "Amount_paid",
-                header: "Amt Paid",
-                cell: ({ row }) => {
-                    const amountPaid = getAmountPaid(row.original?.name);
-                    return (
-                        <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
-                            {formatToRoundedIndianRupee(amountPaid || 0)}
-                        </div>
-                    );
+                );
 
-                    },
-                size: 200,
-                enableSorting: false,
             },
-            // {
-            //     accessorKey: 'order_list',
-            //     header: () => null,
-            //     cell: () => null,
-            //     size: 0,
-            // }
-        ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal]);
+            size: 200,
+            enableSorting: false,
+            meta: {
+                exportHeaderName: "Amount Paid",
+                exportValue: (row) => {
+                    const amountPaid = getAmountPaid(row.name);
+                    return formatToRoundedIndianRupee(amountPaid || 0);
+                }
+            }
+        },
+        // {
+        //     accessorKey: 'order_list',
+        //     header: () => null,
+        //     cell: () => null,
+        //     size: 0,
+        // }
+    ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal]);
 
 
-        const facetFilterOptions = useMemo(() => ({
-            // Use the 'accessorKey' or 'id' of the column
-            project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
-            vendor: { title: "Vendor", options: vendorOptions }, // Or use 'vendor' if filtering by ID
-            // status: { title: "Status", options: statusOptions },
-        }), [projectOptions, vendorOptions]);
+    const facetFilterOptions = useMemo(() => ({
+        // Use the 'accessorKey' or 'id' of the column
+        project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
+        vendor: { title: "Vendor", options: vendorOptions }, // Or use 'vendor' if filtering by ID
+        // status: { title: "Status", options: statusOptions },
+    }), [projectOptions, vendorOptions]);
 
 
-        // --- useServerDataTable Hook Instantiation ---
-        // Only instantiate if the current tab is supposed to show a data table
-        const shouldShowTable = useMemo(() =>
-            ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab),
+    // --- useServerDataTable Hook Instantiation ---
+    // Only instantiate if the current tab is supposed to show a data table
+    const shouldShowTable = useMemo(() =>
+        ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab),
         [tab]);
 
-        // Define which columns should use the date filter
-        // const dateColumns = useMemo(() => ["creation", "modified"], []); // Add other date column IDs if needed
+    // Define which columns should use the date filter
+    // const dateColumns = useMemo(() => ["creation", "modified"], []); // Add other date column IDs if needed
 
-        const serverDataTable = useServerDataTable<ProcurementOrdersType>(
+    const serverDataTable = useServerDataTable<ProcurementOrdersType>(
         (shouldShowTable ? {
             doctype: DOCTYPE,
             columns: columns,
@@ -415,7 +472,7 @@ export const ReleasePOSelect: React.FC = () => {
         if (shouldShowTable) {
             // Show loading skeleton if *any* supporting data is loading
             if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
-                 return <TableSkeleton />; // Use your skeleton component
+                return <TableSkeleton />; // Use your skeleton component
             }
             // Show error if supporting data failed
             if (!projects || !vendorsList || !userList /* || !projectPayments - handle partial errors? */) {
@@ -423,7 +480,7 @@ export const ReleasePOSelect: React.FC = () => {
             }
             // Render the DataTable
             return (
-                 <DataTable<ProcurementOrdersType>
+                <DataTable<ProcurementOrdersType>
                     table={serverDataTable.table}
                     columns={columns} // Pass dynamically calculated columns
                     isLoading={serverDataTable.isLoading}
@@ -458,7 +515,7 @@ export const ReleasePOSelect: React.FC = () => {
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
-                    // showRowSelection={serverDataTable.isRowSelectionActive}
+                // showRowSelection={serverDataTable.isRowSelectionActive}
                 />
             );
         }

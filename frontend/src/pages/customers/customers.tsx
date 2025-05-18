@@ -23,26 +23,44 @@ export default function CustomersPage() {
             header: ({ column }) => <DataTableColumnHeader column={column} title="Customer ID" />,
             cell: ({ row }) => (
                 <Link className="text-blue-600 hover:underline font-medium whitespace-nowrap"
-                      to={`/customers/${row.original.name}`}> {/* Adjust route */}
+                    to={`/customers/${row.original.name}`}> {/* Adjust route */}
                     {row.getValue<string>("name")?.slice(-6) || row.getValue("name")}
                 </Link>
             ), size: 150,
+            meta: {
+                exportHeaderName: "Customer ID",
+                exportValue: (row) => {
+                    return row.name
+                }
+            }
         },
         {
             accessorKey: "company_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Company Name" />,
             cell: ({ row }) => (
                 <Link className="hover:underline font-medium whitespace-nowrap"
-                      to={`/customers/${row.original.name}`}> {/* Adjust route */}
+                    to={`/customers/${row.original.name}`}> {/* Adjust route */}
                     {row.getValue("company_name")}
                 </Link>
             ), size: 250,
+            meta: {
+                exportHeaderName: "Company Name",
+                exportValue: (row) => {
+                    return row.company_name
+                }
+            }
         },
         {
             accessorKey: "company_contact_person",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Contact Person" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("company_contact_person") || "--"}</div>,
             size: 200,
+            meta: {
+                exportHeaderName: "Contact Person",
+                exportValue: (row) => {
+                    return row.company_contact_person
+                }
+            }
         },
         // { // Assuming 'enabled' field exists for customer status
         //     accessorKey: "enabled",
@@ -65,18 +83,36 @@ export default function CustomersPage() {
             header: ({ column }) => <DataTableColumnHeader column={column} title="Phone" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("company_phone") || "--"}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Phone",
+                exportValue: (row) => {
+                    return row.company_phone
+                }
+            }
         },
         {
             accessorKey: "company_email",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Email" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("company_email") || "--"}</div>,
             size: 220,
+            meta: {
+                exportHeaderName: "Email",
+                exportValue: (row) => {
+                    return row.company_email
+                }
+            }
         },
         {
             accessorKey: "creation",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Date Joined" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Customer Creation Date" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
+            meta: {
+                exportHeaderName: "Customer Creation Date",
+                exportValue: (row) => {
+                    return formatDate(row.creation)
+                }
+            }
         },
     ], []);
 
@@ -105,7 +141,7 @@ export default function CustomersPage() {
     return (
         <div className="flex-1 space-y-4">
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"> */}
-                <CustomersSummaryCard />
+            <CustomersSummaryCard />
             {/* </div> */}
 
             <DataTable<CustomersType>
