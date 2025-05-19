@@ -15,8 +15,8 @@ from frappe.desk.reportview import execute as reportview_execute # Alias for Dat
 from datetime import timedelta, datetime # Ensure datetime is imported
 
 # Define constants
-DEFAULT_PAGE_LENGTH = 10
-MAX_PAGE_LENGTH = 2000
+DEFAULT_PAGE_LENGTH = 50
+MAX_PAGE_LENGTH = 10000
 CACHE_EXPIRY = 300 # 5 minutes
 JSON_ITEM_SEARCH_DOCTYPE_MAP = {
     # Renamed item_path to item_path_parts for clarity

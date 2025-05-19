@@ -16,7 +16,7 @@ import {
     Row,
     getFilteredRowModel,
 } from '@tanstack/react-table';
-import { useFrappeDocTypeEventListener, useFrappeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappeDocTypeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { debounce } from 'lodash';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
@@ -294,7 +294,7 @@ export function useServerDataTable<TData extends { name: string }>({
     const [totalCount, setTotalCount] = useState<number>(clientTotalCount ?? (clientData?.length || 0));
     const [error, setError] = useState<Error | null>(null);
     const [isLoading, setIsLoading] = useState(false); // Manual loading state
-    const [internalTrigger, setInternalTrigger] = useState<number>(0); // To manually refetch
+    // const [internalTrigger, setInternalTrigger] = useState<number>(0); // To manually refetch
 
 
     const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialState.columnVisibility ?? {});
@@ -412,7 +412,7 @@ export function useServerDataTable<TData extends { name: string }>({
 
     // --- Data Fetching ---
     // Use useRef to prevent fetching on initial mount if desired, or manage initial fetch state.
-    const isInitialMount = useRef(true);
+    // const isInitialMount = useRef(true);
     
     const fetchData = useCallback(async (isRefetch = false) => {
         // --- If clientData is provided, we don't fetch from backend ---
@@ -496,7 +496,7 @@ export function useServerDataTable<TData extends { name: string }>({
         //     JSON.stringify(payload) // Key based on exact payload
         //    ];
 
-        // console.log("[useServerDataTable calling backend] Payload:", payload);
+        console.log("[useServerDataTable calling backend] Payload:", payload);
 
         try {
             const response = await triggerFetch(payload);
@@ -527,7 +527,8 @@ export function useServerDataTable<TData extends { name: string }>({
         // JSON.stringify(globalSearchFieldList), 
         selectedSearchField, JSON.stringify(searchableFields),
         defaultSort,
-        JSON.stringify(additionalFilters), internalTrigger, // Added additionalFilters
+        JSON.stringify(additionalFilters), 
+        // internalTrigger,
         requirePendingItems,
         clientData, clientTotalCount // Add clientData and clientTotalCount to dependencies
         // isLoading // Remove isLoading from here to prevent loops if it's part of the logic above
@@ -544,22 +545,31 @@ export function useServerDataTable<TData extends { name: string }>({
 
    // Effect to trigger data fetching when dependencies change
    useEffect(() => {
-    // Optional: Prevent fetch on initial mount if you have initial data or want manual trigger first
-    if (isInitialMount.current) {
-        isInitialMount.current = false;
-        // If you have initial state derived from URL, you might *want* the initial fetch
-        // Decide based on your desired behavior.
-        // return;
+        // Optional: Prevent fetch on initial mount if you have initial data or want manual trigger first
+        // if (isInitialMount.current) {
+        //     isInitialMount.current = false;
+        //     // If you have initial state derived from URL, you might *want* the initial fetch
+        //     // Decide based on your desired behavior.
+        //     // return;
+        //     // console.log("Calling fetchData initially...");
+        //     console.log("columnFilters", columnFilters);
+        //     console.log("searchTerm", searchTerm);
+        //     console.log("sorting", sorting);
+        //     console.log("urlSyncKey", urlSyncKey);
 
-        // Fetch initial data if columnFilters (from URL) or other params are set
-        if (columnFilters.length > 0 || searchTerm || sorting.length > 0 || !urlSyncKey) {
-            fetchData();
-        } 
-        return;
-    }
+        //     // Fetch initial data if columnFilters (from URL) or other params are set
+        //     if (columnFilters.length > 0 || searchTerm || sorting.length > 0 || !urlSyncKey) {
+        //         console.log("calling fetchData initially...");
+        //         fetchData();
+        //     } 
+        //     console.log("Returning from initial mount...");
+        //     return;
+        // }
 
-    fetchData();
-}, [fetchData]); // Dependency is the memoized fetchData function
+        console.log("calling fetchData...");
+
+        fetchData();
+    }, [fetchData]); // Dependency is the memoized fetchData function
 
     // --- Real-time Event Listener using useFrappeEventListener ---
     const handleRealtimeEvent = useCallback((message: any) => {

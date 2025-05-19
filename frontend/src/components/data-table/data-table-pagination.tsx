@@ -26,7 +26,7 @@ export function DataTablePagination<TData>({
     table,
     totalCount,
     isLoading = false,
-    pageSizeOptions = [50, 100, 500, 1000, 2000], // Default options
+    pageSizeOptions = [50, 100, 500, 1000, 2000, 5000, 10000], // Default options
 }: DataTablePaginationProps<TData>) {
 
     const pagination = table.getState().pagination;
