@@ -144,7 +144,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     return (
                         <div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
                             <span className="truncate" title={projectName}>{projectName}</span>
-                            <HoverCard><HoverCardTrigger asChild><Link to={`/projects/${row.original.project}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
+                            <HoverCard><HoverCardTrigger asChild><Link to={`/projects/${row.original.project}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
                         </div>
                     );
                 },
@@ -165,7 +165,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 return (
                     <div className="font-medium flex items-center gap-1.5 group">
                         <span className="truncate" title={customerName}>{customerName}</span>
-                        <HoverCard><HoverCardTrigger asChild><Link to={`/customers/${row.original.customer}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Customer</HoverCardContent></HoverCard>
+                        <HoverCard><HoverCardTrigger asChild><Link to={`/customers/${row.original.customer}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Customer</HoverCardContent></HoverCard>
                     </div>
                 );
             },

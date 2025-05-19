@@ -48,7 +48,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
 interface AccountantTabsProps {
-  tab?: string; // "New Payments" or "Fulfilled Payments"
+    tab?: string; // "New Payments" or "Fulfilled Payments"
 }
 
 interface SelectOption { label: string; value: string; }
@@ -80,7 +80,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     // --- Supporting Data Fetches ---
     const projectsFetchOptions = getProjectListOptions();
-            
+
     // --- Generate Query Keys ---
     const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
@@ -89,7 +89,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     );
 
 
-    const {data: vendors, isLoading: vendorsLoading, error: vendorsError} = useFrappeGetDocList<Vendors>(
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
         "Vendors",
         {
             fields: ["name", "vendor_name", "account_number", "account_name", "ifsc"],
@@ -197,7 +197,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     const staticFilters = useMemo(() => getProjectPaymentsStaticFilters(tab), [tab]);
 
-    const accountantSearchableFields: SearchFieldOption[] = useMemo(() => PP_SEARCHABLE_FIELDS, []) 
+    const accountantSearchableFields: SearchFieldOption[] = useMemo(() => PP_SEARCHABLE_FIELDS, [])
 
     const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(["modified"]), []);
 
@@ -223,9 +223,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             cell: ({ row }) => {
                 const data = row.original;
                 const docLink = data.document_name.replaceAll("/", "&=")
-                 return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
+                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
                     <span className="max-w-[150px] truncate" title={data.document_name}>{data.document_name}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={docLink} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100"/></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
+                    <HoverCard><HoverCardTrigger asChild><Link to={docLink}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
                 </div>);
             }, size: 200,
         },
@@ -233,10 +233,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             accessorKey: "vendor", header: "Vendor",
             cell: ({ row }) => {
                 const vendorName = getVendorName(row.original.vendor);
-                    return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
-                        <span className="max-w-[150px] truncate" title={vendorName}>{vendorName}</span>
-                        <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100"/></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
-                    </div>);
+                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
+                    <span className="max-w-[150px] truncate" title={vendorName}>{vendorName}</span>
+                    <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
+                </div>);
             },
             enableColumnFilter: true, size: 200,
         },
@@ -313,7 +313,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         fetchFields: fieldsToFetch,
         // globalSearchFieldList: globalSearchFields,
         // enableItemSearch: false,
-        urlSyncKey: urlSyncKey, 
+        urlSyncKey: urlSyncKey,
         defaultSort: tab === "New Payments" ? 'modified desc' : 'payment_date desc',
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
@@ -379,13 +379,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `${formatDateToDDMMYYYY(new Date())}_payments_${tab.replace(' ','_')}.csv`);
+        link.setAttribute('download', `${formatDateToDDMMYYYY(new Date())}_payments_${tab.replace(' ', '_')}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
 
-        toast({ title: "Export Successful", description: `${csvData.length} payments exported.`, variant: "success"});
+        toast({ title: "Export Successful", description: `${csvData.length} payments exported.`, variant: "success" });
         setIsExportDialogOpen(false); // Close dialog
         table.resetRowSelection(); // Clear selection
     };
@@ -423,7 +423,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     //     toggle: toggleItemSearch,
                     //     label: "Item Search"
                     // }}
-                    facetFilterOptions={{ project: { title: "Project", options: projectOptions }, vendor: { title: "Vendor", options: vendorOptions }}}
+                    facetFilterOptions={{ project: { title: "Project", options: projectOptions }, vendor: { title: "Vendor", options: vendorOptions } }}
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
@@ -445,7 +445,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                             </div>
                             {/* Add more accounts if needed */}
                         </RadioGroup>
-                         <div className="grid grid-cols-3 items-center gap-4">
+                        <div className="grid grid-cols-3 items-center gap-4">
                             <Label htmlFor="debitAccNo" className="col-span-1">Custom Acc No:</Label>
                             <Input id="debitAccNo" value={debitAccountNumber} onChange={(e) => setDebitAccountNumber(e.target.value)} className="col-span-2 h-8" />
                         </div>
@@ -470,7 +470,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
             {/* Fulfill/Delete Payment Dialog */}
             {paymentToProcess && (
-                 <AlertDialog open={isFulfillDialogOpen} onOpenChange={setIsFulfillDialogOpen}>
+                <AlertDialog open={isFulfillDialogOpen} onOpenChange={setIsFulfillDialogOpen}>
                     <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
                         <AlertDialogHeader className="text-start">
                             <AlertDialogTitle className="text-center">
@@ -478,25 +478,25 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                             </AlertDialogTitle>
                             {dialogType === "fulfill" ? (
                                 <div className="space-y-3 pt-2">
-                                    <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Project:</span> <span>{projectOptions.find(p=>p.value === paymentToProcess.project)?.label || paymentToProcess.project}</span></div>
+                                    <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Project:</span> <span>{projectOptions.find(p => p.value === paymentToProcess.project)?.label || paymentToProcess.project}</span></div>
                                     <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Vendor:</span> <span>{getVendorName(paymentToProcess.vendor)}</span></div>
                                     <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Doc #:</span> <span>{paymentToProcess.document_name}</span></div>
                                     <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Req. Amt:</span> <span className="font-semibold">{formatToRoundedIndianRupee(paymentToProcess.amount)}</span></div>
-                                    <Separator className="my-3"/>
+                                    <Separator className="my-3" />
                                     <div className="grid grid-cols-5 items-center gap-4">
                                         <Label htmlFor="utr" className="col-span-2 text-right">UTR <sup className="text-red-500">*</sup></Label>
-                                        <Input id="utr" type="text" placeholder="Enter UTR" value={paymentToProcess.utr || ""} onChange={(e) => setPaymentToProcess(p => p ? {...p, utr: e.target.value} : null)} className="col-span-3 h-8" />
+                                        <Input id="utr" type="text" placeholder="Enter UTR" value={paymentToProcess.utr || ""} onChange={(e) => setPaymentToProcess(p => p ? { ...p, utr: e.target.value } : null)} className="col-span-3 h-8" />
                                     </div>
                                     <div className="grid grid-cols-5 items-center gap-4">
                                         <Label htmlFor="tds" className="col-span-2 text-right">TDS Deduction</Label>
                                         <div className="col-span-3">
-                                            <Input id="tds" type="number" placeholder="Enter TDS" value={paymentToProcess.tds?.toString() || ""} onChange={(e) => setPaymentToProcess(p => p ? {...p, tds: parseNumber(e.target.value)} : null)} className="h-8" />
+                                            <Input id="tds" type="number" placeholder="Enter TDS" value={paymentToProcess.tds?.toString() || ""} onChange={(e) => setPaymentToProcess(p => p ? { ...p, tds: parseNumber(e.target.value) } : null)} className="h-8" />
                                             {(paymentToProcess.tds || 0) > 0 && <span className="text-xs text-muted-foreground">Amt Paid: {formatToRoundedIndianRupee(parseNumber(paymentToProcess.amount) - parseNumber(paymentToProcess.tds))}</span>}
                                         </div>
                                     </div>
-                                     <div className="grid grid-cols-5 items-center gap-4">
+                                    <div className="grid grid-cols-5 items-center gap-4">
                                         <Label htmlFor="payDate" className="col-span-2 text-right">Payment Date <sup className="text-red-500">*</sup></Label>
-                                        <Input id="payDate" type="date" value={paymentToProcess.payment_date || ""} onChange={(e) => setPaymentToProcess(p => p ? {...p, payment_date: e.target.value} : null)} max={formatDate(new Date(), "yyyy-MM-dd")} className="col-span-3 h-8" />
+                                        <Input id="payDate" type="date" value={paymentToProcess.payment_date || ""} onChange={(e) => setPaymentToProcess(p => p ? { ...p, payment_date: e.target.value } : null)} max={formatDate(new Date(), "yyyy-MM-dd")} className="col-span-3 h-8" />
                                     </div>
                                     <CustomAttachment label="Payment Proof" selectedFile={paymentScreenshot} onFileSelect={setPaymentScreenshot} maxFileSize={5 * 1024 * 1024} />
                                 </div>
@@ -517,7 +517,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                             </div>
                         </AlertDialogHeader>
                     </AlertDialogContent>
-                 </AlertDialog>
+                </AlertDialog>
             )}
         </div>
     );

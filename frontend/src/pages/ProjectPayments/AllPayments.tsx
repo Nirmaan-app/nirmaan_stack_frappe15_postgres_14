@@ -180,7 +180,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 const docLink = data.document_name.replaceAll("/", "&=")
                 return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
                     <span className="max-w-[150px] truncate" title={data.document_name}>{data.document_name}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={`/project-payments/${docLink}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
+                    <HoverCard><HoverCardTrigger asChild><Link to={`/project-payments/${docLink}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
                 </div>);
             }, size: 200,
             meta: {
@@ -197,7 +197,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 const vendorName = getVendorName(row.original.vendor);
                 return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
                     <span className="max-w-[150px] truncate" title={vendorName}>{vendorName}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`} target="_blank" rel="noopener noreferrer"><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
+                    <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
                 </div>);
             },
             enableColumnFilter: true, size: 200,

@@ -158,7 +158,7 @@ export const ApprovePayments: React.FC = () => {
                         <span className="max-w-[150px] truncate" title={payment.document_name}>{payment.document_name}</span>
                         <HoverCard>
                             <HoverCardTrigger asChild>
-                                <Link to={docLink} target="_blank" rel="noopener noreferrer">
+                                <Link to={docLink}>
                                     <Info className="w-4 h-4 text-blue-600 cursor-pointer flex-shrink-0 opacity-70 group-hover:opacity-100" />
                                 </Link>
                             </HoverCardTrigger>
