@@ -19,7 +19,7 @@ const TRANSITION_DURATION = 300;
 const MAX_HEIGHT = 1000;
 
 interface DeliveryHistoryTableProps {
-  deliveryData: DeliveryDataType;
+  deliveryData: DeliveryDataType | null;
 }
 
 interface ExpandableRowProps {

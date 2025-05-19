@@ -1,11 +1,12 @@
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectEstimates } from "@/types/NirmaanStack/ProjectEstimates";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { parseNumber } from "@/utils/parseNumber";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { Radio } from "antd";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import React, { Suspense, useCallback, useMemo } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from "uuid";
 
@@ -31,7 +32,30 @@ interface ProjectSpendsTabProps {
 
 export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, categorizedData, po_data, getTotalAmountPaid, workPackageTotalAmounts, totalServiceOrdersAmt, projectId }) => {
 
-  const [activeTab, setActiveTab] = useStateSyncedWithParams<string>("tab", "All");
+  const initialTab = useMemo(() => {
+    return getUrlStringParam("tab", "All");
+  }, []); // Calculate once
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  // // Effect to sync tab state TO URL
+  useEffect(() => {
+    // Only update URL if the state `tab` is different from the URL's current 'tab' param
+    if (urlStateManager.getParam("tab") !== activeTab) {
+      urlStateManager.updateParam("tab", activeTab);
+    }
+  }, [activeTab]);
+
+  // // Effect to sync URL state TO tab state (for popstate/direct URL load)
+  useEffect(() => {
+    const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
+      // Update state only if the new URL value is different from current state
+      const newTab = value || initialTab; // Fallback to initial if param removed
+      if (activeTab !== newTab) {
+        setActiveTab(newTab);
+      }
+    });
+    return unsubscribe; // Cleanup subscription
+  }, [initialTab]); // Depend on `tab` to avoid stale closures
 
   const { data: project_estimates, isLoading: project_estimates_loading } = useFrappeGetDocList<ProjectEstimates>("Project Estimates", {
     fields: ["*"],

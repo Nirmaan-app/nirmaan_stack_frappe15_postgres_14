@@ -1,0 +1,324 @@
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { ColumnDef } from "@tanstack/react-table";
+import { Link } from "react-router-dom";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { Trash2 } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+import memoize from 'lodash/memoize';
+
+// --- UI Components ---
+import { DataTable } from '@/components/data-table/new-data-table';
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import {
+    AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+    AlertDialogHeader, AlertDialogTitle
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { TailSpin } from "react-loader-spinner";
+
+
+// --- Hooks & Utils ---
+import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useUserData } from "@/hooks/useUserData";
+import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
+import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
+
+// --- Types ---
+import { SentBackCategory, SentBackItem } from "@/types/NirmaanStack/SentBackCategory";
+import { Projects } from "@/types/NirmaanStack/Projects";
+
+// --- Helper Components ---
+import { ItemsHoverCard } from "../../components/helpers/ItemsHoverCard";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { DEFAULT_SB_FIELDS_TO_FETCH, getSentBackStaticFilters, SB_DATE_COLUMNS, SB_SEARCHABLE_FIELDS } from "./config/sentBackCategoryTables.config";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+
+// --- Constants ---
+const DOCTYPE = 'Sent Back Category';
+// URL_SYNC_KEY will be dynamic based on the tab/type prop
+
+interface SentBackRequestProps {
+    tab: string; // e.g., "Rejected", "Delayed", "Cancelled"
+}
+
+// --- Component ---
+export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
+    const { role } = useUserData();
+    const { toast } = useToast();
+    const { db } = useContext(FrappeContext) as FrappeConfig;
+
+    // const tab = useUrlParam("tab");
+
+    // Determine type from tab prop
+    // const type = useMemo(() => tab, [tab]);
+    const urlSyncKey = useMemo(() => `sb_${tab?.toLowerCase().replace(/\s+/g, '_')}`, [tab]);
+
+    const projectsFetchOptions = getProjectListOptions();
+
+    // --- Generate Query Keys ---
+    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
+
+    // --- Supporting Data & Hooks ---
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
+    );
+    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
+    const { notifications, mark_seen_notification } = useNotificationStore();
+
+
+    // --- Memoized Calculations & Options ---
+    const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
+
+    const getTotal = useMemo(() => memoize((itemList: { list: SentBackItem[] } | undefined | null): number => {
+        let total = 0;
+        const items = Array.isArray(itemList?.list) ? itemList.list : [];
+        items.forEach((item) => {
+            total += parseNumber((item.quote || 0) * item.quantity);
+        });
+        return total;
+    }), []);
+
+
+    // --- Notification Handling ---
+    const handleNewSBSeen = useCallback((notification: NotificationType | undefined) => {
+        if (notification && notification.seen === "false") {
+            mark_seen_notification(db, notification)
+        }
+    }, [db, mark_seen_notification]);
+
+
+    // --- Dialog State for Delete ---
+    const [deleteDialog, setDeleteDialog] = useState(false);
+    const toggleDeleteDialog = () => setDeleteDialog(prev => !prev);
+    const [deleteFlagged, setDeleteFlagged] = useState<SentBackCategory | null>(null);
+    // We'll need to pass the `refetch` function to `usePRorSBDelete` or handle refetch here
+    // const { handleDeleteSB, deleteLoading } = usePRorSBDelete();
+
+
+    // --- Static Filters for this View (based on type/tab) ---
+    const staticFilters = useMemo(() => getSentBackStaticFilters(tab!), [tab]);
+
+    // --- Fields to Fetch ---
+    const fieldsToFetch = useMemo(() => DEFAULT_SB_FIELDS_TO_FETCH.concat([
+        'creation', 'modified', 'item_list', 'procurement_request'
+    ]), [])
+
+    const sbSearchableFields = useMemo(() => SB_SEARCHABLE_FIELDS.concat([
+        { value: "procurement_request", label: "PR ID", placeholder: "Search by PR ID..." },
+        { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
+    ]), [])
+
+    // --- Date Filter Columns ---
+    const dateColumns = useMemo(() => SB_DATE_COLUMNS, []);
+
+
+    // --- Column Definitions ---
+    const columns = useMemo<ColumnDef<SentBackCategory>[]>(() => [
+        {
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="SB ID" />,
+            cell: ({ row }) => {
+                const data = row.original;
+                const sbId = data.name;
+                const eventIdForNotif = `${tab?.toLowerCase().replace(/\s+/g, '_')}-sb:new`; // e.g., rejected-sb:new
+                const isNew = notifications.find(
+                    n => n.docname === sbId && n.seen === "false" && n.event_id === eventIdForNotif
+                );
+                return (
+                    <div role="button" tabIndex={0} onClick={() => handleNewSBSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
+                        {isNew && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
+                        <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/sent-back-requests/${sbId.replaceAll("/", "&=")}?tab=${tab}`} >
+                            {sbId?.slice(-5)}
+                        </Link>
+                        {/* {data.type && <Badge variant="secondary" className="text-xs">{data.type}</Badge>} */}
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
+                        </div>
+                    </div>
+                );
+            }, size: 180,
+            meta: {
+                exportHeaderName: "SB ID",
+                exportValue: (row) => row.name,
+            }
+        },
+        {
+            accessorKey: "procurement_request", header: ({ column }) => <DataTableColumnHeader column={column} title="#PR" />,
+            cell: ({ row }) => <div className="font-medium">{row.getValue("procurement_request")?.slice(-4) ?? '--'}</div>,
+            size: 100,
+            meta: {
+                exportHeaderName: "PR ID",
+                exportValue: (row) => row.procurement_request,
+            }
+        },
+        {
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Created" />,
+            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            size: 150,
+            meta: {
+                exportHeaderName: "Date Created",
+                exportValue: (row) => formatDate(row.creation),
+            }
+        },
+        {
+            accessorKey: "project", header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+            cell: ({ row }) => {
+                const project = projectOptions.find(p => p.value === row.original.project);
+                return <div className="font-medium truncate" title={project?.label}>{project?.label || row.original.project}</div>;
+            },
+            enableColumnFilter: true, size: 200,
+            meta: {
+                exportHeaderName: "Project",
+                exportValue: (row) => {
+                    const project = projectOptions.find(p => p.value === row.project);
+                    return project?.label || row.project;
+                }
+            }
+        },
+        {
+            accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+            cell: ({ row }) => {
+                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
+                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row) => {
+                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
+                    return ownerUser?.full_name || row.owner || "--";
+                }
+            }
+        },
+        {
+            id: "sent_back_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Estd. Value" />,
+            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.item_list))}</p>),
+            size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "Estd. Value",
+                exportValue: (row) => formatToRoundedIndianRupee(getTotal(row.item_list)),
+            }
+        },
+        ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{ // Assuming Admins/Leads can delete sent-back items
+            id: "actions", header: "Actions",
+            cell: ({ row }) => (
+                <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+            ), size: 80,
+            meta: {
+                excludeFromExport: true,
+            }
+        } as ColumnDef<SentBackCategory>] : []),
+    ], [tab, notifications, projectOptions, userList, handleNewSBSeen, getTotal, role]);
+
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        project: { title: "Project", options: projectOptions },
+        // type: { title: "Type", options: [{label: "Rejected", value:"Rejected"}, ...]} // If type needs to be a facet
+    }), [projectOptions]);
+
+    // --- useServerDataTable Hook Instantiation ---
+    const {
+        table, data, totalCount, isLoading: listIsLoading, error: listError,
+        // globalFilter, setGlobalFilter,
+        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+        isRowSelectionActive,
+        refetch,
+    } = useServerDataTable<SentBackCategory>({
+        doctype: DOCTYPE,
+        columns: columns,
+        fetchFields: fieldsToFetch,
+        searchableFields: sbSearchableFields,
+
+        // globalSearchFieldList: globalSearchFields,
+        // enableItemSearch: true, // Enable item search within item_list
+        urlSyncKey: urlSyncKey, // Dynamic URL key based on tab/type
+        defaultSort: 'modified desc',
+        enableRowSelection: false, // For delete action
+        additionalFilters: staticFilters,
+        requirePendingItems: true, // This is crucial and should be handled correctly
+    });
+
+    // --- Delete Handler ---
+    const { handleDeleteSB, deleteLoading } = usePRorSBDelete(refetch); // Pass refetch to the delete hook
+
+    const handleConfirmDelete = async () => {
+        if (deleteFlagged) {
+            await handleDeleteSB(deleteFlagged.name);
+            setDeleteFlagged(null);
+            toggleDeleteDialog();
+            // Refetch is handled by the hook now
+        }
+    };
+
+    // --- Combined Loading & Error States ---
+    const isLoading = projectsLoading || userListLoading;
+    const combinedError = projectsError || userError || listError;
+
+    if (combinedError) {
+        <AlertDestructive error={combinedError} />
+    }
+
+    return (
+        <div className="flex-1 md:space-y-4">
+            {isLoading ? (
+                <TableSkeleton />
+            ) : (
+                <DataTable<SentBackCategory>
+                    table={table}
+                    columns={columns}
+                    isLoading={listIsLoading}
+                    error={listError}
+                    totalCount={totalCount}
+                    searchFieldOptions={sbSearchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    // globalFilterValue={globalFilter}
+                    // onGlobalFilterChange={setGlobalFilter}
+                    // searchPlaceholder={`Search ${tab} Items...`}
+                    // showItemSearchToggle={showItemSearchToggle}
+                    // itemSearchConfig={{
+                    //     isEnabled: isItemSearchEnabled,
+                    //     toggle: toggleItemSearch,
+                    //     label: "Item Search"
+                    // }}
+                    facetFilterOptions={facetFilterOptions}
+                    dateFilterColumns={dateColumns}
+                    showExportButton={true} // Optional
+                    onExport={'default'}
+                // toolbarActions={...} // Optional
+                />
+            )}
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Sent Back Item</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete item: {deleteFlagged?.name}? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="flex gap-2 items-center pt-4 justify-end">
+                        {deleteLoading ? <TailSpin color="red" width={24} height={24} /> : (
+                            <>
+                                <AlertDialogCancel asChild><Button variant="outline">Cancel</Button></AlertDialogCancel>
+                                <Button variant="destructive" onClick={handleConfirmDelete}>Confirm Delete</Button>
+                            </>
+                        )}
+                    </div>
+                </AlertDialogContent>
+            </AlertDialog>
+        </div>
+    );
+};
+
+export default SentBackRequest;

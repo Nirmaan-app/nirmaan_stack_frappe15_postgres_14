@@ -8,7 +8,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import { ProcurementItem, ProcurementRequest, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { parseNumber } from "@/utils/parseNumber"
-import { useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
+import { useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
 import { CirclePlus, Info, Undo2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
@@ -19,6 +19,7 @@ import { Button } from "../../../components/ui/button"
 import { toast } from "../../../components/ui/use-toast"
 import GenerateRFQDialog from "./components/GenerateRFQDialog"
 import { SelectVendorQuotesTable } from "./SelectVendorQuotesTable"
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback"
 
 // Custom hook to persist state to localStorage
 function usePersistentState<T>(key: string, defaultValue: T) {
@@ -87,7 +88,8 @@ export const ProcurementProgress : React.FC = () => {
   // Ensure prId exists early
   if (!prId) {
     return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
-}
+  }
+
   const [mode, setMode] = useState(searchParams.get("mode") || "edit")
   const [orderData, setOrderData] = useState<ProcurementRequest | undefined>()
   const [addVendorsDialog, setAddVendorsDialog] = useState(false)
@@ -105,6 +107,17 @@ export const ProcurementProgress : React.FC = () => {
     fields: ["*"],
     filters: [["name", "=", prId]]
   }, prId ? `Procurement Requests ${prId}` : null)
+
+  useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
+    console.log("Procurement Request document updated (real-time):", event);
+    toast({
+        title: "Document Updated",
+        description: `Procurement Request ${event.name} has been modified.`,
+    });
+    procurement_request_mutate(); // Re-fetch this specific document
+  },
+  true // emitOpenCloseEventsOnMount (default)
+  )
 
   const [revertDialog, setRevertDialog] = useState(false);
 
@@ -269,7 +282,7 @@ const handleRevertPR = async () => {
   await updateProcurementData(undefined, updatedOrderList, "revert"); 
 } 
 
-if (procurement_request_loading || vendors_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+if (procurement_request_loading || vendors_loading || usersListLoading) return <LoadingFallback />
 
   if (orderData?.workflow_state !== "In Progress") {
     return (

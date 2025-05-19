@@ -4,15 +4,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import SITEURL from "@/constants/siteURL"
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager"
+import { getUrlStringParam } from "@/hooks/useServerDataTable"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
 import { formatDate } from "@/utils/FormatDate"
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice"
 import { getTotalInflowAmount } from "@/utils/getAmounts"
+import { urlStateManager } from "@/utils/urlStateManager"
 import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
-import React, { Suspense, useCallback, useMemo, useState } from "react"
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
@@ -32,13 +33,36 @@ interface ProjectFinancialsTabProps {
 }
 export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST}) => {
 
-  // const [searchParams] = useSearchParams();
-  const [tab, setTab] = useStateSyncedWithParams<string>("fTab", "All Payments")
+  const initialTab = useMemo(() => {
+    return getUrlStringParam("fTab", "All Payments");
+  }, []); // Calculate once
+
+  const [tab, setTab] = useState<string>(initialTab)
   const [inflowPaymentsDialog, setInflowPaymentsDialog] = useState(false)
   
   const toggleInflowPaymentsDialog = useCallback(() => {
       setInflowPaymentsDialog((prevState) => !prevState);
   }, []);
+
+  // Effect to sync tab state TO URL
+  useEffect(() => {
+    // Only update URL if the state `tab` is different from the URL's current 'tab' param
+    if (urlStateManager.getParam("fTab") !== tab) {
+      urlStateManager.updateParam("fTab", tab);
+    }
+  }, [tab]);
+
+  // Effect to sync URL state TO tab state (for popstate/direct URL load)
+  useEffect(() => {
+    const unsubscribe = urlStateManager.subscribe("fTab", (_, value) => {
+      // Update state only if the new URL value is different from current state
+      const newTab = value || initialTab; // Fallback to initial if param removed
+      if (tab !== newTab) {
+        setTab(newTab);
+      }
+    });
+    return unsubscribe; // Cleanup subscription
+  }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
   const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {

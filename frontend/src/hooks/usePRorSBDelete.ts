@@ -4,7 +4,7 @@ import { useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
 
-export const usePRorSBDelete = (mutate : any) => {
+export const usePRorSBDelete = (mutate : any = undefined) => {
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc()
 
   const {toggleDeleteDialog} = useContext(UserContext);
@@ -12,7 +12,7 @@ export const usePRorSBDelete = (mutate : any) => {
   const handleDeletePR = async (id : string, navigation : boolean = false) => {
           try {
               await deleteDoc("Procurement Requests", id);
-              await mutate();
+              await mutate?.();
               toast({
                   title: "Success!",
                   description: `PR: ${id} deleted successfully!`,
@@ -35,7 +35,7 @@ export const usePRorSBDelete = (mutate : any) => {
       const handleDeleteSB = async (id : string, navigation : boolean = false) => {
         try {
             await deleteDoc("Sent Back Category", id);
-            await mutate();
+            await mutate?.();
             toast({
                 title: "Success!",
                 description: `Sent Back: ${id} deleted successfully!`,

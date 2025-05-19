@@ -11,6 +11,10 @@ export const useSearchParamsManager = () => {
       
       // Set new parameters
       Object.entries(params).forEach(([key, value]) => {
+        if(!value) {
+          newParams.delete(key);
+          return;
+        }
         newParams.set(key, value);
       });
 

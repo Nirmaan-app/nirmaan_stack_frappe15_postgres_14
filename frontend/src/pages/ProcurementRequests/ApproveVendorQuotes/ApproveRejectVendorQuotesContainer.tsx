@@ -10,10 +10,11 @@ import { useApproveRejectLogic } from './hooks/useApproveRejectLogic';
 import { NirmaanComments } from '@/types/NirmaanStack/NirmaanComments'; // Type needed for comments hook if used separately
 import { useVendorsList } from '../VendorQuotesSelection/hooks/useVendorsList';
 import { ApproveRejectVendorQuotesView } from './ApproveRejectVendorQuotesView';
-import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeDocumentEventListener, useFrappeGetDocList } from 'frappe-react-sdk';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { ProcurementItem } from '@/types/NirmaanStack/ProcurementRequests';
 import { useUsersList } from '../ApproveNewPR/hooks/useUsersList';
+import { toast } from '@/components/ui/use-toast';
 
 export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     const { id: prId } = useParams<{ id: string }>();
@@ -26,6 +27,18 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
 
     // --- Data Fetching ---
     const { data: prData, isLoading: prLoading, error: prError, mutate: prMutate } = useApproveRejectPRDoc(prId);
+
+    useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
+            console.log("Procurement Requests document updated (real-time):", event);
+            toast({
+                title: "Document Updated",
+                description: `Procurement Request ${event.name} has been modified.`,
+            });
+            prMutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
+
     const { data: vendorList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList();
     const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
     const { data: quotesData, isLoading: quotesLoading, error: quotesError } = useApprovedQuotationsList();

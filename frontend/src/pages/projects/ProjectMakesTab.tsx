@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { Radio } from "antd";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import ReactSelect from "react-select";
 
@@ -23,8 +24,34 @@ interface ProjectMakesTabProps {
 export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData,initialTab, options, project_mutate }) => {
 
 
-  const [makesTab, setMakesTab] = useStateSyncedWithParams<string>("makesTab", initialTab)
+  const renderInitialTab = useMemo(() => {
+    return getUrlStringParam("makesTab", initialTab);
+  }, []); // Calculate once
+
   const [wPmakesData, setWPMakesData] = useState([])
+
+  const [makesTab, setMakesTab] = useState<string>(renderInitialTab)
+
+
+  // Effect to sync tab state TO URL
+  useEffect(() => {
+    // Only update URL if the state `tab` is different from the URL's current 'tab' param
+    if (urlStateManager.getParam("makesTab") !== makesTab) {
+      urlStateManager.updateParam("makesTab", makesTab);
+    }
+  }, [makesTab]);
+
+  // Effect to sync URL state TO tab state (for popstate/direct URL load)
+  useEffect(() => {
+    const unsubscribe = urlStateManager.subscribe("makesTab", (_, value) => {
+      // Update state only if the new URL value is different from current state
+      const newTab = value || initialTab; // Fallback to initial if param removed
+      if (makesTab !== newTab) {
+        setMakesTab(newTab);
+      }
+    });
+    return unsubscribe; // Cleanup subscription
+  }, [initialTab]); // Depend on `tab` to avoid stale closures
 
   const [editCategory, setEditCategory] = useState(null)
 
@@ -145,14 +172,21 @@ export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData,i
                 </div>
               </TableCell>
               <TableCell>
-                <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
-                  <DialogTrigger onClick={() => setEditCategory(wpmake)} asChild>
-                    <Button
+              < Button
+                  onClick={() => {
+                    setEditCategory(wpmake)
+                    toggleDialog()
+                  }}
                       variant="outline"
                     >
                       Edit
                     </Button>
-                  </DialogTrigger>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>Edit <span className="text-primary">{editCategory?.name}</span> makes</DialogTitle>
@@ -181,11 +215,9 @@ export const ProjectMakesTab : React.FC<ProjectMakesTabProps> = ({ projectData,i
                     </DialogHeader>
                   </DialogContent>
                 </Dialog>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
     </>
   )
 }
+
+
+export default ProjectMakesTab

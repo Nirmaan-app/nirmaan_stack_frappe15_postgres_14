@@ -1,231 +1,194 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { Boxes, HardHat, Package, ShoppingCart, SquareUserRound, UsersRound } from "lucide-react";
-import { TailSpin } from "react-loader-spinner";
+import { LucideIcon, Boxes, HardHat, Package, ShoppingCart, SquareUserRound, UsersRound } from "lucide-react";
 import { Link } from "react-router-dom";
-
-export const Default = () => {
-
-    const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
-
-    const { data: user_count, isLoading: user_count_loading, error: user_count_error } = useFrappeGetDocCount("Nirmaan Users");
-
-    // const { data: role_count, isLoading: role_count_loading, error: role_count_error } = useFrappeGetDocCount("Nirmaan Roles");
-
-    const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
-
-    // const { data: pr_count, isLoading: pr_count_loading, error: pr_count_error } = useFrappeGetDocCount("Procurement Requests");
-
-    const { data: items_count, isLoading: items_count_loading, error: items_count_error } = useFrappeGetDocCount("Items");
-
-    const { data: vendors_count, isLoading: vendors_count_loading, error: vendors_count_error } = useFrappeGetDocCount("Vendors");
-
-    const { data: proc_packages_count, isLoading: proc_packages_count_loading, error: proc_packages_count_error } = useFrappeGetDocCount("Procurement Packages");
-
-    const { data: approved_quotes_count, isLoading: approved_quotes_count_loading, error: approved_quotes_count_error } = useFrappeGetDocCount("Approved Quotations");
-
-    // const {data : customers_count, isLoading: customers_count_loading, error: customers_count_error} = useQuery({
-    //     queryKey: ["docCount", "Customers"],
-    //     queryFn: () => fetchDocCount("Customers"),
-    //     staleTime: 1000 * 60 * 5,
-    // })
-
-    const { data: customers_count, isLoading: customers_count_loading, error: customers_count_error } = useFrappeGetDocCount("Customers")
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TailSpin } from "react-loader-spinner";
 
 
+export interface DashboardMetric {
+    id: string; // Unique key for mapping
+    title: string;
+    doctype: string;
+    linkTo: string;
+    Icon: LucideIcon;
+    dataCy?: string; // For cypress testing
+  }
+  
 
-    return (
-        <>
-            <div className="flex-1 md:space-y-4">
-                {/* <div className="flex items-center justify-between space-y-2">
-                    <Breadcrumb>
-                        <BreadcrumbItem isCurrentPage>
-                            <BreadcrumbLink href="/wp">
-                                Dashboard
-                            </BreadcrumbLink>
-                        </BreadcrumbItem>
-                    </Breadcrumb>
-                </div> */}
-                <div className="flex items-center justify-between space-y-2 pl-2">
-                    <h2 className="text-3xl text-[#D03B45] font-bold tracking-tight">Modules List</h2>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                    <Card className="hover:animate-shadow-drop-center" data-cy="admin-dashboard-project-card" >
-                        <Link to="/projects">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Projects
-                                </CardTitle>
-                                <HardHat className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(project_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                        : (project_count)}
-                                    {project_count_error && <p>Error</p>}
-                                </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                            </CardContent>
-                        </Link>
-                    </Card>
-                    <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/users">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Users
-                                </CardTitle>
-                                <UsersRound className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(user_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (user_count)}
-                                    {user_count_error && <p>Error</p>}
-                                </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                            </CardContent>
-                        </Link>
-                    </Card>
-                    {/* <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/roles">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Total Roles
-                                </CardTitle>
-                                <PersonStanding className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(role_count_loading) ? (<p>Loading</p>) : (role_count)}
-                                    {role_count_error && <p>Error</p>}
-                                </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
-                            </CardContent>
-                        </Link>
-                    </Card> */}
-                    {/* <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/wp">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Total Work Packages
-                                </CardTitle>
-                                <Briefcase className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(wp_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (wp_count)}
-                                    {wp_count_error && <p>Error</p>}
-                                </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
-                            </CardContent>
-                        </Link>
-                    </Card> */}
-                    {/* <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/procurement-requests">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Procurement Requests
-                                </CardTitle>
-                                <WalletCards className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(pr_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                        : (pr_count)}
-                                    {pr_count_error && <p>Error</p>}
-                                </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
-                            </CardContent>
-                        </Link>
-                    </Card> */}
-                    <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/products">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Products
-                                </CardTitle>
-                                <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(items_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                        : (items_count)}
-                                    {items_count_error && <p>Error</p>}
-                                </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                            </CardContent>
-                        </Link>
-                    </Card>
-                    <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/vendors">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Vendors
-                                </CardTitle>
-                                <Package className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(vendors_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                        : (vendors_count)}
-                                    {vendors_count_error && <p>Error</p>}
-                                </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                            </CardContent>
-                        </Link>
-                    </Card>
-                    <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/customers">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Customers
-                                </CardTitle>
-                                <SquareUserRound className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(customers_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (customers_count)}
-                                    {customers_count_error && <p>Error</p>}
-                                </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                            </CardContent>
-                        </Link>
-                    </Card>
-                    <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/product-packages">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Product Packages
-                                </CardTitle>
-                                <Boxes className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(proc_packages_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (proc_packages_count)}
-                                    {proc_packages_count_error && <p>Error</p>}
-                                </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                            </CardContent>
-                        </Link>
-                    </Card>
-                    <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/approved-quotes">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">
-                                    Approved Quotations
-                                </CardTitle>
-                                <Boxes className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    {(approved_quotes_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (approved_quotes_count)}
-                                    {approved_quotes_count_error && <p>Error</p>}
-                                </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                            </CardContent>
-                        </Link>
-                    </Card>
-                </div>
-            </div>
-        </>
-    )
+
+export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
+    {
+      id: "projects",
+      title: "Projects",
+      doctype: "Projects",
+      linkTo: "/projects",
+      Icon: HardHat,
+      dataCy: "admin-dashboard-project-card",
+    },
+    {
+      id: "users",
+      title: "Users",
+      doctype: "Nirmaan Users",
+      linkTo: "/users",
+      Icon: UsersRound,
+      dataCy: "admin-dashboard-users-card",
+    },
+    {
+      id: "products", // Assuming "Items" are products
+      title: "Products",
+      doctype: "Items",
+      linkTo: "/products",
+      Icon: ShoppingCart,
+      dataCy: "admin-dashboard-products-card",
+    },
+    {
+      id: "vendors",
+      title: "Vendors",
+      doctype: "Vendors",
+      linkTo: "/vendors",
+      Icon: Package,
+      dataCy: "admin-dashboard-vendors-card",
+    },
+    {
+      id: "customers",
+      title: "Customers",
+      doctype: "Customers",
+      linkTo: "/customers",
+      Icon: SquareUserRound,
+      dataCy: "admin-dashboard-customers-card",
+    },
+    {
+      id: "product-packages",
+      title: "Product Packages",
+      doctype: "Procurement Packages",
+      linkTo: "/product-packages",
+      Icon: Boxes,
+      dataCy: "admin-dashboard-proc-packages-card",
+    },
+    {
+      id: "approved-quotations",
+      title: "Approved Quotations",
+      doctype: "Approved Quotations",
+      linkTo: "/approved-quotes",
+      Icon: Boxes,
+      dataCy: "admin-dashboard-approved-quotes-card",
+    },
+  ];
+
+
+// Helper hook to encapsulate useFrappeGetDocCount logic if needed, or use directly
+// const useMetricCount = (doctype: string) => {
+//   return useFrappeGetDocCount(doctype, {
+//     // Optional: Add caching or other options here if the hook supports it
+//     // staleTime: 1000 * 60 * 5, // Example: 5 minutes stale time
+//   });
+// };
+
+// You can create a wrapper if you need to call this hook multiple times in a loop,
+// but React rules say hooks must be called at the top level.
+// So, we will call them individually for now, driven by the config.
+
+export default function DefaultDashboard() {
+  // Fetch data for each metric. This is still multiple hooks, but managed.
+  // This is okay for a limited number of metrics.
+  // For many (>10-15), consider a custom hook that fetches all in one go if backend supports.
+  const metricDataHooks = DASHBOARD_METRICS_CONFIG.map(metric => ({
+    ...metric,
+    ...useFrappeGetDocCount(metric.doctype, undefined, true, false, `${metric.doctype}_total_count`)
+  }));
+
+  return (
+    <div className="flex-1 space-y-4"> {/* Added padding */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold tracking-tight" style={{ color: "#D03B45" }}>
+          Modules
+        </h2>
+        {/* Optional: Add a global refresh button or date range selector here */}
+      </div>
+
+      <div 
+    //   className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        className="grid gap-4 md:gap-6 md:grid-cols-2"
+      > {/* Responsive grid */}
+        {metricDataHooks.map(({ id, title, linkTo, Icon, dataCy, data, isLoading, error }) => (
+          <DashboardMetricCard
+            key={id}
+            title={title}
+            linkTo={linkTo}
+            Icon={Icon}
+            count={data}
+            isLoading={isLoading}
+            error={error}
+            dataCy={dataCy}
+            // You can add custom colors here if needed, e.g., based on metric type
+            // iconColor={id === 'projects' ? 'text-blue-500' : undefined}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+
+interface DashboardMetricCardProps {
+  title: string;
+  linkTo: string;
+  Icon: LucideIcon;
+  count?: number | string; // Allow string if API returns it as such sometimes
+  isLoading: boolean;
+  error?: any; // Can be more specific if you know the error type from frappe-react-sdk
+  dataCy?: string;
+  iconColor?: string; // Optional: if you want to customize icon color per card
+  countColor?: string; // Optional: if you want to customize count color
 }
+
+export const DashboardMetricCard: React.FC<DashboardMetricCardProps> = ({
+  title,
+  linkTo,
+  Icon,
+  count,
+  isLoading,
+  error,
+  dataCy,
+  iconColor = "text-muted-foreground", // Default color
+  countColor = "#D03B45", // Your specified red color
+}) => {
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <TailSpin
+          visible={true}
+          height="30"
+          width="30"
+          color={countColor}
+          ariaLabel="metric-loading"
+          radius="1"
+        />
+      );
+    }
+    if (error) {
+      // Consider a more user-friendly error display or icon
+      return <p className="text-sm text-destructive">Error loading</p>;
+    }
+    return count !== undefined ? count : "-"; // Display '-' if count is undefined but not loading/error
+  };
+
+  return (
+    <Card className="hover:animate-shadow-drop-center transition-shadow duration-300 hover:shadow-lg" data-cy={dataCy}>
+      <Link to={linkTo} className="block h-full"> {/* Make entire card clickable and fill height */}
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium text-foreground">
+            {title}
+          </CardTitle>
+          <Icon className={`h-4 w-4 ${iconColor}`} />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold" style={{ color: countColor }}>
+            {renderContent()}
+          </div>
+          {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
+        </CardContent>
+      </Link>
+    </Card>
+  );
+};

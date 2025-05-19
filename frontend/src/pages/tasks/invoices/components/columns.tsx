@@ -13,7 +13,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import SITEURL from "@/constants/siteURL";
 
 // --- Helper function for common columns ---
-const getCommonColumns = (attachmentsMap? : Record<string, string>): ColumnDef<InvoiceApprovalTask>[] => [
+const getCommonColumns = (attachmentsMap?: Record<string, string>): ColumnDef<InvoiceApprovalTask>[] => [
     {
         accessorKey: "task_docname",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Parent Doc" />,
@@ -39,6 +39,12 @@ const getCommonColumns = (attachmentsMap? : Record<string, string>): ColumnDef<I
                 </TooltipProvider>
             );
         },
+        meta: {
+            exportHeaderName: "Parent Doc",
+            exportValue: (row) => {
+                return row.task_docname;
+            }
+        }
     },
     {
         accessorKey: "task_doctype",
@@ -49,6 +55,12 @@ const getCommonColumns = (attachmentsMap? : Record<string, string>): ColumnDef<I
             </Badge>
         ),
         filterFn: (row, id, value) => value.includes(row.getValue(id)),
+        meta: {
+            exportHeaderName: "Type",
+            exportValue: (row) => {
+                return row.task_doctype === "Procurement Orders" ? "PO" : "SR";
+            }
+        }
     },
     {
         accessorKey: "reference_value_2", // Invoice No
@@ -59,27 +71,34 @@ const getCommonColumns = (attachmentsMap? : Record<string, string>): ColumnDef<I
             const attachmentId = row.original.reference_value_4;
             return (
                 attachmentId ? (
-                  <div className="font-medium text-blue-500">
-                     <HoverCard>
-                          <HoverCardTrigger onClick={() => window.open(`${SITEURL}${attachmentsMap?.[attachmentId]}`, '_blank')}>
-                              {invoice_no}
-                          </HoverCardTrigger>
-                          <HoverCardContent className="w-auto rounded-md shadow-lg">
-                            <img
-                              src={`${SITEURL}${attachmentsMap?.[attachmentId]}`}
-                              alt="Payment Screenshot"
-                              className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
-                            />
-                          </HoverCardContent>
-                     </HoverCard>
-                  </div>
-              ) : (
-                  <div className="font-medium">
-                      {invoice_no}
-                  </div>
-              )
+                    <div className="font-medium text-blue-500">
+                        <HoverCard>
+                            <HoverCardTrigger onClick={() => window.open(`${SITEURL}${attachmentsMap?.[attachmentId]}`, '_blank')}>
+                                {invoice_no}
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-auto rounded-md shadow-lg">
+                                <img
+                                    src={`${SITEURL}${attachmentsMap?.[attachmentId]}`}
+                                    alt="Payment Screenshot"
+                                    className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
+                                />
+                            </HoverCardContent>
+                        </HoverCard>
+                    </div>
+                ) : (
+                    <div className="font-medium">
+                        {invoice_no}
+                    </div>
+                )
             );
+        },
+        meta: {
+            exportHeaderName: "Invoice No.",
+            exportValue: (row) => {
+                return row.reference_value_2;
+            }
         }
+
     },
     {
         accessorKey: "reference_value_3", // Invoice Amount
@@ -90,6 +109,12 @@ const getCommonColumns = (attachmentsMap? : Record<string, string>): ColumnDef<I
             </div>
         ),
         sortingFn: 'alphanumeric', // Ensure correct numeric sorting
+        meta: {
+            exportHeaderName: "Invoice Amount",
+            exportValue: (row) => {
+                return row.reference_value_3;
+            }
+        }
     },
     {
         accessorKey: "reference_value_1", // Invoice Date Key
@@ -104,12 +129,26 @@ const getCommonColumns = (attachmentsMap? : Record<string, string>): ColumnDef<I
             }
         },
         sortingFn: 'datetime', // Use datetime sorting
+        meta: {
+            exportHeaderName: "Invoice Date",
+            exportValue: (row) => {
+                const dateKey = row.reference_value_1 || '';
+                const displayDate = dateKey.includes('_') ? dateKey.split('_')[0] : dateKey;
+                return displayDate;
+            }
+        }
     },
     {
         accessorKey: "creation",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Task Created" />,
         cell: ({ row }) => <div>{formatDate(new Date(row.original.creation), 'dd-MMM-yyyy HH:mm')}</div>,
         sortingFn: 'datetime',
+        meta: {
+            exportHeaderName: "Task Created",
+            exportValue: (row) => {
+                return formatDate(new Date(row.creation), 'dd-MMM-yyyy HH:mm')
+            }
+        }
     },
 ];
 
@@ -120,94 +159,113 @@ export const getPendingTaskColumns = (
     isProcessing: boolean, // Flag if *any* task action is running
     attachmentsMap?: Record<string, string>
 ): ColumnDef<InvoiceApprovalTask>[] => [
-    ...getCommonColumns(attachmentsMap), // Include common columns
-    {
-        id: "actions",
-        header: () => <div className="">Actions</div>,
-        cell: ({ row }) => {
-            const task = row.original;
-            const isThisTaskLoading = loadingTaskId === task.name;
+        ...getCommonColumns(attachmentsMap), // Include common columns
+        {
+            id: "actions",
+            header: () => <div className="">Actions</div>,
+            cell: ({ row }) => {
+                const task = row.original;
+                const isThisTaskLoading = loadingTaskId === task.name;
 
-            return (
-                <div className="flex items-center space-x-1">
-                    {isThisTaskLoading ? (
-                        <span className="px-2 text-xs text-muted-foreground">Processing...</span>
-                        // Or use TailSpin here if preferred
-                    ) : (
-                        <>
-                            <TooltipProvider delayDuration={100}>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="ghost" size="icon"
-                                            className="text-green-600 hover:bg-green-100 h-7 w-7"
-                                            onClick={() => openConfirmationDialog(task, "Approved")}
-                                            disabled={isProcessing} // Disable if any action is running
-                                        >
-                                            <Check className="h-4 w-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent><p>Approve Invoice</p></TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                            <TooltipProvider delayDuration={100}>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="ghost" size="icon"
-                                            className="text-red-600 hover:bg-red-100 h-7 w-7"
-                                            onClick={() => openConfirmationDialog(task, "Rejected")}
-                                            disabled={isProcessing} // Disable if any action is running
-                                        >
-                                            <X className="h-4 w-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent><p>Reject Invoice</p></TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        </>
-                    )}
-                </div>
-            );
+                return (
+                    <div className="flex items-center space-x-1">
+                        {isThisTaskLoading ? (
+                            <span className="px-2 text-xs text-muted-foreground">Processing...</span>
+                            // Or use TailSpin here if preferred
+                        ) : (
+                            <>
+                                <TooltipProvider delayDuration={100}>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="ghost" size="icon"
+                                                className="text-green-600 hover:bg-green-100 h-7 w-7"
+                                                onClick={() => openConfirmationDialog(task, "Approved")}
+                                                disabled={isProcessing} // Disable if any action is running
+                                            >
+                                                <Check className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Approve Invoice</p></TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                                <TooltipProvider delayDuration={100}>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="ghost" size="icon"
+                                                className="text-red-600 hover:bg-red-100 h-7 w-7"
+                                                onClick={() => openConfirmationDialog(task, "Rejected")}
+                                                disabled={isProcessing} // Disable if any action is running
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Reject Invoice</p></TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </>
+                        )}
+                    </div>
+                );
+            },
         },
-    },
-];
+    ];
 
 // --- Columns specific to Task History ---
 export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => string, attachmentsMap?: Record<string, string>): ColumnDef<InvoiceApprovalTask>[] => {
 
-  return [
-    ...getCommonColumns(attachmentsMap), // Include common columns
-    {
-        accessorKey: "status",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-        cell: ({ row }) => {
-             const status = row.original.status;
-             let variant: "green" | "destructive" | "secondary" | "outline" | "warning" = "secondary"; // Use Badge variants
-             if (status === 'Approved') variant = 'green';
-             else if (status === 'Rejected') variant = 'destructive';
-             else if (status === 'Pending') variant = 'outline';
-             // Add others as needed
-             return <Badge variant={variant}>{status}</Badge>;
-        },
-         filterFn: (row, id, value) => value.includes(row.getValue(id)), // Enable filtering by status
-    },
-    {
-        accessorKey: "assignee",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned By" />,
-        cell: ({ row }) => <div>{row.original.status === "Pending" ? "N/A" : (getUserName(row.original.assignee) || 'Administrator')}</div>,
-    },
-    {
-        accessorKey: "modified", // Or 'modified' if completion_date isn't reliable
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned Date" />,
-        cell: ({ row }) => (
-            <div>
-                {row.original.status === "Pending" ? "N/A" : formatDate(new Date(row.original.modified), 'dd-MMM-yyyy HH:mm')
-                    // 
+    return [
+        ...getCommonColumns(attachmentsMap), // Include common columns
+        {
+            accessorKey: "status",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            cell: ({ row }) => {
+                const status = row.original.status;
+                let variant: "green" | "destructive" | "secondary" | "outline" | "warning" = "secondary"; // Use Badge variants
+                if (status === 'Approved') variant = 'green';
+                else if (status === 'Rejected') variant = 'destructive';
+                else if (status === 'Pending') variant = 'outline';
+                // Add others as needed
+                return <Badge variant={variant}>{status}</Badge>;
+            },
+            filterFn: (row, id, value) => value.includes(row.getValue(id)), // Enable filtering by status
+            meta: {
+                exportHeaderName: "Status",
+                exportValue: (row) => {
+                    return row.status;
                 }
-            </div>
-        ),
-         sortingFn: 'datetime',
-    },
-    // Add more history-specific columns if needed (e.g., rejection reason if captured)
-]}
+            }
+        },
+        {
+            accessorKey: "assignee",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned By" />,
+            cell: ({ row }) => <div>{row.original.status === "Pending" ? "N/A" : (getUserName(row.original.assignee) || 'Administrator')}</div>,
+            meta: {
+                exportHeaderName: "Actioned By",
+                exportValue: (row) => {
+                    return getUserName(row.assignee) || 'Administrator';
+                }
+            }
+        },
+        {
+            accessorKey: "modified", // Or 'modified' if completion_date isn't reliable
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned Date" />,
+            cell: ({ row }) => (
+                <div>
+                    {row.original.status === "Pending" ? "N/A" : formatDate(new Date(row.original.modified), 'dd-MMM-yyyy HH:mm')
+                        // 
+                    }
+                </div>
+            ),
+            sortingFn: 'datetime',
+            meta: {
+                exportHeaderName: "Actioned Date",
+                exportValue: (row) => {
+                    return formatDate(new Date(row.modified), 'dd-MMM-yyyy HH:mm');
+                }
+            }
+        },
+        // Add more history-specific columns if needed (e.g., rejection reason if captured)
+    ]
+}

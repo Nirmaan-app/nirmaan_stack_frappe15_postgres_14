@@ -1,5 +1,16 @@
 [
  {
+  "category_name": "DX System",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/dx.jpg",
+  "modified": "2024-11-23 14:28:30.867279",
+  "name": "DX System",
+  "new_items": "true",
+  "tax": "28",
+  "work_package": "HVAC System"
+ },
+ {
   "category_name": "Terminations",
   "docstatus": 0,
   "doctype": "Category",
@@ -215,17 +226,6 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/hvac-fans.jpg",
   "modified": "2024-11-23 14:28:30.872542",
   "name": "Fans",
-  "new_items": "true",
-  "tax": "28",
-  "work_package": "HVAC System"
- },
- {
-  "category_name": "DX System",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/dx.jpg",
-  "modified": "2024-11-23 14:28:30.867279",
-  "name": "DX System",
   "new_items": "true",
   "tax": "28",
   "work_package": "HVAC System"
@@ -559,17 +559,6 @@
   "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
- },
- {
-  "category_name": "Fire Extinguishers",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/extin.jpg",
-  "modified": "2024-12-12 18:59:24.507458",
-  "name": "Fire Extinguishers",
-  "new_items": "false",
-  "tax": "18",
-  "work_package": "Fire Fighting System"
  },
  {
   "category_name": "LT Panels",
@@ -911,5 +900,27 @@
   "new_items": "true",
   "tax": "18",
   "work_package": "Services"
+ },
+ {
+  "category_name": "Hotel & Accomodation",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20Services/hotel.webp",
+  "modified": "2025-05-17 11:44:59.249860",
+  "name": "Hotel & Accomodation",
+  "new_items": "false",
+  "tax": "0",
+  "work_package": "Services"
+ },
+ {
+  "category_name": "Fire Extinguishers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/extin.jpg",
+  "modified": "2024-12-12 18:59:24.507458",
+  "name": "Fire Extinguishers",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
  }
 ]

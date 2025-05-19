@@ -85,10 +85,10 @@ const invoiceColumns: ColumnDef<InvoiceItem>[] =
           <DataTableColumnHeader column={column} title="Invoice Date" />
         ),
         cell: ({ row }) => {
-          const dateValue = row.original.date;
+          const dateValue = row.original.date?.slice(0, 10);
           return (
             <div className="font-medium">
-              {formatDate(dateValue)}
+              {dateValue ? formatDate(dateValue) : '-'}
             </div>
           );
         },

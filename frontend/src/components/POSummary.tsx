@@ -14,12 +14,12 @@ import { Badge } from "./ui/badge";
 import { ArrowLeft, Building, Calendar, MapPin, MessageCircleMore, Printer, ReceiptIndianRupee, User } from "lucide-react";
 import { Label } from "./ui/label";
 import { useEffect, useRef, useState } from "react";
-import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { useReactToPrint } from "react-to-print";
 import logo from "@/assets/logo-svg.svg"
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { Button } from "./ui/button";
-import { PurchaseOrder } from "@/pages/ProcurementOrders/PurchaseOrder";
+import PurchaseOrder from "@/pages/ProcurementOrders/purchase-order/PurchaseOrder";
 
 const chartConfig = {
   visitors: {

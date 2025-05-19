@@ -16,15 +16,15 @@ export default defineConfig({
       // }
     }),
   ],
-  optimizeDeps: {
-    include: ["@radix-ui/react-radio-group"],
-    exclude: [
-      "chunk-OZV37PLF.js?v=193dfd67",
-      "chunk-JEJO5SLT.js?v=161aa362",
-      "chunk-RSVB25KO.js?v=161aa362",
-      "chunk-VWGPU4LS.js?v=161aa362",
-    ],
-  },
+  // optimizeDeps: {
+  //   include: ["@radix-ui/react-radio-group"],
+  //   exclude: [
+  //     "chunk-OZV37PLF.js?v=193dfd67",
+  //     "chunk-JEJO5SLT.js?v=161aa362",
+  //     "chunk-RSVB25KO.js?v=161aa362",
+  //     "chunk-VWGPU4LS.js?v=161aa362",
+  //   ],
+  // },
   server: {
     port: 8080,
     proxy: proxyOptions,

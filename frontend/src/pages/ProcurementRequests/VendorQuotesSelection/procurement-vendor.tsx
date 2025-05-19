@@ -4,11 +4,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
 import { useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -18,11 +17,15 @@ import { Button } from "../../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
 import { toast } from "../../../components/ui/use-toast";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 
 export const ProcurementOrder: React.FC = () => {
 
   const { prId: orderId } = useParams<{ prId: string }>()
   const navigate = useNavigate();
+
+  if (!orderId) return <div>No Order ID Provided</div>
 
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null)
 
@@ -37,9 +40,27 @@ export const ProcurementOrder: React.FC = () => {
     orderId ? `Procurement Requests ${orderId}` : null
   );
 
+  useEffect(() => {
+    if (procurement_request_list) {
+      setOrderData(procurement_request_list[0])
+    }
+  }, [procurement_request_list])
+
+
+  useFrappeDocumentEventListener("Procurement Requests", orderId, (event) => {
+    console.log("Procurement Request document updated (real-time):", event);
+    toast({
+      title: "Document Updated",
+      description: `Procurement Request ${event.name} has been modified.`,
+    });
+    prMutate(); // Re-fetch this specific document
+  },
+    true // emitOpenCloseEventsOnMount (default)
+  )
+
   const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["*"],
-    filters: [["name", "=", procurement_request_list?.[0]?.project]],
+    filters: [["name", "=", procurement_request_list?.[0]?.project!]],
     limit: 1,
   }, procurement_request_list?.[0]?.project ? `Projects ${procurement_request_list?.[0]?.project}` : null);
 
@@ -55,7 +76,7 @@ export const ProcurementOrder: React.FC = () => {
         workPackages.forEach((wp: any) => {
           (wp.category_list?.list ?? []).forEach((cat: any) => {
             const catInOrder = orderData?.category_list?.list.find(i => i.name === cat.name);
-            if (cat.name && catInOrder && catInOrder?.makes?.length > 0) {
+            if (cat.name && catInOrder && catInOrder.makes && catInOrder?.makes?.length > 0) {
               map.set(cat.name, catInOrder?.makes);
             } else if (cat.name && cat.makes?.length > 0) {
               map.set(cat.name, cat.makes);
@@ -83,25 +104,13 @@ export const ProcurementOrder: React.FC = () => {
     orderId ? undefined : null
   )
 
-  const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-    fields: ["*"],
-    limit: 1000,
-  },
-    `Nirmaan Users`
-  )
+  const { data: usersList, isLoading: usersListLoading } = useUsersList()
 
   const getFullName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
   }, [usersList]);
 
   const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
-
-
-  useEffect(() => {
-    if (procurement_request_list) {
-      setOrderData(procurement_request_list[0])
-    }
-  }, [procurement_request_list])
 
 
   const handleStartProcuring = async () => {
@@ -125,7 +134,7 @@ export const ProcurementOrder: React.FC = () => {
     }
   }
 
-  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading) return <LoadingFallback />
 
   if (orderData?.workflow_state !== "Approved") {
     return (
@@ -173,7 +182,7 @@ export const ProcurementOrder: React.FC = () => {
                   <TableRow className="bg-red-100">
                     <TableHead className="w-[50%]">
                       <span className="font-extrabold text-red-700">{cat.name}</span>
-                      <div className="text-xs font-bold text-gray-500">
+                      {/* <div className="text-xs font-bold text-gray-500">
                         {categoryMakesMap.get(cat.name)?.length ? (
                           <>
                             <span>Makelist: </span>
@@ -182,7 +191,7 @@ export const ProcurementOrder: React.FC = () => {
                             ))}
                           </>
                         ) : ""}
-                      </div>
+                      </div> */}
                     </TableHead>
                     <TableHead className="w-[10%] text-red-700">UOM</TableHead>
                     <TableHead className="w-[10%] text-red-700">Qty</TableHead>

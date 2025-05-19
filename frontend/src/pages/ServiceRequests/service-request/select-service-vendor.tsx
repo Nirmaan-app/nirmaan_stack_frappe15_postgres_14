@@ -1,5 +1,7 @@
 import { ProcurementHeaderCard } from "@/components/helpers/ProcurementHeaderCard";
 import { VendorsReactSelect } from "@/components/helpers/VendorsReactSelect";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +33,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
@@ -41,6 +44,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { Table as AntTable, ConfigProvider } from "antd";
 import {
     useFrappeCreateDoc,
+    useFrappeDocumentEventListener,
     useFrappeGetDoc,
     useFrappeGetDocList,
     useFrappeUpdateDoc,
@@ -63,14 +67,24 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 const SelectServiceVendor : React.FC = () => {
   const { srId: id }: any = useParams();
 
+  if(!id) return <div>No Service Request ID Provided</div>
+
   const navigate = useNavigate()
 
   const { data: sr_data, isLoading: sr_data_loading, error: sr_data_error, mutate: sr_data_mutate } = useFrappeGetDoc("Service Requests", id);
 
-  const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
-    fields: ["*"],
-    limit: 1000,
-  });
+  useFrappeDocumentEventListener("Service Requests", id, (event) => {
+          console.log("Service Requests document updated (real-time):", event);
+          toast({
+              title: "Document Updated",
+              description: `Service Requests ${event.name} has been modified.`,
+          });
+          sr_data_mutate(); // Re-fetch this specific document
+        },
+        true // emitOpenCloseEventsOnMount (default)
+        )
+
+  const { data: usersList, isLoading: userLoading, error: userError } = useUsersList()
 
   const { data: universalComments, isLoading: universalCommentsLoading, error: universalCommentsError } = useFrappeGetDocList<NirmaanCommentsType>("Nirmaan Comments", {
     fields: ["*"],
@@ -87,16 +101,14 @@ const SelectServiceVendor : React.FC = () => {
     userLoading ||
     universalCommentsLoading) {
       return (
-        <div className="flex items-center h-[90vh] w-full justify-center">
-            <TailSpin color={"red"} />{" "}
-          </div>
+       <LoadingFallback />
       )
     }
   
   if(sr_data_error ||
     userError ||
     universalCommentsError) {
-      return <h1>Error</h1>
+      return <AlertDestructive error={sr_data_error || userError || universalCommentsError} />
     }
 
     if ( !["Created", "Rejected"].includes(sr_data?.status)) return (
