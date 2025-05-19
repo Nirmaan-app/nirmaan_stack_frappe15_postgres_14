@@ -43,7 +43,7 @@ export const POPdf: React.FC<POPdfProps> = ({
   poPdfSheet, togglePoPdfSheet
 }) => {
 
-  if(!po) return <div>No PO ID Provided</div>`  `
+  if (!po) return <div>No PO ID Provided</div>
   const componentRef = useRef<HTMLDivElement>(null);
 
   const { data: attachmentsData } = useFrappeGetDocList("Nirmaan Attachments", {
