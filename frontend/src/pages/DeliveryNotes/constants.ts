@@ -26,7 +26,7 @@ export const STATUS_BADGE_VARIANT: { [key: string]: 'default' | 'secondary' | 'd
 // Potentially move addresses here or fetch from backend config
 export const COMPANY_ADDRESS_BY_GST: { [key: string]: string } = {
   "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
-  "OTHER_GST_NUMBER": "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002",
+  "06ABFCS9095N1ZH": "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002",
   "default": "Company Address Not Configured for this GSTIN",
 };
 

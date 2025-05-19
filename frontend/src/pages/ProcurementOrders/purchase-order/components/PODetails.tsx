@@ -10,7 +10,7 @@ import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPri
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeGetDoc, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, TriangleAlert, Undo2 } from "lucide-react";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
@@ -47,6 +47,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "@/components/ui/use-toast";
 import { ValidationIndicator } from "@/components/validations/ValidationIndicator";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
+import { DeliveryNotePrintLayout } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
+import { useReactToPrint } from "react-to-print";
+import { deriveDnIdFromPoId } from "@/pages/DeliveryNotes/constants";
 
 interface PODetailsProps {
   po: ProcurementOrder | null
@@ -68,6 +71,8 @@ export const PODetails : React.FC<PODetailsProps> = (
   {po, summaryPage, accountsPage, estimatesViewing, poPayments, togglePoPdfSheet,
     getTotal, amountPaid, poMutate, toggleRequestPaymentDialog
   }) => {
+
+    if(!po) return <div>No PO ID Provided</div>
 
     const {role} = useUserData();
     const { errors, isValid, hasVendorIssues } = usePOValidation(po);
@@ -212,9 +217,21 @@ export const PODetails : React.FC<PODetailsProps> = (
             });
         }
     };
+
+    const printComponentRef = useRef<HTMLDivElement>(null);
+
+    const handlePrint = useReactToPrint({
+      content: () => printComponentRef.current,
+      documentTitle: po
+        ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
+        : 'Delivery_Note',
+      // Optional: Add page styles if needed
+      // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
+    });
           
 
   return (
+    <div>
       <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
             <CardHeader>
               <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
@@ -311,8 +328,20 @@ export const PODetails : React.FC<PODetailsProps> = (
 
                   <Sheet open={deliveryNoteSheet} onOpenChange={toggleDeliveryNoteSheet}>
                     <SheetContent className="overflow-auto">
-                        <SheetHeader className="text-start mb-4">
-                          <SheetTitle className="text-primary">Update Delivery Note</SheetTitle>
+                        <SheetHeader className="text-start mb-4 mx-4">
+                          <SheetTitle className="text-primary flex flex-row items-center justify-between">
+                            <p>
+                            Update/View Delivery Note
+                            </p>
+                             <Button 
+                             onClick={handlePrint}
+                              variant="default" 
+                              className="px-2"
+                              size="sm">
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  <span className="text-xs">Preview</span>
+                              </Button>
+                          </SheetTitle>
                         </SheetHeader>
                         <div className="space-y-4">
                           <DeliveryNoteItemsDisplay data={po} poMutate={poMutate}
@@ -837,6 +866,13 @@ export const PODetails : React.FC<PODetailsProps> = (
                 </div>
               </div>
             </CardContent>
-    </Card>
+      </Card>
+
+      {/* Hidden Printable Component */}
+            {/* Keep this outside the main layout flow */}
+          <div className="hidden print:block"> {/* Use print:block utility */}
+               <DeliveryNotePrintLayout ref={printComponentRef} data={po} />
+          </div>
+      </div>
   )
 }
