@@ -30,17 +30,27 @@ export const poColumns: ColumnDef<POReportRowData>[] = [
         }
     },
     {
-        accessorKey: "projectName",
+        id: "project",
         header: "Project",
         cell: ({ row }) => {
             return <div>{row.original.projectName || row.original.project}</div>;
         },
+        filterFn: (row, columnId, filterValue) => {
+            // Filter by project name or ID
+            // const projectName = row.original.projectName || row.original.project;
+            return filterValue.includes(row.original.project)
+        },
     },
     {
-        accessorKey: "vendorName",
+        id: "vendor_name",
         header: "Vendor",
         cell: ({ row }) => {
             return <div>{row.original.vendorName || row.original.vendor}</div>;
+        },
+        filterFn: (row, columnId, filterValue) => {
+            // Filter by project name or ID
+            // const projectName = row.original.projectName || row.original.project;
+            return filterValue.includes(row.original.vendor)
         },
     },
     {

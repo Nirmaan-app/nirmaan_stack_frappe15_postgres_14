@@ -8,6 +8,12 @@ import { parseNumber } from "@/utils/parseNumber";
 import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
+import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
+
+interface SelectOption { label: string; value: string; }
 
 export default function POReports() {
 
@@ -18,6 +24,21 @@ export default function POReports() {
     const columns = React.useMemo(() => poColumns, []);
 
     const delta = 100; // Small tolerance for floating point comparison
+
+    // --- Supporting Data Fetches (Keep these for lookups/calculations) ---
+    const projectsFetchOptions = getProjectListOptions();
+
+    // --- Generate Query Keys ---
+    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
+
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
+    );
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
+
+    const projectOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
+    
+    const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
 
     const getPOExportData = (
         reportType: ReportType,
@@ -43,7 +64,7 @@ export default function POReports() {
     const exportFileNamePrefix = `po_report`; // Base prefix
 
         // --- New Export Handler ---
-      const handleExport = () => {
+    const handleExport = () => {
         if (isLoading || reportData?.length === 0) {
              toast({ title: "Export", description: "No data available to export or still loading.", variant: "default" });
             return;
@@ -84,20 +105,25 @@ export default function POReports() {
         }
     };
 
-    if (error) {
-        console.error("Error fetching PO/SR reports data:", error);
+    const combinedError = projectsError || vendorsError || error;
+    const combinedLoading = projectsLoading || vendorsLoading || isLoading;
+
+    if (combinedError) {
+        // console.error("Error fetching PO/SR reports data:", error);
         return (
-            <AlertDestructive error={error} />
+            <AlertDestructive error={combinedError} />
         )
     }
 
     return (
         <div className="space-y-4">
-            {isLoading ? (
+            {combinedLoading ? (
                 <LoadingFallback />
             ) : (
                 <DataTable
                     columns={columns}
+                    project_values={projectOptions}
+                    vendorOptions={vendorOptions}
                     data={filteredReportData || []} // Ensure data is always an array
                     // Add features like filtering, search, pagination if needed
                     loading={isLoading}
