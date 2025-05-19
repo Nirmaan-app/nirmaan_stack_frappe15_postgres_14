@@ -25,7 +25,7 @@ export const ProcurementOrder: React.FC = () => {
   const { prId: orderId } = useParams<{ prId: string }>()
   const navigate = useNavigate();
 
-  if(!orderId) return <div>No Order ID Provided</div>
+  if (!orderId) return <div>No Order ID Provided</div>
 
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null)
 
@@ -50,12 +50,12 @@ export const ProcurementOrder: React.FC = () => {
   useFrappeDocumentEventListener("Procurement Requests", orderId, (event) => {
     console.log("Procurement Request document updated (real-time):", event);
     toast({
-        title: "Document Updated",
-        description: `Procurement Request ${event.name} has been modified.`,
+      title: "Document Updated",
+      description: `Procurement Request ${event.name} has been modified.`,
     });
     prMutate(); // Re-fetch this specific document
   },
-  true // emitOpenCloseEventsOnMount (default)
+    true // emitOpenCloseEventsOnMount (default)
   )
 
   const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
@@ -104,7 +104,7 @@ export const ProcurementOrder: React.FC = () => {
     orderId ? undefined : null
   )
 
-  const {data: usersList, isLoading: usersListLoading} = useUsersList()
+  const { data: usersList, isLoading: usersListLoading } = useUsersList()
 
   const getFullName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
@@ -182,7 +182,7 @@ export const ProcurementOrder: React.FC = () => {
                   <TableRow className="bg-red-100">
                     <TableHead className="w-[50%]">
                       <span className="font-extrabold text-red-700">{cat.name}</span>
-                      <div className="text-xs font-bold text-gray-500">
+                      {/* <div className="text-xs font-bold text-gray-500">
                         {categoryMakesMap.get(cat.name)?.length ? (
                           <>
                             <span>Makelist: </span>
@@ -191,7 +191,7 @@ export const ProcurementOrder: React.FC = () => {
                             ))}
                           </>
                         ) : ""}
-                      </div>
+                      </div> */}
                     </TableHead>
                     <TableHead className="w-[10%] text-red-700">UOM</TableHead>
                     <TableHead className="w-[10%] text-red-700">Qty</TableHead>
