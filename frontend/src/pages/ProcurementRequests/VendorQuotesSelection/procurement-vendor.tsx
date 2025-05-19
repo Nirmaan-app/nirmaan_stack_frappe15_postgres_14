@@ -60,7 +60,7 @@ export const ProcurementOrder: React.FC = () => {
 
   const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["*"],
-    filters: [["name", "=", !procurement_request_list?.[0]?.project]],
+    filters: [["name", "=", procurement_request_list?.[0]?.project!]],
     limit: 1,
   }, procurement_request_list?.[0]?.project ? `Projects ${procurement_request_list?.[0]?.project}` : null);
 

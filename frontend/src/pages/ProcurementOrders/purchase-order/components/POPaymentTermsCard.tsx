@@ -69,6 +69,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 }) => {
 
 
+  if(!PO) return <div>No PO ID Provided</div>
+
   const { hasMissingGST } = usePOValidation(PO);
   const { control, handleSubmit, reset } = useForm({
       defaultValues: {
