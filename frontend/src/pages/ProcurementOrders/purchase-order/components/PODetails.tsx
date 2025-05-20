@@ -6,7 +6,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeGetDoc, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, TriangleAlert, Undo2 } from "lucide-react";
@@ -67,812 +67,856 @@ interface PODetailsProps {
   toggleRequestPaymentDialog: () => void
 }
 
-export const PODetails: React.FC<PODetailsProps> = (
-  { po, summaryPage, accountsPage, estimatesViewing, poPayments, togglePoPdfSheet,
+export const PODetails : React.FC<PODetailsProps> = (
+  {po, summaryPage, accountsPage, estimatesViewing, poPayments, togglePoPdfSheet,
     getTotal, amountPaid, poMutate, toggleRequestPaymentDialog
   }) => {
 
-  if (!po) return <div>No PO ID Provided</div>
+    if(!po) return <div>No PO ID Provided</div>
 
-  const { role } = useUserData();
-  const { errors, isValid, hasVendorIssues } = usePOValidation(po);
+    const {role} = useUserData();
+    const { errors, isValid, hasVendorIssues } = usePOValidation(po);
 
-  const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
-  const { call: deleteCustomPOCall, loading: deleteCustomPOCallLoading } = useFrappePostCall("nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po");
-  const navigate = useNavigate();
+    const { updateDoc, loading : update_loading } = useFrappeUpdateDoc();
+    const {call : deleteCustomPOCall, loading : deleteCustomPOCallLoading} = useFrappePostCall("nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po");
+    const navigate = useNavigate();
 
-  const { data: pr } = useFrappeGetDoc<ProcurementRequest>("Procurement Requests", po?.procurement_request, po ? undefined : null);
+    const { data: pr } = useFrappeGetDoc<ProcurementRequest>("Procurement Requests", po?.procurement_request, po ? undefined : null);
 
-  const [contactPerson, setContactPerson] = useState({
-    name: "",
-    number: "",
-  });
+    const [contactPerson, setContactPerson] = useState({
+        name: "",
+        number: "",
+      });
+    
+    const [phoneNumber, setPhoneNumber] = useState("");
+    const [email, setEmail] = useState("");
+    const [emailSubject, setEmailSubject] = useState("");
+    const [emailBody, setEmailBody] = useState("");
 
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [email, setEmail] = useState("");
-  const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("");
+    const {toggleNewInvoiceDialog} = useDialogStore()
 
-  const { toggleNewInvoiceDialog } = useDialogStore()
+    const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false)
+    const toggleDeliveryNoteSheet = useCallback(() => {
+      setDeliveryNoteSheet((prevState) => !prevState);
+    }, []);
 
-  const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false)
-  const toggleDeliveryNoteSheet = useCallback(() => {
-    setDeliveryNoteSheet((prevState) => !prevState);
-  }, []);
+    const [dispatchPODialog, setDispatchPODialog] = useState(false);
+    const toggleDispatchPODialog = useCallback(() => {
+      setDispatchPODialog((prevState) => !prevState);
+    }, []);
 
-  const [dispatchPODialog, setDispatchPODialog] = useState(false);
-  const toggleDispatchPODialog = useCallback(() => {
-    setDispatchPODialog((prevState) => !prevState);
-  }, []);
+    const [revertDialog, setRevertDialog] = useState(false);
+    const toggleRevertDialog = useCallback(() => {
+      setRevertDialog((prevState) => !prevState);
+    }, []);
 
-  const [revertDialog, setRevertDialog] = useState(false);
-  const toggleRevertDialog = useCallback(() => {
-    setRevertDialog((prevState) => !prevState);
-  }, []);
+    const [deleteDialog, setDeleteDialog] = useState(false);
+    const toggleDeleteDialog = useCallback(() => {
+      setDeleteDialog((prevState) => !prevState);
+    }, []);
 
-  const [deleteDialog, setDeleteDialog] = useState(false);
-  const toggleDeleteDialog = useCallback(() => {
-    setDeleteDialog((prevState) => !prevState);
-  }, []);
-
-  const handlePhoneChange = useCallback((e: any) => {
-    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
-    setPhoneNumber(value);
-  }, []);
-
-  const handleEmailChange = useCallback((e: any) => {
-    setEmail(e.target.value);
-  }, []);
+    const handlePhoneChange = useCallback((e: any) => {
+       const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+       setPhoneNumber(value);
+    }, []);
+    
+    const handleEmailChange = useCallback((e: any) => {
+      setEmail(e.target.value);
+    }, []);
 
 
-  const handleDispatchPO = async () => {
-    try {
-      // Create the update payload with status "Dispatched"
-      const updateData: { status: string; delivery_contact?: string } = {
-        status: "Dispatched",
+    const handleDispatchPO = async () => {
+        try {
+           // Create the update payload with status "Dispatched"
+          const updateData: { status: string; delivery_contact?: string } = {
+            status: "Dispatched",
+          };
+
+          // If either contact field is provided, add the delivery_contact key
+          if (contactPerson.name || contactPerson.number) {
+            updateData.delivery_contact = `${contactPerson.name}:${contactPerson.number}`;
+          }
+
+          await updateDoc("Procurement Orders", po.name, updateData);
+          await poMutate();
+    
+          toast({
+            title: "Success!",
+            description: `PO: ${po.name} status updated to 'Dispatched' successfully!`,
+            variant: "success",
+          });
+    
+          navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Dispatched+PO`);
+        } catch (error) {
+          console.log(
+            "error while updating the status of the PO to dispatch",
+            error
+          );
+          toast({
+            title: "Failed!",
+            description: `PO: ${po.name} Updation Failed!`,
+            variant: "destructive",
+          });
+        }
       };
 
-      // If either contact field is provided, add the delivery_contact key
-      if (contactPerson.name || contactPerson.number) {
-        updateData.delivery_contact = `${contactPerson.name}:${contactPerson.number}`;
-      }
+    const handleRevertPO = async () => {
+          try {
+            await updateDoc("Procurement Orders", po.name, {
+              status: "PO Approved",
+              delivery_contact: null,
+            });
+      
+            await poMutate();
+      
+            toast({
+              title: "Success!",
+              description: `PO: ${po.name} Reverted back to PO Approved!`,
+              variant: "success",
+            });
+      
+            navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`);
+          } catch (error) {
+            toast({
+              title: "Failed!",
+              description: `PO: ${po.name} Revert Failed!`,
+              variant: "destructive",
+            });
+          }
+        };
 
-      await updateDoc("Procurement Orders", po.name, updateData);
-      await poMutate();
+    const handleDeleteCustomPO = async () => {
+        try {
 
-      toast({
-        title: "Success!",
-        description: `PO: ${po.name} status updated to 'Dispatched' successfully!`,
-        variant: "success",
-      });
+          const response = await deleteCustomPOCall({
+            po_id : po.name
+          })
 
-      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Dispatched+PO`);
-    } catch (error) {
-      console.log(
-        "error while updating the status of the PO to dispatch",
-        error
-      );
-      toast({
-        title: "Failed!",
-        description: `PO: ${po.name} Updation Failed!`,
-        variant: "destructive",
-      });
-    }
+          if (response.message.status === 200) {
+               // ✅ Step 4: Success message & UI updates (Batch State Updates)
+               toast({
+                   title: "Delete Successful!",
+                   description: response.message.message,
+                   variant: "success",
+               });
+
+               navigate(`/purchase-orders`);
+          } else if (response.message.status === 400) {
+               toast({
+                   title: "Error!",
+                   description: response.message.error,
+                   variant: "destructive",
+               });
+          }
+        } catch (error) {
+            console.error("Error while deleting customo PO:", error);
+            toast({
+                title: "Error!",
+                description: "Failed to delete custom PO. Please try again.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const printComponentRef = useRef<HTMLDivElement>(null);
+
+    const handlePrint = useReactToPrint({
+      content: () => printComponentRef.current,
+      documentTitle: po
+        ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
+        : 'Delivery_Note',
+      // Optional: Add page styles if needed
+      // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
+    });
+
+    const downloadurl = "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf"
+
+    const viewUrl = "http://localhost:8000/printview"
+
+    // const { call: triggerPdfDownload, loading } = useFrappePostCall('nirmaan_stack.api.download_po_pdf.download_po_pdf');
+
+    const handleDownloadPdf = async (poId: string) => {
+      // try {
+      //     // This call will initiate a download, not return data to JS
+      //     await triggerPdfDownload({
+      //         doctype: "Procurement Orders",
+      //         name: poId,
+      //         print_format: "PO Invoice 6" // Your print format name
+      //     });
+      //     // You might not get a success callback here if the download starts immediately
+      // } catch (error) {
+      //     console.error("Error triggering PDF download:", error);
+      //     toast({ title: "PDF Download Failed", variant: "destructive" });
+      // }
+      const params = {
+        doctype: "Procurement Orders",
+        name: poId,
+        format: "PO Invoice", // Your print format name
+        no_letterhead: "1", // Or "1" if your template includes full letterhead
+        letterhead: "No Letterhead", // Or "No Letterhead" if your template includes full letterhead
+        settings: "{}", // Or "{}" if your template has custom settings
+        _lang: "en", // Or "_lang=en" if your template is in English
+        // Add other params like 'letterhead' if needed
+    };
+    const url = `${downloadurl}?${new URLSearchParams(params)}`;
+    const view = `${viewUrl}?${new URLSearchParams(params)}`;
+
+    window.open(url, '_blank');
+    // window.open(view, '_blank');
   };
-
-  const handleRevertPO = async () => {
-    try {
-      await updateDoc("Procurement Orders", po.name, {
-        status: "PO Approved",
-        delivery_contact: null,
-      });
-
-      await poMutate();
-
-      toast({
-        title: "Success!",
-        description: `PO: ${po.name} Reverted back to PO Approved!`,
-        variant: "success",
-      });
-
-      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`);
-    } catch (error) {
-      toast({
-        title: "Failed!",
-        description: `PO: ${po.name} Revert Failed!`,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleDeleteCustomPO = async () => {
-    try {
-
-      const response = await deleteCustomPOCall({
-        po_id: po.name
-      })
-
-      if (response.message.status === 200) {
-        // ✅ Step 4: Success message & UI updates (Batch State Updates)
-        toast({
-          title: "Delete Successful!",
-          description: response.message.message,
-          variant: "success",
-        });
-
-        navigate(`/purchase-orders`);
-      } else if (response.message.status === 400) {
-        toast({
-          title: "Error!",
-          description: response.message.error,
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error while deleting customo PO:", error);
-      toast({
-        title: "Error!",
-        description: "Failed to delete custom PO. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const printComponentRef = useRef<HTMLDivElement>(null);
-
-  const handlePrint = useReactToPrint({
-    content: () => printComponentRef.current,
-    documentTitle: po
-      ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
-      : 'Delivery_Note',
-    // Optional: Add page styles if needed
-    // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
-  });
-
+          
 
   return (
     <div>
       <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-        <CardHeader>
-          <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-            <div>
-              <h2>{po?.custom === "true" && "Custom"} PO Details
-                {!isValid && (
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <TriangleAlert className="inline-block ml-2 text-primary max-sm:w-4 max-sm:h-4" />
-                    </TooltipTrigger>
+            <CardHeader>
+              <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
+                <div>
+                  <h2>{po?.custom === "true" && "Custom"} PO Details
                     {!isValid && (
-                      <TooltipContent
-                        side="bottom"
-                        className="bg-background border border-border text-foreground w-80"
-                      >
-                        <ValidationMessages title="Required Before Proceeding" errors={errors} />
-                      </TooltipContent>
+                    <Tooltip>
+                      <TooltipTrigger>
+                          <TriangleAlert className="inline-block ml-2 text-primary max-sm:w-4 max-sm:h-4" />
+                      </TooltipTrigger>
+                      {!isValid && (
+                        <TooltipContent
+                          side="bottom"
+                          className="bg-background border border-border text-foreground w-80"
+                        >
+                          <ValidationMessages title="Required Before Proceeding" errors={errors} />
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
                     )}
-                  </Tooltip>
-                )}
-              </h2>
-              <Badge
-                variant={
-                  po?.status === "PO Approved"
-                    ? "default"
-                    : po?.status === "Dispatched"
-                      ? "orange"
-                      : "green"
-                }
-              >
-                {po?.status}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              {!accountsPage && !estimatesViewing && !summaryPage && (
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Button
-                      disabled={!isValid}
-                      variant="outline"
-                      className="text-primary border-primary text-xs px-2"
-                      onClick={isValid ? toggleRequestPaymentDialog : undefined}
-                    >
-                      Request Payment
-                    </Button>
-                  </TooltipTrigger>
-                  {!isValid && (
-                    <TooltipContent
-                      side="bottom"
-                      className="bg-background border border-border text-foreground w-80"
-                    >
-                      <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              )}
-
-              {po?.status !== "PO Approved" && (
-                <Button
-                  variant="outline"
-                  className="text-primary border-primary text-xs px-2"
-                  onClick={toggleNewInvoiceDialog}
-                >
-                  Add Invoice
-                </Button>
-              )}
-
-              {!summaryPage &&
-                !accountsPage &&
-                !estimatesViewing &&
-                po?.status === "Dispatched" &&
-                !((poPayments || [])?.length > 0) && (
-                  <Button
-                    variant="outline"
-                    onClick={toggleRevertDialog}
-                    className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
+                  </h2>
+                  <Badge
+                    variant={
+                      po?.status === "PO Approved"
+                        ? "default"
+                        : po?.status === "Dispatched"
+                        ? "orange"
+                        : "green"
+                    }
                   >
-                    <Undo2 className="w-4 h-4" />
-                    Revert
-                  </Button>
-                )}
-
-              {
-                ["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && (
-                  <Button
-                    onClick={toggleDeliveryNoteSheet}
-                    variant="outline"
-                    className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
-                  >
-                    Update DN
-                  </Button>
-                )
-              }
-
-              <Sheet open={deliveryNoteSheet} onOpenChange={toggleDeliveryNoteSheet}>
-                <SheetContent className="overflow-auto">
-                  <SheetHeader className="text-start mb-4 mx-4">
-                    <SheetTitle className="text-primary flex flex-row items-center justify-between">
-                      <p>
-                        Update/View Delivery Note
-                      </p>
+                    {po?.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                    {!accountsPage && !estimatesViewing && !summaryPage && (
+                      <Tooltip>
+                      <TooltipTrigger>
                       <Button
-                        onClick={handlePrint}
-                        variant="default"
-                        className="px-2"
-                        size="sm">
-                        <Eye className="h-4 w-4 mr-2" />
-                        <span className="text-xs">Preview</span>
+                        disabled={!isValid}
+                        variant="outline"
+                        className="text-primary border-primary text-xs px-2"
+                        onClick={isValid ? toggleRequestPaymentDialog : undefined}
+                      >
+                        Request Payment
                       </Button>
-                    </SheetTitle>
-                  </SheetHeader>
-                  <div className="space-y-4">
-                    <DeliveryNoteItemsDisplay data={po} poMutate={poMutate}
-                      toggleDeliveryNoteSheet={toggleDeliveryNoteSheet} />
+                      </TooltipTrigger>
+                      {!isValid && (
+                        <TooltipContent
+                          side="bottom"
+                          className="bg-background border border-border text-foreground w-80"
+                        >
+                          <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                    )}
 
-                    <DeliveryHistoryTable deliveryData={po?.delivery_data?.data || null} />
-
-                  </div>
-                </SheetContent>
-              </Sheet>
-
-              {((po?.status !== "PO Approved" ||
-                summaryPage ||
-                accountsPage ||
-                estimatesViewing) || (role != "Nirmaan Procurement Executive Profile")) && (
-                  <Tooltip>
-                    <TooltipTrigger>
+                  {po?.status !== "PO Approved" && (
                       <Button
                         variant="outline"
-                        disabled={!isValid}
-                        onClick={isValid ? togglePoPdfSheet : undefined}
+                        className="text-primary border-primary text-xs px-2"
+                        onClick={toggleNewInvoiceDialog}
+                      >
+                        Add Invoice
+                      </Button>
+                    )}
+
+                      <Button
+                        variant="outline"
+                        className="text-primary border-primary text-xs px-2"
+                        onClick={() => handleDownloadPdf(po.name)} 
+                      >
+                        Invoice Preview
+                      </Button>
+
+                  {!summaryPage &&
+                    !accountsPage &&
+                    !estimatesViewing &&
+                    po?.status === "Dispatched" &&
+                    !((poPayments || [])?.length > 0) && (
+                      <Button
+                        variant="outline"
+                        onClick={toggleRevertDialog}
                         className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                       >
-                        <Eye className="w-4 h-4" />
-                        Preview
+                        <Undo2 className="w-4 h-4" />
+                        Revert
                       </Button>
-                    </TooltipTrigger>
-                    {!isValid && (
-                      <TooltipContent
-                        side="bottom"
-                        className="bg-background border border-border text-foreground w-80"
-                      >
-                        <ValidationMessages title="Required Before Preview" errors={errors} />
-                      </TooltipContent>
                     )}
-                  </Tooltip>
-                )}
-              {po?.custom === "true" &&
-                !summaryPage &&
-                !accountsPage &&
-                !estimatesViewing &&
-                po?.status === "PO Approved" &&
-                !((poPayments || [])?.length > 0) && (
-                  <Button
-                    onClick={toggleDeleteDialog}
-                    className="text-xs flex items-center gap-1 rounded-md p-1 px-2 h-8"
-                  >
-                    <Trash2Icon className="w-4 h-4" />
-                    Delete
-                  </Button>
-                )}
 
-              <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Are you sure?</DialogTitle>
-                  </DialogHeader>
-                  <DialogDescription>
-                    Clicking on Confirm will delete this <span className="text-primary">Custom PO and associated Custom PR</span> permanently!
-                  </DialogDescription>
-                  <div className="flex items-center justify-end gap-2">
-                    {deleteCustomPOCallLoading ? (
-                      <TailSpin color="red" height={40} width={40} />
-                    ) : (
-                      <>
-                        <DialogClose asChild>
-                          <Button variant={"outline"}>
-                            <CircleX className="h-4 w-4 mr-1" />
-                            Cancel
-                          </Button>
-                        </DialogClose>
-                        <Button onClick={handleDeleteCustomPO}>
-                          <CheckCheck className="h-4 w-4 mr-1" />
-                          Confirm
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
-
-              {!summaryPage &&
-                !accountsPage &&
-                !estimatesViewing &&
-                po?.status === "PO Approved" && (
-                  <Tooltip>
-                    <TooltipTrigger>
+                  {
+                    ["Dispatched", "Partially Delivered"].includes(po?.status) && (
                       <Button
-                        disabled={!isValid}
-                        onClick={isValid ? toggleDispatchPODialog : undefined}
-                        className="flex items-center gap-1 text-xs p-1 h-8 px-2"
+                      onClick={toggleDeliveryNoteSheet}
+                      variant="outline"
+                      className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
                       >
-                        <Send className="h-4 w-4" />
-                        Dispatch PO
+                        Update DN
                       </Button>
-                    </TooltipTrigger>
-                    {!isValid && (
-                      <TooltipContent
-                        side="bottom"
-                        className="bg-background border border-border text-foreground w-80"
-                      >
-                        <ValidationMessages title="Required Before Dispatch" errors={errors} />
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
+                    )
+                  }
 
-              <Sheet open={dispatchPODialog} onOpenChange={toggleDispatchPODialog}>
-                <SheetContent className="overflow-y-auto">
-                  <Card className="border-yellow-500 shadow-lg overflow-auto my-4">
-                    <CardHeader className="bg-yellow-50">
-                      <CardTitle className="text-2xl text-yellow-800">
-                        Send this PO to{" "}
-                        <span className="font-bold text-yellow-600">
-                          {po?.vendor_name}
-                        </span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                      <div className="space-y-6">
-                        <div className="bg-yellow-100 p-4 rounded-lg">
-                          <h3 className="font-semibold text-yellow-800 mb-2 flex items-center">
-                            <AlertTriangle className="w-5 h-5 mr-2" />
-                            Important Notes
-                          </h3>
-                          <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700">
-                            <li>
-                              You can add{" "}
-                              <span className="font-bold">
-                                charges, notes & payment terms
-                              </span>{" "}
-                              above.
-                            </li>
-                            <li>
-                              You can also{" "}
-                              <span className="font-bold">merge POs</span>{" "}
-                              with same vendor and project. Look out for{" "}
-                              <span className="font-bold">Heads Up</span> box
-                              above.
-                            </li>
-                            <li>
-                              You can download the prepared PO to notify
-                              vendor:{" "}
-                              <span className="font-medium">
-                                {po?.vendor_name}
-                              </span>{" "}
-                              through <span> Contact Options</span> section
-                              below
-                            </li>
-                          </ul>
-                        </div>
-                        <Separator />
-
+                  <Sheet open={deliveryNoteSheet} onOpenChange={toggleDeliveryNoteSheet}>
+                    <SheetContent className="overflow-auto">
+                        <SheetHeader className="text-start mb-4 mx-4">
+                          <SheetTitle className="text-primary flex flex-row items-center justify-between">
+                            <p>
+                            Update/View Delivery Note
+                            </p>
+                             <Button 
+                             onClick={handlePrint}
+                              variant="default" 
+                              className="px-2"
+                              size="sm">
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  <span className="text-xs">Preview</span>
+                              </Button>
+                          </SheetTitle>
+                        </SheetHeader>
                         <div className="space-y-4">
-                          <h3 className="font-semibold text-lg">
-                            Vendor Contact Options
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <Label
-                                htmlFor="phone"
-                                className="text-sm font-medium"
-                              >
-                                Phone Number
-                              </Label>
-                              <div className="flex flex-col mt-1">
-                                <div className="flex">
-                                  <Input
-                                    id="phone"
-                                    type="tel"
-                                    placeholder="Enter 10-digit number"
-                                    value={phoneNumber}
-                                    onChange={handlePhoneChange}
-                                    className="rounded-r-none"
-                                  />
+                          <DeliveryNoteItemsDisplay data={po} poMutate={poMutate}
+                          toggleDeliveryNoteSheet={toggleDeliveryNoteSheet} />
+
+                          <DeliveryHistoryTable deliveryData={po?.delivery_data?.data || null} />
+
+                        </div>
+                    </SheetContent>
+                  </Sheet>
+
+                  {((po?.status !== "PO Approved" ||
+                    summaryPage ||
+                    accountsPage ||
+                    estimatesViewing) || (role != "Nirmaan Procurement Executive Profile")) && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                        <Button
+                          variant="outline"
+                          disabled={!isValid}
+                          onClick={isValid ? togglePoPdfSheet : undefined}
+                          className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
+                        >
+                          <Eye className="w-4 h-4" />
+                          Preview
+                        </Button>
+                        </TooltipTrigger>
+                        {!isValid && (
+                          <TooltipContent
+                            side="bottom"
+                            className="bg-background border border-border text-foreground w-80"
+                          >
+                            <ValidationMessages title="Required Before Preview" errors={errors} />
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                  )}
+                {po?.custom === "true" &&
+                  !summaryPage &&
+                    !accountsPage &&
+                    !estimatesViewing &&
+                    po?.status === "PO Approved" &&
+                    !((poPayments || [])?.length > 0) && (
+                      <Button
+                        onClick={toggleDeleteDialog}
+                        className="text-xs flex items-center gap-1 rounded-md p-1 px-2 h-8"
+                      >
+                        <Trash2Icon className="w-4 h-4" />
+                        Delete
+                      </Button>
+                  )}
+
+                <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Are you sure?</DialogTitle>
+                    </DialogHeader>
+                    <DialogDescription>
+                      Clicking on Confirm will delete this <span className="text-primary">Custom PO and associated Custom PR</span> permanently!
+                    </DialogDescription>
+                    <div className="flex items-center justify-end gap-2">
+                      {deleteCustomPOCallLoading ? (
+                        <TailSpin color="red" height={40} width={40} />
+                      ) : (
+                        <>
+                          <DialogClose asChild>
+                            <Button variant={"outline"}>
+                              <CircleX className="h-4 w-4 mr-1" />
+                              Cancel
+                            </Button>
+                          </DialogClose>
+                          <Button onClick={handleDeleteCustomPO}>
+                            <CheckCheck className="h-4 w-4 mr-1" />
+                            Confirm
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                
+                {!summaryPage &&
+                  !accountsPage &&
+                  !estimatesViewing &&
+                  po?.status === "PO Approved" && (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button 
+                            disabled={!isValid}
+                            onClick={isValid ? toggleDispatchPODialog : undefined}
+                            className="flex items-center gap-1 text-xs p-1 h-8 px-2"
+                          >
+                            <Send className="h-4 w-4" />
+                            Dispatch PO
+                          </Button>
+                        </TooltipTrigger>
+                        {!isValid && (
+                          <TooltipContent
+                            side="bottom"
+                            className="bg-background border border-border text-foreground w-80"
+                          >
+                            <ValidationMessages title="Required Before Dispatch" errors={errors} />
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                  )}
+
+                    <Sheet open={dispatchPODialog} onOpenChange={toggleDispatchPODialog}>
+                      <SheetContent className="overflow-y-auto">
+                        <Card className="border-yellow-500 shadow-lg overflow-auto my-4">
+                          <CardHeader className="bg-yellow-50">
+                            <CardTitle className="text-2xl text-yellow-800">
+                              Send this PO to{" "}
+                              <span className="font-bold text-yellow-600">
+                                {po?.vendor_name}
+                              </span>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="p-6">
+                            <div className="space-y-6">
+                              <div className="bg-yellow-100 p-4 rounded-lg">
+                                <h3 className="font-semibold text-yellow-800 mb-2 flex items-center">
+                                  <AlertTriangle className="w-5 h-5 mr-2" />
+                                  Important Notes
+                                </h3>
+                                <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700">
+                                  <li>
+                                    You can add{" "}
+                                    <span className="font-bold">
+                                      charges, notes & payment terms
+                                    </span>{" "}
+                                    above.
+                                  </li>
+                                  <li>
+                                    You can also{" "}
+                                    <span className="font-bold">merge POs</span>{" "}
+                                    with same vendor and project. Look out for{" "}
+                                    <span className="font-bold">Heads Up</span> box
+                                    above.
+                                  </li>
+                                  <li>
+                                    You can download the prepared PO to notify
+                                    vendor:{" "}
+                                    <span className="font-medium">
+                                      {po?.vendor_name}
+                                    </span>{" "}
+                                    through <span> Contact Options</span> section
+                                    below
+                                  </li>
+                                </ul>
+                              </div>
+                              <Separator />
+    
+                              <div className="space-y-4">
+                                <h3 className="font-semibold text-lg">
+                                  Vendor Contact Options
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <Label
+                                      htmlFor="phone"
+                                      className="text-sm font-medium"
+                                    >
+                                      Phone Number
+                                    </Label>
+                                    <div className="flex flex-col mt-1">
+                                      <div className="flex">
+                                        <Input
+                                          id="phone"
+                                          type="tel"
+                                          placeholder="Enter 10-digit number"
+                                          value={phoneNumber}
+                                          onChange={handlePhoneChange}
+                                          className="rounded-r-none"
+                                        />
+                                        <Dialog>
+                                          <DialogTrigger asChild>
+                                            <Button
+                                              className="rounded-l-none bg-green-600 hover:bg-green-700"
+                                              disabled={phoneNumber.length !== 10}
+                                            >
+                                              <Phone className="w-4 h-4 mr-2" />
+                                              WhatsApp
+                                            </Button>
+                                          </DialogTrigger>
+                                          <DialogContent>
+                                            <DialogHeader>
+                                              <DialogTitle className="text-center">
+                                                Send PO via WhatsApp
+                                              </DialogTitle>
+                                              <DialogDescription className="text-center">
+                                                Download the PO and send it via
+                                                WhatsApp to {phoneNumber}
+                                              </DialogDescription>
+                                            </DialogHeader>
+                                            <div className="flex justify-center space-x-4">
+                                              <Button
+                                                onClick={togglePoPdfSheet}
+                                                variant="outline"
+                                              >
+                                                <Download className="h-4 w-4 mr-2" />
+                                                PO PDF
+                                              </Button>
+                                              <Button
+                                                onClick={() =>
+                                                  window.open(
+                                                    `https://wa.me/${phoneNumber}`
+                                                  )
+                                                }
+                                                className="bg-green-600 hover:bg-green-700"
+                                              >
+                                                <CheckCheck className="h-4 w-4 mr-2" />
+                                                Open WhatsApp
+                                              </Button>
+                                            </div>
+                                          </DialogContent>
+                                        </Dialog>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label
+                                      htmlFor="email"
+                                      className="text-sm font-medium"
+                                    >
+                                      Email
+                                    </Label>
+                                    <div className="flex flex-col mt-1">
+                                      <div className="flex">
+                                        <Input
+                                          id="email"
+                                          type="email"
+                                          placeholder="Enter email address"
+                                          value={email}
+                                          onChange={handleEmailChange}
+                                          className="rounded-r-none"
+                                        />
+                                        <Dialog>
+                                          <DialogTrigger asChild>
+                                            <Button
+                                              className="rounded-l-none bg-blue-600 hover:bg-blue-700"
+                                              disabled={
+                                                !email.trim() ||
+                                                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+                                                  email
+                                                )
+                                              }
+                                            >
+                                              <Mail className="w-4 h-4 mr-2" />
+                                              Email
+                                            </Button>
+                                          </DialogTrigger>
+                                          <DialogContent className="max-w-3xl">
+                                            <DialogHeader>
+                                              <DialogTitle>
+                                                Send PO via Email
+                                              </DialogTitle>
+                                              <DialogDescription>
+                                                Customize your email and send the PO
+                                                to {email}
+                                              </DialogDescription>
+                                            </DialogHeader>
+                                            <div className="space-y-4">
+                                              <div>
+                                                <Label htmlFor="emailSubject">
+                                                  Subject
+                                                </Label>
+                                                <Input
+                                                  id="emailSubject"
+                                                  value={emailSubject}
+                                                  onChange={(e) =>
+                                                    setEmailSubject(e.target.value)
+                                                  }
+                                                  placeholder="Enter email subject"
+                                                />
+                                              </div>
+                                              <div>
+                                                <Label htmlFor="emailBody">
+                                                  Body
+                                                </Label>
+                                                <Textarea
+                                                  id="emailBody"
+                                                  value={emailBody}
+                                                  onChange={(e) =>
+                                                    setEmailBody(e.target.value)
+                                                  }
+                                                  placeholder="Enter email body"
+                                                  rows={5}
+                                                />
+                                              </div>
+                                              <div className="bg-gray-100 p-4 rounded-md">
+                                                <h4 className="font-medium mb-2">
+                                                  Email Preview
+                                                </h4>
+                                                <p>
+                                                  <strong>To:</strong> {email}
+                                                </p>
+                                                <p>
+                                                  <strong>Subject:</strong>{" "}
+                                                  {emailSubject}
+                                                </p>
+                                                <p>
+                                                  <strong>Body:</strong> {emailBody}
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <DialogFooter>
+                                              <Button
+                                                onClick={togglePoPdfSheet}
+                                                variant="outline"
+                                              >
+                                                <Download className="h-4 w-4 mr-2" />
+                                                PO PDF
+                                              </Button>
+                                              <Button
+                                                onClick={() =>
+                                                  window.open(
+                                                    `https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(
+                                                      emailSubject
+                                                    )}&body=${encodeURIComponent(
+                                                      emailBody
+                                                    )}`
+                                                  )
+                                                }
+                                                className="bg-blue-600 hover:bg-blue-700"
+                                              >
+                                                <CheckCheck className="h-4 w-4 mr-2" />
+                                                Send Email
+                                              </Button>
+                                            </DialogFooter>
+                                          </DialogContent>
+                                        </Dialog>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                          <CardFooter className="bg-gray-50 flex justify-between p-4 max-md:flex-col max-md:items-start max-md:gap-4">
+                            <p className="text-sm text-gray-600 italic">
+                              Check all details before sending this PO.
+                            </p>
+                            <div className="space-x-2 space-y-2 max-md:text-end max-md:w-full">
+                                  <Button
+                                    variant="outline"
+                                    onClick={togglePoPdfSheet}
+                                  >
+                                    <Printer className="h-4 w-4 mr-2" />
+                                    PO PDF
+                                  </Button>
                                   <Dialog>
                                     <DialogTrigger asChild>
                                       <Button
-                                        className="rounded-l-none bg-green-600 hover:bg-green-700"
-                                        disabled={phoneNumber.length !== 10}
+                                        variant="default"
+                                        className="bg-yellow-500 hover:bg-yellow-600"
                                       >
-                                        <Phone className="w-4 h-4 mr-2" />
-                                        WhatsApp
+                                        <Send className="h-4 w-4 mr-2" />
+                                        Mark as Dispatched
                                       </Button>
                                     </DialogTrigger>
                                     <DialogContent>
                                       <DialogHeader>
-                                        <DialogTitle className="text-center">
-                                          Send PO via WhatsApp
-                                        </DialogTitle>
-                                        <DialogDescription className="text-center">
-                                          Download the PO and send it via
-                                          WhatsApp to {phoneNumber}
-                                        </DialogDescription>
-                                      </DialogHeader>
-                                      <div className="flex justify-center space-x-4">
-                                        <Button
-                                          onClick={togglePoPdfSheet}
-                                          variant="outline"
-                                        >
-                                          <Download className="h-4 w-4 mr-2" />
-                                          PO PDF
-                                        </Button>
-                                        <Button
-                                          onClick={() =>
-                                            window.open(
-                                              `https://wa.me/${phoneNumber}`
-                                            )
-                                          }
-                                          className="bg-green-600 hover:bg-green-700"
-                                        >
-                                          <CheckCheck className="h-4 w-4 mr-2" />
-                                          Open WhatsApp
-                                        </Button>
-                                      </div>
-                                    </DialogContent>
-                                  </Dialog>
-                                </div>
-                              </div>
-                            </div>
-                            <div>
-                              <Label
-                                htmlFor="email"
-                                className="text-sm font-medium"
-                              >
-                                Email
-                              </Label>
-                              <div className="flex flex-col mt-1">
-                                <div className="flex">
-                                  <Input
-                                    id="email"
-                                    type="email"
-                                    placeholder="Enter email address"
-                                    value={email}
-                                    onChange={handleEmailChange}
-                                    className="rounded-r-none"
-                                  />
-                                  <Dialog>
-                                    <DialogTrigger asChild>
-                                      <Button
-                                        className="rounded-l-none bg-blue-600 hover:bg-blue-700"
-                                        disabled={
-                                          !email.trim() ||
-                                          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-                                            email
-                                          )
-                                        }
-                                      >
-                                        <Mail className="w-4 h-4 mr-2" />
-                                        Email
-                                      </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="max-w-3xl">
-                                      <DialogHeader>
                                         <DialogTitle>
-                                          Send PO via Email
+                                          Confirm PO Dispatch?
                                         </DialogTitle>
-                                        <DialogDescription>
-                                          Customize your email and send the PO
-                                          to {email}
+                                        <DialogDescription className="pt-2 flex flex-col gap-2">
+                                          <p>
+                                            You can add the delivery person's
+                                            details here.
+                                          </p>
+                                          <div>
+                                            <Label
+                                              htmlFor="personName"
+                                              className="text-sm font-medium"
+                                            >
+                                              Person Name{" "}
+                                              <span className="text-gray-400">
+                                                (optional)
+                                              </span>
+                                            </Label>
+                                            <Input
+                                              id="personName"
+                                              type="text"
+                                              value={contactPerson.name}
+                                              placeholder="Enter person name"
+                                              onChange={(e) =>
+                                                setContactPerson((prev) => ({
+                                                  ...prev,
+                                                  name: e.target.value,
+                                                }))
+                                              }
+                                              className="mt-1"
+                                            />
+                                          </div>
+                                          <div>
+                                            <Label
+                                              htmlFor="contactNumber"
+                                              className="text-sm font-medium"
+                                            >
+                                              Contact Number{" "}
+                                              <span className="text-gray-400">
+                                                (optional)
+                                              </span>
+                                            </Label>
+                                            <Input
+                                              id="contactNumber"
+                                              type="tel"
+                                              value={contactPerson.number}
+                                              placeholder="Enter 10-digit number"
+                                              onChange={(e) =>
+                                                setContactPerson((prev) => ({
+                                                  ...prev,
+                                                  number: e.target.value.slice(
+                                                    0,
+                                                    10
+                                                  ),
+                                                }))
+                                              }
+                                              className="mt-1"
+                                            />
+                                          </div>
                                         </DialogDescription>
                                       </DialogHeader>
-                                      <div className="space-y-4">
-                                        <div>
-                                          <Label htmlFor="emailSubject">
-                                            Subject
-                                          </Label>
-                                          <Input
-                                            id="emailSubject"
-                                            value={emailSubject}
-                                            onChange={(e) =>
-                                              setEmailSubject(e.target.value)
-                                            }
-                                            placeholder="Enter email subject"
-                                          />
+                                      {update_loading ? (
+                                        <div className="flex items-center justify-center">
+                                          <TailSpin width={80} color="red" />{" "}
                                         </div>
-                                        <div>
-                                          <Label htmlFor="emailBody">
-                                            Body
-                                          </Label>
-                                          <Textarea
-                                            id="emailBody"
-                                            value={emailBody}
-                                            onChange={(e) =>
-                                              setEmailBody(e.target.value)
-                                            }
-                                            placeholder="Enter email body"
-                                            rows={5}
-                                          />
-                                        </div>
-                                        <div className="bg-gray-100 p-4 rounded-md">
-                                          <h4 className="font-medium mb-2">
-                                            Email Preview
-                                          </h4>
-                                          <p>
-                                            <strong>To:</strong> {email}
-                                          </p>
-                                          <p>
-                                            <strong>Subject:</strong>{" "}
-                                            {emailSubject}
-                                          </p>
-                                          <p>
-                                            <strong>Body:</strong> {emailBody}
-                                          </p>
-                                        </div>
-                                      </div>
-                                      <DialogFooter>
-                                        <Button
-                                          onClick={togglePoPdfSheet}
-                                          variant="outline"
-                                        >
-                                          <Download className="h-4 w-4 mr-2" />
-                                          PO PDF
-                                        </Button>
-                                        <Button
-                                          onClick={() =>
-                                            window.open(
-                                              `https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(
-                                                emailSubject
-                                              )}&body=${encodeURIComponent(
-                                                emailBody
-                                              )}`
-                                            )
-                                          }
-                                          className="bg-blue-600 hover:bg-blue-700"
-                                        >
-                                          <CheckCheck className="h-4 w-4 mr-2" />
-                                          Send Email
-                                        </Button>
-                                      </DialogFooter>
+                                      ) : (
+                                        <DialogFooter>
+                                          <DialogClose asChild>
+                                            <Button
+                                              variant="outline"
+                                              className="flex items-center gap-1"
+                                            >
+                                              <CircleX className="h-4 w-4" />
+                                              Cancel
+                                            </Button>
+                                          </DialogClose>
+                                          <Button
+                                            onClick={handleDispatchPO}
+                                            className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1"
+                                          >
+                                            <CheckCheck className="h-4 w-4" />
+                                            Confirm
+                                          </Button>
+                                        </DialogFooter>
+                                      )}
                                     </DialogContent>
                                   </Dialog>
-                                </div>
-                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="bg-gray-50 flex justify-between p-4 max-md:flex-col max-md:items-start max-md:gap-4">
-                      <p className="text-sm text-gray-600 italic">
-                        Check all details before sending this PO.
-                      </p>
-                      <div className="space-x-2 space-y-2 max-md:text-end max-md:w-full">
-                        <Button
-                          variant="outline"
-                          onClick={togglePoPdfSheet}
-                        >
-                          <Printer className="h-4 w-4 mr-2" />
-                          PO PDF
-                        </Button>
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="default"
-                              className="bg-yellow-500 hover:bg-yellow-600"
-                            >
-                              <Send className="h-4 w-4 mr-2" />
-                              Mark as Dispatched
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>
-                                Confirm PO Dispatch?
-                              </DialogTitle>
-                              <DialogDescription className="pt-2 flex flex-col gap-2">
-                                <p>
-                                  You can add the delivery person's
-                                  details here.
-                                </p>
-                                <div>
-                                  <Label
-                                    htmlFor="personName"
-                                    className="text-sm font-medium"
-                                  >
-                                    Person Name{" "}
-                                    <span className="text-gray-400">
-                                      (optional)
-                                    </span>
-                                  </Label>
-                                  <Input
-                                    id="personName"
-                                    type="text"
-                                    value={contactPerson.name}
-                                    placeholder="Enter person name"
-                                    onChange={(e) =>
-                                      setContactPerson((prev) => ({
-                                        ...prev,
-                                        name: e.target.value,
-                                      }))
-                                    }
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div>
-                                  <Label
-                                    htmlFor="contactNumber"
-                                    className="text-sm font-medium"
-                                  >
-                                    Contact Number{" "}
-                                    <span className="text-gray-400">
-                                      (optional)
-                                    </span>
-                                  </Label>
-                                  <Input
-                                    id="contactNumber"
-                                    type="tel"
-                                    value={contactPerson.number}
-                                    placeholder="Enter 10-digit number"
-                                    onChange={(e) =>
-                                      setContactPerson((prev) => ({
-                                        ...prev,
-                                        number: e.target.value.slice(
-                                          0,
-                                          10
-                                        ),
-                                      }))
-                                    }
-                                    className="mt-1"
-                                  />
-                                </div>
-                              </DialogDescription>
-                            </DialogHeader>
-                            {update_loading ? (
-                              <div className="flex items-center justify-center">
-                                <TailSpin width={80} color="red" />{" "}
-                              </div>
-                            ) : (
-                              <DialogFooter>
-                                <DialogClose asChild>
-                                  <Button
-                                    variant="outline"
-                                    className="flex items-center gap-1"
-                                  >
-                                    <CircleX className="h-4 w-4" />
-                                    Cancel
-                                  </Button>
-                                </DialogClose>
-                                <Button
-                                  onClick={handleDispatchPO}
-                                  className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1"
-                                >
-                                  <CheckCheck className="h-4 w-4" />
-                                  Confirm
-                                </Button>
-                              </DialogFooter>
-                            )}
-                          </DialogContent>
-                        </Dialog>
-                      </div>
-                    </CardFooter>
-                  </Card>
-                </SheetContent>
-              </Sheet>
-            </div>
-
-            <Dialog open={revertDialog} onOpenChange={toggleRevertDialog}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Are you sure?</DialogTitle>
-                </DialogHeader>
-
-                <DialogDescription>
-                  Clicking on Confirm will revert this PO's status back to{" "}
-                  <span className="text-primary">PO Approved</span>.
-                </DialogDescription>
-
-                <div className="flex items-center justify-end gap-2">
-                  {update_loading ? (
-                    <TailSpin color="red" height={40} width={40} />
-                  ) : (
-                    <>
-                      <DialogClose asChild>
-                        <Button variant={"outline"}>
-                          <CircleX className="h-4 w-4 mr-1" />
-                          Cancel
-                        </Button>
-                      </DialogClose>
-                      <Button onClick={handleRevertPO}>
-                        <CheckCheck className="h-4 w-4 mr-1" />
-                        Confirm
-                      </Button>
-                    </>
-                  )}
+                          </CardFooter>
+                        </Card>
+                      </SheetContent>
+                    </Sheet>
                 </div>
-              </DialogContent>
-            </Dialog>
-          </CardTitle>
-        </CardHeader>
 
-        <CardContent className="max-sm:text-xs">
-          <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label className=" text-red-700">Vendor</Label>
-              <div>
-                <VendorHoverCard vendor_id={po?.vendor} />
-                {hasVendorIssues && <ValidationIndicator error={errors.find(e => e.code === "INCOMPLETE_VENDOR")} />}
+                <Dialog open={revertDialog} onOpenChange={toggleRevertDialog}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Are you sure?</DialogTitle>
+                    </DialogHeader>
+    
+                    <DialogDescription>
+                      Clicking on Confirm will revert this PO's status back to{" "}
+                      <span className="text-primary">PO Approved</span>.
+                    </DialogDescription>
+    
+                    <div className="flex items-center justify-end gap-2">
+                      {update_loading ? (
+                        <TailSpin color="red" height={40} width={40} />
+                      ) : (
+                        <>
+                          <DialogClose asChild>
+                            <Button variant={"outline"}>
+                              <CircleX className="h-4 w-4 mr-1" />
+                              Cancel
+                            </Button>
+                          </DialogClose>
+                          <Button onClick={handleRevertPO}>
+                            <CheckCheck className="h-4 w-4 mr-1" />
+                            Confirm
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </CardTitle>
+            </CardHeader>
+    
+            <CardContent className="max-sm:text-xs">
+              <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <Label className=" text-red-700">Vendor</Label>
+                  <div>
+                    <VendorHoverCard vendor_id={po?.vendor} />
+                    {hasVendorIssues && <ValidationIndicator error={errors.find(e => e.code === "INCOMPLETE_VENDOR")} />}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 sm:items-center max-sm:text-end">
+                  <Label className=" text-red-700">Package</Label>
+                  <span>{pr?.work_package || "Custom"}</span>
+                </div>
+                <div className="flex flex-col gap-2 sm:items-end">
+                  <Label className=" text-red-700">Date Created</Label>
+                  <span>{formatDate(po?.creation || "")}</span>
+                </div>
+                <div className="flex flex-col gap-2 max-sm:items-end">
+                  <Label className=" text-red-700">Total (Excl. GST)</Label>
+                  <span>{formatToRoundedIndianRupee(getTotal?.total)}</span>
+                </div>
+                <div className="flex flex-col gap-2 sm:items-center">
+                  <Label className=" text-red-700">Total Amount Paid</Label>
+                  <span>{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
+                </div>
+                <div className="flex flex-col gap-2 items-end">
+                  <Label className=" text-red-700">Total (Incl. GST)</Label>
+                  <span>
+                    {formatToRoundedIndianRupee(getTotal?.totalAmt)}
+                  </span>
+                </div>
               </div>
-            </div>
-            <div className="flex flex-col gap-2 sm:items-center max-sm:text-end">
-              <Label className=" text-red-700">Package</Label>
-              <span>{pr?.work_package || "Custom"}</span>
-            </div>
-            <div className="flex flex-col gap-2 sm:items-end">
-              <Label className=" text-red-700">Date Created</Label>
-              <span>{formatDate(po?.creation || "")}</span>
-            </div>
-            <div className="flex flex-col gap-2 max-sm:items-end">
-              <Label className=" text-red-700">Total (Excl. GST)</Label>
-              <span>{formatToRoundedIndianRupee(getTotal?.total)}</span>
-            </div>
-            <div className="flex flex-col gap-2 sm:items-center">
-              <Label className=" text-red-700">Total Amount Paid</Label>
-              <span>{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
-            </div>
-            <div className="flex flex-col gap-2 items-end">
-              <Label className=" text-red-700">Total (Incl. GST)</Label>
-              <span>
-                {formatToRoundedIndianRupee(getTotal?.totalAmt)}
-              </span>
-            </div>
-          </div>
-        </CardContent>
+            </CardContent>
       </Card>
 
       {/* Hidden Printable Component */}
-      {/* Keep this outside the main layout flow */}
-      <div className="hidden print:block"> {/* Use print:block utility */}
-        <DeliveryNotePrintLayout ref={printComponentRef} data={po} />
+            {/* Keep this outside the main layout flow */}
+          <div className="hidden print:block"> {/* Use print:block utility */}
+               <DeliveryNotePrintLayout ref={printComponentRef} data={po} />
+          </div>
       </div>
-    </div>
   )
 }
