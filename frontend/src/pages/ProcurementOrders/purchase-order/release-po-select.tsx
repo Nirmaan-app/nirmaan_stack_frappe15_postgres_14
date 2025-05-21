@@ -328,7 +328,7 @@ export const ReleasePOSelect: React.FC = () => {
             }
         },
         {
-            accessorKey: "po_amount",
+            id: "po_amount",
             header: ({ column }) => {
                 return (
                     <DataTableColumnHeader column={column} title="PO Amt" />
@@ -344,8 +344,8 @@ export const ReleasePOSelect: React.FC = () => {
 
             },
             size: 200,
-            enableSorting: true,
-            sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+            enableSorting: false,
+            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
                 exportHeaderName: "PO Amount",
                 exportValue: (row) => {
@@ -360,7 +360,7 @@ export const ReleasePOSelect: React.FC = () => {
         },
         ...(["Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab) ? [
             {
-                accessorKey: "invoice_amount",
+                id: "invoice_amount",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Inv Amt" />
@@ -388,7 +388,7 @@ export const ReleasePOSelect: React.FC = () => {
                     return 0;
                     // return parseFloat(a) - parseFloat(b);
                 },
-                enableSorting: true,
+                enableSorting: false,
                 meta: {
                     exportHeaderName: "Invoice Amount",
                     exportValue: (row) => {
@@ -399,7 +399,7 @@ export const ReleasePOSelect: React.FC = () => {
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
         {
-            accessorKey: "Amount_paid",
+            id: "Amount_paid",
             header: "Amt Paid",
             cell: ({ row }) => {
                 const amountPaid = getAmountPaid(row.original?.name);
@@ -411,8 +411,8 @@ export const ReleasePOSelect: React.FC = () => {
 
             },
             size: 200,
-            sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
-            enableSorting: true,
+            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+            enableSorting: false,
             meta: {
                 exportHeaderName: "Amount Paid",
                 exportValue: (row) => {
