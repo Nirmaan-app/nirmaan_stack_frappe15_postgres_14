@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef, Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CircleCheck, CircleX, Info, SquarePen, Trash2 } from "lucide-react";
 
 // --- UI Components ---
@@ -61,6 +61,7 @@ interface SelectOption { label: string; value: string; }
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
+    const { call } = useFrappePostCall('frappe.client.set_value')
 
     // --- State for Dialogs ---
     const [paymentToProcess, setPaymentToProcess] = useState<ProjectPayments | null>(null);
@@ -157,10 +158,18 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             await updateDoc(DOCTYPE, paymentToProcess.name, updatedValues);
 
             if (paymentScreenshot) {
-                await upload(paymentScreenshot, {
+                const uploadedFile = await upload(paymentScreenshot, {
                     doctype: DOCTYPE, docname: paymentToProcess.name,
                     fieldname: "payment_attachment", isPrivate: true,
                 });
+
+                 await call({
+                    doctype: DOCTYPE,
+                    name: paymentToProcess.name,
+                    fieldname: "payment_attachment",
+                    value: uploadedFile.file_url,
+                });
+
             }
             refetch();
             toast({ title: "Success!", description: "Payment fulfilled successfully!", variant: "success" });

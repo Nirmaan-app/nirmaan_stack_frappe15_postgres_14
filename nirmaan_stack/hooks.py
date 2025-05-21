@@ -325,6 +325,7 @@ fixtures = [
     "Workflow State",
     "Workflow Action Master",
     "Portal Menu Item",
+    "Print Format",
     # "Pincodes"
 ]
 

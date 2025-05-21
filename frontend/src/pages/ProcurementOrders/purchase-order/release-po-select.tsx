@@ -345,6 +345,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             size: 200,
             enableSorting: false,
+            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
                 exportHeaderName: "PO Amount",
                 exportValue: (row) => {
@@ -374,6 +375,19 @@ export const ReleasePOSelect: React.FC = () => {
                     )
                 },
                 size: 200,
+                sortingFn: (a, b) => {
+
+                    const invoiceAmountA = getTotalInvoiceAmount(a?.original?.invoice_data);
+                    const invoiceAmountB = getTotalInvoiceAmount(b?.original?.invoice_data);
+                    console.log("invoiceAmountA", invoiceAmountA)
+                    console.log("invoiceAmountB", invoiceAmountB)
+
+                    if (invoiceAmountA && invoiceAmountB) {
+                        return invoiceAmountA - invoiceAmountB;
+                    }
+                    return 0;
+                    // return parseFloat(a) - parseFloat(b);
+                },
                 enableSorting: false,
                 meta: {
                     exportHeaderName: "Invoice Amount",
@@ -397,6 +411,7 @@ export const ReleasePOSelect: React.FC = () => {
 
             },
             size: 200,
+            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             enableSorting: false,
             meta: {
                 exportHeaderName: "Amount Paid",

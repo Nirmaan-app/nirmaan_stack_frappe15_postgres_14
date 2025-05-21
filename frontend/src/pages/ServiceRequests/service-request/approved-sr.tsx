@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -59,6 +59,35 @@ interface ApprovedSRProps {
     summaryPage?: boolean;
     accountsPage?: boolean;
 }
+
+interface PrintFormData {
+    delivery_note_no: string;
+    payment_terms: string;
+    reference_no_date: string;
+    other_references: string;
+    buyers_order_no: string;
+    buyers_order_date: string;
+    dispatch_doc_no: string;
+    delivery_note_date: string;
+    dispatched_through: string;
+    destination: string; // Already partially handled by project_city
+    terms_of_delivery: string;
+}
+
+const initialPrintFormData: PrintFormData = {
+    delivery_note_no: '',
+    payment_terms: '',
+    reference_no_date: '',
+    other_references: '',
+    buyers_order_no: '',
+    buyers_order_date: '',
+    dispatch_doc_no: '',
+    delivery_note_date: '',
+    dispatched_through: '',
+    destination: '',
+    terms_of_delivery: '',
+};
+
 
 export const ApprovedSR = ({summaryPage = false, accountsPage = false} : ApprovedSRProps) => {
 
@@ -103,6 +132,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
     const toggleEditSrTermsDialog = useCallback(() => {
         setEditSrTermsDialog((prevState) => !prevState)
     }, []);
+
+    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+    const [printFormState, setPrintFormState] = useState<PrintFormData>(initialPrintFormData);
 
     const [warning, setWarning] = useState("");
     
@@ -386,6 +418,42 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         }
     }
 
+
+  const handlePrintFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setPrintFormState(prev => ({ ...prev, [name]: value }));
+};
+
+
+  const handleGenerate = (dl=false) => {
+      /* Build ?settings= JSON */
+    //   const settings = encodeURIComponent(JSON.stringify(vals));
+      const baseParams = {
+          doctype : "Service Requests",
+          name    : orderData?.name || "",
+          format  : "SR Invoice",      // print format name
+          no_letterhead : "1",
+      };
+
+      // Add form data as parameters, only if they have values
+    const formDataParams: Record<string, string> = {};
+    for (const key in printFormState) {
+        if (printFormState[key as keyof PrintFormData]) {
+            formDataParams[`custom_${key}`] = printFormState[key as keyof PrintFormData]; // Prefix with 'custom_'
+        }
+    }
+
+    const allParams = { ...baseParams, ...formDataParams };
+    const queryString = new URLSearchParams(allParams).toString();
+    //   const qs   = new URLSearchParams(baseParams).toString();
+      const url  = `http://localhost:8000/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+      const view = `http://localhost:8000/printview?${queryString}`;
+
+      window.open(dl?url:view,"_blank");
+      setIsPrintDialogOpen(false);
+  };
+
+
     return (
         <div className="flex-1 space-y-4">
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
@@ -427,6 +495,216 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                   >
                                     Add Invoice
                                 </Button>
+
+
+        <Button size="sm" className="border border-primary" variant="outline"
+            onClick={()=>{setPrintFormState(initialPrintFormData); setIsPrintDialogOpen(true);}}>
+        View / Download Tax Invoice
+    </Button>
+
+    {/* <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+      <DialogTitle>Tax Invoice – Fill Optional Details</DialogTitle>
+
+          {[
+            ["buyers_order_no","Buyer's Order No."],
+            ["buyers_order_date","Order Date"],
+            ["dispatch_doc_no","Dispatch Doc No."],
+            ["delivery_note_date","Delivery Note Date"],
+            ["dispatched_through","Dispatched Through"],
+            ["destination","Destination"],
+            ["terms_of_delivery","Terms of Delivery"],
+            ["custom_delivery_note_no","Custom Delivery Note No."],
+          ].map(([k,label])=>(
+            <div key={k} className="flex items-center justify-between">
+                <Label className="text-sm font-medium">{label}</Label>
+                <Input
+                    type="text"
+                    placeholder={label}
+                    value={vals[k]}
+                    onChange={handleChange(k)}
+                    className="w-full"
+                />
+            </div>
+          ))}
+      <div className="flex items-center justify-end gap-2">
+        <DialogClose asChild>
+          <Button>Cancel</Button>
+      </DialogClose>
+        <Button onClick={()=>handleGenerate(false)}>Preview</Button>
+        <Button onClick={()=>handleGenerate(true)}>
+           Download PDF
+        </Button>
+
+      </div>
+      </DialogContent>
+    </Dialog> */}
+
+    <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+            <DialogContent className="sm:max-w-[550px]">
+                <DialogHeader>
+                    <DialogTitle>Invoice Details</DialogTitle>
+                    <DialogDescription>
+                        Please provide the following details for the invoice.
+                        Fields left blank will show as "-" or be omitted.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
+                    {/* Create input fields for each item */}
+                    {/* Example for Delivery Note */}
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="delivery_note_no" className="text-right col-span-1">
+                            Delivery Note
+                        </Label>
+                        <Input
+                            id="delivery_note_no"
+                            name="delivery_note_no"
+                            value={printFormState.delivery_note_no}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="payment_terms" className="text-right col-span-1">
+                            Mode/Terms of Pymt
+                        </Label>
+                        <Input
+                            id="payment_terms"
+                            name="payment_terms"
+                            value={printFormState.payment_terms}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="reference_no_date" className="text-right col-span-1">
+                            Reference No. & Date
+                        </Label>
+                        <Input
+                            id="reference_no_date"
+                            name="reference_no_date"
+                            value={printFormState.reference_no_date}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="other_references" className="text-right col-span-1">
+                            Other References
+                        </Label>
+                        <Input
+                            id="other_references"
+                            name="other_references"
+                            value={printFormState.other_references}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="buyers_order_no" className="text-right col-span-1">
+                            Buyer's Order No.
+                        </Label>
+                        <Input
+                            id="buyers_order_no"
+                            name="buyers_order_no"
+                            value={printFormState.buyers_order_no}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                     <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="buyers_order_date" className="text-right col-span-1">
+                            Buyer's Order Date
+                        </Label>
+                        <Input
+                            id="buyers_order_date"
+                            name="buyers_order_date"
+                            type="date" // Use date type for better UX
+                            value={printFormState.buyers_order_date}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="dispatch_doc_no" className="text-right col-span-1">
+                            Dispatch Doc No.
+                        </Label>
+                        <Input
+                            id="dispatch_doc_no"
+                            name="dispatch_doc_no"
+                            value={printFormState.dispatch_doc_no}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="delivery_note_date" className="text-right col-span-1">
+                            Delivery Note Date
+                        </Label>
+                        <Input
+                            id="delivery_note_date"
+                            name="delivery_note_date"
+                            type="date"
+                            value={printFormState.delivery_note_date}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                     <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="dispatched_through" className="text-right col-span-1">
+                            Dispatched through
+                        </Label>
+                        <Input
+                            id="dispatched_through"
+                            name="dispatched_through"
+                            value={printFormState.dispatched_through}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    {/* Destination is already partially handled, but allow override if needed */}
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="destination" className="text-right col-span-1">
+                            Destination (Override)
+                        </Label>
+                        <Input
+                            id="destination"
+                            name="destination"
+                            value={printFormState.destination}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                     <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="terms_of_delivery" className="text-right col-span-1">
+                            Terms of Delivery
+                        </Label>
+                        <Input
+                            id="terms_of_delivery"
+                            name="terms_of_delivery"
+                            value={printFormState.terms_of_delivery}
+                            onChange={handlePrintFormChange}
+                            className="col-span-3"
+                        />
+                    </div>
+                    {/* Add other fields similarly */}
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button type="button" variant="outline">
+                            Cancel
+                        </Button>
+                    </DialogClose>
+                    <Button onClick={()=>handleGenerate(false)}>Preview</Button>
+                    <Button type="button" onClick={()=>handleGenerate(true)}>
+                       Download PDF
+                    </Button>
+                    {/* <Button type="button" onClick={() => handleGenerate()}> 
+                        Generate Invoice
+                    </Button> */}
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
 
                                 <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
                                     <SheetContent className="overflow-auto">
@@ -651,7 +929,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                  {payment?.status !== "Paid" && !summaryPage && 
+                                                  {!["Paid", "Approved"].includes(payment?.status) && !summaryPage && 
                                                   <Dialog>
                                                     <DialogTrigger>
                                                       <Trash2
