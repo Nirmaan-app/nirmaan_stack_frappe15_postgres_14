@@ -1,6 +1,6 @@
 import { Category, ProcurementItem, RFQData } from "./ProcurementRequests"
 
-export interface SentBackItem extends ProcurementItem {}
+export type SentBackItem = ProcurementItem
 
 export interface SentBackCategory{
 	name: string

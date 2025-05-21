@@ -56,6 +56,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                     "category": item["category"],
                     "status": "Pending", # Status in Sent Back should be Pending
                     "comment": item.get("comment"),
+                    "work_package": item.get("work_package"),
                     "make": item.get("make"),
                     # Add other relevant fields needed by Sent Back Category
                 })
