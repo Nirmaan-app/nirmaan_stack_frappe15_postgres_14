@@ -335,13 +335,13 @@ export const PODetails : React.FC<PODetailsProps> = (
                       </Button>
                     )}
 
-                      <Button
+                      {/* <Button
                         variant="outline"
                         className="text-primary border-primary text-xs px-2"
                         onClick={() => handleDownloadPdf(po.name)} 
                       >
                         Invoice Preview
-                      </Button>
+                      </Button> */}
 
                   {!summaryPage &&
                     !accountsPage &&
