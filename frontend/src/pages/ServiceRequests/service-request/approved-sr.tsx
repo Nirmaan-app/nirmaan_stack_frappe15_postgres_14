@@ -929,7 +929,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                  {payment?.status !== "Paid" && !summaryPage && 
+                                                  {!["Paid", "Approved"].includes(payment?.status) && !summaryPage && 
                                                   <Dialog>
                                                     <DialogTrigger>
                                                       <Trash2

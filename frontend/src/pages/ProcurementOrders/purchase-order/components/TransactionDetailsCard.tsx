@@ -392,7 +392,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     </TableCell>
                     <TableCell>{payment?.status}</TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
-                      {payment?.status !== "Paid" && !estimatesViewing && !summaryPage &&
+                      {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
                         <Dialog>
                           <DialogTrigger>
                             <Trash2

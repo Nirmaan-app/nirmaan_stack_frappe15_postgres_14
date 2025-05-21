@@ -429,13 +429,13 @@ type MenuItem = Required<MenuProps>["items"][number];
   } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
-    limit: 10000,
-  }, projectId ? ProjectQueryKeys.estimates({ fields: ["*"], filters: [["project", "=", projectId]], limit: 10000 }) : null);
+    limit: 0,
+  }, projectId ? ProjectQueryKeys.estimates({ fields: ["*"], filters: [["project", "=", projectId]], limit: 0 }) : null);
 
   const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
     fields: ["*"],
     filters: [['project', '=', projectId], ['status', '=', 'Paid']],
-    limit: 1000
+    limit: 0
   })
 
   // const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
@@ -448,7 +448,7 @@ type MenuItem = Required<MenuProps>["items"][number];
     {
       fields: ["*"],
       filters: [["project", "=", `${projectId}`]],
-      limit: 1000,
+      limit: 0,
     },
     projectId ? `Procurement Requests ${projectId}` : null
   );
@@ -474,7 +474,7 @@ type MenuItem = Required<MenuProps>["items"][number];
         ["project", "=", projectId],
         ["status", "!=", "Merged"],
       ], // removed ["status", "!=", "PO Approved"] for now
-      limit: 1000,
+      limit: 0,
       orderBy: { field: "creation", order: "desc" },
     }
   );
@@ -504,7 +504,7 @@ type MenuItem = Required<MenuProps>["items"][number];
       ["status", "=", "Approved"],
       ["project", "=", projectId],
     ],
-    limit: 1000,
+    limit: 0,
   });
 
   // const { data: vendorsList } = useFrappeGetDocList<Vendors>("Vendors", {
@@ -1342,7 +1342,7 @@ type MenuItem = Required<MenuProps>["items"][number];
         case PROJECT_PAGE_TABS.ESTIMATES:
             return <ProjectEstimates projectTab />; // Example
         case PROJECT_PAGE_TABS.MATERIAL_USAGE:
-            return <ProjectMaterialUsageTab projectId={projectId} />;
+            return <ProjectMaterialUsageTab projectId={projectId} projectPayments={projectPayments} />;
         default:
             return <div>Select a tab.</div>;
     }

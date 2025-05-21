@@ -35,6 +35,7 @@ def generate_versions(doc, method):
             "utr": doc.utr,
             "tds": doc.tds,
             "owner": doc.owner,
+            "creation": doc.creation,
         }
 
         data["changed"].append(["payment_details", payment_details, []])

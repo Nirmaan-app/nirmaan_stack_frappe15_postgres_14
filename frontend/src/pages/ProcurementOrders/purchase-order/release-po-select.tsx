@@ -328,7 +328,7 @@ export const ReleasePOSelect: React.FC = () => {
             }
         },
         {
-            id: "po_amount",
+            accessorKey: "po_amount",
             header: ({ column }) => {
                 return (
                     <DataTableColumnHeader column={column} title="PO Amt" />
@@ -344,7 +344,8 @@ export const ReleasePOSelect: React.FC = () => {
 
             },
             size: 200,
-            enableSorting: false,
+            enableSorting: true,
+            sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
                 exportHeaderName: "PO Amount",
                 exportValue: (row) => {
@@ -359,7 +360,7 @@ export const ReleasePOSelect: React.FC = () => {
         },
         ...(["Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab) ? [
             {
-                id: "invoice_amount",
+                accessorKey: "invoice_amount",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Inv Amt" />
@@ -374,7 +375,20 @@ export const ReleasePOSelect: React.FC = () => {
                     )
                 },
                 size: 200,
-                enableSorting: false,
+                sortingFn: (a, b) => {
+
+                    const invoiceAmountA = getTotalInvoiceAmount(a?.original?.invoice_data);
+                    const invoiceAmountB = getTotalInvoiceAmount(b?.original?.invoice_data);
+                    console.log("invoiceAmountA", invoiceAmountA)
+                    console.log("invoiceAmountB", invoiceAmountB)
+
+                    if (invoiceAmountA && invoiceAmountB) {
+                        return invoiceAmountA - invoiceAmountB;
+                    }
+                    return 0;
+                    // return parseFloat(a) - parseFloat(b);
+                },
+                enableSorting: true,
                 meta: {
                     exportHeaderName: "Invoice Amount",
                     exportValue: (row) => {
@@ -385,7 +399,7 @@ export const ReleasePOSelect: React.FC = () => {
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
         {
-            id: "Amount_paid",
+            accessorKey: "Amount_paid",
             header: "Amt Paid",
             cell: ({ row }) => {
                 const amountPaid = getAmountPaid(row.original?.name);
@@ -397,7 +411,8 @@ export const ReleasePOSelect: React.FC = () => {
 
             },
             size: 200,
-            enableSorting: false,
+            sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+            enableSorting: true,
             meta: {
                 exportHeaderName: "Amount Paid",
                 exportValue: (row) => {
