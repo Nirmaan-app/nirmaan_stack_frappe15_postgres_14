@@ -139,7 +139,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                     <div role="button" tabIndex={0} onClick={() => handleNewSRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
                         {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap"
-                            to={for_vendor ? `/vendor-portal/service-requests/${srId}` : `/service-requests/${srId}?tab=approved-sr`} >
+                            to={for_vendor ? `/service-requests/${srId}?tab=approved-sr` : `/service-requests/${srId}?tab=approved-sr`} >
                             {srId?.slice(-5)}
                         </Link>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
