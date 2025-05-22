@@ -1,13 +1,13 @@
 import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useItemEstimate } from "@/hooks/useItemEstimate";
+// import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import formatToIndianRupee from "@/utils/FormatPrice";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { ProcurementRequest, ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
 import { useContext, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -19,6 +19,9 @@ import { toast } from "../../../components/ui/use-toast";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
+import { HistoricalQuotesHoverCard } from "./components/HistoricalQuotesHoverCard"; // Import the hover card
+import { TargetRateDetailFromAPI, FrappeTargetRateApiResponse, ApiSelectedQuotation, ApprovedQuotations, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Adjust path if needed
+
 
 export const ProcurementOrder: React.FC = () => {
 
@@ -29,7 +32,7 @@ export const ProcurementOrder: React.FC = () => {
 
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null)
 
-  const { getItemEstimate } = useItemEstimate()
+  // const { getItemEstimate } = useItemEstimate()
 
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: prMutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
     {
@@ -63,6 +66,45 @@ export const ProcurementOrder: React.FC = () => {
     filters: [["name", "=", procurement_request_list?.[0]?.project!]],
     limit: 1,
   }, procurement_request_list?.[0]?.project ? `Projects ${procurement_request_list?.[0]?.project}` : null);
+
+  // --- Fetch Target Rates using Custom API ---
+  const itemIdsToFetch = useMemo(() => {
+    return procurement_request_list?.[0]?.procurement_list?.list
+      ?.map(item => item.name) // Assuming item.name is the item_id
+      .filter(id => !!id) ?? [];
+  }, [procurement_request_list]);
+
+  const {
+    data: targetRatesApiResponse,
+    isLoading: targetRatesLoading,
+    error: targetRatesError
+  } = useFrappeGetCall<FrappeTargetRateApiResponse>(
+    'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', // Replace with your actual API path
+    { item_ids_json: itemIdsToFetch.length > 0 ? JSON.stringify(itemIdsToFetch) : undefined },
+    itemIdsToFetch.length > 0 ? `target_rates_for_items_summary_${orderId}` : null // Unique SWR key
+    // Add SWR options if needed
+  );
+
+  const targetRatesDataMap = useMemo(() => {
+    const map = new Map<string, TargetRateDetailFromAPI>();
+    targetRatesApiResponse?.message?.forEach(tr => {
+      if (tr.item_id) {
+        map.set(tr.item_id, tr);
+      }
+    });
+    return map;
+  }, [targetRatesApiResponse]);
+
+  // Log error if target rate fetch fails
+  useEffect(() => {
+    if (targetRatesError) {
+      console.error("Error fetching target rates in procurement-vendor:", targetRatesError);
+      // Optional: Show toast notification
+      // toast({ title: "Error", description: "Could not load target rates.", variant: "destructive" });
+    }
+  }, [targetRatesError]);
+
+  // --- End Target Rate Fetching ---
 
   const categoryMakesMap = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -113,6 +155,33 @@ export const ProcurementOrder: React.FC = () => {
   const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
 
+  useEffect(() => {
+    if (procurement_request_list && procurement_request_list.length > 0) {
+      // Parse procurement_list if it's a string
+      const requestData = procurement_request_list[0];
+      if (typeof requestData.procurement_list === 'string') {
+        try {
+          requestData.procurement_list = JSON.parse(requestData.procurement_list);
+        } catch (e) {
+          console.error("Failed to parse procurement_list:", e);
+          // Handle error appropriately, maybe set to an empty list
+          requestData.procurement_list = { list: [] };
+        }
+      }
+      // Parse category_list if it's a string
+      if (typeof requestData.category_list === 'string') {
+        try {
+          requestData.category_list = JSON.parse(requestData.category_list);
+        } catch (e) {
+          console.error("Failed to parse category_list:", e);
+          requestData.category_list = { list: [] };
+        }
+      }
+      setOrderData(requestData);
+    }
+  }, [procurement_request_list]);
+
+
   const handleStartProcuring = async () => {
     try {
 
@@ -133,6 +202,8 @@ export const ProcurementOrder: React.FC = () => {
       });
     }
   }
+  // Combined loading state
+  const isLoading = procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading || targetRatesLoading;
 
   if (procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading) return <LoadingFallback />
 
@@ -175,8 +246,9 @@ export const ProcurementOrder: React.FC = () => {
           <ProcurementHeaderCard orderData={orderData} />
         </div>
         <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
-          {orderData?.category_list.list.map((cat) => {
-            return <div className="min-w-[400px]">
+          {/* Check if category_list exists and is an array */}
+          {Array.isArray(orderData?.category_list?.list) && orderData.category_list.list.map((cat) => {
+            return <div key={cat.name} className="min-w-[400px]"> {/* Added key here */}
               <Table>
                 <TableHeader>
                   <TableRow className="bg-red-100">
@@ -199,9 +271,24 @@ export const ProcurementOrder: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orderData?.procurement_list.list.map((item: any) => {
+                  {/* Check if procurement_list exists and is an array */}
+                  {Array.isArray(orderData?.procurement_list?.list) && orderData.procurement_list.list.map((item: ProcurementItem) => { // Added type
                     if (item.category === cat.name) {
-                      const minQuote = getItemEstimate(item.name)?.averageRate
+                      // const minQuote = getItemEstimate(item.name)?.averageRate
+                      // --- Get Target Rate Info ---
+                      const targetRateDetail = targetRatesDataMap.get(item.name); // item.name is the item_id
+                      let targetRateValue: number = -1;
+                      let contributingQuotes: ApiSelectedQuotation[] = [];
+                      if (targetRateDetail && targetRateDetail.rate) {
+                        const parsedRate = parseFloat(targetRateDetail.rate);
+                        if (!isNaN(parsedRate)) targetRateValue = parsedRate;
+                      }
+                      if (targetRateDetail?.selected_quotations_items) {
+                        contributingQuotes = targetRateDetail.selected_quotations_items;
+                      }
+                      // Map quotes for hover card
+                      const mappedQuotes = mapApiQuotesToApprovedQuotations(contributingQuotes);
+                      // --- End Target Rate Info ---
                       return (
                         <TableRow key={item.item}>
                           <TableCell>
@@ -228,10 +315,16 @@ export const ProcurementOrder: React.FC = () => {
                           </TableCell>
                           <TableCell>{item.unit}</TableCell>
                           <TableCell>{item.quantity}</TableCell>
-                          <TableCell>{minQuote ? formatToIndianRupee(minQuote * 0.98) : "N/A"}</TableCell>
+                          <TableCell>
+                            {/* Use HistoricalQuotesHoverCard here */}
+                            <HistoricalQuotesHoverCard quotes={mappedQuotes}>
+                              {targetRateValue === -1 ? "N/A" : formatToRoundedIndianRupee(targetRateValue * 0.98)}
+                            </HistoricalQuotesHoverCard>
+                          </TableCell>
                         </TableRow>
-                      )
+                      );
                     }
+                    return null; // Return null if the item doesn't match the category
                   })}
                 </TableBody>
               </Table>

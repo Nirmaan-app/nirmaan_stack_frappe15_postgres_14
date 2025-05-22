@@ -9,7 +9,11 @@ import { error } from "console";
 
 
 export default function Debug() {
-    const { data: data, error: error } = useFrappeGetDoc("Contact", "Abhishek")
+    // const { data: data, error: error } = useFrappeGetDoc("Contact", "Abhishek")
+    const { data, isLoading, error } = useFrappeGetDocList("Target Rates", {
+        fields: ["name", "item_name", "rate", "selected_quotations"],
+        limit: 10000
+    })
 
     return (
         <>

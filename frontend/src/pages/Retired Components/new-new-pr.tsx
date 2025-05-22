@@ -227,10 +227,10 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
       });
       setItemOptions(options);
     }
-  }, [selectedWP,catOptions, item_list]);
+  }, [selectedWP, catOptions, item_list]);
 
   useEffect(() => {
-    if(curCategory) {
+    if (curCategory) {
       const bool = category_list?.find(i => i?.name === curCategory?.value)?.new_items
       setIsNewItemsDisabled((bool === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)))
     } else {
@@ -264,16 +264,16 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           category.name === item?.category && category.status === item.status
       );
       if (!isDuplicate) {
-  //       if (item.status === "Pending") {
-  //         const makes = project.project_work_packages
-  // ? JSON.parse(project.project_work_packages).work_packages
-  //     .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
-  //     .filter((cat) => cat.name === item.category) // Filter categories matching item.category
-  //     .flatMap((cat) => cat.makes || []) // Extract and flatten makes
-  // : []; // Return an empty array if project_work_packages is not defined
-  //         newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
-  //       } else {
-          newCategories.push({ name: item.category, status: item.status });
+        //       if (item.status === "Pending") {
+        //         const makes = project.project_work_packages
+        // ? JSON.parse(project.project_work_packages).work_packages
+        //     .flatMap((wp) => wp.category_list?.list || []) // Flatten all categories across work packages
+        //     .filter((cat) => cat.name === item.category) // Filter categories matching item.category
+        //     .flatMap((cat) => cat.makes || []) // Extract and flatten makes
+        // : []; // Return an empty array if project_work_packages is not defined
+        //         newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+        //       } else {
+        newCategories.push({ name: item.category, status: item.status });
         // }
       }
     });
@@ -518,7 +518,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
 
   const handleAddItem = async () => {
     try {
-      const itemData = { item_name : newItem.item_name, unit_name : newItem.unit_name, category : curCategory.value };
+      const itemData = { item_name: newItem.item_name, unit_name: newItem.unit_name, category: curCategory.value };
 
       const res = await createDoc("Items", itemData);
 
@@ -612,11 +612,11 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   //   console.log("fuzzyMatches", fuzzyMatches);
   // console.log("selectedCategories", selectedCategories)
 
-    // console.log("curItem", curItem);
+  // console.log("curItem", curItem);
 
-    // console.log("curCategory", curCategory);
+  // console.log("curCategory", curCategory);
 
-    // console.log("procList", procList);
+  // console.log("procList", procList);
 
   // console.log("editItem", editItem)
 
@@ -675,8 +675,8 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                 </AlertTitle>
                 <AlertDescription className="py-2 px-2 flex justify-between items-center text-xs">
                   <span className="mr-2">
-                  This PR is now marked as "Draft", please either cancel or
-                  update!
+                    This PR is now marked as "Draft", please either cancel or
+                    update!
                   </span>
                   <Button
                     disabled={updateLoading}
@@ -811,10 +811,10 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           </Button>
           <div className="flex flex-col justify-between h-[58vh]">
             <div
-            className={`${universalComments?.length > 0
-              ? "max-h-[40vh]"
-              : "max-h-[60vh]"
-              } overflow-y-auto`}
+              className={`${universalComments?.length > 0
+                ? "max-h-[40vh]"
+                : "max-h-[60vh]"
+                } overflow-y-auto`}
             >
               <div className="flex justify-between items-center max-md:py-2 py-4">
                 <h2 className="font-semibold">Order List</h2>
@@ -848,7 +848,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
               )}
 
               <div
-                
+
               >
                 {
                   // procList.length !== 0 ? (
@@ -872,8 +872,8 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                 {cat.name}
                               </h3>
                             </div>
-                            
-                          {/* {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+
+                            {/* {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
                             category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
                               <i>{i?.make}{index < arr.length - 1 && ", "}</i>
                             ))
@@ -1208,7 +1208,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                                         <h5 className="text-base text-gray-400 text-left mb-1">
                                                           UOM
                                                         </h5>
-                                                        <SelectUnit 
+                                                        <SelectUnit
                                                           value={editItem?.unit || ""}
                                                           onChange={(value) => setEditItem(
                                                             (prev) => ({
@@ -1434,8 +1434,8 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                     </AlertDialogTitle>
                     <AlertDialogDescription>
                       <div className="flex flex-col gap-4">
-                      <div className="flex flex-col gap-1">
-                        <label
+                        <div className="flex flex-col gap-1">
+                          <label
                             htmlFor="curCategory"
                             className="block text-sm font-medium text-gray-700"
                           >
@@ -1482,27 +1482,27 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                           />
                         </div>
                         {fuzzyMatches.length > 0 && isFocused && (
-                        <div className="relative">
-                          <ul className="absolute z-10 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 w-full overflow-y-auto">
-                            {fuzzyMatches.slice(0, 5).map((item, index) => (
-                              <li
-                                key={`${item.name}-${index}`}
-                                className="p-2 hover:bg-gray-100 flex justify-between items-center"
-                              >
+                          <div className="relative">
+                            <ul className="absolute z-10 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 w-full overflow-y-auto">
+                              {fuzzyMatches.slice(0, 5).map((item, index) => (
+                                <li
+                                  key={`${item.name}-${index}`}
+                                  className="p-2 hover:bg-gray-100 flex justify-between items-center"
+                                >
 
-                                <div className="flex flex-col gap-1">
-                                  <strong>{item?.item_name}</strong>
+                                  <div className="flex flex-col gap-1">
+                                    <strong>{item?.item_name}</strong>
 
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-gray-400 font-semibold">{item?.category}</p>
-                                    <i className="text-gray-500">
-                                      {" "}
-                                      - {item?.matchPercentage}% match
-                                    </i>
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-gray-400 font-semibold">{item?.category}</p>
+                                      <i className="text-gray-500">
+                                        {" "}
+                                        - {item?.matchPercentage}% match
+                                      </i>
+                                    </div>
+
                                   </div>
-
-                                </div>
-                                <div
+                                  <div
                                     onMouseDown={() => {
                                       setCurItem({
                                         label: item.item_name,
@@ -1517,10 +1517,10 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                       toggleNewItemDialog();
                                     }}
                                     className="text-primary bg-gray-300 hover:bg-white rounded-md p-2 font-bold text-xs cursor-pointer flex items-center gap-1">
-                                      <CirclePlus className="w-4 h-4" />
-                                      Add
-                                </div>
-                                {/* <span>
+                                    <CirclePlus className="w-4 h-4" />
+                                    Add
+                                  </div>
+                                  {/* <span>
                                   <strong>{item.item_name}</strong>
                                   <span className="text-gray-500">
                                     {" "}
@@ -1535,67 +1535,67 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                     </p>
                                   </div>
                                 )} */}
-                              </li>
-                            ))}
-                          </ul>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex flex-col gap-1 w-1/2">
+                            <label
+                              htmlFor="itemUnit"
+                              className="block text-sm font-medium text-gray-700"
+                            >
+                              Item Unit
+                              <sup className="text-sm text-red-600">*</sup>
+                            </label>
+                            <SelectUnit
+                              value={newItem?.unit_name || ""}
+                              disabled={!curCategory}
+                              onChange={(value) =>
+                                setNewItem((prevState) => ({
+                                  ...prevState,
+                                  unit_name: value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1 w-1/2 items-start">
+                            <label
+                              htmlFor="quantity"
+                              className="block text-sm font-medium text-gray-700"
+                            >
+                              Quantity
+                              <sup className="text-sm text-red-600">*</sup>
+                            </label>
+                            <Input
+                              disabled={!curCategory}
+                              type="number"
+                              id="quantity"
+                              onChange={(e) =>
+                                setNewItem((prevState) => ({
+                                  ...prevState,
+                                  quantity: e.target.value,
+                                }))
+                              }
+                              value={newItem?.quantity || ""}
+                            />
+                          </div>
                         </div>
-                      )}
-                      <div className="flex gap-2 items-center">
-                        <div className="flex flex-col gap-1 w-1/2">
-                          <label
-                            htmlFor="itemUnit"
-                            className="block text-sm font-medium text-gray-700"
-                          >
-                            Item Unit
-                            <sup className="text-sm text-red-600">*</sup>
-                          </label>
-                          <SelectUnit 
-                          value={newItem?.unit_name || ""}
-                          disabled={!curCategory}
-                          onChange={(value) =>
-                              setNewItem((prevState) => ({
-                                ...prevState,
-                                unit_name: value,
-                              }))
-                          }
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1 w-1/2 items-start">
-                          <label
-                            htmlFor="quantity"
-                            className="block text-sm font-medium text-gray-700"
-                          >
-                            Quantity
-                            <sup className="text-sm text-red-600">*</sup>
-                          </label>
+                        <div className="w-full flex flex-col gap-1">
+                          <h3>Comment</h3>
                           <Input
-                            disabled={!curCategory}
-                            type="number"
-                            id="quantity"
+                            type="text"
+                            placeholder="Optional"
+                            value={newItem?.comment || ""}
                             onChange={(e) =>
-                              setNewItem((prevState) => ({
-                                ...prevState,
-                                quantity: e.target.value,
+                              setNewItem((prev) => ({
+                                ...prev,
+                                comment: e.target.value,
                               }))
                             }
-                            value={newItem?.quantity || ""}
                           />
                         </div>
-                      </div>
-                      <div className="w-full flex flex-col gap-1">
-                        <h3>Comment</h3>
-                        <Input
-                          type="text"
-                          placeholder="Optional"
-                          value={newItem?.comment || ""}
-                          onChange={(e) =>
-                            setNewItem((prev) => ({
-                              ...prev,
-                              comment: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
                       </div>
                     </AlertDialogDescription>
                   </AlertDialogHeader>
@@ -1618,14 +1618,14 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                       ) : (
                         <>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <Button
-                              disabled={!curCategory || !newItem?.item_name || !newItem?.unit_name || !newItem?.quantity}
-                              variant={"default"}
-                              onClick={handleAddItem}
-                              className=" flex items-center gap-1"
-                            >
-                              <ListChecks className="h-4 w-4" /> Create
-                            </Button>
+                          <Button
+                            disabled={!curCategory || !newItem?.item_name || !newItem?.unit_name || !newItem?.quantity}
+                            variant={"default"}
+                            onClick={handleAddItem}
+                            className=" flex items-center gap-1"
+                          >
+                            <ListChecks className="h-4 w-4" /> Create
+                          </Button>
                         </>
                       )
                     )}
@@ -1705,26 +1705,26 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                 </div>
 
                                 <div
-                                    onMouseDown={() => {
-                                      setCurCategory({
-                                        label: item?.category,
-                                        value: item?.category,
-                                        tax: parseFloat(
-                                          category_list?.find(
-                                            (i) => i?.name === item?.category
-                                          )?.tax
-                                        ),
-                                      });
-                                      setCurItem({
-                                        label: item.item_name,
-                                        value: item?.name,
-                                        unit: item?.unit_name,
-                                      });
-                                      toggleRequestItemDialog();
-                                    }}
-                                    className="text-primary bg-gray-300 hover:bg-white rounded-md p-2 font-bold text-xs cursor-pointer flex items-center gap-1">
-                                      <CirclePlus className="w-4 h-4" />
-                                      Add
+                                  onMouseDown={() => {
+                                    setCurCategory({
+                                      label: item?.category,
+                                      value: item?.category,
+                                      tax: parseFloat(
+                                        category_list?.find(
+                                          (i) => i?.name === item?.category
+                                        )?.tax
+                                      ),
+                                    });
+                                    setCurItem({
+                                      label: item.item_name,
+                                      value: item?.name,
+                                      unit: item?.unit_name,
+                                    });
+                                    toggleRequestItemDialog();
+                                  }}
+                                  className="text-primary bg-gray-300 hover:bg-white rounded-md p-2 font-bold text-xs cursor-pointer flex items-center gap-1">
+                                  <CirclePlus className="w-4 h-4" />
+                                  Add
                                 </div>
                                 {/* <span>
                                   <strong>{item.item_name}</strong>
@@ -1757,14 +1757,14 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             <sup className="text-sm text-red-600">*</sup>
                           </label>
 
-                          <SelectUnit 
+                          <SelectUnit
                             value={requestItem?.unit || ""}
                             onChange={(value) =>
                               setRequestItem((prevState) => ({
                                 ...prevState,
                                 unit: value,
                               }))
-                          }
+                            }
                           />
                         </div>
                         <div className="flex flex-col gap-1 w-1/2 items-start">
@@ -1866,17 +1866,17 @@ const CustomMenuList = (props) => {
             </span>
           </Button>
         ) : ( */}
-          <Button
-            // disabled={isNewItemsCreationDisabled}
-            variant={"ghost"}
-            className="w-full rounded-none flex items-center justify-center gap-1"
-            onClick={onAddItemClick}
-            onTouchStart={onAddItemClick}
+        <Button
+          // disabled={isNewItemsCreationDisabled}
+          variant={"ghost"}
+          className="w-full rounded-none flex items-center justify-center gap-1"
+          onClick={onAddItemClick}
+          onTouchStart={onAddItemClick}
 
-          >
-            <CirclePlus className="w-4 h-4" />
-            Create/Request New Item
-          </Button>
+        >
+          <CirclePlus className="w-4 h-4" />
+          Create/Request New Item
+        </Button>
         {/* )} */}
       </div>
     </div>
