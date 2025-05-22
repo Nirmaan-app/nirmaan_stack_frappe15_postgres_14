@@ -30,10 +30,14 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
     const base: Array<[string, string, string | string[]]> = [
         ["status", "not in", ["Merged", "PO Amendment"]]
     ];
-    const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
-    if (isEstimatesExec) {
-        return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+
+    if(tab === "All POs") {
+        return base;
     }
+    // const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
+    // if (isEstimatesExec) {
+    //     return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+    // }
     switch (tab) {
         case "Approved PO": return [...base, ["status", "=", "PO Approved"]];
         case "Dispatched PO": return [...base, ["status", "=", "Dispatched"]];

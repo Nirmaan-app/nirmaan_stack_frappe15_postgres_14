@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList, useFrappeDocTypeEventListener, Filter, FrappeDoc } from "frappe-react-sdk";
 import { Download, Info } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -56,7 +55,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     customerId,
     contextKey = "all" // Default context for URL key
 }) => {
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     // --- Dynamic URL Sync Key based on context and tab ---
@@ -141,7 +139,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(['creation', 'modified', 'payment_date', 'payment_attachment', 'tds', 'utr']), [])
 
-    const paymentsSearchableFields = useMemo(() => PP_SEARCHABLE_FIELDS.concat(tab === "Payments Done" ? [{ value: "utr", label: "UTR", placeholder: "Search by UTR..." }] : tab === "Payments Pending" ? [{ value: "status", label: "Status", placeholder: "Search by Status..." }] : []), [tab]);
+    const paymentsSearchableFields = useMemo(() => PP_SEARCHABLE_FIELDS.concat(tab === "Payments Done" ? [{ value: "utr", label: "UTR", placeholder: "Search by UTR..." }] : ["Payments Pending", "All Payments"].includes(tab) ? [{ value: "status", label: "Status", placeholder: "Search by Status..." }] : []), [tab]);
 
     // --- Date Filter Columns ---
     const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);
@@ -277,9 +275,9 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 }
             }
         ] as ColumnDef<ProjectPayments>[] : []),
-        ...(tab === "Payments Pending" ? [{
+        ...(["Payments Pending", "All Payments"].includes(tab) ? [{
             accessorKey: "status", header: "Status",
-            cell: ({ row }) => <Badge variant={row.original.status === PAYMENT_STATUS.APPROVED ? "default" : "outline"}>{row.original.status}</Badge>,
+            cell: ({ row }) => <Badge variant={row.original.status === PAYMENT_STATUS.APPROVED ? "default" : row.original.status === PAYMENT_STATUS.PAID ? "green" : "outline"}>{row.original.status}</Badge>,
             enableColumnFilter: true, size: 120
         } as ColumnDef<ProjectPayments>] : []),
     ], [tab, projectId, notifications, projectOptions, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification]);
@@ -292,8 +290,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         if (!projectId) { // Only show project facet if not already filtered by a specific project
             opts.project = { title: "Project", options: projectOptions };
         }
-        if (tab === "Payments Pending") {
-            opts.status = { title: "Status", options: [{ value: PAYMENT_STATUS.REQUESTED, label: "Requested" }, { value: PAYMENT_STATUS.APPROVED, label: "Approved" }] };
+        if (["Payments Pending", "All Payments"].includes(tab)) {
+            opts.status = { title: "Status", options: [{ value: PAYMENT_STATUS.REQUESTED, label: "Requested" }, { value: PAYMENT_STATUS.APPROVED, label: "Approved" }, ...(tab === "All Payments") ? [{ value: PAYMENT_STATUS.PAID, label: "Paid" }, { value: PAYMENT_STATUS.REJECTED, label: "Rejected" }] : []] };
         }
         return opts;
     }, [projectOptions, vendorOptions, projectId, tab]);

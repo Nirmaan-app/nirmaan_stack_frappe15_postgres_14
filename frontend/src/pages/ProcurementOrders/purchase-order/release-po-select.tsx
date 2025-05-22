@@ -48,7 +48,8 @@ export const ReleasePOSelect: React.FC = () => {
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : "Approved PO";
+        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : 
+        role === "Nirmaan Estimates Executive Profile" ? "All POs" : "Approved PO";
         return getUrlStringParam("tab", defaultTab);
     }, [role]); // Calculate only once based on role
 
@@ -132,9 +133,14 @@ export const ReleasePOSelect: React.FC = () => {
 
     const fieldsToFetch = useMemo(() => DEFAULT_PO_FIELDS_TO_FETCH.concat(['creation', 'modified', 'order_list', 'loading_charges', 'freight_charges', 'invoice_data']), []);
 
-    const poSearchableFieldsOptions = useMemo(() => PO_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Approved By", placeholder: "Search by Approved By..." }]), []);
-    const dateColumns = PO_DATE_COLUMNS;
+    const poSearchableFieldsOptions = useMemo(() => PO_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Approved By", placeholder: "Search by Approved By..." },
+        ...(tab === "All POs" ? [
+            { value: "status", label: "Status", placeholder: "Search by Status..." },
+        ] : []),
 
+    ]), [tab]);
+
+    const dateColumns = PO_DATE_COLUMNS;
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
@@ -180,7 +186,8 @@ export const ReleasePOSelect: React.FC = () => {
     ], [role, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount])
 
     const items = useMemo(() => [
-        {
+        ...(role !== "Nirmaan Estimates Executive Profile" ? [
+            {
             label: (
                 <div className="flex items-center">
                     <span>Approved PO</span>
@@ -224,8 +231,20 @@ export const ReleasePOSelect: React.FC = () => {
             ),
             value: "Delivered PO",
         },
-    ], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPartiallyDeliveredPOCount, partiallyDeliveredPOCount, adminDeliveredPOCount, deliveredPOCount])
+        ] : [])], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPartiallyDeliveredPOCount, partiallyDeliveredPOCount, adminDeliveredPOCount, deliveredPOCount])
 
+    const allCounts = useMemo(() => ({
+            adminPOs: parseNumber(adminNewPOCount) + parseNumber(adminDispatchedPOCount) + parseNumber(adminPartiallyDeliveredPOCount) + parseNumber(adminDeliveredPOCount),
+            pos: parseNumber(newPOCount) + parseNumber(dispatchedPOCount) + parseNumber(partiallyDeliveredPOCount) + parseNumber(deliveredPOCount),
+        }), [adminNewPOCount, adminDispatchedPOCount, adminPartiallyDeliveredPOCount, adminDeliveredPOCount
+            , newPOCount, dispatchedPOCount, partiallyDeliveredPOCount, deliveredPOCount
+        ])
+    
+    const allTab = useMemo(() => 
+        [
+            { label: (<div className="flex items-center"><span>All POs</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? allCounts.adminPOs : allCounts.pos}</span></div>), value: "All POs" },
+        ]
+    ,[allCounts, role])
 
     // --- Define columns using TanStack's ColumnDef ---
     const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
@@ -235,13 +254,17 @@ export const ReleasePOSelect: React.FC = () => {
             cell: ({ row }) => (
                 <>
                     <div className="flex gap-1 items-center">
-                        <Link
+                        {tab !== "All POs" ? (
+                            <Link
                             className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
                             // Adjust the route path as needed
                             to={`/purchase-orders/${row.original.name?.replaceAll("/", "&=")}?tab=${tab}`}
                         >
                             {row.original.name}
                         </Link>
+                        ) : (
+                            <p>{row.original.name}</p>
+                        )}
                         <ItemsHoverCard order_list={row.original?.order_list?.list} />
                     </div>
                     {row.original?.custom === "true" && (
@@ -421,27 +444,42 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        // {
-        //     accessorKey: 'order_list',
-        //     header: () => null,
-        //     cell: () => null,
-        //     size: 0,
-        // }
+        ...(["All POs"].includes(tab) ? [
+            {
+                accessorKey: 'status',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+                cell: ({ row }) => {
+                    const status = row.getValue<string>("status");
+                    const variant = status === "PO Approved" ? "gray" : status === "Dispatched" ? "blue" : ["Partially Delivered", "Delivered"].includes(status) ? "green" : "destructive";
+                    return (
+                        <Badge variant={variant} className="text-xs">{status}</Badge>
+                    );
+                },
+            size: 180,
+            enableColumnFilter: true
+         } as ColumnDef<ProcurementOrdersType>
+        ] : []),
     ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal]);
 
+    const statusOptions = useMemo(() => [
+        { label: "PO Approved", value: "PO Approved" },
+        { label: "Dispatched", value: "Dispatched" },
+        { label: "Partially Delivered", value: "Partially Delivered" },
+        { label: "Delivered", value: "Delivered" },
+    ],  [])
 
     const facetFilterOptions = useMemo(() => ({
         // Use the 'accessorKey' or 'id' of the column
         project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
         vendor: { title: "Vendor", options: vendorOptions }, // Or use 'vendor' if filtering by ID
-        // status: { title: "Status", options: statusOptions },
+        status: { title: "Status", options: statusOptions },
     }), [projectOptions, vendorOptions]);
 
 
     // --- useServerDataTable Hook Instantiation ---
     // Only instantiate if the current tab is supposed to show a data table
     const shouldShowTable = useMemo(() =>
-        ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab),
+        ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO", "All POs"].includes(tab),
         [tab]);
 
     // Define which columns should use the date filter
@@ -548,8 +586,51 @@ export const ReleasePOSelect: React.FC = () => {
     }
 
     return (
-        <>
-            <InvoiceDataDialog
+            <div className="flex-1 space-y-4">
+                    <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
+                        {
+                            adminTabs && (
+                                <Radio.Group
+                                    options={adminTabs}
+                                    optionType="button"
+                                    buttonStyle="solid"
+                                    value={tab}
+                                    onChange={(e) => handleTabClick(e.target.value)}
+                                />
+                            )
+                        }
+                        {
+                            items && (
+                                <Radio.Group
+                                    options={items}
+                                    // defaultValue="Approved PO"
+                                    optionType="button"
+                                    buttonStyle="solid"
+                                    value={tab}
+                                    onChange={(e) => handleTabClick(e.target.value)}
+                                />
+                            )
+                        }
+
+                        {
+                            allTab && (
+                                <Radio.Group
+                                    options={allTab}
+                                    optionType="button"
+                                    buttonStyle="solid"
+                                    value={tab}
+                                    onChange={(e) => handleTabClick(e.target.value)}
+                                />
+                            )
+                        }
+
+                    </div>
+
+                <Suspense fallback={<LoadingFallback />}>
+                    {renderTabView()}
+                </Suspense>
+
+                <InvoiceDataDialog
                 open={!!selectedInvoicePO}
                 onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
                 invoiceData={selectedInvoicePO?.invoice_data}
@@ -567,41 +648,7 @@ export const ReleasePOSelect: React.FC = () => {
                 vendors={vendorsList}
                 isPO
             />
-            <div className="flex-1 space-y-4">
-                {role !== "Nirmaan Estimates Executive Profile" && (
-                    <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
-                        {
-                            adminTabs && (
-                                <Radio.Group
-                                    options={adminTabs}
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        }
-                        {
-                            items && (
-                                <Radio.Group
-                                    options={items}
-                                    defaultValue="Approved PO"
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        }
-
-                    </div>
-                )}
-
-                <Suspense fallback={<LoadingFallback />}>
-                    {renderTabView()}
-                </Suspense>
             </div>
-        </>
     )
 }
 

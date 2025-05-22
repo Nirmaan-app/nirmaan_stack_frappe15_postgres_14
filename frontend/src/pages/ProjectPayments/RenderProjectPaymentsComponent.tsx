@@ -101,6 +101,20 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         ] : [])
     ], [role, adminPaymentsCount, paymentsCount])
 
+    const allCounts = useMemo(() => ({
+                adminPayments: parseNumber(adminPaymentsCount?.approved) + parseNumber(adminPaymentsCount?.requested) + parseNumber(adminPaymentsCount.paid) + parseNumber(adminPaymentsCount.rejected),
+
+                payments: parseNumber(paymentsCount?.approved) + parseNumber(paymentsCount?.requested) + parseNumber(paymentsCount.paid) + parseNumber(paymentsCount.rejected),
+            }), [
+                adminPaymentsCount, paymentsCount
+            ])
+        
+    const allTab = useMemo(() => 
+            [
+                { label: (<div className="flex items-center"><span>All Payments</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? allCounts.adminPayments : allCounts.payments}</span></div>), value: "All Payments" },
+            ]
+        ,[allCounts, role])
+
     const remTabs = useMemo(() => [
         ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []),
         // "All Payments"
@@ -171,6 +185,16 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         onChange={(e) => handleTabClick(e.target.value)}
                     />
                 )}
+
+                {allTab && (
+                    <Radio.Group
+                        options={allTab}
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => handleTabClick(e.target.value)}
+                    />
+                )}
             </div>
 
             <Suspense fallback={
@@ -183,7 +207,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 ["New Payments"].includes(tab) ? 
                 (
                     <AccountantTabs />
-                ) : ["Payments Pending", "Payments Done"].includes(tab) ? (
+                ) : ["Payments Pending", "Payments Done", "All Payments"].includes(tab) ? (
                     <AllPayments tab={tab} />
                 )
                  : (
