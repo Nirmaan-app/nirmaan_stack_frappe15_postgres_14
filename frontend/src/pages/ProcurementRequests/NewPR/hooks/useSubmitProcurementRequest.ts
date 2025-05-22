@@ -7,8 +7,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
 
 interface UseSubmitProcurementRequestResult {
-    submitNewPR: () => Promise<void>;
-    resolveOrUpdatePR: () => Promise<void>;
+    submitNewPR: (finalCommentFromDialog: string) => Promise<void>;
+    resolveOrUpdatePR: (finalCommentFromDialog: string) => Promise<void>;
     cancelDraftPR: () => Promise<void>;
     isSubmitting: boolean;
 }
@@ -27,7 +27,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     const selectedWP = useProcurementRequestStore(state => state.selectedWP);
     const procList = useProcurementRequestStore(state => state.procList);
     const selectedCategories = useProcurementRequestStore(state => state.selectedCategories);
-    const newPRComment = useProcurementRequestStore(state => state.newPRComment);
+    // const newPRComment = useProcurementRequestStore(state => state.newPRComment);
     const resetStore = useProcurementRequestStore(state => state.resetStore);
     // --- End of individual selection ---
 
@@ -65,16 +65,16 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
 
 
     // Common logic for adding comments
-    const addCommentIfNeeded = useCallback(async (docType: string, docName: string, subject: string) => {
+    const addCommentIfNeeded = useCallback(async (docType: string, docName: string, subject: string, commentToSave: string) => {
         // Ensure necessary data exists
-        if (newPRComment && userData?.user_id && docName) {
+        if (commentToSave && userData?.user_id && docName) {
             try {
                 await createDoc("Nirmaan Comments", {
                     comment_type: "Comment",
                     reference_doctype: docType,
                     reference_name: docName,
                     comment_by: userData.user_id,
-                    content: newPRComment.trim(), // Trim comment
+                    content: commentToSave.trim(), // Trim comment
                     subject: subject,
                 });
             } catch (commentError) {
@@ -83,12 +83,12 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             }
         }
     // Dependencies for addCommentIfNeeded
-    }, [newPRComment, userData?.user_id, createDoc, toast]);
+    }, [userData?.user_id, createDoc, toast]);
 
 
     // --- Submission Functions ---
 
-    const submitNewPR = useCallback(async () => {
+    const submitNewPR = useCallback(async (finalCommentFromDialog: string) => {
         // Add checks for projectId and selectedWP existence at the time of call
         if (!projectId || !selectedWP || procList.length === 0) {
             toast({ title: "Missing Information", description: "Project, Work Package, and items are required.", variant: "destructive" });
@@ -106,7 +106,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             };
              // console.log("Creating PR with payload:", payload); // Debug log
             const res = await createDoc("Procurement Requests", payload);
-            await addCommentIfNeeded("Procurement Requests", res.name, "creating pr");
+            await addCommentIfNeeded("Procurement Requests", res.name, "creating pr", finalCommentFromDialog);
             await handleSuccess(res.name, "created");
 
         } catch (error: any) {
@@ -114,10 +114,10 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             toast({ title: "Submission Failed", description: error.message || "Could not create Procurement Request.", variant: "destructive" });
         }
     // Dependencies for submitNewPR
-    }, [projectId, selectedWP, procList, selectedCategories, newPRComment, createDoc, addCommentIfNeeded, handleSuccess, toast]);
+    }, [projectId, selectedWP, procList, selectedCategories, createDoc, addCommentIfNeeded, handleSuccess, toast]);
 
 
-    const resolveOrUpdatePR = useCallback(async () => {
+    const resolveOrUpdatePR = useCallback(async (finalCommentFromDialog: string) => {
         // Add check for prId existence at the time of call
         if (!prId || procList.length === 0) {
             toast({ title: "Missing Information", description: "Cannot update without PR ID or items.", variant: "destructive" });
@@ -136,7 +136,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             // console.log("Updating PR", prId, "with payload:", updateData); // Debug log
             // const res = await updateDoc("Procurement Requests", prId, updateData); // updateDoc doesn't usually return the full doc
             await updateDoc("Procurement Requests", prId, updateData);
-            await addCommentIfNeeded("Procurement Requests", prId, mode === 'edit' ? "editing pr" : "resolving pr");
+            await addCommentIfNeeded("Procurement Requests", prId, mode === 'edit' ? "editing pr" : "resolving pr", finalCommentFromDialog);
             await handleSuccess(prId, mode === 'edit' ? "updated" : "resolved");
 
         } catch (error: any) {
@@ -144,7 +144,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             toast({ title: `${mode === 'edit' ? 'Update' : 'Resolve'} Failed`, description: error.message || "Could not update Procurement Request.", variant: "destructive" });
         }
     // Dependencies for resolveOrUpdatePR
-    }, [prId, procList, selectedCategories, newPRComment, mode, updateDoc, addCommentIfNeeded, handleSuccess, toast]);
+    }, [prId, procList, selectedCategories, mode, updateDoc, addCommentIfNeeded, handleSuccess, toast]);
 
 
     const cancelDraftPR = useCallback(async () => {

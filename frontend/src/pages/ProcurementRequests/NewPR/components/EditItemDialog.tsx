@@ -32,6 +32,8 @@ import { CustomMakeMenuList } from './ItemSelectorControls'; // Reuse CustomMake
 import { ItemStatus } from '../constants';
 import { Category } from '@/types/NirmaanStack/Category';
 import { Makelist } from '@/types/NirmaanStack/Makelist';
+import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist';
+import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 
 
 interface EditItemDialogProps {
@@ -48,7 +50,7 @@ interface EditItemDialogProps {
     updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
     makeList?: Makelist[];
     makeListMutate: () => Promise<any>;
-    categoryMakelist?: Makelist[]; // Optional, if needed for other operations
+    categoryMakelist?: CategoryMakelist[]; // Optional, if needed for other operations
     categoryMakeListMutate?: () => Promise<any>;
     // --- End Make Props ---
 }
@@ -77,7 +79,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     updateCategoryMakesInStore,
     makeList,
     makeListMutate,
-    categoryMakeListMutate
+    categoryMakeListMutate,
 }) => {
     const { toast } = useToast();
     const [editState, setEditState] = useState<EditState | null>(null);
@@ -166,6 +168,8 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
 
     const handleUpdateConfirm = () => {
         if (!itemToEdit || !editState) return;
+        const currentSelectedWP = useProcurementRequestStore.getState().selectedWP;
+
         // ... (existing validation for quantity, category, item name, unit) ...
         const quantity = parseFloat(editState.quantity);
         if (isNaN(quantity) || quantity <= 0) {
@@ -180,11 +184,13 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
             quantity: quantity,
             comment: editState.comment.trim() || undefined,
             make: editState.makeValue || undefined, // <<< Add the selected make
+            work_package: itemToEdit.work_package || currentSelectedWP,
             ...(isRequestItem && {
                 category: editState.category!,
                 item: editState.itemName!.trim(),
                 unit: editState.unitName!,
                 tax: catOptions.find(c => c.value === editState.category)?.tax ?? itemToEdit.tax,
+                work_package: currentSelectedWP,
             }),
         };
 

@@ -135,7 +135,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     const [isManageMakesDialogOpen, setIsManageMakesDialogOpen] = useState(false);
     const userData = useUserData();
 
-    const [resetFlag, setResetFlag] = useState(false);
+    // const [resetFlag, setResetFlag] = useState(false);
 
     // console.log("selectedCategories", selectedCategories)
 
@@ -313,7 +313,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             {/* --- Item Selector --- */}
             <div>
                 <Label htmlFor="item-select" className="block text-sm font-medium text-gray-700 mb-1">Item <sup className="text-red-500">*</sup></Label>
-                <>{console.log("Item Options", itemOptions)}</>
+                {/* <>{console.log("Item Options", itemOptions)}</> */}
                 <ReactSelect
                     inputId='item-select'
                     placeholder={"Select or Create/Request Item..."}
