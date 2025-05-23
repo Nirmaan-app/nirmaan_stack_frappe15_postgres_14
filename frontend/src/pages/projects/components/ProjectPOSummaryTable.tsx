@@ -45,10 +45,10 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (keyof ProcurementOrder | 'name')[
 // Searchable fields configuration for PO Summary tables
 export const PO_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "PO ID", placeholder: "Search by PO ID...", default: true },
-    // { value: "project_name", label: "Project", placeholder: "Search by Project..." }, // Already filtered by project
-    { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." },
+    { value: "vendor_name", label: "Vendor Name", placeholder: "Search by Vendor Name..." },
+    { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },
     { value: "status", label: "Status", placeholder: "Search by Status..." },
-    { value: "procurement_request", label: "PR #", placeholder: "Search by PR #" },
+    { value: "procurement_request", label: "PR ID", placeholder: "Search by PR ID" },
     {
         value: "order_list",
         label: "Item in PO",
@@ -105,6 +105,8 @@ interface POAggregatesResponse extends POAggregates {
 export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ projectId }) => {
     const { toast } = useToast();
 
+    if(!projectId) return "Project ID is required.";
+
     // --- State for Aggregates Card ---
     const [poAggregates, setPOAggregates] = useState<POAggregates | null>(null);
     const [poAmountsDict, setPOAmountsDict] = useState<POAmountsDict | null>(null);
@@ -135,7 +137,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Material", "Material & Service"] });
 
     const { data: pr_data, isLoading: prDataLoading, error: prDataError } = useFrappeGetDocList<ProcurementRequest>(
-        "Procurement Requests", { fields: ["name", "work_package"], filters: projectId ? [["project", "=", projectId]] : [], limit: 10000 },
+        "Procurement Requests", { fields: ["name", "work_package"], filters: projectId ? [["project", "=", projectId]] : [], limit: 0 },
         !!projectId ? `PRsForPOSummary_${projectId || 'all'}` : null
     );
 
@@ -143,7 +145,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
     const { data: userList, isLoading: userListLoading, error: userListError } = useUsersList();
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>(
-        "Project Payments", { fields: ["document_name", "amount", "status"], filters: [["document_type", "=", "Procurement Orders"], ["status", "=", "Paid"], ["project", "=", projectId]], limit: 100000 },
+        "Project Payments", { fields: ["document_name", "amount", "status"], filters: [["document_type", "=", "Procurement Orders"], ["status", "=", "Paid"], ["project", "=", projectId]], limit: 0 },
         !!projectId ? `PaidPaymentsForPOSummary_${projectId || 'all'}` : null
     );
 

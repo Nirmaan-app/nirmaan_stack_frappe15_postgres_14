@@ -3136,10 +3136,22 @@
   dependencies:
     "@tanstack/table-core" "8.14.0"
 
+"@tanstack/react-virtual@^3.13.9":
+  version "3.13.9"
+  resolved "https://registry.yarnpkg.com/@tanstack/react-virtual/-/react-virtual-3.13.9.tgz#6f87bce08a65c8f4ec6d2c303646ca6b3897e9fe"
+  integrity sha512-SPWC8kwG/dWBf7Py7cfheAPOxuvIv4fFQ54PdmYbg7CpXfsKxkucak43Q0qKsxVthhUJQ1A7CIMAIplq4BjVwA==
+  dependencies:
+    "@tanstack/virtual-core" "3.13.9"
+
 "@tanstack/table-core@8.14.0":
   version "8.14.0"
   resolved "https://registry.npmjs.org/@tanstack/table-core/-/table-core-8.14.0.tgz"
   integrity sha512-wDhpKJahGHWhmRt4RxtV3pES63CoeadljGWS/xeS9OJr1HBl2NB+OO44ht3sxDH5j5TRDAbQzC0NvSlsUfn7lQ==
+
+"@tanstack/virtual-core@3.13.9":
+  version "3.13.9"
+  resolved "https://registry.yarnpkg.com/@tanstack/virtual-core/-/virtual-core-3.13.9.tgz#62b4d2d4351d658101664beacf088fbd061190bf"
+  integrity sha512-3jztt0jpaoJO5TARe2WIHC1UQC3VMLAFUW5mmMo0yrkwtDB2AQP0+sh10BVUpWrnvHjSLvzFizydtEGLCJKFoQ==
 
 "@types/babel__core@^7.20.5":
   version "7.20.5"
