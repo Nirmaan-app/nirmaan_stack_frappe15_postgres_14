@@ -30,6 +30,10 @@ export const getSentBackStaticFilters = (tab: string): Array<[string, string, st
     // if (isEstimatesExec) {
     //     return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
     // }
+
+    if(tab === "All SBs") {
+        return [];
+    }
     if(tab) {
       return [...base, ["type", "=", tab]]
     }

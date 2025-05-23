@@ -96,7 +96,7 @@ import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
 import TransactionDetailsCard from "./components/TransactionDetailsCard";
-import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog"; // Import the dialog component
+import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -1793,14 +1793,16 @@ export const PurchaseOrder = ({
       <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
       {/* Render RequestPaymentDialog here, outside the Accordion */}
       <RequestPaymentDialog
-        amountPending={amountPending}
-        totalAmount={getTotal?.totalAmt || 0}
-        totalAmountWithoutGST={getTotal?.total || 0}
-        totalPaid={amountPaid}
-        po={PO}
-        paymentsMutate={poPaymentsMutate}
-        isSr={false} // Assuming this is always false in PurchaseOrder component
-      // gst prop defaults to true, add if needed: gst={true}
+         totalIncGST   ={getTotal?.totalAmt || 0}
+         totalExGST    ={getTotal?.total || 0}
+         paid          ={amountPaid}
+         pending       ={amountPending}
+         gst           ={true}
+         docType       ="Procurement Orders"
+         docName       ={PO?.name || "Unknown"}
+         project       ={PO?.project || "Unknown"}
+         vendor        ={PO?.vendor || "Unknown"}
+         onSuccess     ={poPaymentsMutate}
       />
 
     </div>

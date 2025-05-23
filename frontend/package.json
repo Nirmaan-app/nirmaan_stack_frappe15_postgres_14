@@ -37,6 +37,7 @@
     "@radix-ui/themes": "^3.0.4",
     "@tanstack/match-sorter-utils": "^8.15.1",
     "@tanstack/react-table": "^8.13.2",
+    "@tanstack/react-virtual": "^3.13.9",
     "@types/js-cookie": "^3.0.6",
     "@types/lodash": "^4.17.16",
     "@types/node": "^20.11.19",

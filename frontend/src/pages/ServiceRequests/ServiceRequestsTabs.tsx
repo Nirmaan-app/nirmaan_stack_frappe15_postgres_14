@@ -39,7 +39,7 @@ export const ServiceRequestsTabs : React.FC = () => {
         return unsubscribe;
     }, [initialTab]);
 
-    const {pendingSRCount, adminPendingSRCount, approvedSRCount, adminApprovedSRCount, adminAmendedSRCount, amendedSRCount, adminSelectedSRCount, selectedSRCount} = useDocCountStore()
+    const {counts} = useDocCountStore()
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role)  ? [
@@ -48,7 +48,7 @@ export const ServiceRequestsTabs : React.FC = () => {
                     <div className="flex items-center">
                         <span>Approve Service Order</span>
                         <span className="ml-2 text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminSelectedSRCount : selectedSRCount}
+                            {counts.sr.selected}
                         </span>
                     </div>
                 ),
@@ -59,14 +59,14 @@ export const ServiceRequestsTabs : React.FC = () => {
                     <div className="flex items-center">
                         <span>Approve Amended SO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminAmendedSRCount : amendedSRCount}
+                            {counts.sr.amended}
                         </span>
                     </div>
                 ),
                 value: "approve-amended-so",
             }
         ] : []),
-    ], [role, adminSelectedSRCount, selectedSRCount, adminAmendedSRCount, amendedSRCount]);
+    ], [role, counts]);
 
     const items = useMemo(() => [
         {
@@ -74,7 +74,7 @@ export const ServiceRequestsTabs : React.FC = () => {
               <div className="flex items-center">
                   <span>In Progress SR</span>
                   <span className="ml-2 text-xs font-bold">
-                      {role === "Nirmaan Admin Profile" ? adminPendingSRCount : pendingSRCount}
+                      {counts.sr.pending}
                   </span>
               </div>
           ),
@@ -85,13 +85,13 @@ export const ServiceRequestsTabs : React.FC = () => {
               <div className="flex items-center">
                   <span>Approved SR</span>
                   <span className="ml-2 rounded text-xs font-bold">
-                      {role === "Nirmaan Admin Profile" ? adminApprovedSRCount : approvedSRCount}
+                      {counts.sr.approved}
                   </span>
               </div>
           ),
           value: "approved-sr",
       },
-  ], [role, adminPendingSRCount, pendingSRCount, adminApprovedSRCount, approvedSRCount]);
+  ], [role, counts]);
 
   // --- Tab Change Handler ---
     const handleTabClick = useCallback((value: string) => {

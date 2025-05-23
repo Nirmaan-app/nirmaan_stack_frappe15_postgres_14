@@ -1,40 +1,28 @@
-import * as React from 'react';
+import * as React from "react";
 import {
-    Table as TanstackTableInstance,
-    flexRender,
-    ColumnDef,
-    HeaderGroup,
-} from '@tanstack/react-table';
-
+  flexRender, ColumnDef, Row as TanRow, Table as TanTable
+} from "@tanstack/react-table";
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
-import { DataTablePagination } from './data-table-pagination';
-import { DataTableViewOptions } from './data-table-view-options';
-import { DataTableFacetedFilter } from './data-table-faceted-filter';
-import { TableBodySkeleton } from '@/components/ui/skeleton';
-import { Button } from '../ui/button';
-import { DataTableDateFilter } from './data-table-date-filter';
-
-// --- NEW: Select component for search field ---
+  Table, TableHeader, TableBody, TableRow,
+  TableHead, TableCell
+} from "@/components/ui/table";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Checkbox }  from "@/components/ui/checkbox";
+import { Input }     from "@/components/ui/input";
+import { Button }    from "@/components/ui/button";
+import { FileUp }    from "lucide-react";
+import { toast }     from "@/components/ui/use-toast";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { toast } from '../ui/use-toast';
-import { exportToCsv } from '@/utils/exportToCsv';
-import { FileUp } from 'lucide-react';
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from "@/components/ui/select";
+import { DataTablePagination   } from "./data-table-pagination";
+import { DataTableViewOptions  } from "./data-table-view-options";
+import { DataTableFacetedFilter} from "./data-table-faceted-filter";
+import { DataTableDateFilter   } from "./data-table-date-filter";
+import { TableBodySkeleton     } from "@/components/ui/skeleton";
+import { exportToCsv           } from "@/utils/exportToCsv";
 
+/* ---------- public props ------------------------------------------------ */
 export interface SearchFieldOption {
     value: string;
     label: string;
@@ -43,105 +31,97 @@ export interface SearchFieldOption {
     is_json?: boolean; // Is JSON field
 }
 
-// --- Types ---
-interface DataTableProps<TData> {
-    /** The TanStack Table instance returned from the useServerDataTable hook. */
-    table: TanstackTableInstance<TData>;
-    /** The definition of columns for the table. */
-    columns: ColumnDef<TData, any>[]; // Pass columns for header/cell rendering info
-    /** Loading state from the hook. */
-    isLoading: boolean;
-    /** Error object from the hook. */
-    error?: Error | null;
-    /** Total number of items matching filters (for pagination). */
-    totalCount: number;
-    /** Options for the search field selector. */
-    searchFieldOptions: SearchFieldOption[];
-    /** Currently selected search field value. */
-    selectedSearchField: string;
-    /** Callback to update the selected search field. */
-    onSelectedSearchFieldChange: (fieldValue: string) => void;
-    /** Current search term. */
-    searchTerm: string;
-    /** Callback to update the search term. */
-    onSearchTermChange: (term: string) => void;
-    /** Optional: Options for various faceted filters. Passed down to DataTableFacetedFilter. */
-    facetFilterOptions?: {
-        [columnId: string]: { title: string; options: { label: string; value: string; icon?: React.ComponentType<{ className?: string }> }[] };
-    };
 
-    /** Array of column IDs that should use the Date Filter */
-    dateFilterColumns?: string[];
-    /** Optional: Show export button and related dialog logic */
-    showExportButton?: boolean;
-    onExport?: (() => void) | 'default'; // Callback to handle export logic
-    exportFileName?: string;
-    /** Optional: Show other custom buttons or elements in the toolbar */
-    toolbarActions?: React.ReactNode;
-    /** Optional: className for the container div */
-    className?: string;
-    /**
-     * Optional: Show row selection column and related logic
-     */
-    showRowSelection?: boolean;
+export interface DataTableProps<T> {
+  table                  : TanTable<T>;
+  columns                : ColumnDef<T, any>[];
+  isLoading              : boolean;
+  error?                 : Error|null;
+  totalCount             : number;
+
+  /* search */
+  searchFieldOptions     : SearchFieldOption[];
+  selectedSearchField    : string;
+  onSelectedSearchFieldChange: (v:string)=>void;
+  searchTerm             : string;
+  onSearchTermChange     : (v:string)=>void;
+
+  /* filters */
+  facetFilterOptions?    : Record<string,{title:string;options:{label:string,value:string}[]}>;
+  dateFilterColumns?     : string[];
+
+  /* export */
+  showExportButton?      : boolean;
+  onExport?              : (()=>void)|"default";
+  exportFileName?        : string;
+
+  toolbarActions?        : React.ReactNode;
+  className?             : string;
+
+  /* row selection / indicator */
+  showRowSelection?      : boolean;
+  isNewRow?              : (row:TanRow<T>)=>boolean;
+  newRowIndicatorComponent?: React.ReactNode;
+
+  estimatedRowHeight?    : number;
 }
 
-// --- Component ---
-export function DataTable<TData>({
-    table,
-    columns: userDefinedColumns, // Receive columns to help with rendering structure/colspan
-    isLoading,
-    error,
-    totalCount,
-    // --- New Search Props ---
-    searchFieldOptions,
-    selectedSearchField,
-    onSelectedSearchFieldChange,
-    searchTerm,
-    onSearchTermChange,
-    // --- End New Search Props ---
-    // --- END MODIFICATION ---
-    facetFilterOptions = {},
-    // --- NEW ---
-    dateFilterColumns = [], // Default to empty array
-    // -----------
-    showExportButton = false,
-    onExport,
-    exportFileName = 'data_export',
-    toolbarActions,
-    className,
-    showRowSelection = false,
+/* ---------- component --------------------------------------------------- */
+export function DataTable<T>({
+  table, columns,
+  isLoading, error, totalCount,
+  searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
+  searchTerm, onSearchTermChange,
+  facetFilterOptions = {}, dateFilterColumns = [],
+  showExportButton = false, onExport, exportFileName = "data",
+  toolbarActions, className,
+  showRowSelection = false,
+  isNewRow,
+  newRowIndicatorComponent = <div className="h-2 w-2 rounded-full bg-red-500" />,
+  estimatedRowHeight = 45,
+}: DataTableProps<T>) {
 
-}: DataTableProps<TData>) {
+  /* ───────── helpers ───────── */
+  const leafCols = React.useMemo(()=>table.getAllLeafColumns(),[table]);
+  const colWidths = React.useMemo(
+      ()=>leafCols.map(c=>c.getSize() ?? 150),[leafCols]);
 
-    const searchInputId = React.useId();
+  const shouldRenderSelectionColumn = showRowSelection && table.options.enableRowSelection;
+  const shouldRenderIndicatorColumn = !!isNewRow;
 
-    const currentSearchFieldConfig = React.useMemo(
-        () => searchFieldOptions?.find(opt => opt.value === selectedSearchField) || searchFieldOptions?.[0],
-        [selectedSearchField, searchFieldOptions]
-    );
+  /* ───────── virtualizer ───────── */
+  const parentRef = React.useRef<HTMLDivElement>(null);
 
-    const currentSearchPlaceholder = React.useMemo(
-        () => currentSearchFieldConfig?.placeholder || `Search by ${currentSearchFieldConfig?.label || '...'}`,
-        [currentSearchFieldConfig]
-    );
+  const rows = table.getRowModel().rows;
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => estimatedRowHeight,
+    overscan: 10,
+  });
 
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
-    // --- Default Export Handler ---
+  const paddingTop    = virtualRows.length ? virtualRows[0].start : 0;
+  const paddingBottom = virtualRows.length
+        ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length-1].end
+        : 0;
+
+  // --- Default Export Handler ---
     const handleDefaultExport = React.useCallback(() => {
-        if (isLoading || table.getRowModel().rows.length === 0) {
+        if (isLoading || rows.length === 0) {
             toast({ title: "Export", description: "No data available or still loading.", variant: "default" });
             return;
         }
 
-        let dataToExport: TData[];
+        let dataToExport: T[];
         const selectedRows = table.getSelectedRowModel().rows;
 
         if (showRowSelection) {
             dataToExport = selectedRows.map(row => row.original);
         } else {
             // Export all currently rendered rows in the table (respects client-side pagination if any, or all fetched if server-paginated)
-            dataToExport = table.getRowModel().rows.map(row => row.original);
+            dataToExport = rows.map(row => row.original);
         }
 
         if (!dataToExport || dataToExport.length === 0) {
@@ -151,7 +131,7 @@ export function DataTable<TData>({
 
         try {
             // Use userDefinedColumns for export to respect what the user configured for display
-            const exportableColumns = userDefinedColumns.filter(col =>
+            const exportableColumns = columns.filter(col =>
                 (col.header || (col as any).accessorKey) && !(col.meta as any)?.excludeFromExport
             );
             exportToCsv(exportFileName, dataToExport, exportableColumns); // Use your generic utility
@@ -163,321 +143,212 @@ export function DataTable<TData>({
             console.error("Default export failed:", error);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive"});
         }
-    }, [isLoading, table, showRowSelection, userDefinedColumns, exportFileName, toast]);
+    }, [isLoading, rows, columns, exportFileName, toast]);
 
-    // --- Determine actual onExport handler ---
-    const effectiveOnExport = React.useMemo(() => {
+
+  // --- Determine actual onExport handler ---
+    const effectiveExport = React.useMemo(() => {
         if (onExport === 'default') return handleDefaultExport;
         return onExport; // Could be undefined or a custom function
     }, [onExport, handleDefaultExport]);
 
+  /* ───────── column sticky offset helper ───────── */
+  const stickyOffset = React.useCallback((dataIndex:number)=>{
+    let off = 0;
+    if (shouldRenderIndicatorColumn) off+=20;
+    if (shouldRenderSelectionColumn) off+=40;
+    for(let i=0;i<dataIndex;i++) off += colWidths[i];
+    return off;
+  },[shouldRenderIndicatorColumn,shouldRenderSelectionColumn,colWidths]);
 
-    // --- Prepare columns for rendering, conditionally adding selection column ---
-    // const tableColumns = React.useMemo(() => {
-    //     if (showRowSelection) {
-    //         const selectionColumn: ColumnDef<TData, any> = {
-    //             id: 'select',
-    //             header: ({ table: currentTable }) => {
-    //                 // Enhanced select-all logic (from your AccountantTabs)
-    //                 const WritableRows = currentTable.getCoreRowModel().rows.filter(row => {
-    //                     const isRowSelectable = typeof table.options.enableRowSelection === 'function'
-    //                         // @ts-ignore // TODO: type row.original properly if needed
-    //                         ? table.options.enableRowSelection(row as Row<TData>)
-    //                         : true;
-    //                     return isRowSelectable;
-    //                 });
-    //                 const isAllWritableSelected = WritableRows.length > 0 && WritableRows.every(row => row.getIsSelected());
-    //                 const isSomeWritableSelected = WritableRows.some(row => row.getIsSelected());
+  /* ───────── UI ───────── */
+  return (
+  <div className={`space-y-4 ${className??""}`}>
 
-    //                 return (
-    //                     <Checkbox
-    //                         checked={isAllWritableSelected ? true : (isSomeWritableSelected ? "indeterminate" : false)}
-    //                         onCheckedChange={(value) => WritableRows.forEach(row => row.toggleSelected(!!value))}
-    //                         aria-label="Select all writable rows"
-    //                         disabled={WritableRows.length === 0}
-    //                     />
-    //                 );
-    //             },
-    //             cell: ({ row }) => {
-    //                 const isRowSelectable = typeof table.options.enableRowSelection === 'function'
-    //                      // @ts-ignore // TODO: type row.original properly if needed
-    //                     ? table.options.enableRowSelection(row as Row<TData>)
-    //                     : true;
-    //                 return (
-    //                     <Checkbox
-    //                         checked={row.getIsSelected()}
-    //                         onCheckedChange={(value) => row.toggleSelected(!!value)}
-    //                         aria-label="Select row"
-    //                         disabled={!isRowSelectable}
-    //                     />
-    //                 );
-    //             },
-    //             enableSorting: false, enableHiding: false, size: 40,
-    //         };
-    //         return [selectionColumn, ...columns];
-    //     }
-    //     return columns;
-    // }, [showRowSelection, columns, table.options.enableRowSelection]);
+    {/* ───── Toolbar ───── */}
+    <Toolbar
+      {...{
+        searchFieldOptions,selectedSearchField,onSelectedSearchFieldChange,
+        searchTerm,onSearchTermChange,
+        showExportButton,effectiveExport,toolbarActions,isLoading,table,
+        showRowSelection
+      }}
+    />
 
+    {/* error */}
+    {error && (
+      <div className="p-4 text-center text-red-600 bg-red-100 border border-red-300 rounded-md">
+        Error fetching data: {error.message}
+      </div>
+    )}
 
-    // --- Conditionally add selection column ---
-    // const tableColumns = React.useMemo(() => {
-    //     if (showRowSelection) {
-    //         const selectionColumn: ColumnDef<TData, any> = {
-    //             id: 'select',
-    //             header: ({ table: currentTableInstance }) => {
-    //                 // Filter rows based on the `enableRowSelection` function if provided by table options
-    //                 const selectableRows = currentTableInstance.getCoreRowModel().rows.filter(row =>
-    //                     typeof currentTableInstance.options.enableRowSelection === 'function'
-    //                         ? currentTableInstance.options.enableRowSelection(row)
-    //                         : true
-    //                 );
-    //                 const isAllSelectableSelected = selectableRows.length > 0 && selectableRows.every(row => row.getIsSelected());
-    //                 // Check if some, but not all, of the selectable rows are selected
-    //                 const isSomeSelectableSelected = selectableRows.some(row => row.getIsSelected()) && !isAllSelectableSelected;
+    {/* ───── Table container ───── */}
+    <div ref={parentRef}
+         className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto">
 
-    //                 return (
-    //                     <Checkbox
-    //                         checked={isAllSelectableSelected ? true : (isSomeSelectableSelected ? "indeterminate" : false)}
-    //                         onCheckedChange={(value) => {
-    //                             // Only toggle the selection state of rows that are actually selectable
-    //                             selectableRows.forEach(row => row.toggleSelected(!!value));
-    //                         }}
-    //                         aria-label="Select all selectable rows"
-    //                         disabled={selectableRows.length === 0} // Disable if no rows can be selected
-    //                     />
-    //                 );
-    //             },
-    //             cell: ({ row }) => {
-    //                 // Determine if this specific row can be selected based on table options
-    //                 const canSelectRow = typeof table.options.enableRowSelection === 'function'
-    //                     ? table.options.enableRowSelection(row)
-    //                     : true; // Default to true if no function provided
+      <Table className="min-w-full table-fixed">
 
-    //                 return (
-    //                     <Checkbox
-    //                         checked={row.getIsSelected()}
-    //                         onCheckedChange={(value) => row.toggleSelected(!!value)}
-    //                         aria-label="Select row"
-    //                         disabled={!canSelectRow} // Disable checkbox if row cannot be selected
-    //                     />
-    //                 );
-    //             },
-    //             enableSorting: false, enableHiding: false, size: 40, meta : {
-    //                 excludeFromExport: true
-    //             }
-    //         };
-    //         return [selectionColumn, ...userDefinedColumns];
-    //     }
-    //     return userDefinedColumns;
-    // }, [showRowSelection, userDefinedColumns, table.options.enableRowSelection]);
+        {/* ---- colgroup guarantees identical widths ---- */}
+        <colgroup>
+          {shouldRenderIndicatorColumn && <col style={{width:20}} />}
+          {shouldRenderSelectionColumn && <col style={{width:40}} />}
+          {colWidths.map((w,i)=><col key={i} style={{width:w}} />)}
+        </colgroup>
 
-    // Determine if the selection column should actually be rendered
-    // based on the prop AND if the table instance has selection enabled.
-    const shouldRenderSelectionColumn = showRowSelection && table.options.enableRowSelection;
+        {/* ---- Header ---- */}
+        <TableHeader className="sticky top-0 z-10 bg-red-50 shadow-sm">
+          {table.getHeaderGroups().map(hg=>(
+            <TableRow key={hg.id}>
+              {shouldRenderIndicatorColumn && (
+                <TableHead className="w-[20px] sticky left-0 bg-red-50 z-20 px-1" />
+              )}
+              {shouldRenderSelectionColumn && (
+                <TableHead className={`w-[40px] sticky bg-red-50 z-20 ${shouldRenderIndicatorColumn?'left-[20px]':'left-0'}`}>
+                  <Checkbox
+                    checked={
+                      table.getIsAllPageRowsSelected()
+                        ? true
+                        : table.getIsSomePageRowsSelected()
+                          ? "indeterminate" : false}
+                    onCheckedChange={v=>table.toggleAllPageRowsSelected(!!v)}
+                  />
+                </TableHead>
+              )}
 
-    return (
-        <div className={`space-y-4 ${className}`}>
-            {/* --- Toolbar --- */}
-            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
-                {/* Targeted Search */}
-                <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
-                     {/* <Input
-                        id={globalFilterInputId}
-                        placeholder={searchPlaceholder}
-                        value={globalFilterValue}
-                        onChange={(e) => onGlobalFilterChange(e.target.value)}
-                        className="h-9 w-full sm:w-[250px] lg:w-[300px]" // Responsive width
-                        aria-label={searchPlaceholder}
-                        aria-describedby={globalSearchCheckboxId} // Link to checkbox description
-                    /> */}
-                    {searchFieldOptions && searchFieldOptions.length > 0 && (
-                        <Select value={selectedSearchField} onValueChange={onSelectedSearchFieldChange}>
-                            <SelectTrigger className="w-auto min-w-[150px] h-9 data_table_search_field_select">
-                                <SelectValue placeholder="Select field" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {searchFieldOptions.map(option => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                        {option.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    )}
-                    <Input
-                        id={searchInputId}
-                        placeholder={currentSearchPlaceholder}
-                        value={searchTerm}
-                        onChange={(e) => onSearchTermChange(e.target.value)}
-                        className="h-9 w-full sm:w-[250px] lg:w-[300px]"
-                        aria-label={currentSearchPlaceholder}
-                    />
-                    {/* <div className="flex items-center space-x-2">
-                         <Checkbox
-                            id={globalSearchCheckboxId}
-                            checked={globalSearchConfig.isEnabled}
-                            onCheckedChange={globalSearchConfig.toggle} // Use onCheckedChange for Shadcn Checkbox
-                        />
-                        <Label htmlFor={globalSearchCheckboxId} className="text-sm font-medium cursor-pointer whitespace-nowrap">
-                            Global Search
-                        </Label>
-                    </div> */}
-
-                    {/* Conditionally render Item Search Toggle */}
-                    {/* {showItemSearchToggle && (
-                         <div className="flex items-center space-x-2">
-                            <Checkbox
-                                id={itemSearchCheckboxId}
-                                checked={itemSearchConfig.isEnabled}
-                                onCheckedChange={itemSearchConfig.toggle}
-                            />
-                            <Label htmlFor={itemSearchCheckboxId} className="text-sm font-medium cursor-pointer whitespace-nowrap">
-                                {itemSearchConfig.label ?? "Item Search"} 
-                            </Label>
+              {hg.headers.map((h,i)=>{
+                 if (shouldRenderSelectionColumn && h.id==="select") return null;
+                 const first = i===0;
+                 const left  = first ? stickyOffset(0) : undefined;
+                const columnInstance = h.column;
+                const canShowFacetedFilter = facetFilterOptions?.[columnInstance.id];
+                const canShowDateFilter = dateFilterColumns.includes(columnInstance.id);
+                 return (
+                   <TableHead key={h.id}
+                      className={first?"sticky bg-red-50 z-20":undefined}
+                      style={{left, width:h.getSize()}}>
+                     {h.isPlaceholder ? null :
+                     (
+                        <div className="flex items-center gap-1">
+                            {canShowFacetedFilter && ( <DataTableFacetedFilter column={columnInstance!} title={facetFilterOptions[h.column.id]!.title} options={facetFilterOptions[h.column.id]!.options} /> )}
+                            {canShowDateFilter && ( <DataTableDateFilter column={columnInstance!} title={h.column.columnDef.header as string || h.column.id} /> )}
+                            {flexRender(h.column.columnDef.header,h.getContext())}
                         </div>
-                     )} */}
-                </div>
-
-                {/* Faceted Filters (Rendered in Header now) & View Options */}
-                 <div className="flex items-center gap-2">
-                      {/* Render custom toolbar actions passed via props */}
-                     {toolbarActions}
-
-                     {/* Export Button - Simplified */}
-                     {showExportButton && onExport && (
-                        <Button
-                            onClick={effectiveOnExport}
-                             // Disable if no rows selected? Needs table.getFilteredSelectedRowModel().rows.length > 0
-                            // disabled={isLoading || table.getCoreRowModel().rows.length === 0}
-                            disabled={
-                                isLoading ||
-                                table.getRowModel().rows.length === 0 || // No data at all
-                                (showRowSelection && table.getSelectedRowModel().rows.length === 0) // If custom export AND selection shown AND nothing selected
-                            }
-
-                            variant="outline"
-                            size="sm" // Smaller button
-                            className="data_table_export_button h-9" // Consistent height
-                         >
-                            <FileUp className="mr-2 h-4 w-4" />
-                             Export {showRowSelection ? "Selected" : ""}
-                         </Button>
                      )}
+                   </TableHead>
+                 );
+              })}
+            </TableRow>
+          ))}
+        </TableHeader>
 
-                     {/* Keep View Options */}
-                    <DataTableViewOptions table={table} />
-                 </div>
-            </div>
+        {/* ---- Body with padding rows ---- */}
+        <TableBody>
+          {isLoading ? (
+            <TableBodySkeleton rows={10} colSpan={leafCols.length+ (shouldRenderIndicatorColumn?1:0)+(shouldRenderSelectionColumn?1:0)} />
+          ) : (
+            <>
+              {paddingTop>0 && (
+                <TableRow><TableCell style={{height:paddingTop,border:0}} /></TableRow>
+              )}
 
-             {/* --- Error Display --- */}
-             {error && (
-                 <div className="p-4 text-center text-red-600 bg-red-100 border border-red-300 rounded-md">
-                     Error fetching data: {error.message}
-                 </div>
-             )}
+              {virtualRows.map(vRow=>{
+                const row = rows[vRow.index] as TanRow<T>;
+                return (
+                  <TableRow key={row.id} data-state={row.getIsSelected()&&"selected"}>
+                    {shouldRenderIndicatorColumn && (
+                      <TableCell className="sticky left-0 z-[5] w-[20px] px-1">
+                        {isNewRow && isNewRow(row)?newRowIndicatorComponent:null}
+                      </TableCell>
+                    )}
 
-            {/* --- Table --- */}
-            <div className="rounded-md border overflow-x-auto relative max-h-[70vh] overflow-y-auto"> {/* overflow-x-auto for responsiveness */}
+                    {shouldRenderSelectionColumn && (
+                      <TableCell className={`sticky z-[5] w-[40px] px-2 ${shouldRenderIndicatorColumn?'left-[20px]':'left-0'}`}>
+                        <Checkbox
+                          checked={row.getIsSelected()}
+                          onCheckedChange={v=>row.toggleSelected(!!v)}
+                        />
+                      </TableCell>
+                    )}
 
-                <Table className="min-w-full">
-                    <TableHeader className="sticky top-0 z-10 bg-red-50 shadow-sm">
-                        {table.getHeaderGroups().map((headerGroup: HeaderGroup<TData>) => (
-                            <TableRow key={headerGroup.id}>
-                                <TableHead className="w-[20px] px-1 md:px-2 print:hidden"> {/* Small width, adjust px as needed */}
-                                        {/* Header for indicator can be empty or have a small icon/title if needed */}
-                                </TableHead>
-                                {/* --- Render Selection Header Conditionally --- */}
-                                {shouldRenderSelectionColumn && (
-                                    <TableHead className="w-[40px] px-2">
-                                        <Checkbox
-                                            checked={
-                                                table.getIsAllPageRowsSelected()
-                                                    ? true
-                                                    : table.getIsSomePageRowsSelected()
-                                                        ? "indeterminate"
-                                                        : false
-                                            }
-                                            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                                            aria-label="Select all rows on current page"
-                                            // Select all should respect individual row selectability if `enableRowSelection` was a function
-                                            // TanStack Table handles this internally if `enableRowSelection` is a function.
-                                            // If you need more custom logic for "select all writable", it needs to be here.
-                                        />
-                                    </TableHead>
-                                )}
-                                {/* --- Render User-Defined Column Headers --- */}
-                                {headerGroup.headers.map((header) => {
-                                    // Skip rendering the 'select' header again if we manually added it
-                                    if (shouldRenderSelectionColumn && header.id === 'select') return null;
+                    {row.getVisibleCells().map((cell,idx)=>{
+                      if (shouldRenderSelectionColumn && cell.column.id==="select") return null;
+                      const first = idx===0;
+                      const left  = first?stickyOffset(0):undefined;
+                      return (
+                        <TableCell key={cell.id}
+                                   className={first?"sticky z-[5] bg-white":undefined}
+                                   style={{left}}>
+                          {flexRender(cell.column.columnDef.cell,cell.getContext())}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                );
+              })}
 
-                                    const columnInstance = header.column;
-                                    const canShowFacetedFilter = facetFilterOptions?.[columnInstance.id];
-                                    const canShowDateFilter = dateFilterColumns.includes(columnInstance.id);
-                                    return (
-                                        <TableHead key={header.id} colSpan={header.colSpan} style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}>
-                                            {!header.isPlaceholder && ( 
-                                                <div className="flex items-center gap-1">
-                                                {canShowFacetedFilter && ( <DataTableFacetedFilter column={columnInstance!} title={facetFilterOptions[header.column.id]!.title} options={facetFilterOptions[header.column.id]!.options} /> )}
-                                                {canShowDateFilter && ( <DataTableDateFilter column={columnInstance!} title={header.column.columnDef.header as string || header.column.id} /> )}
-                                                {flexRender(header.column.columnDef.header, header.getContext())}
-                                            </div>
-                                             )}
-                                        </TableHead>
-                                    );
-                                })}
-                            </TableRow>
-                        ))}
-                    </TableHeader>
-                    <TableBody>
-                        {isLoading ? ( <TableBodySkeleton shouldRenderSelectionColumn={shouldRenderSelectionColumn} colSpan={table.getAllFlatColumns().length} rows={table.getState().pagination.pageSize} />
-                        ) : table.getRowModel().rows?.length ? (
-                            table.getRowModel().rows.map((row) => (
-                                <TableRow key={(row.original as any)?.name || row.id} data-state={row.getIsSelected() && 'selected'}>
-                                    <TableCell className="w-[30px] px-1 md:px-2 print:hidden">
-                                            {/* Render the indicator if the condition is met for this row */}
-                                            {/* {isNewRow(row) ? newRowIndicatorComponent : null} */}
-                                    </TableCell>
-                                    {/* --- Render Selection Cell Conditionally --- */}
-                                    {shouldRenderSelectionColumn && (
-                                        <TableCell className="px-2">
-                                            <Checkbox
-                                                checked={row.getIsSelected()}
-                                                onCheckedChange={(value) => row.toggleSelected(!!value)}
-                                                aria-label="Select row"
-                                                // Respect if row is individually disabled by enableRowSelection function
-                                                disabled={!row.getCanSelect()}
-                                            />
-                                        </TableCell>
-                                    )}
-                                    {/* --- Render User-Defined Column Cells --- */}
-                                    {row.getVisibleCells().map((cell) => {
-                                        // Skip rendering the 'select' cell again if we manually added it
-                                        if (shouldRenderSelectionColumn && cell.column.id === 'select') return null;
-                                        return (
-                                            <TableCell className="p-2" key={cell.id} style={{ 
-                                                // width: cell.column.getSize() !== 150 ? cell.column.getSize() : undefined 
-                                                width: cell.column.getSize()
-                                                
-                                            }}
-                                            >
-                                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                            </TableCell>
-                                        );
-                                    })}
-                                </TableRow>
-                            ))
-                        ) : ( <TableRow><TableCell colSpan={table.getAllFlatColumns().length} className="h-24 text-center">No results found.</TableCell></TableRow> )}
-                    </TableBody>
-                </Table>
-            </div>
+              {paddingBottom>0 && (
+                <TableRow><TableCell style={{height:paddingBottom,border:0}} /></TableRow>
+              )}
+            </>
 
-            {/* --- Pagination --- */}
-            <DataTablePagination
-                table={table}
-                totalCount={totalCount}
-                isLoading={isLoading}
-            />
-        </div>
-    );
+          )}
+        </TableBody>
+      </Table>
+    </div>
+
+    {/* pagination */}
+    <DataTablePagination table={table} totalCount={totalCount} isLoading={isLoading}/>
+  </div>
+  );
+}
+
+/* ---------- tiny sub-toolbar component (same look) -------------------- */
+function Toolbar(props:{
+  searchFieldOptions:SearchFieldOption[];
+  selectedSearchField:string; onSelectedSearchFieldChange:(v:string)=>void;
+  searchTerm:string; onSearchTermChange:(v:string)=>void;
+  showExportButton:boolean; effectiveExport?:()=>void;
+  toolbarActions?:React.ReactNode; isLoading:boolean;
+  table: TanTable<any>; showRowSelection:boolean;
+}){
+  const searchInputId = React.useId();
+  const cfg = props.searchFieldOptions.find(o=>o.value===props.selectedSearchField)
+           ?? props.searchFieldOptions[0];
+  const ph = cfg?.placeholder || `Search by ${cfg?.label}`;
+
+  return (
+  <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+    <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
+      {props.searchFieldOptions.length>0 && (
+        <Select value={props.selectedSearchField}
+                onValueChange={props.onSelectedSearchFieldChange}>
+          <SelectTrigger className="min-w-[150px] h-9"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {props.searchFieldOptions.map(o=>
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      <Input 
+        aria-label={ph}
+        id={searchInputId} 
+        className="h-9 w-full sm:w-[250px] lg:w-[300px]"
+        placeholder={ph} value={props.searchTerm}
+        onChange={e=>props.onSearchTermChange(e.target.value)} />
+    </div>
+
+    <div className="flex items-center gap-2">
+      {props.toolbarActions}
+      {props.showExportButton && props.effectiveExport && (
+        <Button size="sm" variant="outline"
+                disabled={props.isLoading ||
+                  (props.showRowSelection &&
+                   props.table.getSelectedRowModel().rows.length===0)}
+                onClick={props.effectiveExport}>
+          <FileUp className="h-4 w-4 mr-1"/> Export
+        </Button>
+      )}
+      <DataTableViewOptions table={props.table}/>
+    </div>
+  </div>);
 }

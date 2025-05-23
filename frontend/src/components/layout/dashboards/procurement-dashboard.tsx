@@ -6,7 +6,7 @@ import { Card } from "../../ui/card";
 
 export default function ProcurementDashboard() {
 
-    const { prCounts, newPOCount, otherPOCount,dispatchedPOCount, newSBCounts, allSRCount, pendingSRCount, approvedSRCount } = useDocCountStore()
+    const { counts } = useDocCountStore()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocCount("Items");
@@ -32,7 +32,7 @@ export default function ProcurementDashboard() {
                     <Link to="/procurement-requests?tab=New+PR+Request">
                         <p className="text-center py-6 font-bold text-gray-500">New PR Request</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {prCounts.approved || 0}
+                            {counts.pr.approved || 0}
                         </p>
                     </Link>
                 </Card>
@@ -41,7 +41,7 @@ export default function ProcurementDashboard() {
                     <Link to="/procurement-requests?tab=In+Progress">
                         <p className="text-center py-6 font-bold text-gray-500">In Progress</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {prCounts.inProgress || 0}
+                            {counts.pr.in_progress || 0}
                         </p>
                     </Link>
                 </Card>
@@ -51,7 +51,7 @@ export default function ProcurementDashboard() {
                     <Link to="/procurement-requests?tab=Rejected">
                         <p className="text-center py-6 font-bold text-gray-500">Sent Back</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {newSBCounts.rejected || 0}
+                            {counts.sb.rejected.pending || 0}
                         </p>
                     </Link>
                 </Card>
@@ -59,7 +59,7 @@ export default function ProcurementDashboard() {
                     <Link to="/procurement-requests?tab=Delayed">
                         <p className="text-center py-6 font-bold text-gray-500">Skipped PR</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {newSBCounts.delayed || 0}
+                            {counts.sb.delayed.pending|| 0}
                         </p>
                     </Link>
                 </Card>
@@ -67,7 +67,7 @@ export default function ProcurementDashboard() {
                     <Link to="/procurement-requests?tab=Cancelled">
                         <p className="text-center py-6 font-bold text-gray-500">Rejected PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {newSBCounts.cancelled || 0}
+                            {counts.sb.cancelled.pending || 0}
                         </p>
                     </Link>
                 </Card>
@@ -80,7 +80,7 @@ export default function ProcurementDashboard() {
                     <Link to="/service-requests-list">
                         <p className="text-center py-6 font-bold text-gray-500">All SRs</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {allSRCount || 0}
+                            {counts.sr.all || 0}
                         </p>
                     </Link>
                 </Card>
@@ -89,7 +89,7 @@ export default function ProcurementDashboard() {
                     <Link to="/service-requests?tab=choose-vendor">
                         <p className="text-center py-6 font-bold text-gray-500">In Progress SR</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {pendingSRCount || 0}
+                            {counts.sr.pending || 0}
                         </p>
                     </Link>
                 </Card>
@@ -98,7 +98,7 @@ export default function ProcurementDashboard() {
                     <Link to="/service-requests?tab=approved-sr">
                         <p className="text-center py-6 font-bold text-gray-500">Approved SR</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {approvedSRCount || 0}
+                            {counts.sr.approved || 0}
                         </p>
                     </Link>
                 </Card>
@@ -111,7 +111,7 @@ export default function ProcurementDashboard() {
                     <Link to="/purchase-orders?tab=Approved+PO">
                         <p className="text-center py-6 font-bold text-gray-500">Approved PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {newPOCount || 0}
+                            {counts.po['PO Approved'] || 0}
                         </p>
                     </Link>
                 </Card>
@@ -119,7 +119,7 @@ export default function ProcurementDashboard() {
                     <Link to="/purchase-orders?tab=Dispatched+PO">
                         <p className="text-center py-6 font-bold text-gray-500">Dispatched PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {dispatchedPOCount || 0}
+                            {counts.po['Dispatched'] || 0}
                         </p>
                     </Link>
                 </Card>
@@ -127,7 +127,7 @@ export default function ProcurementDashboard() {
                     <Link to="/purchase-orders?tab=Delivered+PO">
                         <p className="text-center py-6 font-bold text-gray-500">Delivered PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {otherPOCount || 0}
+                            {counts.po['Delivered'] || 0}
                         </p>
                     </Link>
                 </Card>

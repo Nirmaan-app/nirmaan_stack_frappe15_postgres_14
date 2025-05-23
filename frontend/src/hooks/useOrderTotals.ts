@@ -13,7 +13,8 @@ export const useOrderTotals = () => {
       filters: [['status', 'not in', ['Cancelled', 'Merged']]],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
-    }
+    },
+    "All_POs_for_order_totals"
   );
 
   const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
@@ -23,7 +24,8 @@ export const useOrderTotals = () => {
       // filters: [['status', '=', 'Approved']],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
-    }
+    },
+    "All_SRs_for_order_totals"
   );
 
   const getTotalAmount = useMemo(
