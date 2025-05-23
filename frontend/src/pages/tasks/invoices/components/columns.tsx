@@ -11,9 +11,12 @@ import { formatToRoundedIndianRupee } from '@/utils/FormatPrice'; // Adjust path
 import { formatDate } from 'date-fns'; // Use date-fns or your preferred library
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import SITEURL from "@/constants/siteURL";
+import { parseNumber } from "@/utils/parseNumber";
 
 // --- Helper function for common columns ---
-const getCommonColumns = (attachmentsMap?: Record<string, string>): ColumnDef<InvoiceApprovalTask>[] => [
+const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
+getAmount: (orderId: string, statuses: string[]) => number
+): ColumnDef<InvoiceApprovalTask>[] => [
     {
         accessorKey: "task_docname",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Parent Doc" />,
@@ -63,6 +66,42 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>): ColumnDef<In
         }
     },
     {
+        id: "po_amount", // PO Amount
+        header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amt" />,
+        cell: ({ row }) => {
+            const totals = getTotalAmount?.(row.original.task_docname, row.original.task_doctype);
+            return <div>
+                {formatToRoundedIndianRupee(parseNumber(totals?.totalWithTax))}
+            </div>
+        },
+        size: 150,
+        sortingFn: 'alphanumeric', // Ensure correct numeric sorting
+        meta: {
+            exportHeaderName: "PO Amt",
+            exportValue: (row: InvoiceApprovalTask) => {
+                const totals = getTotalAmount?.(row.task_docname, row.task_doctype);
+                return totals?.totalWithTax;
+            }
+        }
+    },
+    {
+        id: "amount_paid", // Amount Paid
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
+        cell: ({ row }) => {
+            return <div>
+                {formatToRoundedIndianRupee(parseNumber(getAmount(row.original.task_docname, ["Paid"])))}
+            </div>
+        },
+        size: 150,
+        sortingFn: 'alphanumeric', // Ensure correct numeric sorting
+        meta: {
+            exportHeaderName: "Amt Paid",
+            exportValue: (row: InvoiceApprovalTask) => {
+                return getAmount(row.task_docname, ["Paid"]);
+            }
+        }
+    },
+    {
         accessorKey: "reference_value_2", // Invoice No
         header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice No." />,
         // cell: ({ row }) => <div className="font-medium">{row.original.reference_value_2 || 'N/A'}</div>,
@@ -105,7 +144,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>): ColumnDef<In
         header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
         cell: ({ row }) => (
             <div className="">
-                {formatToRoundedIndianRupee(parseFloat(row.original.reference_value_3 || '0'))}
+                {formatToRoundedIndianRupee(parseNumber(row.original.reference_value_3))}
             </div>
         ),
         sortingFn: 'alphanumeric', // Ensure correct numeric sorting
@@ -157,9 +196,11 @@ export const getPendingTaskColumns = (
     openConfirmationDialog: (task: InvoiceApprovalTask, action: "Approved" | "Rejected") => void,
     loadingTaskId: string | null, // ID of the specific task being processed
     isProcessing: boolean, // Flag if *any* task action is running
-    attachmentsMap?: Record<string, string>
+    attachmentsMap?: Record<string, string>,
+    getTotalAmount: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
+    getAmount: (orderId: string, statuses: string[]) => number
 ): ColumnDef<InvoiceApprovalTask>[] => [
-        ...getCommonColumns(attachmentsMap), // Include common columns
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount), // Include common columns
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -213,10 +254,14 @@ export const getPendingTaskColumns = (
     ];
 
 // --- Columns specific to Task History ---
-export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => string, attachmentsMap?: Record<string, string>): ColumnDef<InvoiceApprovalTask>[] => {
+export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => string, 
+attachmentsMap?: Record<string, string>,
+getTotalAmount: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
+getAmount: (orderId: string, statuses: string[]) => number
+): ColumnDef<InvoiceApprovalTask>[] => {
 
     return [
-        ...getCommonColumns(attachmentsMap), // Include common columns
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount), // Include common columns
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,

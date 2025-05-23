@@ -38,7 +38,6 @@ import { useUsersList } from "./ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "./config/prTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { parseNumber } from "@/utils/parseNumber";
 
 // --- Lazy Loaded Tab Components ---
 const ApprovePR = React.lazy(() => import("./ApproveNewPR/approve-pr"));
@@ -99,37 +98,30 @@ export const ProcurementRequests: React.FC = () => {
     // --- Memoized Options and Counts ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
 
-    const { prCounts, adminPrCounts, newSBCounts, adminNewSBCounts, adminNewApproveSBCount, newSBApproveCount } = useDocCountStore();
+    const { counts } = useDocCountStore();
 
     // --- Tab Definitions ---
     const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminPrCounts.pending : prCounts.pending}</span></div>), value: "Approve PR" },
-    ] : []), [role, prCounts, adminPrCounts]);
+        { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{counts.pr.pending}</span></div>), value: "Approve PR" },
+    ] : []), [role, counts]);
 
     const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminPrCounts.approved : prCounts.approved}</span></div>), value: "New PR Request" },
-        { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminPrCounts.inProgress : prCounts.inProgress}</span></div>), value: "In Progress" },
-    ] : []), [role, adminPrCounts, prCounts]);
+        { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{counts.pr.approved}</span></div>), value: "New PR Request" },
+        { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{counts.pr.in_progress}</span></div>), value: "In Progress" },
+    ] : []), [role, counts]);
 
     const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminNewSBCounts.rejected : newSBCounts.rejected}</span></div>), value: "Rejected" },
-        { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminNewSBCounts.delayed : newSBCounts.delayed}</span></div>), value: "Delayed" },
-        { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}</span></div>), value: "Cancelled" },
-    ] : []), [role, newSBCounts, adminNewSBCounts]);
-
-    const allCounts = useMemo(() => ({
-        adminPrs: parseNumber(adminPrCounts.approved) + parseNumber(adminPrCounts.inProgress) + parseNumber(adminPrCounts.pending) + parseNumber(adminPrCounts.approve),
-        pr: parseNumber(prCounts.approved) + parseNumber(prCounts.inProgress) + parseNumber(prCounts.pending) + parseNumber(prCounts.approve),
-        adminSbs: parseNumber(adminNewSBCounts.rejected) + parseNumber(adminNewSBCounts.delayed) + parseNumber(adminNewSBCounts.cancelled) + parseNumber(adminNewApproveSBCount),
-        sb: parseNumber(newSBCounts.rejected) + parseNumber(newSBCounts.delayed) + parseNumber(newSBCounts.cancelled) + parseNumber(newSBApproveCount),
-    }), [newSBCounts, adminNewSBCounts, prCounts, adminPrCounts, adminNewApproveSBCount, newSBApproveCount])
+        { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{counts.sb.rejected.pending}</span></div>), value: "Rejected" },
+        { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.delayed.pending}</span></div>), value: "Delayed" },
+        { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
+    ] : []), [role, counts]);
 
     const allTabs = useMemo(() => 
         [
-            { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? allCounts.adminPrs : allCounts.pr}</span></div>), value: "All PRs" },
-             { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? allCounts.adminSbs : allCounts.sb}</span></div>), value: "All SBs" },
+            { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{counts.pr.all}</span></div>), value: "All PRs" },
+             { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
         ]
-    ,[allCounts, role])
+    ,[counts, role])
 
 
     // --- Notification Handling ---
@@ -231,7 +223,6 @@ export const ProcurementRequests: React.FC = () => {
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
             size: 150,
-
         },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,

@@ -12,6 +12,8 @@ import { TableSkeleton } from '@/components/ui/skeleton';
 import { DataTable } from '@/components/data-table/new-data-table';
 import { useUserData } from '@/hooks/useUserData';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
+import { useOrderTotals } from '@/hooks/useOrderTotals';
+import { useOrderPayments } from '@/hooks/useOrderPayments';
 
 
 // --- Constants ---
@@ -33,7 +35,6 @@ export const PendingTasksTable: React.FC = () => {
             limit: attachmentIds.length || 1, // Fetch all relevant, or 1 if none to avoid error
         }, 
         attachmentIds.length > 0 ? `attachments_for_invoice_tasks_${attachmentIds.join('_')}` : null
-
     );
 
     const attachmentsMap = useMemo(() => {
@@ -52,11 +53,13 @@ export const PendingTasksTable: React.FC = () => {
         // onActionSuccess: refetch, // Pass the refetch function from useServerDataTable
     });
 
+    const {getTotalAmount} = useOrderTotals()
+    const {getAmount} = useOrderPayments()
 
     // --- Column Definitions (Memoized with dependencies) ---
     const columns = React.useMemo(
-        () => getPendingTaskColumns(openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap),
-        [openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap]
+        () => getPendingTaskColumns(openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap, getTotalAmount, getAmount),
+        [openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap, getTotalAmount, getAmount]
     );
 
     const staticFilters = useMemo(() => getInvoiceTaskStaticFilters("Pending", role, user_id), [role, user_id])
@@ -64,7 +67,6 @@ export const PendingTasksTable: React.FC = () => {
     const fetchFields = useMemo(() => DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH, [])
 
     const invoiceTaskSearchableFeilds = useMemo(() => INVOICE_TASK_SEARCHABLE_FIELDS, [])
-
 
     // --- Main Data Table Hook ---
     const {

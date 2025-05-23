@@ -11,6 +11,8 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { DataTable } from '@/components/data-table/new-data-table';
 import { TableSkeleton } from '@/components/ui/skeleton';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
+import { useOrderTotals } from '@/hooks/useOrderTotals';
+import { useOrderPayments } from '@/hooks/useOrderPayments';
 
 // --- Constants ---
 const DOCTYPE = 'Task';
@@ -22,6 +24,9 @@ export const TaskHistoryTable: React.FC = () => {
     // const { tasks, isLoading, error, attachmentsMap } = useInvoiceTasks('!= Pending');
 
     const {data: usersList} = useUsersList()
+
+    const {getTotalAmount} = useOrderTotals()
+    const {getAmount} = useOrderPayments()
 
     const [attachmentIds, setAttachmentIds] = React.useState<string[]>([]);
 
@@ -60,7 +65,7 @@ export const TaskHistoryTable: React.FC = () => {
     ]), [])
 
     // Columns don't depend on actions here, so Memo has no dynamic dependencies
-    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName, attachmentsMap), [usersList, attachmentsMap]);
+    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName, attachmentsMap, getTotalAmount, getAmount), [usersList, attachmentsMap, getTotalAmount, getAmount]);
 
     // --- Main Data Table Hook ---
     const {
