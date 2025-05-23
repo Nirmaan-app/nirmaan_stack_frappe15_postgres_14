@@ -8,7 +8,7 @@ import { Radio } from "antd";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
-const AccountantTabs = React.lazy(() => import("./AccountantTabs"));
+const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
 const ProjectPaymentsList = React.lazy(() => import("./project-payments-list"));
 const AllPayments = React.lazy(() => import("./AllPayments"));
 
@@ -16,7 +16,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     const {role} = useUserData();
 
-    const {paymentsCount, adminPaymentsCount} = useDocCountStore()
+    const {counts} = useDocCountStore()
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
@@ -65,14 +65,14 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                     <div className="flex items-center">
                         <span>Approve Payments</span>
                         <span className="ml-2 text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
+                            {counts.pay.requested}
                         </span>
                     </div>
                 ),
                 value: "Approve Payments",
             },
         ] : [])
-    ], [role, adminPaymentsCount, paymentsCount])
+    ], [role, counts])
 
     const items = useMemo(() => [
         ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
@@ -81,7 +81,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                     <div className="flex items-center">
                         <span>New Payments</span>
                         <span className="ml-2 text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.approved : paymentsCount?.approved}
+                            {counts.pay.approved}
                         </span>
                     </div>
                 ),
@@ -99,21 +99,13 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             //     value: "Fulfilled Payments",
             // },
         ] : [])
-    ], [role, adminPaymentsCount, paymentsCount])
-
-    const allCounts = useMemo(() => ({
-                adminPayments: parseNumber(adminPaymentsCount?.approved) + parseNumber(adminPaymentsCount?.requested) + parseNumber(adminPaymentsCount.paid) + parseNumber(adminPaymentsCount.rejected),
-
-                payments: parseNumber(paymentsCount?.approved) + parseNumber(paymentsCount?.requested) + parseNumber(paymentsCount.paid) + parseNumber(paymentsCount.rejected),
-            }), [
-                adminPaymentsCount, paymentsCount
-            ])
+    ], [role, counts])
         
     const allTab = useMemo(() => 
             [
-                { label: (<div className="flex items-center"><span>All Payments</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? allCounts.adminPayments : allCounts.payments}</span></div>), value: "All Payments" },
+                { label: (<div className="flex items-center"><span>All Payments</span><span className="ml-2 text-xs font-bold">{counts.pay.all}</span></div>), value: "All Payments" },
             ]
-        ,[allCounts, role])
+        ,[counts, role])
 
     const remTabs = useMemo(() => [
         ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []),
@@ -126,7 +118,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <div className="flex items-center">
                     <span>Payments Done</span>
                     <span className="ml-2 rounded text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.paid : paymentsCount?.paid}
+                        {counts.pay.paid}
                     </span>
                 </div>
             ),
@@ -137,13 +129,13 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <div className="flex items-center">
                     <span>Payments Pending</span>
                     <span className="ml-2 text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? parseNumber(adminPaymentsCount?.requested) + parseNumber(adminPaymentsCount.approved) : parseNumber(paymentsCount?.requested) + parseNumber(paymentsCount?.approved)}
+                        {parseNumber(counts.pay.requested) + parseNumber(counts.pay.approved)}
                     </span>
                 </div>
             ),
             value: "Payments Pending",
         },
-    ], [adminPaymentsCount, paymentsCount, role])
+    ], [counts, role])
 
     return (
         <div className="flex-1 space-y-4">

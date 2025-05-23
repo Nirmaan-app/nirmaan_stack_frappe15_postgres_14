@@ -285,7 +285,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         defaultSort: 'modified desc',
         enableRowSelection: false, // For delete action
         additionalFilters: staticFilters,
-        requirePendingItems: true, // This is crucial and should be handled correctly
+        requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
     });
 
     // --- Delete Handler ---

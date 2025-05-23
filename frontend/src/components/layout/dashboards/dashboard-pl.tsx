@@ -5,7 +5,8 @@ import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
 export const ProjectLead = () => {
-    const { prCounts, amendPOCount, newSBApproveCount } = useDocCountStore()
+    
+    const { counts } = useDocCountStore()
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocCount("Items");
     const { data: projects_data, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList("Projects", {limit: 1000})
@@ -27,7 +28,7 @@ export const ProjectLead = () => {
                         <Link to="/procurement-requests?tab=Approve+PR">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PR</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {prCounts.pending || 0}
+                                {counts.pr.pending || 0}
                             </p>
                         </Link>
                     </Card>
@@ -35,7 +36,7 @@ export const ProjectLead = () => {
                         <Link to="/purchase-orders?tab=Approve+PO">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {prCounts.approve || 0}
+                                {counts.pr.approve || 0}
                             </p>
                         </Link>
                     </Card>
@@ -43,7 +44,7 @@ export const ProjectLead = () => {
                         <Link to="/purchase-orders?tab=Approve+Amended+PO">
                             <p className="text-center py-6 font-bold text-gray-500">Approve Amended PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {amendPOCount || 0}
+                                {counts.po["PO Amendment"] || 0}
                             </p>
                         </Link>
                     </Card>
@@ -55,7 +56,7 @@ export const ProjectLead = () => {
                         <Link to="/purchase-orders?tab=Approve+Sent+Back+PO">
                             <p className="text-center py-6 font-bold text-gray-500">Approve Sent Back</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {newSBApproveCount || 0}
+                                {counts.sb.approve || 0}
                             </p>
                         </Link>
                     </Card>
