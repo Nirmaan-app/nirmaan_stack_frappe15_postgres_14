@@ -32,7 +32,9 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
     ];
 
     if(tab === "All POs") {
-        return base;
+        return [];
+    } else if (tab === "Merged POs") {
+        return [["status", "=", "Merged"]];
     }
     // const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
     // if (isEstimatesExec) {
