@@ -98,23 +98,30 @@ export const ProcurementRequests: React.FC = () => {
     // --- Memoized Options and Counts ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
 
-    const { prCounts, adminPrCounts, newSBCounts, adminNewSBCounts } = useDocCountStore();
+    const { counts } = useDocCountStore();
 
     // --- Tab Definitions ---
     const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminPrCounts.pending : prCounts.pending}</span></div>), value: "Approve PR" },
-    ] : []), [role, prCounts, adminPrCounts]);
+        { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{counts.pr.pending}</span></div>), value: "Approve PR" },
+    ] : []), [role, counts]);
 
     const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminPrCounts.approved : prCounts.approved}</span></div>), value: "New PR Request" },
-        { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminPrCounts.inProgress : prCounts.inProgress}</span></div>), value: "In Progress" },
-    ] : []), [role, adminPrCounts, prCounts]);
+        { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{counts.pr.approved}</span></div>), value: "New PR Request" },
+        { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{counts.pr.in_progress}</span></div>), value: "In Progress" },
+    ] : []), [role, counts]);
 
     const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminNewSBCounts.rejected : newSBCounts.rejected}</span></div>), value: "Rejected" },
-        { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminNewSBCounts.delayed : newSBCounts.delayed}</span></div>), value: "Delayed" },
-        { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{(role === "Nirmaan Admin Profile") ? adminNewSBCounts.cancelled : newSBCounts.cancelled}</span></div>), value: "Cancelled" },
-    ] : []), [role, newSBCounts, adminNewSBCounts]);
+        { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{counts.sb.rejected.pending}</span></div>), value: "Rejected" },
+        { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.delayed.pending}</span></div>), value: "Delayed" },
+        { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
+    ] : []), [role, counts]);
+
+    const allTabs = useMemo(() => 
+        [
+            { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{counts.pr.all}</span></div>), value: "All PRs" },
+             { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
+        ]
+    ,[counts, role])
 
 
     // --- Notification Handling ---
@@ -144,7 +151,12 @@ export const ProcurementRequests: React.FC = () => {
 
     const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'procurement_list', 'category_list']), [])
 
-    const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Created By", placeholder: "Search by Created By..." }]), []);
+    const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Created By", placeholder: "Search by Created By..." },
+         ...(tab === "All PRs" ? [
+            { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
+        ] : []),
+
+    ]), []);
     // --- Date Filter Columns ---
     const dateColumnsForDataTable = useMemo(() => PR_DATE_COLUMNS, []);
 
@@ -159,10 +171,14 @@ export const ProcurementRequests: React.FC = () => {
                 const isNew = notifications.find(n => n.docname === prId && n.seen === "false" && n.event_id === eventIdForNotif);
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {isNew && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
+                        {(isNew && tab !== "All PRs") && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
+                        {tab !== "All PRs" ? (
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/procurement-requests/${prId}?tab=${tab}`}>
                             {prId?.slice(-4)}
                         </Link>
+                        ) : (
+                            <p>{prId?.slice(-4)}</p>
+                        )}
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
@@ -207,7 +223,6 @@ export const ProcurementRequests: React.FC = () => {
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
             size: 150,
-
         },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
@@ -238,6 +253,22 @@ export const ProcurementRequests: React.FC = () => {
                 }
             }
         },
+
+        ...(tab === "All PRs" ? [
+            {
+                accessorKey: "workflow_state",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+                cell: ({ row }) => {
+                    const status = row.getValue<string>("workflow_state");
+                    const variant = status === "Approved" ? "gray" : status === "In Progress" ? "yellow" : status === "Pending" ? "blue" : ["Sent Back", "Delayed" ,"Rejected"].includes(status) ? "destructive" : "green";
+                    return (
+                        <Badge variant={variant} className="text-xs">{status}</Badge>
+                    );
+                },
+            size: 180,
+            enableColumnFilter: true
+         } as ColumnDef<ProcurementRequest>
+        ] : []),
         // Conditional Delete Column
         ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{
             id: "actions", header: "Actions",
@@ -253,15 +284,31 @@ export const ProcurementRequests: React.FC = () => {
     ], [tab, role, notifications, projectOptions, userList, handleNewPRSeen]); // Dependencies for columns
 
 
+    const statusOptions = useMemo(() => [
+        { label: "Pending", value: "Pending" },
+        { label: "Rejected", value: "Rejected" },
+        { label: "Draft", value: "Draft" },
+        { label: "Approved", value: "Approved" },
+        { label: "In Progress", value: "In Progress" },
+        { label: "Partially Approved", value: "Partially Approved" },
+        { label: "Vendor Selected", value: "Vendor Selected" },
+        { label: "Vendor Approved", value: "Vendor Approved" },
+        { label: "Delayed", value: "Delayed" },
+        { label: "Sent Back", value: "Sent Back" },
+
+    ], []);
+
+
     // --- Faceted Filter Options for Data Table ---
     const facetFilterOptionsForDataTable = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
+        workflow_state: { title: "Status", options: statusOptions },
     }), [projectOptions]);
 
 
     // --- useServerDataTable Hook Instantiation for Data Table Tabs ---
     const shouldRenderDataTable = useMemo(() =>
-        ["New PR Request", "In Progress"].includes(tab),
+        ["New PR Request", "In Progress", "All PRs"].includes(tab),
         [tab]);
 
     const serverDataTable = useServerDataTable<ProcurementRequest>(
@@ -306,7 +353,7 @@ export const ProcurementRequests: React.FC = () => {
     // --- Render Logic ---
     const renderCurrentTab = () => {
         if (tab === "Approve PR") return <ApprovePR />; // ApprovePR now uses its own useServerDataTable
-        if (["Rejected", "Delayed", "Cancelled"].includes(tab)) return <SentBackRequest tab={tab} />;
+        if (["Rejected", "Delayed", "Cancelled", "All SBs"].includes(tab)) return <SentBackRequest tab={tab} />;
 
         if (shouldRenderDataTable) {
             if (isSupportingDataLoading) return <TableSkeleton />;
@@ -351,6 +398,7 @@ export const ProcurementRequests: React.FC = () => {
                     <Radio.Group options={adminTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
                     <Radio.Group options={userPRExecTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
                     <Radio.Group options={sentBackTabsConfig} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
+                    <Radio.Group options={allTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
                 </div>
 
                 <Suspense fallback={<LoadingFallback />}>

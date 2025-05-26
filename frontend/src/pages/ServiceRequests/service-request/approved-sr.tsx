@@ -33,7 +33,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import SITEURL from "@/constants/siteURL";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
-import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
+import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -770,12 +770,18 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                           Request Payment
                         </Button>
 
-                        <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal * 1.18} totalAmountWithoutGST={getTotal} 
-                            totalPaid={getAmountPaid}
-                            gst={orderData?.gst === "true"}
-                            isSr={true}
-                            sr={orderData} paymentsMutate={projectPaymentsMutate}
-                        />
+                        <RequestPaymentDialog
+                                 totalIncGST   ={getTotal * 1.18 || 0}
+                                 totalExGST    ={getTotal || 0}
+                                 paid          ={getAmountPaid}
+                                 pending       ={amountPending}
+                                 gst           ={orderData?.gst === "true"}
+                                 docType       = "Service Requests"
+                                 docName       ={orderData?.name || "Unknown"}
+                                 project       ={orderData?.project || "Unknown"}
+                                 vendor        ={orderData?.vendor || "Unknown"}
+                                 onSuccess     ={projectPaymentsMutate}
+                              />
                             </>
                         )}
                         {accountsPage && (

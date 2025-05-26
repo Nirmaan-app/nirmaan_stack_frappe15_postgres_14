@@ -93,7 +93,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
     setNewPaymentDialog((prevState) => !prevState);
   }, []);
 
-  const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
+  // const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
 
   const validateAmount = useCallback(
     debounce((amount: number) => {
@@ -115,7 +115,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const amount = e.target.value;
     setNewPayment({ ...newPayment, amount });
-    validateAmount(amount);
+    validateAmount(parseNumber(amount));
   }, []);
 
   const AddPayment = async () => {
@@ -234,9 +234,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                   </TooltipContent>
                 )}
               </Tooltip>
-              {/* <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal?.totalAmt} totalAmountWithoutGST={getTotal?.total} totalPaid={amountPaid}
-                      po={PO} paymentsMutate={poPaymentsMutate}
-                      /> */}
             </>
           )}
 

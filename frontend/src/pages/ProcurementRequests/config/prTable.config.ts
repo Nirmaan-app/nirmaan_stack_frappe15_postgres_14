@@ -32,6 +32,7 @@ export const getPRStaticFilters = (tab: string): Array<[string, string, string |
     switch (tab) {
         case "New PR Request": return [...base, ["workflow_state", "=", "Approved"]];
         case "In Progress": return [...base, ["workflow_state", "=", "In Progress"]];
+        case "All PRs": return [];
         default: return base; // Or specific default for this view
     }
 };

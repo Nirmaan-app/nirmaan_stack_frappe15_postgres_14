@@ -3,7 +3,6 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -37,6 +36,7 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_SB_FIELDS_TO_FETCH, getSentBackStaticFilters, SB_DATE_COLUMNS, SB_SEARCHABLE_FIELDS } from "./config/sentBackCategoryTables.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { Badge } from "@/components/ui/badge";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -49,7 +49,6 @@ interface SentBackRequestProps {
 // --- Component ---
 export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     const { role } = useUserData();
-    const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     // const tab = useUrlParam("tab");
@@ -111,7 +110,11 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     const sbSearchableFields = useMemo(() => SB_SEARCHABLE_FIELDS.concat([
         { value: "procurement_request", label: "PR ID", placeholder: "Search by PR ID..." },
         { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
-    ]), [])
+        ...(tab === "All SBs" ? [
+            { value: "type", label: "Type", placeholder: "Search by Type..." },
+            { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
+        ] : []),
+    ]), [tab])
 
     // --- Date Filter Columns ---
     const dateColumns = useMemo(() => SB_DATE_COLUMNS, []);
@@ -130,11 +133,17 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                 );
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewSBSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {isNew && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
-                        <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/sent-back-requests/${sbId.replaceAll("/", "&=")}?tab=${tab}`} >
+                        {isNew && tab !== "All SBs" && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
+                        {tab !== "All SBs" ? (
+                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/sent-back-requests/${sbId.replaceAll("/", "&=")}?tab=${tab}`} >
                             {sbId?.slice(-5)}
                         </Link>
-                        {/* {data.type && <Badge variant="secondary" className="text-xs">{data.type}</Badge>} */}
+                        ) : (
+                            <>
+                            <p>{sbId?.slice(-5)}</p>
+                            {data.type && <Badge variant="secondary" className="text-xs">{data.type}</Badge>}
+                            </>
+                        )}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
                         </div>
@@ -202,7 +211,23 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                 exportValue: (row) => formatToRoundedIndianRupee(getTotal(row.item_list)),
             }
         },
-        ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{ // Assuming Admins/Leads can delete sent-back items
+
+        ...(tab === "All SBs" ? [
+            {
+                accessorKey: "workflow_state",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+                cell: ({ row }) => {
+                    const status = row.getValue<string>("workflow_state");
+                    const variant = status === "Vendor Selected" ? "gray" : status === "Pending" ? "blue" : ["Sent Back"].includes(status) ? "destructive" : "green";
+                    return (
+                        <Badge variant={variant} className="text-xs">{status}</Badge>
+                    );
+                },
+            size: 180,
+            enableColumnFilter: true
+         } as ColumnDef<SentBackCategory>
+        ] : []),
+        ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) && tab !== "All SBs" ? [{ // Assuming Admins/Leads can delete sent-back items
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>
@@ -216,10 +241,27 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     ], [tab, notifications, projectOptions, userList, handleNewSBSeen, getTotal, role]);
 
 
+    const typeOptions = useMemo(() => [
+        { label: "Rejected", value: "Rejected" },
+        { label: "Delayed", value: "Delayed" },
+        { label: "Cancelled", value: "Cancelled" },
+    ], []);
+
+    const statusOptions = useMemo(() => [
+        { label: "Pending", value: "Pending" },
+        {label: "Vendor Selected", value: "Vendor Selected"},
+        {label: "Partially Approved", value: "Partially Approved"},
+        { label: "Approved", value: "Approved" },
+        { label: "Sent Back", value: "Sent Back" },
+    ], []);
+
+
     // --- Faceted Filter Options ---
     const facetFilterOptions = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
         // type: { title: "Type", options: [{label: "Rejected", value:"Rejected"}, ...]} // If type needs to be a facet
+        workflow_state: { title: "Status", options: statusOptions },
+        type: { title: "Type", options: typeOptions },
     }), [projectOptions]);
 
     // --- useServerDataTable Hook Instantiation ---
@@ -243,7 +285,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         defaultSort: 'modified desc',
         enableRowSelection: false, // For delete action
         additionalFilters: staticFilters,
-        requirePendingItems: true, // This is crucial and should be handled correctly
+        requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
     });
 
     // --- Delete Handler ---
