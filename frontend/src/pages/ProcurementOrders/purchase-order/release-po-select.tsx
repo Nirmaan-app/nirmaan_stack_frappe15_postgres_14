@@ -48,8 +48,8 @@ export const ReleasePOSelect: React.FC = () => {
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : 
-        role === "Nirmaan Estimates Executive Profile" ? "All POs" : "Approved PO";
+        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" :
+            role === "Nirmaan Estimates Executive Profile" ? "All POs" : "Approved PO";
         return getUrlStringParam("tab", defaultTab);
     }, [role]); // Calculate only once based on role
 
@@ -80,7 +80,7 @@ export const ReleasePOSelect: React.FC = () => {
         limit: 100000
     })
 
-    const {data: poData} = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
+    const { data: poData } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["name", "status", "merged"],
         limit: 0
     }, "All_POs_For_Merged")
@@ -89,7 +89,7 @@ export const ReleasePOSelect: React.FC = () => {
         const map = new Map<string, ProcurementOrdersType>();
         poData?.forEach(po => map.set(po.name, po));
         return memoize((id: string) => map.get(id) || null);
-    },[poData])
+    }, [poData])
 
     // useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
     //     await mutate()
@@ -143,23 +143,23 @@ export const ReleasePOSelect: React.FC = () => {
     );
 
     const fieldsToFetch = useMemo<string[]>(() => [
-      ...DEFAULT_PO_FIELDS_TO_FETCH,     // spread keeps array flat
-      "creation",
-      "modified",
-      "order_list",
-      "loading_charges",
-      "freight_charges",
-      "invoice_data",
-      ...(tab === "Merged POs" ? ["merged", "modified_by"] : [])
+        ...DEFAULT_PO_FIELDS_TO_FETCH,     // spread keeps array flat
+        "creation",
+        "modified",
+        "order_list",
+        "loading_charges",
+        "freight_charges",
+        "invoice_data",
+        ...(tab === "Merged POs" ? ["merged", "modified_by"] : [])
     ], [tab]);
 
     const poSearchableFieldsOptions = useMemo(() => PO_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Approved By", placeholder: "Search by Approved By..." },
-        ...(tab === "All POs" ? [
-            { value: "status", label: "Status", placeholder: "Search by Status..." },
-        ] : []),
-        ...(tab === "Merged POs" ? [
-            { value: "merged", label: "Master PO", placeholder: "Search by Master PO..." },
-        ] : [])
+    ...(tab === "All POs" ? [
+        { value: "status", label: "Status", placeholder: "Search by Status..." },
+    ] : []),
+    ...(tab === "Merged POs" ? [
+        { value: "merged", label: "Master PO", placeholder: "Search by Master PO..." },
+    ] : [])
 
     ]), [tab]);
 
@@ -208,63 +208,63 @@ export const ReleasePOSelect: React.FC = () => {
     const items = useMemo(() => [
         ...(role !== "Nirmaan Estimates Executive Profile" ? [
             {
-            label: (
-                <div className="flex items-center">
-                    <span>Approved PO</span>
-                    <span className="ml-2 text-xs font-bold">
-                        {counts.po['PO Approved']}
-                    </span>
-                </div>
-            ),
-            value: "Approved PO",
-        },
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Dispatched PO</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {counts.po['Dispatched']}
-                    </span>
-                </div>
-            ),
-            value: "Dispatched PO",
-        },
-        { // Use the new state variable here
-            label: (
-                <div className="flex items-center">
-                    <span>Partially Delivered PO</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {counts.po['Partially Delivered']}
-                    </span>
-                </div>
-            ),
-            value: "Partially Delivered PO",
-        },
-        { // Use the renamed state variable here
-            label: (
-                <div className="flex items-center">
-                    <span>Delivered PO</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {counts.po['Delivered']}
-                    </span>
-                </div>
-            ),
-            value: "Delivered PO",
-        },
+                label: (
+                    <div className="flex items-center">
+                        <span>Approved PO</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {counts.po['PO Approved']}
+                        </span>
+                    </div>
+                ),
+                value: "Approved PO",
+            },
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Dispatched PO</span>
+                        <span className="ml-2 rounded text-xs font-bold">
+                            {counts.po['Dispatched']}
+                        </span>
+                    </div>
+                ),
+                value: "Dispatched PO",
+            },
+            { // Use the new state variable here
+                label: (
+                    <div className="flex items-center">
+                        <span>Partially Delivered PO</span>
+                        <span className="ml-2 rounded text-xs font-bold">
+                            {counts.po['Partially Delivered']}
+                        </span>
+                    </div>
+                ),
+                value: "Partially Delivered PO",
+            },
+            { // Use the renamed state variable here
+                label: (
+                    <div className="flex items-center">
+                        <span>Delivered PO</span>
+                        <span className="ml-2 rounded text-xs font-bold">
+                            {counts.po['Delivered']}
+                        </span>
+                    </div>
+                ),
+                value: "Delivered PO",
+            },
         ] : [])], [role, counts])
-    
-    const allTab = useMemo(() => 
+
+    const allTab = useMemo(() =>
         [
             { label: (<div className="flex items-center"><span>All POs</span><span className="ml-2 text-xs font-bold">{counts.po.all}</span></div>), value: "All POs" },
         ]
-    ,[counts])
+        , [counts])
 
 
-    const mergedPOsTab = useMemo(() => 
+    const mergedPOsTab = useMemo(() =>
         [
             { label: (<div className="flex items-center"><span>Merged POs</span><span className="ml-2 text-xs font-bold">{counts.po.Merged}</span></div>), value: "Merged POs" },
         ]
-    ,[counts])
+        , [counts])
 
     // --- Define columns using TanStack's ColumnDef ---
     const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
@@ -275,13 +275,13 @@ export const ReleasePOSelect: React.FC = () => {
                 <>
                     <div className="flex gap-1 items-center">
                         {(tab !== "Merged POs" && row.original.status !== "Merged") ? (
-                        <Link
-                            className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
-                            // Adjust the route path as needed
-                            to={`/purchase-orders/${row.original.name?.replaceAll("/", "&=")}?tab=${row.original.status}`}
-                        >
-                            {row.original.name}
-                        </Link>
+                            <Link
+                                className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
+                                // Adjust the route path as needed
+                                to={`/purchase-orders/${row.original.name?.replaceAll("/", "&=")}?tab=${row.original.status}`}
+                            >
+                                {row.original.name}
+                            </Link>
                         ) : (
                             <p>{row.original.name}</p>
                         )}
@@ -308,13 +308,13 @@ export const ReleasePOSelect: React.FC = () => {
                     const data = row.original
                     const masterPO = posMap(data.merged!);
                     return (
-                        !["PO Amendment", "Merged"].includes(masterPO?.status!) ? 
-                        <Link
-                            className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
-                            to={`/purchase-orders/${masterPO?.name?.replaceAll("/", "&=")}?tab=${masterPO?.status}`}
-                        >
-                            {masterPO?.name}
-                        </Link> : <p>{masterPO?.name}</p>
+                        !["PO Amendment", "Merged"].includes(masterPO?.status!) ?
+                            <Link
+                                className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
+                                to={`/purchase-orders/${masterPO?.name?.replaceAll("/", "&=")}?tab=${masterPO?.status}`}
+                            >
+                                {masterPO?.name}
+                            </Link> : <p>{masterPO?.name}</p>
                     );
                 },
                 size: 180,
@@ -392,27 +392,27 @@ export const ReleasePOSelect: React.FC = () => {
         },
         ...(tab === "Merged POs" ? [
             {
-            accessorKey: "modified_by",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Merged By" />,
-            cell: ({ row }) => {
-                const data = row.original
-                const mergedBy = userList?.find((entry) => data?.modified_by === entry.name)
-                return (
-                    <div className="font-medium">
-                        {mergedBy?.full_name || data?.modified_by || "--"}
-                    </div>
-                );
-            },
-            size: 180,
-            meta: {
-                exportHeaderName: "Merged By",
-                exportValue: (row) => {
-                    const data = row
+                accessorKey: "modified_by",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Merged By" />,
+                cell: ({ row }) => {
+                    const data = row.original
                     const mergedBy = userList?.find((entry) => data?.modified_by === entry.name)
-                    return mergedBy?.full_name || data?.modified_by || "--";
+                    return (
+                        <div className="font-medium">
+                            {mergedBy?.full_name || data?.modified_by || "--"}
+                        </div>
+                    );
+                },
+                size: 180,
+                meta: {
+                    exportHeaderName: "Merged By",
+                    exportValue: (row) => {
+                        const data = row
+                        const mergedBy = userList?.find((entry) => data?.modified_by === entry.name)
+                        return mergedBy?.full_name || data?.modified_by || "--";
+                    }
                 }
-            }
-        } as ColumnDef<ProcurementOrdersType>
+            } as ColumnDef<ProcurementOrdersType>
         ] : []),
         {
             id: "po_amount",
@@ -487,28 +487,28 @@ export const ReleasePOSelect: React.FC = () => {
         ] : []),
         ...(tab !== "Merged POs" ? [
             {
-            id: "Amount_paid",
-            header: "Amt Paid",
-            cell: ({ row }) => {
-                const amountPaid = getAmountPaid(row.original?.name);
-                return (
-                    <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
-                        {formatToRoundedIndianRupee(amountPaid || 0)}
-                    </div>
-                );
+                id: "Amount_paid",
+                header: "Amt Paid",
+                cell: ({ row }) => {
+                    const amountPaid = getAmountPaid(row.original?.name);
+                    return (
+                        <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
+                            {formatToRoundedIndianRupee(amountPaid || 0)}
+                        </div>
+                    );
 
-            },
-            size: 200,
-            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
-            enableSorting: false,
-            meta: {
-                exportHeaderName: "Amount Paid",
-                exportValue: (row) => {
-                    const amountPaid = getAmountPaid(row.name);
-                    return formatToRoundedIndianRupee(amountPaid || 0);
+                },
+                size: 200,
+                // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+                enableSorting: false,
+                meta: {
+                    exportHeaderName: "Amount Paid",
+                    exportValue: (row) => {
+                        const amountPaid = getAmountPaid(row.name);
+                        return formatToRoundedIndianRupee(amountPaid || 0);
+                    }
                 }
-            }
-        } as ColumnDef<ProcurementOrdersType>
+            } as ColumnDef<ProcurementOrdersType>
         ] : []),
         ...(["All POs"].includes(tab) ? [
             {
@@ -521,9 +521,9 @@ export const ReleasePOSelect: React.FC = () => {
                         <Badge variant={variant} className="text-xs">{status}</Badge>
                     );
                 },
-            size: 180,
-            enableColumnFilter: true
-         } as ColumnDef<ProcurementOrdersType>
+                size: 180,
+                enableColumnFilter: true
+            } as ColumnDef<ProcurementOrdersType>
         ] : []),
     ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal, posMap]);
 
@@ -645,33 +645,33 @@ export const ReleasePOSelect: React.FC = () => {
     }
 
     return (
-            <div className="flex-1 space-y-4">
-                    <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
-                        {
-                            adminTabs && (
-                                <Radio.Group
-                                    options={adminTabs}
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        }
-                        {
-                            items && (
-                                <Radio.Group
-                                    options={items}
-                                    // defaultValue="Approved PO"
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        }
+        <div className="flex-1 space-y-4">
+            <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
+                {
+                    adminTabs && (
+                        <Radio.Group
+                            options={adminTabs}
+                            optionType="button"
+                            buttonStyle="solid"
+                            value={tab}
+                            onChange={(e) => handleTabClick(e.target.value)}
+                        />
+                    )
+                }
+                {
+                    items && (
+                        <Radio.Group
+                            options={items}
+                            // defaultValue="Approved PO"
+                            optionType="button"
+                            buttonStyle="solid"
+                            value={tab}
+                            onChange={(e) => handleTabClick(e.target.value)}
+                        />
+                    )
+                }
 
-                        {
+                {/* {
                             mergedPOsTab && (
                                 <Radio.Group
                                     options={mergedPOsTab}
@@ -681,27 +681,27 @@ export const ReleasePOSelect: React.FC = () => {
                                     onChange={(e) => handleTabClick(e.target.value)}
                                 />
                             )
-                        }
+                        } */}
 
-                        {
-                            allTab && (
-                                <Radio.Group
-                                    options={allTab}
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        }
+                {
+                    allTab && (
+                        <Radio.Group
+                            options={allTab}
+                            optionType="button"
+                            buttonStyle="solid"
+                            value={tab}
+                            onChange={(e) => handleTabClick(e.target.value)}
+                        />
+                    )
+                }
 
-                    </div>
+            </div>
 
-                <Suspense fallback={<LoadingFallback />}>
-                    {renderTabView()}
-                </Suspense>
+            <Suspense fallback={<LoadingFallback />}>
+                {renderTabView()}
+            </Suspense>
 
-                <InvoiceDataDialog
+            <InvoiceDataDialog
                 open={!!selectedInvoicePO}
                 onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
                 invoiceData={selectedInvoicePO?.invoice_data}
@@ -719,7 +719,7 @@ export const ReleasePOSelect: React.FC = () => {
                 vendors={vendorsList}
                 isPO
             />
-            </div>
+        </div>
     )
 }
 
