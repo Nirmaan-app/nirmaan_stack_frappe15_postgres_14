@@ -42,8 +42,10 @@ def _update_items_in_json_list(doc_name, doctype, json_field_name, parent_work_p
             if not isinstance(item, dict):
                 frappe.log(f"Skipping non-dict item in {doctype} {doc_name}, field {json_field_name}: {item}")
                 continue
-            if item.get("work_package") != parent_work_package:
-                item["work_package"] = parent_work_package
+            if item.get("procurement_package") != parent_work_package:
+                if item.get("work_package"):
+                    del item["work_package"]
+                item["procurement_package"] = parent_work_package
                 modified_items_flag = True
         
         if modified_items_flag:
@@ -58,7 +60,7 @@ def _update_items_in_json_list(doc_name, doctype, json_field_name, parent_work_p
             )
             return True # Modifications made
         else:
-            frappe.log(f"{doctype} {doc_name}: No items needed {json_field_name} work_package update.")
+            frappe.log(f"{doctype} {doc_name}: No items needed {json_field_name} procurement_package update.")
             return False # No modifications needed for these items
 
     except json.JSONDecodeError as e:
@@ -79,7 +81,7 @@ def update_pr_items():
     )
 
     if not procurement_requests:
-        frappe.log("No Procurement Requests found needing work_package backfill in items.")
+        frappe.log("No Procurement Requests found needing procurement_package backfill in items.")
         return
 
     processed_count = 0

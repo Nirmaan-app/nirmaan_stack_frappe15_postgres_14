@@ -41,7 +41,7 @@ export interface ServiceRequests{
 	/**	Notes : JSON	*/
 	notes?: any
 	/**	GST : Data	*/
-	gst?: string
+	gst?: "true" | "false"
 	/**	Advance : Data	*/
 	advance?: string
 	/**	Project GST : Data	*/
