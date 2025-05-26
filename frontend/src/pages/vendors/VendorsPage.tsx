@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom"; // Removed useSearchParams, will use urlStateManager
-import { useFrappeGetDocList, useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { Radio } from 'antd'; // Assuming Ant Design is installed and configured
-import { useToast } from "@/components/ui/use-toast";
 
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -31,7 +30,6 @@ interface VendorTypeCount {
 }
 
 export default function VendorsPage() {
-    const { toast } = useToast();
     const [currentVendorType, setCurrentVendorType] = useState<string>(() => urlStateManager.getParam('type') || VENDOR_TYPE_OPTIONS[0].value);
 
     const [vendorTypeCounts, setVendorTypeCounts] = useState<VendorTypeCount[]>([]);
@@ -191,7 +189,7 @@ export default function VendorsPage() {
             accessorKey: "creation",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Date Created" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
-            size: 150,
+            size: 120,
             meta: {
                 exportHeaderName: "Date Created",
                 exportValue: (row) => {

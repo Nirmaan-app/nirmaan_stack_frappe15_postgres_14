@@ -273,6 +273,7 @@ export const Projects: React.FC<ProjectsProps> = ({
           </div>
         );
       },
+      size: 200,
       meta: {
         excludeFromExport: true
       }

@@ -26,7 +26,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
-import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS } from './config/purchaseOrdersTable.config';
+import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
@@ -527,20 +527,11 @@ export const ReleasePOSelect: React.FC = () => {
         ] : []),
     ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal, posMap]);
 
-    const statusOptions = useMemo(() => [
-        { label: "PO Approved", value: "PO Approved" },
-        { label: "Dispatched", value: "Dispatched" },
-        { label: "Partially Delivered", value: "Partially Delivered" },
-        { label: "Delivered", value: "Delivered" },
-        { label: "Merged", value: "Merged" },
-        {label: "PO Amendment", value: "PO Amendment"},
-    ],  [])
-
     const facetFilterOptions = useMemo(() => ({
         // Use the 'accessorKey' or 'id' of the column
         project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
         vendor: { title: "Vendor", options: vendorOptions }, // Or use 'vendor' if filtering by ID
-        status: { title: "Status", options: statusOptions },
+        status: { title: "Status", options: PO_STATUS_OPTIONS },
     }), [projectOptions, vendorOptions]);
 
 

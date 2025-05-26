@@ -170,8 +170,7 @@ export const ProcurementRequests: React.FC = () => {
                 const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : (tab === "In Progress" ? "pr:rfqGenerated" : "pr:general"); // Example
                 const isNew = notifications.find(n => n.docname === prId && n.seen === "false" && n.event_id === eventIdForNotif);
                 return (
-                    <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
-                        {(isNew && tab !== "All PRs") && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
+                    <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 group">
                         {tab !== "All PRs" ? (
                         <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/procurement-requests/${prId}?tab=${tab}`}>
                             {prId?.slice(-4)}
@@ -349,6 +348,8 @@ export const ProcurementRequests: React.FC = () => {
         }
     }, [tab]);
 
+    const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
+
 
     // --- Render Logic ---
     const renderCurrentTab = () => {
@@ -384,6 +385,7 @@ export const ProcurementRequests: React.FC = () => {
                     dateFilterColumns={dateColumnsForDataTable}
                     showExportButton={true}
                     onExport={'default'}
+                    isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
                 // toolbarActions={...} // Add if needed
                 />
             );

@@ -13,7 +13,7 @@ interface ItemsHoverCardProps {
  * This component is used to display order details of a PR or a PO or a SB or a SR in hover card
  */
 
-export const ItemsHoverCard : React.FC<ItemsHoverCardProps> = ({order_list, isSB = false, isSR = false, isPR = false}) => {
+export const ItemsHoverCard : React.FC<ItemsHoverCardProps> = ({order_list, isSR = false}) => {
 
       return (
               <HoverCard>

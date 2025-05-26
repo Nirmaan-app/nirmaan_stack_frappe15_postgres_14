@@ -22,6 +22,16 @@ export const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     },
 ];
 
+
+export const PO_STATUS_OPTIONS = [
+            { label: "PO Approved", value: "PO Approved" },
+            { label: "Dispatched", value: "Dispatched" },
+            { label: "Partially Delivered", value: "Partially Delivered" },
+            { label: "Delivered", value: "Delivered" },
+            { label: "Merged", value: "Merged" },
+            {label: "PO Amendment", value: "PO Amendment"},
+        ]
+
 // Date columns commonly used for filtering PO tables
 export const PO_DATE_COLUMNS: string[] = ["creation", "modified"];
 

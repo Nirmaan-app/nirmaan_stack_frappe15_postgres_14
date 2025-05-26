@@ -497,48 +497,10 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 </Button>
 
 
-        <Button size="sm" className="border border-primary" variant="outline"
+        <Button disabled={!orderData?.project_gst} size="sm" className="border border-primary" variant="outline"
             onClick={()=>{setPrintFormState(initialPrintFormData); setIsPrintDialogOpen(true);}}>
         View / Download Tax Invoice
     </Button>
-
-    {/* <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-      <DialogTitle>Tax Invoice – Fill Optional Details</DialogTitle>
-
-          {[
-            ["buyers_order_no","Buyer's Order No."],
-            ["buyers_order_date","Order Date"],
-            ["dispatch_doc_no","Dispatch Doc No."],
-            ["delivery_note_date","Delivery Note Date"],
-            ["dispatched_through","Dispatched Through"],
-            ["destination","Destination"],
-            ["terms_of_delivery","Terms of Delivery"],
-            ["custom_delivery_note_no","Custom Delivery Note No."],
-          ].map(([k,label])=>(
-            <div key={k} className="flex items-center justify-between">
-                <Label className="text-sm font-medium">{label}</Label>
-                <Input
-                    type="text"
-                    placeholder={label}
-                    value={vals[k]}
-                    onChange={handleChange(k)}
-                    className="w-full"
-                />
-            </div>
-          ))}
-      <div className="flex items-center justify-end gap-2">
-        <DialogClose asChild>
-          <Button>Cancel</Button>
-      </DialogClose>
-        <Button onClick={()=>handleGenerate(false)}>Preview</Button>
-        <Button onClick={()=>handleGenerate(true)}>
-           Download PDF
-        </Button>
-
-      </div>
-      </DialogContent>
-    </Dialog> */}
 
     <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
             <DialogContent className="sm:max-w-[550px]">
