@@ -50,7 +50,7 @@ export default function ItemsPage() {
     const columns = useMemo<ColumnDef<ItemsType>[]>(() => [
         {
             accessorKey: "name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
             cell: ({ row }) => (
                 <Link className="text-blue-600 hover:underline font-medium whitespace-nowrap"
                     to={`${row.original.name}`}> {/* Adjust route */}
@@ -58,7 +58,7 @@ export default function ItemsPage() {
                 </Link>
             ), size: 150,
             meta: {
-                exportHeaderName: "SKU",
+                exportHeaderName: "ID",
                 exportValue: (row: ItemsType) => {
                     return row.name.slice(-6);
                 }
@@ -117,7 +117,7 @@ export default function ItemsPage() {
         {
             accessorKey: "creation",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Item Creation Date" />,
-            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            cell: ({ row }) => <div className="font-medium text-center whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
             meta: {
                 exportHeaderName: "Item Creation Date",

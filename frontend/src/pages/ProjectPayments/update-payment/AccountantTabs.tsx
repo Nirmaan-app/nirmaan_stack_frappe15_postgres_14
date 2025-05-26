@@ -1,8 +1,8 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef, Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CircleCheck, CircleX, Info, SquarePen, Trash2 } from "lucide-react";
+import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
+import {  Info, Trash2 } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
@@ -13,12 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { TailSpin } from "react-loader-spinner";
-
-// --- Dialog Component (If PaymentActionDialog is too specific for "Fulfill") ---
-// Consider if a more generic "PaymentFulfillDialog" or similar is needed, or adapt PaymentActionDialog
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 
 // --- Types and Constants ---
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -31,9 +25,8 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { memoize } from "lodash";
-import { DOC_TYPES, PAYMENT_STATUS } from "./approve-payments/constants";
+import { DOC_TYPES } from "../approve-payments/constants";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
-import { Separator } from "@/components/ui/separator";
 import { formatDate } from "date-fns";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDateToDDMMYYYY } from "@/utils/FormatDate";
@@ -41,8 +34,10 @@ import { unparse } from 'papaparse'; // For CSV export
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
+import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "../config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { useDialogStore } from "@/zustand/useDialogStore";
+import PaymentRequestDialog, { ProjectPaymentUpdateFields } from "./UpdatePaymentDialog";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -62,21 +57,15 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
-    // --- State for Dialogs ---
-    const [paymentToProcess, setPaymentToProcess] = useState<ProjectPayments | null>(null);
-    const [dialogType, setDialogType] = useState<"fulfill" | "delete">("fulfill"); // To control dialog content
-    const [isFulfillDialogOpen, setIsFulfillDialogOpen] = useState<boolean>(false);
-    const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+    const [dialogMode,setDialogMode] = useState<"fulfil"|"delete">("fulfil");
+    const [currentPayment,setCurrent] = useState<ProjectPaymentUpdateFields | null>(null);
+    const { togglePaymentDialog } = useDialogStore();
+
 
     // --- State for Export Dialog ---
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [debitAccountNumber, setDebitAccountNumber] = useState("093705003327"); // Default
     const [paymentMode, setPaymentMode] = useState("IMPS");
-
-    // --- Data Mutators ---
-    const { upload, loading: uploadLoading } = useFrappeFileUpload();
-    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
-    const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
 
     // --- Supporting Data Fetches ---
     const projectsFetchOptions = getProjectListOptions();
@@ -115,6 +104,18 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return vendors?.find(vendor => vendor.name === vendorId);
     }), [vendors]);
 
+const openDialog = (p:ProjectPayments, m:"fulfil"|"delete")=>{
+  setCurrent({
+    name   : p.name,
+    project_label : projectOptions.find(o=>o.value===p.project)?.label ?? p.project,
+    vendor_label  : (vendorOptions.find(o=>o.value===p.vendor)?.label  ?? p.vendor)!,
+    document_name : p.document_name,
+    amount        : p.amount
+  });
+  setDialogMode(m);
+  togglePaymentDialog();
+};
+
     // const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
     //     const vendor = getVendorDetails(vendorId);
     //     return !vendor?.account_number; // Disable if no account number
@@ -126,64 +127,6 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             mark_seen_notification(db, notification);
         }
     }, [db, mark_seen_notification]);
-
-    // --- Dialog Action Handlers ---
-    const openFulfillDialog = useCallback((payment: ProjectPayments, type: "fulfill" | "delete") => {
-        setPaymentToProcess(payment); // Set the full object for dialog display
-        setDialogType(type);
-        setPaymentScreenshot(null); // Reset screenshot on dialog open
-        setIsFulfillDialogOpen(true);
-    }, []);
-
-    const closeFulfillDialog = useCallback(() => {
-        setIsFulfillDialogOpen(false);
-        setPaymentToProcess(null); // Clear payment data
-        setPaymentScreenshot(null); // Clear screenshot
-    }, []);
-
-    const handleFulfillPayment = async () => {
-        if (!paymentToProcess) return;
-        try {
-            // Assuming paymentData in dialog has updated utr, payment_date, tds
-            const updatedValues: Partial<ProjectPayments> = {
-                status: PAYMENT_STATUS.PAID,
-                payment_date: paymentToProcess.payment_date, // From dialog state
-                utr: paymentToProcess.utr,                 // From dialog state
-                tds: parseNumber(paymentToProcess.tds),       // From dialog state
-                // Amount is already set, but if it can be edited in dialog, include it here
-                // amount: parseNumber(paymentToProcess.amount),
-            };
-
-            await updateDoc(DOCTYPE, paymentToProcess.name, updatedValues);
-
-            if (paymentScreenshot) {
-                await upload(paymentScreenshot, {
-                    doctype: DOCTYPE, docname: paymentToProcess.name,
-                    fieldname: "payment_attachment", isPrivate: true,
-                });
-            }
-            refetch();
-            toast({ title: "Success!", description: "Payment fulfilled successfully!", variant: "success" });
-            closeFulfillDialog();
-            // Refetch will be handled by useServerDataTable's listener or manual refetch call
-        } catch (error: any) {
-            console.error("Failed to fulfill payment:", error);
-            toast({ title: "Fulfill Failed!", description: error.message || "Could not fulfill payment.", variant: "destructive" });
-        }
-    };
-
-    const handleDeletePayment = async () => {
-        if (!paymentToProcess) return;
-        try {
-            await deleteDoc(DOCTYPE, paymentToProcess.name);
-            toast({ title: "Success!", description: "Payment deleted successfully!", variant: "success" });
-            closeFulfillDialog();
-            // Refetch will be handled by useServerDataTable's listener or manual refetch call
-        } catch (error: any) {
-            console.error("Failed to delete payment:", error);
-            toast({ title: "Delete Failed!", description: error.message || "Could not delete payment.", variant: "destructive" });
-        }
-    };
 
 
     // --- Table Configuration for `useServerDataTable` ---
@@ -282,12 +225,12 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <div className="flex items-center gap-2">
-                    <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => openFulfillDialog(row.original, "fulfill")}>Pay</Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={() => openFulfillDialog(row.original, "delete")}><Trash2 className="h-4 w-4" /></Button>
+                    <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => openDialog(row.original, "fulfil")}>Pay</Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={() => openDialog(row.original, "delete")}><Trash2 className="h-4 w-4" /></Button>
                 </div>
             ), size: 120,
         } as ColumnDef<ProjectPayments>] : []),
-    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openFulfillDialog]); // Add dependencies
+    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openDialog]); // Add dependencies
 
     // Function to determine if a row can be selected (passed to hook)
     const canPaymentRowBeSelected = useCallback((row: Row<ProjectPayments>): boolean => {
@@ -468,56 +411,12 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 </DialogContent>
             </Dialog>
 
-            {/* Fulfill/Delete Payment Dialog */}
-            {paymentToProcess && (
-                <AlertDialog open={isFulfillDialogOpen} onOpenChange={setIsFulfillDialogOpen}>
-                    <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                        <AlertDialogHeader className="text-start">
-                            <AlertDialogTitle className="text-center">
-                                {dialogType === "fulfill" ? "Fulfill Payment" : "Delete Payment Request"}
-                            </AlertDialogTitle>
-                            {dialogType === "fulfill" ? (
-                                <div className="space-y-3 pt-2">
-                                    <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Project:</span> <span>{projectOptions.find(p => p.value === paymentToProcess.project)?.label || paymentToProcess.project}</span></div>
-                                    <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Vendor:</span> <span>{getVendorName(paymentToProcess.vendor)}</span></div>
-                                    <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Doc #:</span> <span>{paymentToProcess.document_name}</span></div>
-                                    <div className="flex items-center justify-between text-sm"><span className="font-medium text-muted-foreground">Req. Amt:</span> <span className="font-semibold">{formatToRoundedIndianRupee(paymentToProcess.amount)}</span></div>
-                                    <Separator className="my-3" />
-                                    <div className="grid grid-cols-5 items-center gap-4">
-                                        <Label htmlFor="utr" className="col-span-2 text-right">UTR <sup className="text-red-500">*</sup></Label>
-                                        <Input id="utr" type="text" placeholder="Enter UTR" value={paymentToProcess.utr || ""} onChange={(e) => setPaymentToProcess(p => p ? { ...p, utr: e.target.value } : null)} className="col-span-3 h-8" />
-                                    </div>
-                                    <div className="grid grid-cols-5 items-center gap-4">
-                                        <Label htmlFor="tds" className="col-span-2 text-right">TDS Deduction</Label>
-                                        <div className="col-span-3">
-                                            <Input id="tds" type="number" placeholder="Enter TDS" value={paymentToProcess.tds?.toString() || ""} onChange={(e) => setPaymentToProcess(p => p ? { ...p, tds: parseNumber(e.target.value) } : null)} className="h-8" />
-                                            {(paymentToProcess.tds || 0) > 0 && <span className="text-xs text-muted-foreground">Amt Paid: {formatToRoundedIndianRupee(parseNumber(paymentToProcess.amount) - parseNumber(paymentToProcess.tds))}</span>}
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-5 items-center gap-4">
-                                        <Label htmlFor="payDate" className="col-span-2 text-right">Payment Date <sup className="text-red-500">*</sup></Label>
-                                        <Input id="payDate" type="date" value={paymentToProcess.payment_date || ""} onChange={(e) => setPaymentToProcess(p => p ? { ...p, payment_date: e.target.value } : null)} max={formatDate(new Date(), "yyyy-MM-dd")} className="col-span-3 h-8" />
-                                    </div>
-                                    <CustomAttachment label="Payment Proof" selectedFile={paymentScreenshot} onFileSelect={setPaymentScreenshot} maxFileSize={5 * 1024 * 1024} />
-                                </div>
-                            ) : (
-                                <AlertDialogDescription>Are you sure you want to delete this payment request: {paymentToProcess.name}?</AlertDialogDescription>
-                            )}
-                            <div className="flex gap-2 items-center pt-6 justify-end">
-                                {(updateLoading || uploadLoading || deleteLoading) ? <TailSpin color="red" width={24} height={24} /> : (
-                                    <>
-                                        <AlertDialogCancel asChild><Button variant="outline" onClick={closeFulfillDialog}>Cancel</Button></AlertDialogCancel>
-                                        {dialogType === "fulfill" ?
-                                            <Button onClick={handleFulfillPayment} disabled={!paymentToProcess?.utr || !paymentToProcess?.payment_date}>Confirm Payment</Button>
-                                            :
-                                            <Button variant="destructive" onClick={handleDeletePayment}>Confirm Delete</Button>
-                                        }
-                                    </>
-                                )}
-                            </div>
-                        </AlertDialogHeader>
-                    </AlertDialogContent>
-                </AlertDialog>
+            {currentPayment && (
+               <PaymentRequestDialog
+                  mode={dialogMode}
+                  payment={currentPayment}
+                  onSuccess={()=>refetch()}   // your list refetch
+               />
             )}
         </div>
     );

@@ -9,21 +9,23 @@ export const useOrderTotals = () => {
   const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
     'Procurement Orders',
     {
-      fields: ['*'],
+      fields: ['name', "order_list", 'loading_charges', 'freight_charges'],
       filters: [['status', 'not in', ['Cancelled', 'Merged']]],
-      limit: 100000,
+      limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
-    }
+    },
+    "All_POs_for_order_totals"
   );
 
   const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
     'Service Requests',
     {
-      fields: ['*'],
+      fields: ['name', 'service_order_list', 'gst'],
       // filters: [['status', '=', 'Approved']],
-      limit: 10000,
+      limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
-    }
+    },
+    "All_SRs_for_order_totals"
   );
 
   const getTotalAmount = useMemo(

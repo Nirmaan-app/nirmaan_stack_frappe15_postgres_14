@@ -1,7 +1,7 @@
 // src/features/procurement/progress/hooks/useProcurementProgressLogic.ts
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { toast } from "@/components/ui/use-toast"; // Adjust path
+import { toast, useToast } from "@/components/ui/use-toast"; // Adjust path
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor"; // Adjust path
 import { ProcurementRequest, RFQData, ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests"; // Adjust path
 import { Vendors } from "@/types/NirmaanStack/Vendors"; // Adjust path
@@ -11,6 +11,9 @@ import { usePersistentState } from './usePersistentState'; // Adjust path
 import { useProcurementUpdates } from './useProcurementUpdates';
 import { KeyedMutator } from 'swr'; // Import if using specific mutate type
 import { FrappeDoc } from 'frappe-react-sdk'; // Import if using specific mutate type
+import { useFrappeGetCall } from 'frappe-react-sdk'; // Added
+// Import the necessary types and mapping function
+import { TargetRateDetailFromAPI, FrappeTargetRateApiResponse, mapApiQuotesToApprovedQuotations } from '../../ApproveNewPR/types'; // Adjust path if needed
 
 
 // Define the props the hook expects
@@ -51,6 +54,8 @@ interface UseProcurementProgressLogicReturn {
     toggleVendorSheet: () => void;
     getFullName: (id: string | undefined) => string;
     canContinueToReview: boolean; // Derived state
+    targetRatesDataMap: Map<string, TargetRateDetailFromAPI>; // ADDED
+    isLoading: boolean; // Combined loading state
 }
 
 export const useProcurementProgressLogic = ({
@@ -84,6 +89,7 @@ export const useProcurementProgressLogic = ({
 
     // === Hooks ===
     const { updateProcurementData, loading: updateLoading } = useProcurementUpdates({ prId, prMutate });
+    const { toast } = useToast(); // Get toast function
 
     console.log("initialProcurementRequest", initialProcurementRequest)
 
@@ -141,6 +147,44 @@ export const useProcurementProgressLogic = ({
             setFormData(prev => ({ ...prev, details: newDetails }));
         }
     }, [orderData, formData.details, setFormData]); // formData.details dependency is correct here
+
+    // --- NEW: Fetch Target Rates ---
+    const itemIdsToFetch = useMemo(() => {
+        return orderData?.procurement_list?.list
+            ?.map(item => item.name)
+            .filter(id => !!id) ?? [];
+    }, [orderData?.procurement_list]); // Depend on the list within orderData
+
+    const {
+        data: targetRatesApiResponse,
+        isLoading: targetRatesLoading,
+        error: targetRatesError
+    } = useFrappeGetCall<FrappeTargetRateApiResponse>(
+        'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', // Replace with your actual API path
+        { item_ids_json: itemIdsToFetch.length > 0 ? JSON.stringify(itemIdsToFetch) : undefined },
+        itemIdsToFetch.length > 0 ? `target_rates_for_items_progress_${prId}` : null, // Unique SWR key for this context
+        { revalidateOnFocus: false } // Example SWR option
+    );
+
+    const targetRatesDataMap = useMemo(() => {
+        const map = new Map<string, TargetRateDetailFromAPI>();
+        targetRatesApiResponse?.message?.forEach(tr => {
+            if (tr.item_id) map.set(tr.item_id, tr);
+        });
+        return map;
+    }, [targetRatesApiResponse]);
+
+    // Log error if target rate fetch fails
+    useEffect(() => {
+        if (targetRatesError) {
+            console.error("Error fetching target rates in useProcurementProgressLogic:", targetRatesError);
+            toast({ title: "Error", description: "Could not load target rates.", variant: "destructive" });
+        }
+    }, [targetRatesError, toast]);
+    // --- End Target Rate Fetching ---
+
+    // --- Combined Loading State ---
+    const isLoading = updateLoading || targetRatesLoading;
 
     // === Memos ===
     // Memoize helper function for getting full name
@@ -422,7 +466,7 @@ export const useProcurementProgressLogic = ({
         formData,
         selectedVendorQuotes,
         isRedirecting,
-        isLoading: updateLoading, // Expose update loading state
+        isLoading,
         isAddVendorsDialogOpen,
         isRevertDialogOpen,
         isVendorSheetOpen,
@@ -442,5 +486,6 @@ export const useProcurementProgressLogic = ({
         toggleVendorSheet,
         getFullName,
         canContinueToReview,
+        targetRatesDataMap, // <-- Return the map
     };
 };

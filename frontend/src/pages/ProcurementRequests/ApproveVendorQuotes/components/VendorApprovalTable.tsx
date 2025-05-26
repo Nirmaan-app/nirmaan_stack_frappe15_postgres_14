@@ -220,11 +220,11 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                         <TableCell className="text-right">{formatToIndianRupee(item.quote)}</TableCell>
 
                                                         <TableCell className="text-right">
-                                                            {item.targetRate ? (
+                                                            {item.targetRate > 0 ? (
                                                                 // Wrap the formatted rate with the HoverCard component
                                                                 <HistoricalQuotesHoverCard quotes={item.contributingQuotes}>
                                                                     {/* This is the trigger element */}
-                                                                    <span>{formatToIndianRupee(item.targetRate)}</span>
+                                                                    <span>{formatToIndianRupee(item.targetRate * 0.98)}</span>
                                                                 </HistoricalQuotesHoverCard>
                                                             ) : (
                                                                 // Display N/A if no target rate could be calculated
@@ -234,7 +234,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                         {/* <TableCell className="text-right">{formatToIndianRupee(item.targetRate)}</TableCell> */}
                                                         <TableCell className="text-right">{formatToIndianRupee(item.amount)}</TableCell>
                                                         <TableCell className="text-right">{formatToIndianRupee(item.lowestQuotedAmount || "N/A")}</TableCell>
-                                                        <TableCell className="text-right">{formatToIndianRupee(item.targetAmount || "N/A")}</TableCell>
+                                                        <TableCell className="text-right">{formatToIndianRupee((item.targetAmount * 0.98) || "N/A")}</TableCell>
                                                         <TableCell className={cn(
                                                             "text-right font-semibold pr-4",
                                                             itemSavingLoss === undefined ? "text-gray-500" :

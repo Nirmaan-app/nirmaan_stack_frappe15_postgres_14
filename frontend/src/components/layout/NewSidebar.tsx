@@ -25,7 +25,6 @@ import {
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { getToken } from "firebase/messaging";
 import {
@@ -33,6 +32,7 @@ import {
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
+  useSWRConfig,
 } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import {
@@ -51,6 +51,7 @@ import {
   CollapsibleTrigger,
 } from "../ui/collapsible";
 import { Separator } from "../ui/separator";
+import { API_PATH, useCountsBridge } from "@/hooks/useSidebarCounts";
 
 export function NewSidebar() {
   const [role, setRole] = useState<string | null>(null);
@@ -60,6 +61,9 @@ export function NewSidebar() {
 
   const user_id = Cookies.get("user_id") ?? "";
 
+  // * inside component body */
+  const _ = useCountsBridge(user_id);                //  <-- one hook, done
+  
   const [collapsedKey, setCollapsedKey] = useState<string | null>(null); // Tracks the currently open group
 
   const handleGroupToggle = useCallback((key : string) => {
@@ -79,14 +83,6 @@ export function NewSidebar() {
       setRole(data.role_profile);
     }
   }, [data]);
-
-  const {
-    updatePRCounts,
-    updateSBCounts,
-    updatePOCounts,
-    updateSRCounts,
-    updatePaymentsCount,
-  } = useDocCountStore();
 
   const { clear_notifications, add_all_notific_directly } =
     useNotificationStore();
@@ -133,399 +129,27 @@ export function NewSidebar() {
 
   const { updateDoc } = useFrappeUpdateDoc();
 
-  const { data: projectPermissions } = useFrappeGetDocList(
-    "Nirmaan User Permissions",
-    {
-      fields: ["for_value"],
-      filters: [
-        ["allow", "=", "Projects"],
-        ["user", "=", user_id],
-      ],
-      limit: 1000,
-    },
-    user_id === "Administrator" || role === "Nirmaan Admin Profile"
-      ? null
-      : undefined
-  );
+  const { mutate: globalSWRMutate } = useSWRConfig(); // SWR's global mutate
 
-  const permissionsList = projectPermissions?.map((i) => i?.for_value);
+    // --- Event Listeners to trigger SWR revalidation for counts ---
+    const revalidateCounts = useCallback(() => {
+        if (user_id) {
+            console.log("[NewSidebar] Revalidating sidebar counts via SWR mutate.");
+            globalSWRMutate([API_PATH, user_id]); // Use the same key as useSidebarCounts
+        }
+    }, [user_id, globalSWRMutate]);
 
-  const { data: poData, mutate: poDataMutate } = useFrappeGetDocList(
-    "Procurement Orders",
-    {
-      fields: ["status"],
-      filters: [["project", "in", permissionsList || []]],
-      limit: 100000,
-    },
-    user_id === "Administrator" || !permissionsList ? null : undefined
-  );
+    useFrappeDocTypeEventListener("Procurement Requests", revalidateCounts);
+    useFrappeDocTypeEventListener("Sent Back Category", revalidateCounts);
+    useFrappeDocTypeEventListener("Procurement Orders", revalidateCounts);
+    useFrappeDocTypeEventListener("Service Requests", revalidateCounts);
+    useFrappeDocTypeEventListener("Project Payments", revalidateCounts);
 
-  const { data: adminPOData, mutate: adminPODataMutate } = useFrappeGetDocList(
-    "Procurement Orders",
-    {
-      fields: ["status"],
-      limit: 100000,
-    },
-    user_id === "Administrator" || role === "Nirmaan Admin Profile"
-      ? undefined
-      : null
-  );
 
-  const { data: prData, mutate: prDataMutate } = useFrappeGetDocList(
-    "Procurement Requests",
-    {
-      fields: ["workflow_state", "procurement_list"],
-      filters: [
-        [
-          "workflow_state",
-          "in",
-          [
-            "Pending",
-            "Vendor Selected",
-            "Partially Approved",
-            "Approved",
-            "RFQ Generated",
-            "Quote Updated",
-            "In Progress",
-          ],
-        ],
-        ["project", "in", permissionsList || []],
-      ],
-      limit: 100000,
-    },
-    user_id === "Administrator" || !permissionsList ? null : "prDataMutate"
-  );
-
-  const { data: adminPrData, mutate: adminPRDataMutate } = useFrappeGetDocList(
-    "Procurement Requests",
-    {
-      fields: ["workflow_state", "procurement_list"],
-      filters: [
-        [
-          "workflow_state",
-          "in",
-          [
-            "Pending",
-            "Vendor Selected",
-            "Partially Approved",
-            "Approved",
-            "RFQ Generated",
-            "Quote Updated",
-            "In Progress",
-          ],
-        ],
-      ],
-      limit: 100000,
-    },
-
-    user_id === "Administrator" || role === "Nirmaan Admin Profile"
-      ? "adminPRDataMutate"
-      : null
-  );
-
-  const { data: sbData, mutate: sbDataMutate } = useFrappeGetDocList(
-    "Sent Back Category",
-    {
-      fields: ["workflow_state", "item_list", "type"],
-      filters: [
-        [
-          "workflow_state",
-          "in",
-          ["Vendor Selected", "Partially Approved", "Pending"],
-        ],
-        ["project", "in", permissionsList || []],
-      ],
-      limit: 10000,
-    },
-    user_id === "Administrator" || !permissionsList ? null : undefined
-  );
-
-  const { data: adminSBData, mutate: adminSBDataMutate } = useFrappeGetDocList(
-    "Sent Back Category",
-    {
-      fields: ["workflow_state", "item_list", "type"],
-      filters: [
-        [
-          "workflow_state",
-          "in",
-          ["Vendor Selected", "Partially Approved", "Pending"],
-        ],
-      ],
-      limit: 10000,
-    },
-    user_id === "Administrator" || role === "Nirmaan Admin Profile"
-      ? undefined
-      : null
-  );
-
-  const { data: srData, mutate: srDataMutate } = useFrappeGetDocList(
-    "Service Requests",
-    {
-      fields: ["status", "project", "vendor"],
-      filters: [["project", "in", permissionsList || []]],
-      limit: 10000,
-    },
-    user_id === "Administrator" || !permissionsList ? null : undefined
-  );
-
-  const { data: adminSRData, mutate: adminSRDataMutate } = useFrappeGetDocList(
-    "Service Requests",
-    {
-      fields: ["status", "project", "vendor"],
-      limit: 10000,
-    },
-    user_id === "Administrator" || role === "Nirmaan Admin Profile"
-      ? undefined
-      : null
-  );
-
-  const { data: paymentsData, mutate: paymentsDataMutate } = useFrappeGetDocList(
-    "Project Payments",
-    {
-      fields: ["status", "project", "vendor", "name"],
-      filters: [["project", "in", permissionsList || []]],
-      limit: 100000,
-    },
-    user_id === "Administrator" || !permissionsList ? null : undefined
-  );
-
-  const { data: adminPaymentsData, mutate: adminPaymentsDataMutate } = useFrappeGetDocList(
-    "Project Payments",
-    {
-      fields: ["status", "project", "vendor", "name"],
-      limit: 100000,
-    },
-    user_id === "Administrator" || role === "Nirmaan Admin Profile"
-      ? undefined
-      : null
-  );
-
-  useEffect(() => {
-    if (
-      (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
-      adminPOData
-    ) {
-      updatePOCounts(adminPOData, true);
-    } else if (poData) {
-      updatePOCounts(poData, false);
-    }
-  }, [poData, adminPOData]);
-
-  useEffect(() => {
-    if (
-      (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
-      adminSBData
-    ) {
-      updateSBCounts(adminSBData, true);
-    } else if (sbData) {
-      updateSBCounts(sbData, false);
-    }
-  }, [sbData, adminSBData]);
-
-  useEffect(() => {
-    if (
-      (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
-      adminPrData
-    ) {
-      updatePRCounts(adminPrData, true);
-    } else if (prData) {
-      updatePRCounts(prData, false);
-    }
-  }, [prData, adminPrData]);
-
-  useEffect(() => {
-    if (
-      (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
-      adminSRData
-    ) {
-      updateSRCounts(adminSRData, true);
-    } else if (srData) {
-      updateSRCounts(srData, false);
-    }
-  }, [srData, adminSRData]);
-
-  useEffect(() => {
-    if (
-      (user_id === "Administrator" || role === "Nirmaan Admin Profile") &&
-      adminPOData
-    ) {
-      updatePaymentsCount(adminPaymentsData, true);
-    } else if (poData) {
-      updatePaymentsCount(paymentsData, false);
-    }
-  }, [paymentsData, adminPaymentsData]);
-
-  const isAdmin = useMemo(() => user_id === "Administrator" || role === "Nirmaan Admin Profile", [user_id, role]);
-
-  useFrappeDocTypeEventListener("Procurement Requests", () => {
-        console.log("Refetching PR data due to socket event...");
-        if (isAdmin) { adminPRDataMutate?.(); } else { prDataMutate?.(); }
+  useFrappeDocTypeEventListener("Nirmaan Notifications", () => {
+    console.log("Refetching Notification data due to socket event...");
+    notificationsDataMutate?.(); // Always refetch notifications for the current user
   });
-
-  useFrappeDocTypeEventListener("Sent Back Category", () => {
-    console.log("Refetching SB data due to socket event...");
-    if (isAdmin) { adminSBDataMutate?.(); } else { sbDataMutate?.(); }
-  });
-
-  useFrappeDocTypeEventListener("Procurement Orders", () => {
-    console.log("Refetching PO data due to socket event...");
-    if (isAdmin) { adminPODataMutate?.(); } else { poDataMutate?.(); }
-  });
-
-useFrappeDocTypeEventListener("Service Requests", () => {
-  console.log("Refetching SR data due to socket event...");
-  if (isAdmin) { adminSRDataMutate?.(); } else { srDataMutate?.(); }
-});
-
-useFrappeDocTypeEventListener("Project Payments", () => {
-  console.log("Refetching Payment data due to socket event...");
-  if (isAdmin) { adminPaymentsDataMutate?.(); } else { paymentsDataMutate?.(); }
-});
-
-useFrappeDocTypeEventListener("Nirmaan Notifications", () => {
-  console.log("Refetching Notification data due to socket event...");
-  notificationsDataMutate?.(); // Always refetch notifications for the current user
-});
-
-
-  // //  ***** PR Events *****
-  // useFrappeEventListener("pr:new", async (event) => {
-  //   await handlePRNewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("pr:delete", (event) => {
-  //   handlePRDeleteEvent(event, delete_notification);
-  // });
-
-  // useFrappeEventListener("pr:vendorSelected", async (event) => {
-  //   await handlePRVendorSelectedEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("pr:approved", async (event) => {
-  //   await handlePRApproveNewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("pr:rejected", async (event) => {
-  //   await handlePRNewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
-  //   if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-  //     await adminPRDataMutate();
-  //   } else {
-  //     await prDataMutate();
-  //   }
-  // });
-
-  // useFrappeDocTypeEventListener("Nirmaan Notifications", async (event) => {
-  //   await notificationsDataMutate();
-  // });
-
-  // //  ***** SB Events *****
-  // useFrappeEventListener("sb:vendorSelected", async (event) => {
-  //   await handleSBVendorSelectedEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("Rejected-sb:new", async (event) => {
-  //   await handleSBNewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("Delayed-sb:new", async (event) => {
-  //   await handleSBNewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("Cancelled-sb:new", async (event) => {
-  //   await handleSBNewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeDocTypeEventListener("Sent Back Category", async (event) => {
-  //   if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-  //     await adminSBDataMutate();
-  //   } else {
-  //     await sbDataMutate();
-  //   }
-  // });
-
-  // //  ***** PO Events *****
-  // useFrappeEventListener("po:amended", async (event) => {
-  //   await handlePOAmendedEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("po:new", async (event) => {
-  //   await handlePONewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("po:delete", (event) => {
-  //   handlePRDeleteEvent(event, delete_notification);
-  // });
-
-  // useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
-  //   if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-  //     await adminPODataMutate();
-  //   } else {
-  //     await poDataMutate();
-  //   }
-  // });
-
-  // //  ***** SR Events *****
-  // useFrappeEventListener("sr:vendorSelected", async (event) => {
-  //   await handleSRVendorSelectedEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("sr:approved", async (event) => {
-  //   await handleSRApprovedEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("sr:delete", (event) => {
-  //   handlePRDeleteEvent(event, delete_notification);
-  // });
-
-  // useFrappeEventListener("sr:amended", (event) => {
-  //   handleSOAmendedEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeDocTypeEventListener("Service Requests", async (event) => {
-  //   if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-  //     await adminSRDataMutate();
-  //   } else {
-  //     await srDataMutate();
-  //   }
-  // });
-
-  //  //  ***** Project Payment Events *****
-  //  useFrappeEventListener("payment:new", async (event) => {
-  //   await handlePONewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("payment:approved", async (event) => {
-  //   await handleSRApprovedEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("payment:fulfilled", async (event) => {
-  //   await handlePONewEvent(db, event, add_new_notification);
-  // });
-
-  // useFrappeEventListener("payment:delete", (event) => {
-  //   handlePRDeleteEvent(event, delete_notification);
-  // });
-
-  // useFrappeDocTypeEventListener("Project Payments", async (event) => {
-  //   if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-  //     await adminPaymentsDataMutate();
-  //   } else {
-  //     await paymentsDataMutate();
-  //   }
-  // });
-
-  // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
-  //     await handlePRStatusChangedEvent(role, user_id);
-  // });
-
-  // useFrappeEventListener("pr:resolved", async (event) => {
-  //     await handlePRResolvedEvent(db, event, role, user_id, add_new_notification, mutate);
-  // });
-
-  // console.log("new Notifications", notifications)
 
   const requestNotificationPermission = async () => {
     if (user_id && data) {

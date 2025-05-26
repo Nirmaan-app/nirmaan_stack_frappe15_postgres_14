@@ -7,7 +7,7 @@ import { TailSpin } from 'react-loader-spinner'; // Adjust path
 
 interface ActionButtonsProps {
     mode: 'create' | 'edit' | 'resolve';
-    onSubmit: () => Promise<void>; // The function to call on confirm
+    onSubmit: (finalComment: string) => Promise<void>; // The function to call on confirm
     isSubmitting: boolean;
     disabled?: boolean; // e.g., disable if procList is empty
     comment?: string; // Pass comment to show in dialog if needed
@@ -42,7 +42,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
         if(onCommentChange) {
             onCommentChange(localComment); // Update comment in parent store before submitting
         }
-        await onSubmit();
+        await onSubmit(localComment.trim());
         // Dialog might be closed automatically by parent state change after submit,
         // but explicitly setting it can be safer if submission fails without state change.
         // Consider closing only on success in the parent.

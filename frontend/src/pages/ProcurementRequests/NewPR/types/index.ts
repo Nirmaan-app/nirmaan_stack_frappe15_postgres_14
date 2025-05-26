@@ -5,12 +5,12 @@ export interface ProcurementRequestItem {
   item: string;      // Item display name
   unit: string;
   quantity: number;
+  work_package?: string; // Work Package DocName (key)
   category: string;  // Category DocName (key)
   tax: number;
   comment?: string;
   make?: string;     // Selected Make DocName for this item
   status: 'Pending' | 'Request' | 'Approved' | 'Rejected'; // Add other relevant statuses if needed
-  // Add any other item-specific fields you might need to store
 }
 
 // Represents a category selection derived from the procList

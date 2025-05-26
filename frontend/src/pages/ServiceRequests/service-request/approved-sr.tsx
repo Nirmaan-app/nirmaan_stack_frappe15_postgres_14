@@ -1,5 +1,5 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -33,7 +33,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import SITEURL from "@/constants/siteURL";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
-import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment-dialog";
+import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -60,34 +60,63 @@ interface ApprovedSRProps {
     accountsPage?: boolean;
 }
 
-export const ApprovedSR = ({summaryPage = false, accountsPage = false} : ApprovedSRProps) => {
+interface PrintFormData {
+    delivery_note_no: string;
+    payment_terms: string;
+    reference_no_date: string;
+    other_references: string;
+    buyers_order_no: string;
+    buyers_order_date: string;
+    dispatch_doc_no: string;
+    delivery_note_date: string;
+    dispatched_through: string;
+    destination: string; // Already partially handled by project_city
+    terms_of_delivery: string;
+}
+
+const initialPrintFormData: PrintFormData = {
+    delivery_note_no: '',
+    payment_terms: '',
+    reference_no_date: '',
+    other_references: '',
+    buyers_order_no: '',
+    buyers_order_date: '',
+    dispatch_doc_no: '',
+    delivery_note_date: '',
+    dispatched_through: '',
+    destination: '',
+    terms_of_delivery: '',
+};
+
+
+export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: ApprovedSRProps) => {
 
     const params = useParams();
-    const {role, user_id} = useUserData()
-  
+    const { role, user_id } = useUserData()
+
     const id = accountsPage ? params.id : params.srId;
 
-    if(!id) return <div>No Service Request ID Provided</div>
+    if (!id) return <div>No Service Request ID Provided</div>
 
-    const {toggleRequestPaymentDialog, toggleNewInvoiceDialog} = useDialogStore()
+    const { toggleRequestPaymentDialog, toggleNewInvoiceDialog } = useDialogStore()
 
-    const [selectedGST, setSelectedGST] = useState<{gst : string | undefined, location? : string | undefined} | null>(null);
+    const [selectedGST, setSelectedGST] = useState<{ gst: string | undefined, location?: string | undefined } | null>(null);
 
     const { data: service_request, isLoading: service_request_loading, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
 
     useFrappeDocumentEventListener("Service Requests", id, (event) => {
-            console.log("Service Requests document updated (real-time):", event);
-            toast({
-                title: "Document Updated",
-                description: `Service Requests ${event.name} has been modified.`,
-            });
-            service_request_mutate(); // Re-fetch this specific document
-          },
-          true // emitOpenCloseEventsOnMount (default)
-          )
+        console.log("Service Requests document updated (real-time):", event);
+        toast({
+            title: "Document Updated",
+            description: `Service Requests ${event.name} has been modified.`,
+        });
+        service_request_mutate(); // Re-fetch this specific document
+    },
+        true // emitOpenCloseEventsOnMount (default)
+    )
 
     const [orderData, setOrderData] = useState<ServiceRequests | undefined>()
-    const [notes, setNotes] = useState<{id : string, note : string}[]>([])
+    const [notes, setNotes] = useState<{ id: string, note: string }[]>([])
     const [curNote, setCurNote] = useState<string | null>(null)
     const [gstEnabled, setGstEnabled] = useState(false)
 
@@ -104,16 +133,19 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         setEditSrTermsDialog((prevState) => !prevState)
     }, []);
 
+    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+    const [printFormState, setPrintFormState] = useState<PrintFormData>(initialPrintFormData);
+
     const [warning, setWarning] = useState("");
-    
+
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
 
-    const {deleteDoc, loading: deleteLoading} = useFrappeDeleteDoc()
+    const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc()
 
     const { call } = useFrappePostCall('frappe.client.set_value')
 
     const [newPaymentDialog, setNewPaymentDialog] = useState(false);
-    
+
     const toggleNewPaymentDialog = useCallback(() => {
         setNewPaymentDialog((prevState) => !prevState);
     }, []);
@@ -124,21 +156,21 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         utr: "",
         tds: ""
     });
-    
+
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
     const [deleteDialog, setDeleteDialog] = useState(false)
     // Use the custom hook for deletion logic
     const { deleteServiceRequest, isDeleting } = useServiceRequestLogic({
-            onSuccess: (deletedSrName) => {
-                service_request_mutate();
-                setDeleteDialog(false);
-            },
-            onError: (error, srName) => {
-                console.error(`Error deleting SR ${srName} from table view:`, error);
-            },
-            navigateOnSuccessPath: "/service-requests?tab=approved-sr"
-        });
+        onSuccess: (deletedSrName) => {
+            service_request_mutate();
+            setDeleteDialog(false);
+        },
+        onError: (error, srName) => {
+            console.error(`Error deleting SR ${srName} from table view:`, error);
+        },
+        navigateOnSuccessPath: "/service-requests?tab=approved-sr"
+    });
 
     const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
@@ -156,7 +188,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
 
     useEffect(() => {
         if (service_request) {
-            const data = {...service_request, notes: service_request?.notes && JSON.parse(service_request?.notes), service_order_list: service_request?.service_order_list && JSON.parse(service_request.service_order_list), service_category_list: service_request?.service_category_list && JSON.parse(service_request.service_category_list), invoice_data: service_request?.invoice_data && JSON.parse(service_request.invoice_data)}
+            const data = { ...service_request, notes: service_request?.notes && JSON.parse(service_request?.notes), service_order_list: service_request?.service_order_list && JSON.parse(service_request.service_order_list), service_category_list: service_request?.service_category_list && JSON.parse(service_request.service_category_list), invoice_data: service_request?.invoice_data && JSON.parse(service_request.invoice_data) }
             setOrderData(data)
             const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
             setNotes(notes || [])
@@ -168,13 +200,13 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             }
             if (service_request?.project_gst) {
                 setSelectedGST((prev) => ({ ...prev, gst: service_request?.project_gst }));
-              }
+            }
         }
     }, [service_request])
 
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
-    const {createDoc, loading: createLoading} = useFrappeCreateDoc()
+    const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
     const componentRef = useRef<HTMLDivElement>(null);
 
@@ -207,12 +239,12 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         setCurNote(null);
     }, [notes, curNote, editingIndex]);
 
-    const handleEditNote = useCallback((id : string) => {
+    const handleEditNote = useCallback((id: string) => {
         setCurNote(notes?.find((i) => i?.id === id)?.note || "");
         setEditingIndex(id);
     }, [notes]);
 
-    const handleDeleteNote = useCallback((id : string) => {
+    const handleDeleteNote = useCallback((id: string) => {
         setNotes(notes.filter((note) => note?.id !== id));
     }, [notes]);
 
@@ -230,7 +262,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             if (orderData?.project_gst !== selectedGST?.gst) {
                 updatedData = { ...updatedData, project_gst: selectedGST?.gst }
             }
-        
+
             // if(parseFloat(service_request?.advance || 0) !== advance) {
             //     updatedData = {...updatedData, advance: advance}
             // }
@@ -273,35 +305,35 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                 status: "Paid"
             })
 
-            if(paymentScreenshot) {
+            if (paymentScreenshot) {
                 const fileArgs = {
                     doctype: "Project Payments",
                     docname: res?.name,
                     fieldname: "payment_attachment",
                     isPrivate: true,
-                  };
-          
-                  const uploadedFile = await upload(paymentScreenshot, fileArgs);
-    
-                  await call({
+                };
+
+                const uploadedFile = await upload(paymentScreenshot, fileArgs);
+
+                await call({
                     doctype: "Project Payments",
                     name: res?.name,
                     fieldname: "payment_attachment",
                     value: uploadedFile.file_url,
-                  });
+                });
             }
 
-              await projectPaymentsMutate()
+            await projectPaymentsMutate()
 
-              toggleNewPaymentDialog()
+            toggleNewPaymentDialog()
 
-              toast({
+            toast({
                 title: "Success!",
                 description: "Payment added successfully!",
                 variant: "success",
-              });
+            });
 
-              setNewPayment({
+            setNewPayment({
                 amount: "",
                 payment_date: "",
                 utr: "",
@@ -309,64 +341,64 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             })
 
             setPaymentScreenshot(null)
-            
+
         } catch (error) {
             console.log("error", error)
             toast({
                 title: "Failed!",
                 description: "Failed to add Payment!",
                 variant: "destructive",
-              });
+            });
         }
     }
 
     const validateAmount = useCallback(
-        debounce((amount : string) => {
-    
-        const compareAmount = orderData?.gst === "true"
-            ? (getTotal * 1.18 - getAmountPaid)
-            : (getTotal - getAmountPaid);
-    
-        if (parseNumber(amount) > compareAmount) {
-          setWarning(
-            `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
+        debounce((amount: string) => {
+
+            const compareAmount = orderData?.gst === "true"
+                ? (getTotal * 1.18 - getAmountPaid)
+                : (getTotal - getAmountPaid);
+
+            if (parseNumber(amount) > compareAmount) {
+                setWarning(
+                    `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
             ${orderData?.gst === "true" ? "including" : "excluding"
-            } GST: ${formatToRoundedIndianRupee(compareAmount)}`
-          );
-        } else {
-          setWarning("");
-        }
-      }, 300), [orderData, getTotal, getAmountPaid])
-    
+                    } GST: ${formatToRoundedIndianRupee(compareAmount)}`
+                );
+            } else {
+                setWarning("");
+            }
+        }, 300), [orderData, getTotal, getAmountPaid])
+
     // Handle input change
-    const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
-      const amount = e.target.value;
-      setNewPayment({ ...newPayment, amount });
-      validateAmount(amount);
-    }, [validateAmount]); 
+    const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const amount = e.target.value;
+        setNewPayment({ ...newPayment, amount });
+        validateAmount(amount);
+    }, [validateAmount]);
 
     const handleDeletePayment = async () => {
         try {
-    
-          await deleteDoc("Project Payments", deleteFlagged?.name);
-    
-          await projectPaymentsMutate();
-    
-          toast({
-            title: "Success!",
-            description: "Payment deleted successfully!",
-            variant: "success",
-          });
-          
+
+            await deleteDoc("Project Payments", deleteFlagged?.name);
+
+            await projectPaymentsMutate();
+
+            toast({
+                title: "Success!",
+                description: "Payment deleted successfully!",
+                variant: "success",
+            });
+
         } catch (error) {
-          console.log("error", error);
-          toast({
-            title: "Failed!",
-            description: "Failed to delete Payment!",
-            variant: "destructive",
-          });
-        } 
-      }
+            console.log("error", error);
+            toast({
+                title: "Failed!",
+                description: "Failed to delete Payment!",
+                variant: "destructive",
+            });
+        }
+    }
 
 
     if (
@@ -374,9 +406,9 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         service_vendor_loading ||
         project_loading ||
         projectPaymentsLoading
-      )
+    )
         return (
-          <LoadingFallback />
+            <LoadingFallback />
         );
 
     // Handler for the dialog confirmation
@@ -386,246 +418,460 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
         }
     }
 
+
+    const handlePrintFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setPrintFormState(prev => ({ ...prev, [name]: value }));
+    };
+
+
+    const handleGenerate = (dl = false) => {
+        /* Build ?settings= JSON */
+        //   const settings = encodeURIComponent(JSON.stringify(vals));
+        const baseParams = {
+            doctype: "Service Requests",
+            name: orderData?.name || "",
+            format: "SR Invoice",      // print format name
+            no_letterhead: "1",
+        };
+
+        // Add form data as parameters, only if they have values
+        const formDataParams: Record<string, string> = {};
+        for (const key in printFormState) {
+            if (printFormState[key as keyof PrintFormData]) {
+                formDataParams[`custom_${key}`] = printFormState[key as keyof PrintFormData]; // Prefix with 'custom_'
+            }
+        }
+
+        const allParams = { ...baseParams, ...formDataParams };
+        const queryString = new URLSearchParams(allParams).toString();
+        //   const qs   = new URLSearchParams(baseParams).toString();
+        const url = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+        const view = `/printview?${queryString}`;
+
+        window.open(dl ? url : view, "_blank");
+        setIsPrintDialogOpen(false);
+    };
+
+
     return (
         <div className="flex-1 space-y-4">
             <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-          <CardHeader>
-            <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                <div>
-                    <h2>SR Details</h2>
-                    <Badge>{orderData?.status}</Badge>
-                </div>
-              <div className="flex items-center gap-2">
+                <CardHeader>
+                    <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
+                        <div>
+                            <h2>SR Details</h2>
+                            <Badge>{orderData?.status}</Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
 
-                                    <Button 
-                                    disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile")} 
-                                    variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                        <Trash2 className="w-4 h-4" />
-                                        Delete
-                                    </Button>
+                            <Button
+                                disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile")}
+                                variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                <Trash2 className="w-4 h-4" />
+                                Delete
+                            </Button>
 
-                                {/* Render the Delete Confirmation Dialog */}
-                                            <SRDeleteConfirmationDialog
-                                                open={deleteDialog}
-                                                onOpenChange={() => setDeleteDialog(false)}
-                                                itemName={orderData?.name}
-                                                itemType="Service Request" // Specific type for this instance
-                                                onConfirm={handleConfirmDelete}
-                                                isDeleting={isDeleting}
-                                            />
-                                {!summaryPage && !accountsPage && (
-                                    <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                        <PencilRuler className="w-4 h-4" />
-                                        Amend
-                                    </Button>
-                                )}
-
-                                <Button
-                                    variant="outline"
-                                    className="text-primary border-primary text-xs px-2"
-                                    onClick={toggleNewInvoiceDialog}
-                                  >
-                                    Add Invoice
+                            {/* Render the Delete Confirmation Dialog */}
+                            <SRDeleteConfirmationDialog
+                                open={deleteDialog}
+                                onOpenChange={() => setDeleteDialog(false)}
+                                itemName={orderData?.name}
+                                itemType="Service Request" // Specific type for this instance
+                                onConfirm={handleConfirmDelete}
+                                isDeleting={isDeleting}
+                            />
+                            {!summaryPage && !accountsPage && (
+                                <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                    <PencilRuler className="w-4 h-4" />
+                                    Amend
                                 </Button>
+                            )}
 
-                                <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
-                                    <SheetContent className="overflow-auto">
-                                        <SheetHeader>
-                                            <SheetTitle className="text-center mb-6">Amend SR!</SheetTitle>
-                                        </SheetHeader>
-                                        <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
-                                    </SheetContent>
-                                </Sheet>
-                              <Button variant={"outline"} disabled={!orderData?.project_gst}  onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
+                            <Button
+                                variant="outline"
+                                className="text-primary border-primary text-xs px-2"
+                                onClick={toggleNewInvoiceDialog}
+                            >
+                                Add Invoice
+                            </Button>
+
+
+                            <Button disabled={!orderData?.project_gst} size="sm" className="border border-primary" variant="outline"
+                                onClick={() => { setPrintFormState(initialPrintFormData); setIsPrintDialogOpen(true); }}>
+                                View / Download Tax Invoice
+                            </Button>
+
+                            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                                <DialogContent className="sm:max-w-[550px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Invoice Details</DialogTitle>
+                                        <DialogDescription>
+                                            Please provide the following details for the invoice.
+                                            Fields left blank will show as "-" or be omitted.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
+                                        {/* Create input fields for each item */}
+                                        {/* Example for Delivery Note */}
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="delivery_note_no" className="text-right col-span-1">
+                                                Delivery Note
+                                            </Label>
+                                            <Input
+                                                id="delivery_note_no"
+                                                name="delivery_note_no"
+                                                value={printFormState.delivery_note_no}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="payment_terms" className="text-right col-span-1">
+                                                Mode/Terms of Pymt
+                                            </Label>
+                                            <Input
+                                                id="payment_terms"
+                                                name="payment_terms"
+                                                value={printFormState.payment_terms}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="reference_no_date" className="text-right col-span-1">
+                                                Reference No. & Date
+                                            </Label>
+                                            <Input
+                                                id="reference_no_date"
+                                                name="reference_no_date"
+                                                value={printFormState.reference_no_date}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="other_references" className="text-right col-span-1">
+                                                Other References
+                                            </Label>
+                                            <Input
+                                                id="other_references"
+                                                name="other_references"
+                                                value={printFormState.other_references}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="buyers_order_no" className="text-right col-span-1">
+                                                Buyer's Order No.
+                                            </Label>
+                                            <Input
+                                                id="buyers_order_no"
+                                                name="buyers_order_no"
+                                                value={printFormState.buyers_order_no}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="buyers_order_date" className="text-right col-span-1">
+                                                Buyer's Order Date
+                                            </Label>
+                                            <Input
+                                                id="buyers_order_date"
+                                                name="buyers_order_date"
+                                                type="date" // Use date type for better UX
+                                                value={printFormState.buyers_order_date}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="dispatch_doc_no" className="text-right col-span-1">
+                                                Dispatch Doc No.
+                                            </Label>
+                                            <Input
+                                                id="dispatch_doc_no"
+                                                name="dispatch_doc_no"
+                                                value={printFormState.dispatch_doc_no}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="delivery_note_date" className="text-right col-span-1">
+                                                Delivery Note Date
+                                            </Label>
+                                            <Input
+                                                id="delivery_note_date"
+                                                name="delivery_note_date"
+                                                type="date"
+                                                value={printFormState.delivery_note_date}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="dispatched_through" className="text-right col-span-1">
+                                                Dispatched through
+                                            </Label>
+                                            <Input
+                                                id="dispatched_through"
+                                                name="dispatched_through"
+                                                value={printFormState.dispatched_through}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        {/* Destination is already partially handled, but allow override if needed */}
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="destination" className="text-right col-span-1">
+                                                Destination (Override)
+                                            </Label>
+                                            <Input
+                                                id="destination"
+                                                name="destination"
+                                                value={printFormState.destination}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="terms_of_delivery" className="text-right col-span-1">
+                                                Terms of Delivery
+                                            </Label>
+                                            <Input
+                                                id="terms_of_delivery"
+                                                name="terms_of_delivery"
+                                                value={printFormState.terms_of_delivery}
+                                                onChange={handlePrintFormChange}
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        {/* Add other fields similarly */}
+                                    </div>
+                                    <DialogFooter>
+                                        <DialogClose asChild>
+                                            <Button type="button" variant="outline">
+                                                Cancel
+                                            </Button>
+                                        </DialogClose>
+                                        <Button onClick={() => handleGenerate(false)}>Preview</Button>
+                                        <Button type="button" onClick={() => handleGenerate(true)}>
+                                            Download PDF
+                                        </Button>
+                                        {/* <Button type="button" onClick={() => handleGenerate()}> 
+                        Generate Invoice
+                    </Button> */}
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+
+                            <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
+                                <SheetContent className="overflow-auto">
+                                    <SheetHeader>
+                                        <SheetTitle className="text-center mb-6">Amend SR!</SheetTitle>
+                                    </SheetHeader>
+                                    <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
+                                </SheetContent>
+                            </Sheet>
+                            <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
                                 <Eye className="w-4 h-4" />
                                 Preview
-                              </Button>
-                            </div>
-            </CardTitle>
-          </CardHeader>
-
-            <CardContent className="max-sm:text-xs">
-                        <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
-                                  <div className="flex flex-col gap-2">
-                                      <Label className=" text-red-700">Vendor</Label>
-                                      <VendorHoverCard vendor_id={orderData?.vendor} />
-                                  </div>
-                                  <div className="flex flex-col gap-2 sm:items-center max-sm:items-end">
-                                      <Label className=" text-red-700">Package</Label>
-                                      <span>Services</span>
-                                  </div>
-                                  <div className="flex flex-col gap-2 sm:items-end">
-                                      <Label className=" text-red-700">Date Created</Label>
-                                      <span>{formatDate(orderData?.creation)}</span>
-                                  </div>
-                                  <div className="flex flex-col gap-2 max-sm:items-end">
-                                      <Label className=" text-red-700">Total (Excl. GST)</Label>
-                                      <span>{formatToRoundedIndianRupee(getTotal)}</span>
-                                  </div>
-                                  <div className="flex flex-col gap-2 sm:items-center">
-                                      <Label className=" text-red-700">Total Amount Paid</Label>
-                                      <span>{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>    
-                                  </div>
-                                  {gstEnabled && (
-                                    <div className="flex flex-col gap-2 items-end">
-                                        <Label className=" text-red-700">Total (Incl. GST)</Label>
-                                        <span>{formatToRoundedIndianRupee(getTotal * 1.18)}</span>
-                                    </div>
-                                  )}
+                            </Button>
                         </div>
-            </CardContent>
-                </Card>
+                    </CardTitle>
+                </CardHeader>
+
+                <CardContent className="max-sm:text-xs">
+                    <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                            <Label className=" text-red-700">Vendor</Label>
+                            <VendorHoverCard vendor_id={orderData?.vendor} />
+                        </div>
+                        <div className="flex flex-col gap-2 sm:items-center max-sm:items-end">
+                            <Label className=" text-red-700">Package</Label>
+                            <span>Services</span>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:items-end">
+                            <Label className=" text-red-700">Date Created</Label>
+                            <span>{formatDate(orderData?.creation)}</span>
+                        </div>
+                        <div className="flex flex-col gap-2 max-sm:items-end">
+                            <Label className=" text-red-700">Total (Excl. GST)</Label>
+                            <span>{formatToRoundedIndianRupee(getTotal)}</span>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:items-center">
+                            <Label className=" text-red-700">Total Amount Paid</Label>
+                            <span>{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
+                        </div>
+                        {gstEnabled && (
+                            <div className="flex flex-col gap-2 items-end">
+                                <Label className=" text-red-700">Total (Incl. GST)</Label>
+                                <span>{formatToRoundedIndianRupee(getTotal * 1.18)}</span>
+                            </div>
+                        )}
+                    </div>
+                </CardContent>
+            </Card>
 
             <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-            <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+                <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                        <p>Transaction Details</p>
+                            <p>Transaction Details</p>
 
-                        {!accountsPage && !summaryPage && (
-                            <>
-                            <Button
-                          variant="outline"
-                          className="text-primary border-primary text-xs px-2"
-                          onClick={toggleRequestPaymentDialog}
-                        >
-                          Request Payment
-                        </Button>
+                            {!accountsPage && !summaryPage && (
+                                <>
+                                    <Button
+                                        variant="outline"
+                                        className="text-primary border-primary text-xs px-2"
+                                        onClick={toggleRequestPaymentDialog}
+                                    >
+                                        Request Payment
+                                    </Button>
 
-                        <RequestPaymentDialog amountPending={amountPending} totalAmount={getTotal * 1.18} totalAmountWithoutGST={getTotal} 
-                            totalPaid={getAmountPaid}
-                            gst={orderData?.gst === "true"}
-                            isSr={true}
-                            sr={orderData} paymentsMutate={projectPaymentsMutate}
-                        />
-                            </>
-                        )}
-                        {accountsPage && (
-                        <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
-                             <AlertDialogTrigger
-                            onClick={() => setNewPayment({...newPayment, payment_date: new Date().toISOString().split("T")[0]})}
-                            >
-                                <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                                <AlertDialogHeader className="text-start">
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">Project:</Label>
-                                    <span className="">{project?.project_name}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">Vendor:</Label>
-                                    <span className="">{service_vendor?.vendor_name}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                    <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
-                                </div>
-                                {orderData?.gst === "true" && (
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
-                                </div>
-                                )}
-                                <div className="flex items-center justify-between">
-                                    <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                    <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
-                                </div>
+                                    <RequestPaymentDialog
+                                        totalIncGST={getTotal * 1.18 || 0}
+                                        totalExGST={getTotal || 0}
+                                        paid={getAmountPaid}
+                                        pending={amountPending}
+                                        gst={orderData?.gst === "true"}
+                                        docType="Service Requests"
+                                        docName={orderData?.name || "Unknown"}
+                                        project={orderData?.project || "Unknown"}
+                                        vendor={orderData?.vendor || "Unknown"}
+                                        onSuccess={projectPaymentsMutate}
+                                    />
+                                </>
+                            )}
+                            {accountsPage && (
+                                <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
+                                    <AlertDialogTrigger
+                                        onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
+                                    >
+                                        <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                        <AlertDialogHeader className="text-start">
+                                            <div className="flex items-center justify-between">
+                                                <Label className=" text-red-700">Project:</Label>
+                                                <span className="">{project?.project_name}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <Label className=" text-red-700">Vendor:</Label>
+                                                <span className="">{service_vendor?.vendor_name}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <Label className=" text-red-700">PO Amt excl. Tax:</Label>
+                                                <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
+                                            </div>
+                                            {orderData?.gst === "true" && (
+                                                <div className="flex items-center justify-between">
+                                                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                                                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
+                                                </div>
+                                            )}
+                                            <div className="flex items-center justify-between">
+                                                <Label className=" text-red-700">Amt Paid Till Now:</Label>
+                                                <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
+                                            </div>
 
-                                <div className="flex flex-col gap-4 pt-4">
-                                                            <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <div className="w-full">
-                                                                <Input
-                                                                    type="number"
-                                                                    placeholder="Enter Amount"
-                                                                    value={newPayment.amount}
-                                                                    onChange={(e) => handleAmountChange(e)}
-                                                                />
-                                                                    {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
-                                                                </div> 
-                                                            </div>
-                                                            <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">TDS Amount</Label>
-                                                                <div className="w-full">
-                                                                <Input
-                                                                    type="number"
-                                                                    placeholder="Enter TDS Amount"
-                                                                    value={newPayment.tds}
-                                                                    onChange={(e) => {
-                                                                        const tdsValue = e.target.value;
-                                                                        setNewPayment({ ...newPayment, tds: tdsValue })
-                                                                    }}
-                                                                />
-                                                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex gap-4 w-full">
-                                                                <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <Input
-                                                                    type="text"
-                                                                    placeholder="Enter UTR"
-                                                                    value={newPayment.utr}
-                                                                    onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                                                />
-                                                            </div>
+                                            <div className="flex flex-col gap-4 pt-4">
+                                                <div className="flex gap-4 w-full">
+                                                    <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
+                                                    <div className="w-full">
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Enter Amount"
+                                                            value={newPayment.amount}
+                                                            onChange={(e) => handleAmountChange(e)}
+                                                        />
+                                                        {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-4 w-full">
+                                                    <Label className="w-[40%]">TDS Amount</Label>
+                                                    <div className="w-full">
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Enter TDS Amount"
+                                                            value={newPayment.tds}
+                                                            onChange={(e) => {
+                                                                const tdsValue = e.target.value;
+                                                                setNewPayment({ ...newPayment, tds: tdsValue })
+                                                            }}
+                                                        />
+                                                        {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-4 w-full">
+                                                    <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="Enter UTR"
+                                                        value={newPayment.utr}
+                                                        onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                                    />
+                                                </div>
 
-                                                            <div className="flex gap-4 w-full" >
-                                                                <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
-                                                                <Input
-                                                                        type="date"
-                                                                        value={newPayment.payment_date}
-                                                                        placeholder="DD/MM/YYYY"
-                                                                        onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
-                                                                        max={new Date().toISOString().split("T")[0]}
-                                                                        onKeyDown={(e) => e.preventDefault()}
-                                                                     />
-                                                            </div>
+                                                <div className="flex gap-4 w-full" >
+                                                    <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                                                    <Input
+                                                        type="date"
+                                                        value={newPayment.payment_date}
+                                                        placeholder="DD/MM/YYYY"
+                                                        onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })}
+                                                        max={new Date().toISOString().split("T")[0]}
+                                                        onKeyDown={(e) => e.preventDefault()}
+                                                    />
+                                                </div>
 
-                                                        </div>
-                                
-                                <CustomAttachment 
-                                    maxFileSize={20 * 1024 * 1024} // 20MB
-                                    selectedFile={paymentScreenshot}
-                                    onFileSelect={setPaymentScreenshot}
-                                    label="Attach Screenshot"
-                                    className="w-full"
-                                />
+                                            </div>
 
-                                <div className="flex gap-2 items-center pt-4 justify-center">
+                                            <CustomAttachment
+                                                maxFileSize={20 * 1024 * 1024} // 20MB
+                                                selectedFile={paymentScreenshot}
+                                                onFileSelect={setPaymentScreenshot}
+                                                label="Attach Screenshot"
+                                                className="w-full"
+                                            />
 
-                                    {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
-                                        <>
-                                        <AlertDialogCancel className="flex-1" asChild>
-                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                        </AlertDialogCancel>
-                                        <Button
-                                            onClick={AddPayment}
-                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
-                                            className="flex-1">Add Payment
-                                        </Button>
-                                        </>
-                                    )}
-                                </div>
-                                
-                                </AlertDialogHeader>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                        )}
+                                            <div className="flex gap-2 items-center pt-4 justify-center">
+
+                                                {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
+                                                    <>
+                                                        <AlertDialogCancel className="flex-1" asChild>
+                                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                        </AlertDialogCancel>
+                                                        <Button
+                                                            onClick={AddPayment}
+                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
+                                                            className="flex-1">Add Payment
+                                                        </Button>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                        </AlertDialogHeader>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="overflow-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                <TableHead className="text-black font-bold">Amount</TableHead>
-                                {/* {service_request?.gst === "true" && (
+                                    <TableHead className="text-black font-bold">Amount</TableHead>
+                                    {/* {service_request?.gst === "true" && (
                                     <TableHead className="text-black font-bold">TDS Amt</TableHead>
                                 )} */}
-                                <TableHead className="text-black font-bold">UTR No.</TableHead>
-                                <TableHead className="text-black font-bold">Date</TableHead>
-                                <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
-                                <TableHead></TableHead>
+                                    <TableHead className="text-black font-bold">UTR No.</TableHead>
+                                    <TableHead className="text-black font-bold">Date</TableHead>
+                                    <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
+                                    <TableHead></TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -637,60 +883,60 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 {/* {service_request?.gst === "true" && (
                                                      <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
                                                  )} */}
-                                                 {(payment?.utr && payment?.payment_attachment) ? (
+                                                {(payment?.utr && payment?.payment_attachment) ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
-                                                    <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                        {payment?.utr}
-                                                    </a>
+                                                        <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                            {payment?.utr}
+                                                        </a>
                                                     </TableCell>
-                                                 ) : (
+                                                ) : (
                                                     <TableCell className="font-semibold">
                                                         {payment?.utr || "--"}
                                                     </TableCell>
-                                                 )}
+                                                )}
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                  {payment?.status !== "Paid" && !summaryPage && 
-                                                  <Dialog>
-                                                    <DialogTrigger>
-                                                      <Trash2
-                                                        onClick={() => setDeleteFlagged(payment)}
-                                                        className="w-4 h-4" />
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                      <DialogHeader>
-                                                        <DialogTitle>Are you sure?</DialogTitle>
-                                                      </DialogHeader>
-                                                      <div className="flex items-center justify-end gap-2">
-                                                        {deleteLoading ? <TailSpin color="red" height={40} width={40} /> : (
-                                                          <>
-                                                            <DialogClose asChild>
-                                                              <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                                              </DialogClose>
-                                                            <Button onClick={() => handleDeletePayment()}>Delete</Button>
-                                                          </>
-                                                        )}
-                                                      </div>
-                                                    
-                                                    </DialogContent>
-                                                  </Dialog>
-                                                  }
+                                                    {!["Paid", "Approved"].includes(payment?.status) && !summaryPage &&
+                                                        <Dialog>
+                                                            <DialogTrigger>
+                                                                <Trash2
+                                                                    onClick={() => setDeleteFlagged(payment)}
+                                                                    className="w-4 h-4" />
+                                                            </DialogTrigger>
+                                                            <DialogContent>
+                                                                <DialogHeader>
+                                                                    <DialogTitle>Are you sure?</DialogTitle>
+                                                                </DialogHeader>
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    {deleteLoading ? <TailSpin color="red" height={40} width={40} /> : (
+                                                                        <>
+                                                                            <DialogClose asChild>
+                                                                                <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                                            </DialogClose>
+                                                                            <Button onClick={() => handleDeletePayment()}>Delete</Button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+
+                                                            </DialogContent>
+                                                        </Dialog>
+                                                    }
                                                 </TableCell>
                                             </TableRow>
                                         )
                                     })
                                 ) : (
-                                  <TableRow>
-                                      <TableCell colSpan={orderData?.gst === "true" ? 4 : 3} className="text-center py-2">
-                                          No Payments Found
-                                      </TableCell>
-                                  </TableRow>
+                                    <TableRow>
+                                        <TableCell colSpan={orderData?.gst === "true" ? 4 : 3} className="text-center py-2">
+                                            No Payments Found
+                                        </TableCell>
+                                    </TableRow>
                                 )}
                             </TableBody>
                         </Table>
                     </CardContent>
-            </Card>
+                </Card>
                 <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
@@ -701,144 +947,142 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                 )}
                             </div>
                             {!summaryPage && !accountsPage && (
-                            <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
-                                <DialogTrigger>
-                                    <Button variant={"outline"} className="felx items-center gap-1">
-                                        <PencilIcon className="w-4 h-4" />
-                                        Edit
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className="overflow-auto max-h-[80vh] w-full">
-                                <div className="flex flex-col gap-1 pt-6">
-                              <h3
-                                className={`font-semibold text-lg tracking-tight ${
-                                  !selectedGST?.gst ? "text-primary" : ""
-                                }`}
-                              >
-                                Project GST Selection
-                                <sup className="text-sm text-red-600">*</sup>
-                              </h3>
-                              {project &&
-                                JSON.parse(project?.project_gst_number)?.list
-                                  ?.length > 0 && (
-                                  <>
-                                    <Select
-                                      value={selectedGST?.gst}
-                                      defaultValue={orderData?.project_gst}
-                                      onValueChange={(selectedOption) => {
-                                        const gstArr = JSON.parse(
-                                            project?.project_gst_number
-                                        )?.list;
-                                        setSelectedGST(
-                                          gstArr.find(
-                                            (item) =>
-                                              item.gst === selectedOption
-                                          )
-                                        );
-                                      }}
-                                    >
-                                      <SelectTrigger
-                                        className={`${
-                                          !selectedGST?.gst
-                                            ? "text-primary border-primary ring-1 ring-inset ring-primary"
-                                            : ""
-                                        }`}
-                                      >
-                                        <SelectValue placeholder="Select Project GST" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {JSON.parse(
-                                          project?.project_gst_number
-                                        )?.list?.map((option) => (
-                                          <SelectItem
-                                            key={option.location}
-                                            value={option.gst}
-                                          >
-                                            {option.location}
-                                            {` (${option.gst})`}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    {selectedGST?.gst && !orderData?.project_gst && (
-                                      <span className="text-sm">
-                                        <strong>Note:</strong>{" "}
-                                        <span className="text-primary">
-                                          GST selected but not saved, click on
-                                          Save below!
-                                        </span>
-                                      </span>
-                                    )}
-                                  </>
-                                )}
-                            </div>
-                                    {gstEnabled !== null && (
-                                        <div className="flex flex-col gap-2 pb-6 border-b border-gray-200">
-                                            <p className="font-semibold">GST?</p>
-                                            <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)} />
+                                <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
+                                    <DialogTrigger>
+                                        <Button variant={"outline"} className="felx items-center gap-1">
+                                            <PencilIcon className="w-4 h-4" />
+                                            Edit
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="overflow-auto max-h-[80vh] w-full">
+                                        <div className="flex flex-col gap-1 pt-6">
+                                            <h3
+                                                className={`font-semibold text-lg tracking-tight ${!selectedGST?.gst ? "text-primary" : ""
+                                                    }`}
+                                            >
+                                                Project GST Selection
+                                                <sup className="text-sm text-red-600">*</sup>
+                                            </h3>
+                                            {project &&
+                                                JSON.parse(project?.project_gst_number)?.list
+                                                    ?.length > 0 && (
+                                                    <>
+                                                        <Select
+                                                            value={selectedGST?.gst}
+                                                            defaultValue={orderData?.project_gst}
+                                                            onValueChange={(selectedOption) => {
+                                                                const gstArr = JSON.parse(
+                                                                    project?.project_gst_number
+                                                                )?.list;
+                                                                setSelectedGST(
+                                                                    gstArr.find(
+                                                                        (item) =>
+                                                                            item.gst === selectedOption
+                                                                    )
+                                                                );
+                                                            }}
+                                                        >
+                                                            <SelectTrigger
+                                                                className={`${!selectedGST?.gst
+                                                                        ? "text-primary border-primary ring-1 ring-inset ring-primary"
+                                                                        : ""
+                                                                    }`}
+                                                            >
+                                                                <SelectValue placeholder="Select Project GST" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {JSON.parse(
+                                                                    project?.project_gst_number
+                                                                )?.list?.map((option) => (
+                                                                    <SelectItem
+                                                                        key={option.location}
+                                                                        value={option.gst}
+                                                                    >
+                                                                        {option.location}
+                                                                        {` (${option.gst})`}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        {selectedGST?.gst && !orderData?.project_gst && (
+                                                            <span className="text-sm">
+                                                                <strong>Note:</strong>{" "}
+                                                                <span className="text-primary">
+                                                                    GST selected but not saved, click on
+                                                                    Save below!
+                                                                </span>
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                )}
                                         </div>
-                                    )}
+                                        {gstEnabled !== null && (
+                                            <div className="flex flex-col gap-2 pb-6 border-b border-gray-200">
+                                                <p className="font-semibold">GST?</p>
+                                                <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)} />
+                                            </div>
+                                        )}
 
-                                    <div className="flex flex-col pt-4 gap-2">
-                                        <h3 className="text-sm font-semibold">Create Note Points</h3>
-                                        <div className="flex max-md:flex-col gap-4 md:items-center">
-                                            <Input
-                                                type="text"
-                                                placeholder="type notes here..."
-                                                value={curNote || ""}
-                                                className="w-[90%]"
-                                                onChange={(e) => setCurNote(e.target.value)}
-                                            />
-                                            <Button onClick={handleAddNote}
-                                                className="w-20"
-                                                disabled={!curNote}>
-                                                {editingIndex === null ? <div className="flex gap-1 items-center"><CirclePlus className="w-4 h-4" /><span>Add</span></div> : <div className="flex gap-1 items-center"><Edit className="w-4 h-4" /><span>Update</span></div>}
-                                            </Button>
+                                        <div className="flex flex-col pt-4 gap-2">
+                                            <h3 className="text-sm font-semibold">Create Note Points</h3>
+                                            <div className="flex max-md:flex-col gap-4 md:items-center">
+                                                <Input
+                                                    type="text"
+                                                    placeholder="type notes here..."
+                                                    value={curNote || ""}
+                                                    className="w-[90%]"
+                                                    onChange={(e) => setCurNote(e.target.value)}
+                                                />
+                                                <Button onClick={handleAddNote}
+                                                    className="w-20"
+                                                    disabled={!curNote}>
+                                                    {editingIndex === null ? <div className="flex gap-1 items-center"><CirclePlus className="w-4 h-4" /><span>Add</span></div> : <div className="flex gap-1 items-center"><Edit className="w-4 h-4" /><span>Update</span></div>}
+                                                </Button>
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    {notes?.length > 0 && (
-                                        <div className="flex flex-col gap-2 pt-4">
-                                            <h3 className="text-sm font-semibold">Notes Preview</h3>
-                                            <ul className="list-[number] space-y-2">
-                                                {notes.map((note) => (
-                                                    <li key={note?.id} className="ml-4">
-                                                        <div className="flex items-center gap-2">
-                                                            <p>{note?.note}</p>
-                                                            <div className="flex gap-2 items-center">
-                                                                {editingIndex === note?.id ? (
-                                                                    <CheckIcon
-                                                                        className="w-4 h-4 cursor-pointer text-green-500"
-                                                                        onClick={handleAddNote}
+                                        {notes?.length > 0 && (
+                                            <div className="flex flex-col gap-2 pt-4">
+                                                <h3 className="text-sm font-semibold">Notes Preview</h3>
+                                                <ul className="list-[number] space-y-2">
+                                                    {notes.map((note) => (
+                                                        <li key={note?.id} className="ml-4">
+                                                            <div className="flex items-center gap-2">
+                                                                <p>{note?.note}</p>
+                                                                <div className="flex gap-2 items-center">
+                                                                    {editingIndex === note?.id ? (
+                                                                        <CheckIcon
+                                                                            className="w-4 h-4 cursor-pointer text-green-500"
+                                                                            onClick={handleAddNote}
+                                                                        />
+                                                                    ) : (
+                                                                        <Pencil2Icon
+                                                                            className="w-4 h-4 cursor-pointer"
+                                                                            onClick={() => handleEditNote(note?.id)}
+                                                                        />
+                                                                    )}
+                                                                    <span>|</span>
+                                                                    <Trash
+                                                                        className="w-4 h-4 text-primary cursor-pointer"
+                                                                        onClick={() => handleDeleteNote(note?.id)}
                                                                     />
-                                                                ) : (
-                                                                    <Pencil2Icon
-                                                                        className="w-4 h-4 cursor-pointer"
-                                                                        onClick={() => handleEditNote(note?.id)}
-                                                                    />
-                                                                )}
-                                                                <span>|</span>
-                                                                <Trash
-                                                                    className="w-4 h-4 text-primary cursor-pointer"
-                                                                    onClick={() => handleDeleteNote(note?.id)}
-                                                                />
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
 
-                                    <Button disabled={update_loading || (!notes?.length && !(orderData?.notes?.list?.length) && orderData?.gst === String(gstEnabled) &&
-                                        orderData?.project_gst === selectedGST?.gst)
-                                    }
-                                        onClick={handleNotesSave}
-                                        className="w-full mt-4 items-center flex gap-2">
-                                        {update_loading ? <TailSpin width={20} height={20} color="red" /> : <><Save className="w-4 h-4" /> <span>Save</span></>}
-                                    </Button>
-                                </DialogContent>
-                            </Dialog>
+                                        <Button disabled={update_loading || (!notes?.length && !(orderData?.notes?.list?.length) && orderData?.gst === String(gstEnabled) &&
+                                            orderData?.project_gst === selectedGST?.gst)
+                                        }
+                                            onClick={handleNotesSave}
+                                            className="w-full mt-4 items-center flex gap-2">
+                                            {update_loading ? <TailSpin width={20} height={20} color="red" /> : <><Save className="w-4 h-4" /> <span>Save</span></>}
+                                        </Button>
+                                    </DialogContent>
+                                </Dialog>
                             )}
                         </CardTitle>
                     </CardHeader>
@@ -846,11 +1090,11 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                         <div className="flex flex-col gap-2 items-start mt-4">
                             <Label className="font-bold">Notes</Label>
                             {notes?.length > 0 ? (
-                            <ul className="list-[number]">
-                                {notes?.map((note) => (
-                                    <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
-                                ))}
-                            </ul>
+                                <ul className="list-[number]">
+                                    {notes?.map((note) => (
+                                        <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
+                                    ))}
+                                </ul>
                             ) : (
                                 <span>--</span>
                             )}
@@ -867,7 +1111,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                     </CardContent>
                 </Card>
             </div>
-            
+
             <DocumentAttachments
                 docType="Service Requests"
                 docName={service_request?.name}
@@ -876,7 +1120,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
             />
             {/* <SRAttachments SR={orderData} /> */}
 
-            <InvoiceDialog  docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} />
+            <InvoiceDialog docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} />
 
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
@@ -967,15 +1211,15 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 </div>
 
                                                 <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
-                                                <div className="text-xs text-gray-600 font-normal">
-                                                      {orderData?.project_gst
-                                                        ? orderData?.project_gst === "29ABFCS9095N1Z9"
-                                                          ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
-                                                          : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
-                                                        : "Please set company GST number in order to display the Address!"}
+                                                    <div className="text-xs text-gray-600 font-normal">
+                                                        {orderData?.project_gst
+                                                            ? orderData?.project_gst === "29ABFCS9095N1Z9"
+                                                                ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
+                                                                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
+                                                            : "Please set company GST number in order to display the Address!"}
                                                     </div>
                                                     <div className="text-xs text-gray-600 font-normal">
-                                                      GST: {orderData?.project_gst || "N/A"}
+                                                        GST: {orderData?.project_gst || "N/A"}
                                                     </div>
                                                 </div>
 
@@ -989,7 +1233,7 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                     <div>
                                                         <div>
                                                             <h3 className="text-gray-500 text-sm pb-2 text-left">Service Location</h3>
-                                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={project?.project_address}/></div>
+                                                            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left"><AddressView id={project?.project_address} /></div>
                                                         </div>
                                                         <div className="pt-2">
                                                             <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.modified?.split(" ")[0]}</i></div>
@@ -1112,15 +1356,15 @@ export const ApprovedSR = ({summaryPage = false, accountsPage = false} : Approve
                                                 </div>
 
                                                 <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
-                                                <div className="text-xs text-gray-600 font-normal">
-                                                      {orderData?.project_gst
-                                                        ? orderData?.project_gst === "29ABFCS9095N1Z9"
-                                                          ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
-                                                          : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
-                                                        : "Please set company GST number in order to display the Address!"}
+                                                    <div className="text-xs text-gray-600 font-normal">
+                                                        {orderData?.project_gst
+                                                            ? orderData?.project_gst === "29ABFCS9095N1Z9"
+                                                                ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
+                                                                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
+                                                            : "Please set company GST number in order to display the Address!"}
                                                     </div>
                                                     <div className="text-xs text-gray-600 font-normal">
-                                                      GST: {orderData?.project_gst || "N/A"}
+                                                        GST: {orderData?.project_gst || "N/A"}
                                                     </div>
                                                 </div>
                                             </th>

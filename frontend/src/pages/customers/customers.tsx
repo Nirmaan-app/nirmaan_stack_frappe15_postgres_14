@@ -105,7 +105,7 @@ export default function CustomersPage() {
         {
             accessorKey: "creation",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Customer Creation Date" />,
-            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            cell: ({ row }) => <div className="font-medium text-center whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
             meta: {
                 exportHeaderName: "Customer Creation Date",

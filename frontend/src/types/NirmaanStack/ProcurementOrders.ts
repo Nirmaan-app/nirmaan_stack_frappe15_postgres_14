@@ -5,6 +5,7 @@ export interface PurchaseOrderItem {
   quantity: number;
 	received?: number;
   category: string;
+	work_package?: string;
   quote: number;
   make?: string;
   status: string;

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappeDocTypeEventListener, useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { CircleCheckBig, CirclePlus, HardHat, OctagonMinus } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
@@ -273,6 +273,7 @@ export const Projects: React.FC<ProjectsProps> = ({
           </div>
         );
       },
+      size: 200,
       meta: {
         excludeFromExport: true
       }

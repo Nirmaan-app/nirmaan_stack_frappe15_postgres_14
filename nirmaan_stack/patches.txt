@@ -38,3 +38,5 @@ nirmaan_stack.patches.v2_3.approved_quotations_patch
 nirmaan_stack.patches.v2_4.po_and_sr_invoices_reconciliation #5
 
 nirmaan_stack.patches.v2_5.task_attachment_id_patch #1
+
+nirmaan_stack.patches.v2_6.backfill_pr_item_work_package #3

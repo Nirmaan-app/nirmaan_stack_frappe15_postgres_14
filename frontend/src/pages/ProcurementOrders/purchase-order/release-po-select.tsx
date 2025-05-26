@@ -26,7 +26,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
-import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS } from './config/purchaseOrdersTable.config';
+import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
@@ -48,7 +48,8 @@ export const ReleasePOSelect: React.FC = () => {
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" : "Approved PO";
+        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" :
+            role === "Nirmaan Estimates Executive Profile" ? "All POs" : "Approved PO";
         return getUrlStringParam("tab", defaultTab);
     }, [role]); // Calculate only once based on role
 
@@ -78,6 +79,17 @@ export const ReleasePOSelect: React.FC = () => {
         fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
         limit: 100000
     })
+
+    const { data: poData } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
+        fields: ["name", "status", "merged"],
+        limit: 0
+    }, "All_POs_For_Merged")
+
+    const posMap = useMemo(() => {
+        const map = new Map<string, ProcurementOrdersType>();
+        poData?.forEach(po => map.set(po.name, po));
+        return memoize((id: string) => map.get(id) || null);
+    }, [poData])
 
     // useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
     //     await mutate()
@@ -123,18 +135,35 @@ export const ReleasePOSelect: React.FC = () => {
         return memoize((id: string) => paymentsMap.get(id) || 0);
     }, [projectPayments]); // Recalculate only when projectPayments changes
 
-    const { newPOCount, adminNewPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount, partiallyDeliveredPOCount, adminPartiallyDeliveredPOCount, deliveredPOCount, adminDeliveredPOCount } = useDocCountStore()
+    const { counts } = useDocCountStore()
 
     const staticFiltersForTab = useMemo(
         () => getReleasePOSelectStaticFilters(tab, role),
         [tab, role]
     );
 
-    const fieldsToFetch = useMemo(() => DEFAULT_PO_FIELDS_TO_FETCH.concat(['creation', 'modified', 'order_list', 'loading_charges', 'freight_charges', 'invoice_data']), []);
+    const fieldsToFetch = useMemo<string[]>(() => [
+        ...DEFAULT_PO_FIELDS_TO_FETCH,     // spread keeps array flat
+        "creation",
+        "modified",
+        "order_list",
+        "loading_charges",
+        "freight_charges",
+        "invoice_data",
+        ...(tab === "Merged POs" ? ["merged", "modified_by"] : [])
+    ], [tab]);
 
-    const poSearchableFieldsOptions = useMemo(() => PO_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Approved By", placeholder: "Search by Approved By..." }]), []);
+    const poSearchableFieldsOptions = useMemo(() => PO_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Approved By", placeholder: "Search by Approved By..." },
+    ...(tab === "All POs" ? [
+        { value: "status", label: "Status", placeholder: "Search by Status..." },
+    ] : []),
+    ...(tab === "Merged POs" ? [
+        { value: "merged", label: "Master PO", placeholder: "Search by Master PO..." },
+    ] : [])
+
+    ]), [tab]);
+
     const dateColumns = PO_DATE_COLUMNS;
-
 
     const adminTabs = useMemo(() => [
         ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
@@ -145,8 +174,7 @@ export const ReleasePOSelect: React.FC = () => {
                     <div className="flex items-center">
                         <span>Approve PO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminPrCounts.approve
-                                : prCounts.approve}
+                            {counts.pr.approve}
                         </span>
                     </div>
                 ),
@@ -157,8 +185,7 @@ export const ReleasePOSelect: React.FC = () => {
                     <div className="flex items-center">
                         <span>Approve Amended PO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminAmendPOCount
-                                : amendPOCount}
+                            {counts.po['PO Amendment']}
                         </span>
                     </div>
                 ),
@@ -169,63 +196,75 @@ export const ReleasePOSelect: React.FC = () => {
                     <div className="flex items-center">
                         <span>Approve Sent Back PO</span>
                         <span className="ml-2 text-xs font-bold">
-                            {role === "Nirmaan Admin Profile" ? adminNewApproveSBCount
-                                : newSBApproveCount}
+                            {counts.sb.approve}
                         </span>
                     </div>
                 ),
                 value: "Approve Sent Back PO",
             },
         ] : []),
-    ], [role, adminPrCounts, prCounts, adminAmendPOCount, amendPOCount, adminNewApproveSBCount, newSBApproveCount])
+    ], [role, counts])
 
     const items = useMemo(() => [
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Approved PO</span>
-                    <span className="ml-2 text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminNewPOCount : newPOCount}
-                    </span>
-                </div>
-            ),
-            value: "Approved PO",
-        },
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Dispatched PO</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminDispatchedPOCount : dispatchedPOCount}
-                    </span>
-                </div>
-            ),
-            value: "Dispatched PO",
-        },
-        { // Use the new state variable here
-            label: (
-                <div className="flex items-center">
-                    <span>Partially Delivered PO</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminPartiallyDeliveredPOCount : partiallyDeliveredPOCount}
-                    </span>
-                </div>
-            ),
-            value: "Partially Delivered PO",
-        },
-        { // Use the renamed state variable here
-            label: (
-                <div className="flex items-center">
-                    <span>Delivered PO</span>
-                    <span className="ml-2 rounded text-xs font-bold">
-                        {role === "Nirmaan Admin Profile" ? adminDeliveredPOCount : deliveredPOCount}
-                    </span>
-                </div>
-            ),
-            value: "Delivered PO",
-        },
-    ], [role, adminNewPOCount, newPOCount, adminDispatchedPOCount, dispatchedPOCount, adminPartiallyDeliveredPOCount, partiallyDeliveredPOCount, adminDeliveredPOCount, deliveredPOCount])
+        ...(role !== "Nirmaan Estimates Executive Profile" ? [
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Approved PO</span>
+                        <span className="ml-2 text-xs font-bold">
+                            {counts.po['PO Approved']}
+                        </span>
+                    </div>
+                ),
+                value: "Approved PO",
+            },
+            {
+                label: (
+                    <div className="flex items-center">
+                        <span>Dispatched PO</span>
+                        <span className="ml-2 rounded text-xs font-bold">
+                            {counts.po['Dispatched']}
+                        </span>
+                    </div>
+                ),
+                value: "Dispatched PO",
+            },
+            { // Use the new state variable here
+                label: (
+                    <div className="flex items-center">
+                        <span>Partially Delivered PO</span>
+                        <span className="ml-2 rounded text-xs font-bold">
+                            {counts.po['Partially Delivered']}
+                        </span>
+                    </div>
+                ),
+                value: "Partially Delivered PO",
+            },
+            { // Use the renamed state variable here
+                label: (
+                    <div className="flex items-center">
+                        <span>Delivered PO</span>
+                        <span className="ml-2 rounded text-xs font-bold">
+                            {counts.po['Delivered']}
+                        </span>
+                    </div>
+                ),
+                value: "Delivered PO",
+            },
+        ] : [])], [role, counts])
 
+    const allTab = useMemo(() =>
+        [
+            { label: (<div className="flex items-center"><span>All POs</span><span className="ml-2 text-xs font-bold">{counts.po.all}</span></div>), value: "All POs" },
+        ]
+        , [counts])
+
+
+    const mergedPOsTab = useMemo(() =>
+        [
+            { label: (<div className="flex items-center"><span>Merged POs</span><span className="ml-2 text-xs font-bold">{counts.po.Merged}</span></div>), value: "Merged POs" },
+        ]
+        , [counts])
 
     // --- Define columns using TanStack's ColumnDef ---
     const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
@@ -235,13 +274,17 @@ export const ReleasePOSelect: React.FC = () => {
             cell: ({ row }) => (
                 <>
                     <div className="flex gap-1 items-center">
-                        <Link
-                            className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
-                            // Adjust the route path as needed
-                            to={`/purchase-orders/${row.original.name?.replaceAll("/", "&=")}?tab=${tab}`}
-                        >
-                            {row.original.name}
-                        </Link>
+                        {(tab !== "Merged POs" && row.original.status !== "Merged") ? (
+                            <Link
+                                className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
+                                // Adjust the route path as needed
+                                to={`/purchase-orders/${row.original.name?.replaceAll("/", "&=")}?tab=${row.original.status}`}
+                            >
+                                {row.original.name}
+                            </Link>
+                        ) : (
+                            <p>{row.original.name}</p>
+                        )}
                         <ItemsHoverCard order_list={row.original?.order_list?.list} />
                     </div>
                     {row.original?.custom === "true" && (
@@ -257,6 +300,26 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
+        ...(tab === "Merged POs" ? [
+            {
+                accessorKey: "merged",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Master PO" />,
+                cell: ({ row }) => {
+                    const data = row.original
+                    const masterPO = posMap(data.merged!);
+                    return (
+                        !["PO Amendment", "Merged"].includes(masterPO?.status!) ?
+                            <Link
+                                className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
+                                to={`/purchase-orders/${masterPO?.name?.replaceAll("/", "&=")}?tab=${masterPO?.status}`}
+                            >
+                                {masterPO?.name}
+                            </Link> : <p>{masterPO?.name}</p>
+                    );
+                },
+                size: 180,
+            } as ColumnDef<ProcurementOrdersType>
+        ] : []),
         {
             accessorKey: 'creation',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
@@ -327,6 +390,30 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
+        ...(tab === "Merged POs" ? [
+            {
+                accessorKey: "modified_by",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Merged By" />,
+                cell: ({ row }) => {
+                    const data = row.original
+                    const mergedBy = userList?.find((entry) => data?.modified_by === entry.name)
+                    return (
+                        <div className="font-medium">
+                            {mergedBy?.full_name || data?.modified_by || "--"}
+                        </div>
+                    );
+                },
+                size: 180,
+                meta: {
+                    exportHeaderName: "Merged By",
+                    exportValue: (row) => {
+                        const data = row
+                        const mergedBy = userList?.find((entry) => data?.modified_by === entry.name)
+                        return mergedBy?.full_name || data?.modified_by || "--";
+                    }
+                }
+            } as ColumnDef<ProcurementOrdersType>
+        ] : []),
         {
             id: "po_amount",
             header: ({ column }) => {
@@ -345,6 +432,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             size: 200,
             enableSorting: false,
+            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
                 exportHeaderName: "PO Amount",
                 exportValue: (row) => {
@@ -374,6 +462,19 @@ export const ReleasePOSelect: React.FC = () => {
                     )
                 },
                 size: 200,
+                sortingFn: (a, b) => {
+
+                    const invoiceAmountA = getTotalInvoiceAmount(a?.original?.invoice_data);
+                    const invoiceAmountB = getTotalInvoiceAmount(b?.original?.invoice_data);
+                    console.log("invoiceAmountA", invoiceAmountA)
+                    console.log("invoiceAmountB", invoiceAmountB)
+
+                    if (invoiceAmountA && invoiceAmountB) {
+                        return invoiceAmountA - invoiceAmountB;
+                    }
+                    return 0;
+                    // return parseFloat(a) - parseFloat(b);
+                },
                 enableSorting: false,
                 meta: {
                     exportHeaderName: "Invoice Amount",
@@ -384,49 +485,60 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
-        {
-            id: "Amount_paid",
-            header: "Amt Paid",
-            cell: ({ row }) => {
-                const amountPaid = getAmountPaid(row.original?.name);
-                return (
-                    <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
-                        {formatToRoundedIndianRupee(amountPaid || 0)}
-                    </div>
-                );
+        ...(tab !== "Merged POs" ? [
+            {
+                id: "Amount_paid",
+                header: "Amt Paid",
+                cell: ({ row }) => {
+                    const amountPaid = getAmountPaid(row.original?.name);
+                    return (
+                        <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
+                            {formatToRoundedIndianRupee(amountPaid || 0)}
+                        </div>
+                    );
 
-            },
-            size: 200,
-            enableSorting: false,
-            meta: {
-                exportHeaderName: "Amount Paid",
-                exportValue: (row) => {
-                    const amountPaid = getAmountPaid(row.name);
-                    return formatToRoundedIndianRupee(amountPaid || 0);
+                },
+                size: 200,
+                // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+                enableSorting: false,
+                meta: {
+                    exportHeaderName: "Amount Paid",
+                    exportValue: (row) => {
+                        const amountPaid = getAmountPaid(row.name);
+                        return formatToRoundedIndianRupee(amountPaid || 0);
+                    }
                 }
-            }
-        },
-        // {
-        //     accessorKey: 'order_list',
-        //     header: () => null,
-        //     cell: () => null,
-        //     size: 0,
-        // }
-    ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal]);
-
+            } as ColumnDef<ProcurementOrdersType>
+        ] : []),
+        ...(["All POs"].includes(tab) ? [
+            {
+                accessorKey: 'status',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+                cell: ({ row }) => {
+                    const status = row.getValue<string>("status");
+                    const variant = status === "PO Approved" ? "gray" : status === "Dispatched" ? "blue" : ["Partially Delivered", "Delivered"].includes(status) ? "green" : "destructive";
+                    return (
+                        <Badge variant={variant} className="text-xs">{status}</Badge>
+                    );
+                },
+                size: 180,
+                enableColumnFilter: true
+            } as ColumnDef<ProcurementOrdersType>
+        ] : []),
+    ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal, posMap]);
 
     const facetFilterOptions = useMemo(() => ({
         // Use the 'accessorKey' or 'id' of the column
         project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
         vendor: { title: "Vendor", options: vendorOptions }, // Or use 'vendor' if filtering by ID
-        // status: { title: "Status", options: statusOptions },
+        status: { title: "Status", options: PO_STATUS_OPTIONS },
     }), [projectOptions, vendorOptions]);
 
 
     // --- useServerDataTable Hook Instantiation ---
     // Only instantiate if the current tab is supposed to show a data table
     const shouldShowTable = useMemo(() =>
-        ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab),
+        ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO", "All POs", "Merged POs"].includes(tab),
         [tab]);
 
     // Define which columns should use the date filter
@@ -533,7 +645,62 @@ export const ReleasePOSelect: React.FC = () => {
     }
 
     return (
-        <>
+        <div className="flex-1 space-y-4">
+            <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
+                {
+                    adminTabs && (
+                        <Radio.Group
+                            options={adminTabs}
+                            optionType="button"
+                            buttonStyle="solid"
+                            value={tab}
+                            onChange={(e) => handleTabClick(e.target.value)}
+                        />
+                    )
+                }
+                {
+                    items && (
+                        <Radio.Group
+                            options={items}
+                            // defaultValue="Approved PO"
+                            optionType="button"
+                            buttonStyle="solid"
+                            value={tab}
+                            onChange={(e) => handleTabClick(e.target.value)}
+                        />
+                    )
+                }
+
+                {/* {
+                            mergedPOsTab && (
+                                <Radio.Group
+                                    options={mergedPOsTab}
+                                    optionType="button"
+                                    buttonStyle="solid"
+                                    value={tab}
+                                    onChange={(e) => handleTabClick(e.target.value)}
+                                />
+                            )
+                        } */}
+
+                {
+                    allTab && (
+                        <Radio.Group
+                            options={allTab}
+                            optionType="button"
+                            buttonStyle="solid"
+                            value={tab}
+                            onChange={(e) => handleTabClick(e.target.value)}
+                        />
+                    )
+                }
+
+            </div>
+
+            <Suspense fallback={<LoadingFallback />}>
+                {renderTabView()}
+            </Suspense>
+
             <InvoiceDataDialog
                 open={!!selectedInvoicePO}
                 onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
@@ -552,41 +719,7 @@ export const ReleasePOSelect: React.FC = () => {
                 vendors={vendorsList}
                 isPO
             />
-            <div className="flex-1 space-y-4">
-                {role !== "Nirmaan Estimates Executive Profile" && (
-                    <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
-                        {
-                            adminTabs && (
-                                <Radio.Group
-                                    options={adminTabs}
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        }
-                        {
-                            items && (
-                                <Radio.Group
-                                    options={items}
-                                    defaultValue="Approved PO"
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        }
-
-                    </div>
-                )}
-
-                <Suspense fallback={<LoadingFallback />}>
-                    {renderTabView()}
-                </Suspense>
-            </div>
-        </>
+        </div>
     )
 }
 

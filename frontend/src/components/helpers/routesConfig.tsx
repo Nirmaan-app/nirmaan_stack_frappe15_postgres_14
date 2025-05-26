@@ -95,7 +95,7 @@ export const appRoutes: RouteObject[] = [
                   {
                     path: ":prId",
                     children: [
-                       {
+                      {
                         path: "resolve-pr",
                         element: <NewProcurementRequestPage resolve={true} />,
                       },
@@ -115,8 +115,8 @@ export const appRoutes: RouteObject[] = [
                       {
                         path: "dn",
                         children: [
-                            { path: ":dnId", element: <DeliveryNote /> },
-                            { path: ":dnId/:poId", lazy: () => import("@/components/POSummary") } // Check if this path makes sense
+                          { path: ":dnId", element: <DeliveryNote /> },
+                          { path: ":dnId/:poId", lazy: () => import("@/components/POSummary") } // Check if this path makes sense
                         ]
                       }
                     ],
@@ -132,11 +132,11 @@ export const appRoutes: RouteObject[] = [
                     children: [
                       { index: true, element: <DeliveryNote /> },
                       {
-                         path: ":prId",
-                         children: [
-                            { index: true, lazy: () => import("@/components/pr-summary") },
-                            { path: ":poId", lazy: () => import("@/components/POSummary") }
-                         ]
+                        path: ":prId",
+                        children: [
+                          { index: true, lazy: () => import("@/components/pr-summary") },
+                          { path: ":poId", lazy: () => import("@/components/POSummary") }
+                        ]
                       }
                     ],
                   },
@@ -153,7 +153,7 @@ export const appRoutes: RouteObject[] = [
           },
 
           // --- Service Requests Section ---
-           {
+          {
             path: "service-requests-list",
             children: [
               { index: true, element: <ListSR /> },
@@ -174,8 +174,8 @@ export const appRoutes: RouteObject[] = [
           {
             path: "service-requests",
             children: [
-                { index: true, element: <ServiceRequestsTabs /> },
-                { path: ":srId", element: <RenderSRComponent /> },
+              { index: true, element: <ServiceRequestsTabs /> },
+              { path: ":srId", element: <RenderSRComponent /> },
             ]
           },
 
@@ -204,22 +204,22 @@ export const appRoutes: RouteObject[] = [
           },
 
           // --- Sent Back Requests ---
-           {
+          {
             path: "sent-back-requests",
             children: [
               // No index route defined in original?
               {
                 path: ":sbId",
                 children: [
-                    { index: true, element: <RenderSentBackComponent /> }
-                    // Nested routes like update-quote were commented out in original
+                  { index: true, element: <RenderSentBackComponent /> }
+                  // Nested routes like update-quote were commented out in original
                 ]
               },
             ],
           },
 
           // --- Estimate Overview ---
-           {
+          {
             path: "estimate-overview",
             children: [
               { index: true, element: <EstimatedPriceOverview /> },
@@ -239,14 +239,14 @@ export const appRoutes: RouteObject[] = [
               {
                 path: ":projectId/:prId", // This nesting might conflict if prId is not unique across projects?
                 children: [
-                    { index: true, lazy: () => import("@/components/pr-summary") },
-                    { path: ":poId", lazy: () => import("@/components/POSummary") },
-                    {
-                        path: "dn",
-                        children: [
-                            { path: ":dnId", element: <DeliveryNote /> }
-                        ]
-                    }
+                  { index: true, lazy: () => import("@/components/pr-summary") },
+                  { path: ":poId", lazy: () => import("@/components/POSummary") },
+                  {
+                    path: "dn",
+                    children: [
+                      { path: ":dnId", element: <DeliveryNote /> }
+                    ]
+                  }
                 ]
               }
             ],
@@ -264,14 +264,14 @@ export const appRoutes: RouteObject[] = [
           {
             path: "project-payments",
             children: [
-                { index: true, element: <RenderProjectPaymentsComponent /> },
-                { path: ":id", element: <OrderPaymentSummary />} // Consider :paymentId or :orderId for clarity
+              { index: true, element: <RenderProjectPaymentsComponent /> },
+              { path: ":id", element: <OrderPaymentSummary /> } // Consider :paymentId or :orderId for clarity
             ]
           },
           {
             path: "in-flow-payments",
             children: [
-                { index: true, element: <InFlowPayments /> },
+              { index: true, element: <InFlowPayments /> },
             ]
           },
 
@@ -291,7 +291,7 @@ export const appRoutes: RouteObject[] = [
             path: "products",
             children: [
               // { index: true, element: <ItemsTesting /> },
-              {index: true, element: <ItemsPage />},
+              { index: true, element: <ItemsPage /> },
               { path: ":productId", lazy: () => import("@/pages/Items/item") },
             ],
           },
@@ -318,17 +318,18 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <Customers /> },
               { path: "new-customer", element: <NewCustomer /> },
-              { path: ":customerId", 
+              {
+                path: ":customerId",
                 children: [
-                  {index: true, element: <Customer />},
+                  { index: true, element: <Customer /> },
                   { path: ":poId", lazy: () => import("@/components/POSummary") },
                 ]
-               },
+              },
             ],
           },
 
           // --- Notifications ---
-           {
+          {
             path: "notifications",
             children: [
               { index: true, element: <NotificationsPage /> },
@@ -336,7 +337,7 @@ export const appRoutes: RouteObject[] = [
           },
 
           // --- Roles ---
-           {
+          {
             path: "roles",
             children: [
               { index: true, element: <Roles /> },
@@ -360,7 +361,7 @@ export const appRoutes: RouteObject[] = [
           },
 
           // --- Live PR Tracking ---
-           {
+          {
             path: "live-pr-tracking",
             children: [
               { index: true, element: <LivePRTrackingTable /> },

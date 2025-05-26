@@ -22,6 +22,16 @@ export const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     },
 ];
 
+
+export const PO_STATUS_OPTIONS = [
+            { label: "PO Approved", value: "PO Approved" },
+            { label: "Dispatched", value: "Dispatched" },
+            { label: "Partially Delivered", value: "Partially Delivered" },
+            { label: "Delivered", value: "Delivered" },
+            { label: "Merged", value: "Merged" },
+            {label: "PO Amendment", value: "PO Amendment"},
+        ]
+
 // Date columns commonly used for filtering PO tables
 export const PO_DATE_COLUMNS: string[] = ["creation", "modified"];
 
@@ -30,10 +40,16 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
     const base: Array<[string, string, string | string[]]> = [
         ["status", "not in", ["Merged", "PO Amendment"]]
     ];
-    const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
-    if (isEstimatesExec) {
-        return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+
+    if(tab === "All POs") {
+        return [];
+    } else if (tab === "Merged POs") {
+        return [["status", "=", "Merged"]];
     }
+    // const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
+    // if (isEstimatesExec) {
+    //     return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+    // }
     switch (tab) {
         case "Approved PO": return [...base, ["status", "=", "PO Approved"]];
         case "Dispatched PO": return [...base, ["status", "=", "Dispatched"]];
