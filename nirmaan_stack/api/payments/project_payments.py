@@ -44,7 +44,7 @@ def create_payment_request(data: str) -> str:
     available    = totals.get("payable_total") - paid - pending
     print(f"paid: {paid}, pending: {pending}, available: {available}, grand: {totals}")
 
-    if amount > available + 1e-6:
+    if amount > (available + 10):
         frappe.throw(_(
             "Maximum amount you can request is {0} (available balance)"
         ).format(frappe.format_value(available, "Currency")))
@@ -56,7 +56,7 @@ def create_payment_request(data: str) -> str:
         "document_name" : docname,
         "project"       : src.project,
         "vendor"        : src.vendor,
-        "amount"        : amount,
+        "amount"        : round(amount),
         "status"        : "Requested",
     })
     pay.insert()
