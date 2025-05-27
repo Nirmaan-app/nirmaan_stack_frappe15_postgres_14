@@ -27,11 +27,11 @@ export const VendorBankDetailsCard: React.FC<VendorBankDetailsCardProps> = ({ ve
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                    <InfoItem label="Account Holder Name" value={vendor.account_name} />
-                    <InfoItem label="Account Number" value={vendor.account_number ? String(vendor.account_number).replace(/.(?=.{4})/g, 'x') : undefined} /> {/* Masked */}
-                    <InfoItem label="IFSC Code" value={vendor.ifsc} />
-                    <InfoItem label="Bank Name" value={vendor.bank_name} />
-                    <InfoItem label="Branch" value={vendor.bank_branch} />
+                    <InfoItem label="Account Holder Name" value={vendor?.account_name} />
+                    <InfoItem label="Account Number" value={vendor?.account_number} />
+                    <InfoItem label="IFSC Code" value={vendor?.ifsc} />
+                    <InfoItem label="Bank Name" value={vendor?.bank_name} />
+                    <InfoItem label="Branch" value={vendor?.bank_branch} />
                 </CardContent>
             </Card>
             {vendor && (
