@@ -26,7 +26,7 @@ export const usePaymentScreenshotHandler = (
                 doctype: "Project Payments",
                 docname: paymentDocName,
                 fieldname: "payment_attachment", // Ensure this field exists on Project Payments
-                is_private: 1, // Typically true for payment proofs
+                isPrivate: true, // Typically true for payment proofs
             };
             const uploadedFile = await upload(selectedFile, fileArgs); // Third arg is progress if needed
 
