@@ -1,7 +1,7 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
+import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert, RefreshCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
@@ -46,12 +46,12 @@ import { debounce } from "lodash";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SelectServiceVendorPage } from "./select-service-vendor";
-import SRAttachments from "./SRAttachments";
 import { useUserData } from "@/hooks/useUserData";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import {formatDate as fnsFormateDate} from 'date-fns'
 
 // const { Sider, Content } = Layout;
 
@@ -60,33 +60,16 @@ interface ApprovedSRProps {
     accountsPage?: boolean;
 }
 
-interface PrintFormData {
-    delivery_note_no: string;
-    payment_terms: string;
-    reference_no_date: string;
-    other_references: string;
-    buyers_order_no: string;
-    buyers_order_date: string;
-    dispatch_doc_no: string;
-    delivery_note_date: string;
-    dispatched_through: string;
-    destination: string; // Already partially handled by project_city
-    terms_of_delivery: string;
+interface SrInvoiceDialogData {
+    invoice_no: string;
+    invoice_date: string; // yyyy-MM-dd
 }
 
-const initialPrintFormData: PrintFormData = {
-    delivery_note_no: '',
-    payment_terms: '',
-    reference_no_date: '',
-    other_references: '',
-    buyers_order_no: '',
-    buyers_order_date: '',
-    dispatch_doc_no: '',
-    delivery_note_date: '',
-    dispatched_through: '',
-    destination: '',
-    terms_of_delivery: '',
+const initialSrInvoiceDialogData: SrInvoiceDialogData = {
+    invoice_no: '',
+    invoice_date: fnsFormateDate(new Date(), 'yyyy-MM-dd'), // Default to today
 };
+
 
 
 export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: ApprovedSRProps) => {
@@ -134,7 +117,33 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     }, []);
 
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
-    const [printFormState, setPrintFormState] = useState<PrintFormData>(initialPrintFormData);
+    const [invoiceDialogData, setInvoiceDialogData] = useState<SrInvoiceDialogData>(initialSrInvoiceDialogData);
+
+    console.log("invoiceDialogData", invoiceDialogData)
+
+    const [isGeneratingInvNo, setIsGeneratingInvNo] = useState(false);
+
+    // Hook for fetching new invoice number
+    const { call: generateInvoiceNumberAPI } = useFrappePostCall(
+        'nirmaan_stack.api.invoice_utils.generate_next_invoice_number' // Path to your new Python API
+    );
+
+    // Pre-fill dialog if invoice_no and invoice_date exist on orderData
+    useEffect(() => {
+        if (orderData?.invoice_no || orderData?.invoice_date) {
+            setInvoiceDialogData({
+                invoice_no: orderData.invoice_no || '',
+                invoice_date: orderData.invoice_date || fnsFormateDate(new Date(), 'yyyy-MM-dd'),
+            });
+        } else {
+            // Reset to defaults if no existing data, or when dialog is opened for a new generation
+             setInvoiceDialogData({
+                invoice_no: '',
+                invoice_date: fnsFormateDate(new Date(), 'yyyy-MM-dd'),
+            });
+        }
+    }, [orderData, isPrintDialogOpen]); // Depend on isPrintDialogOpen to reset/prefill when dialog opens
+
 
     const [warning, setWarning] = useState("");
 
@@ -419,39 +428,91 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     }
 
 
-    const handlePrintFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleInvoiceDialogInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        setPrintFormState(prev => ({ ...prev, [name]: value }));
+        setInvoiceDialogData(prev => ({ ...prev, [name]: value }));
     };
 
 
-    const handleGenerate = (dl = false) => {
-        /* Build ?settings= JSON */
-        //   const settings = encodeURIComponent(JSON.stringify(vals));
-        const baseParams = {
+    const handleGenerateInvoiceNumber = async () => {
+    setIsGeneratingInvNo(true);
+    try {
+        // Pass project_name if your backend API uses it for the prefix
+        const response = await generateInvoiceNumberAPI({ project_name: project?.project_name });
+        if (response.message) {
+            setInvoiceDialogData(prev => ({ ...prev, invoice_no: response.message }));
+        }
+    } catch (error) {
+        console.error("Error generating invoice number:", error);
+        toast({ title: "Failed", description: "Could not generate invoice number.", variant: "destructive" });
+    } finally {
+        setIsGeneratingInvNo(false);
+    }
+};
+
+
+// Modified handleGenerate (renamed from handlePrint / generateAndOpenPdf)
+const handleGenerateAndProceed = async (action: 'preview' | 'download') => {
+    if (!orderData) {
+        toast({ title: "Error", description: "Service Request data not loaded.", variant: "destructive" });
+        return;
+    }
+    if (!invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date) {
+        toast({ title: "Missing Info", description: "Invoice Number and Date are required.", variant: "destructive" });
+        return;
+    }
+
+    try {
+        // 1. Save invoice_no and invoice_date to the Service Request document
+        setIsGeneratingInvNo(true); // Use a general loading state for this combined action
+        await updateDoc("Service Requests", orderData.name, {
+            invoice_no: invoiceDialogData.invoice_no,
+            invoice_date: invoiceDialogData.invoice_date,
+        });
+        
+        // Mutate to get the latest SR doc (which now includes the saved invoice no/date)
+        await service_request_mutate(); 
+        toast({ title: "Info Saved", description: "Invoice number and date saved to Service Request.", variant: "success" });
+
+        // 2. Construct print URL (no custom params needed now as they are on the doc)
+        const params = {
             doctype: "Service Requests",
-            name: orderData?.name || "",
-            format: "SR Invoice",      // print format name
+            name: orderData.name,
+            format: "SR Invoice", // Your print format name
             no_letterhead: "1",
+            _lang: "en",
         };
 
-        // Add form data as parameters, only if they have values
-        const formDataParams: Record<string, string> = {};
-        for (const key in printFormState) {
-            if (printFormState[key as keyof PrintFormData]) {
-                formDataParams[`custom_${key}`] = printFormState[key as keyof PrintFormData]; // Prefix with 'custom_'
-            }
-        }
+        const customParams: Record<string, string> = {};
+        customParams["custom_project_name"] = project?.project_name || "";
 
-        const allParams = { ...baseParams, ...formDataParams };
+        const allParams = { ...params, ...customParams };
         const queryString = new URLSearchParams(allParams).toString();
-        //   const qs   = new URLSearchParams(baseParams).toString();
-        const url = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
-        const view = `/printview?${queryString}`;
-
-        window.open(dl ? url : view, "_blank");
+        
+        let targetUrl = "";
+        if (action === 'preview') {
+            targetUrl = `/printview?${queryString}`;
+        } else { // download
+            // Using your custom download API if you have one, or the standard download_pdf
+            // For standard Frappe download_pdf:
+            targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+        }
+        
+        window.open(targetUrl, "_blank");
         setIsPrintDialogOpen(false);
-    };
+
+    } catch (error: any) {
+        console.error("Error saving invoice details or generating PDF:", error);
+        toast({
+            title: "Operation Failed",
+            description: error.message || "Could not save invoice details or generate PDF.",
+            variant: "destructive",
+        });
+    } finally {
+        setIsGeneratingInvNo(false);
+    }
+};
+
 
 
     return (
@@ -496,177 +557,83 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 Add Invoice
                             </Button>
 
-
-                            <Button disabled={!orderData?.project_gst} size="sm" className="border border-primary" variant="outline"
-                                onClick={() => { setPrintFormState(initialPrintFormData); setIsPrintDialogOpen(true); }}>
+                        {!service_vendor?.vendor_gst && (
+                            <Button
+                                disabled={!orderData?.project_gst} // Keep your existing disabled logic
+                                size="sm"
+                                className="border border-primary"
+                                variant="outline"
+                                onClick={() => {
+                                    // Reset/Prefill dialog state when opening
+                                    setInvoiceDialogData({
+                                        invoice_no: orderData?.invoice_no || '',
+                                        invoice_date: orderData?.invoice_date || fnsFormateDate(new Date(), 'yyyy-MM-dd'),
+                                    });
+                                    setIsPrintDialogOpen(true);
+                                }}
+                            >
                                 View / Download Tax Invoice
                             </Button>
+                        )}
 
                             <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-                                <DialogContent className="sm:max-w-[550px]">
-                                    <DialogHeader>
-                                        <DialogTitle>Invoice Details</DialogTitle>
-                                        <DialogDescription>
-                                            Please provide the following details for the invoice.
-                                            Fields left blank will show as "-" or be omitted.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
-                                        {/* Create input fields for each item */}
-                                        {/* Example for Delivery Note */}
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="delivery_note_no" className="text-right col-span-1">
-                                                Delivery Note
-                                            </Label>
-                                            <Input
-                                                id="delivery_note_no"
-                                                name="delivery_note_no"
-                                                value={printFormState.delivery_note_no}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="payment_terms" className="text-right col-span-1">
-                                                Mode/Terms of Pymt
-                                            </Label>
-                                            <Input
-                                                id="payment_terms"
-                                                name="payment_terms"
-                                                value={printFormState.payment_terms}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="reference_no_date" className="text-right col-span-1">
-                                                Reference No. & Date
-                                            </Label>
-                                            <Input
-                                                id="reference_no_date"
-                                                name="reference_no_date"
-                                                value={printFormState.reference_no_date}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="other_references" className="text-right col-span-1">
-                                                Other References
-                                            </Label>
-                                            <Input
-                                                id="other_references"
-                                                name="other_references"
-                                                value={printFormState.other_references}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="buyers_order_no" className="text-right col-span-1">
-                                                Buyer's Order No.
-                                            </Label>
-                                            <Input
-                                                id="buyers_order_no"
-                                                name="buyers_order_no"
-                                                value={printFormState.buyers_order_no}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="buyers_order_date" className="text-right col-span-1">
-                                                Buyer's Order Date
-                                            </Label>
-                                            <Input
-                                                id="buyers_order_date"
-                                                name="buyers_order_date"
-                                                type="date" // Use date type for better UX
-                                                value={printFormState.buyers_order_date}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="dispatch_doc_no" className="text-right col-span-1">
-                                                Dispatch Doc No.
-                                            </Label>
-                                            <Input
-                                                id="dispatch_doc_no"
-                                                name="dispatch_doc_no"
-                                                value={printFormState.dispatch_doc_no}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="delivery_note_date" className="text-right col-span-1">
-                                                Delivery Note Date
-                                            </Label>
-                                            <Input
-                                                id="delivery_note_date"
-                                                name="delivery_note_date"
-                                                type="date"
-                                                value={printFormState.delivery_note_date}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="dispatched_through" className="text-right col-span-1">
-                                                Dispatched through
-                                            </Label>
-                                            <Input
-                                                id="dispatched_through"
-                                                name="dispatched_through"
-                                                value={printFormState.dispatched_through}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        {/* Destination is already partially handled, but allow override if needed */}
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="destination" className="text-right col-span-1">
-                                                Destination (Override)
-                                            </Label>
-                                            <Input
-                                                id="destination"
-                                                name="destination"
-                                                value={printFormState.destination}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="terms_of_delivery" className="text-right col-span-1">
-                                                Terms of Delivery
-                                            </Label>
-                                            <Input
-                                                id="terms_of_delivery"
-                                                name="terms_of_delivery"
-                                                value={printFormState.terms_of_delivery}
-                                                onChange={handlePrintFormChange}
-                                                className="col-span-3"
-                                            />
-                                        </div>
-                                        {/* Add other fields similarly */}
-                                    </div>
-                                    <DialogFooter>
-                                        <DialogClose asChild>
-                                            <Button type="button" variant="outline">
-                                                Cancel
-                                            </Button>
-                                        </DialogClose>
-                                        <Button onClick={() => handleGenerate(false)}>Preview</Button>
-                                        <Button type="button" onClick={() => handleGenerate(true)}>
-                                            Download PDF
-                                        </Button>
-                                        {/* <Button type="button" onClick={() => handleGenerate()}> 
-                        Generate Invoice
-                    </Button> */}
-                                    </DialogFooter>
-                                </DialogContent>
-                            </Dialog>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Invoice Details for SR: {orderData?.name}</DialogTitle>
+                    <DialogDescription>
+                        Enter or generate the invoice number and confirm the date. These details will be saved.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-5 py-6">
+                    <div className="space-y-1.5">
+                        <Label htmlFor="invoice_no">Invoice Number <span className="text-destructive">*</span></Label>
+                        <div className="flex items-center gap-2">
+                            <Input
+                                id="invoice_no"
+                                name="invoice_no"
+                                value={invoiceDialogData.invoice_no}
+                                onChange={handleInvoiceDialogInputChange}
+                                className="flex-grow"
+                                placeholder="e.g., INV-2024-0001"
+                            />
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={handleGenerateInvoiceNumber}
+                                disabled={isGeneratingInvNo}
+                                title="Generate Invoice Number"
+                            >
+                                {isGeneratingInvNo ? <TailSpin width="16" height="16" color="gray" /> : <RefreshCcw className="h-4 w-4" />}
+                            </Button>
+                        </div>
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label htmlFor="invoice_date">Invoice Date <span className="text-destructive">*</span></Label>
+                        <Input
+                            id="invoice_date"
+                            name="invoice_date"
+                            type="date"
+                            value={invoiceDialogData.invoice_date}
+                            onChange={handleInvoiceDialogInputChange}
+                        />
+                    </div>
+                </div>
+                <DialogFooter className="gap-2 sm:justify-end">
+                    <DialogClose asChild>
+                        <Button type="button" variant="outline">
+                            Cancel
+                        </Button>
+                    </DialogClose>
+                    <Button type="button" onClick={() => handleGenerateAndProceed('preview')} disabled={isGeneratingInvNo || !invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date}>
+                        Preview Invoice
+                    </Button>
+                    <Button type="button" onClick={() => handleGenerateAndProceed('download')} disabled={isGeneratingInvNo || !invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date}>
+                        Download PDF
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
 
                             <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
                                 <SheetContent className="overflow-auto">

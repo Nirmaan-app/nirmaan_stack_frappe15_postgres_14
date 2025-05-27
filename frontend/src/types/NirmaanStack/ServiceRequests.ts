@@ -47,4 +47,7 @@ export interface ServiceRequests{
 	/**	Project GST : Data	*/
 	project_gst?: string
 	invoice_data?: {data : InvoiceDataType}
+
+	invoice_no?: string
+	invoice_date?: string
 }
