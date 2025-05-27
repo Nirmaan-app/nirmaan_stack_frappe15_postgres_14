@@ -22,7 +22,7 @@ import { ReleasePOSelect } from "@/pages/ProcurementOrders/purchase-order/releas
 import { NewCustomPR } from "@/pages/ProcurementRequests/NewPR/NewCustomPR";
 // import { NewProcurementRequest } from "@/pages/ProcurementRequests/NewPR/new-new-pr";
 import { ProcurementRequests } from "@/pages/ProcurementRequests/procurement-requests";
-import { RenderProcurementRequest } from "@/pages/ProcurementRequests/VendorQuotesSelection/render-procurement-requests";
+import { RenderProcurementRequest } from "@/pages/ProcurementRequests/render-procurement-requests";
 import { RenderProjectPaymentsComponent } from "@/pages/ProjectPayments/RenderProjectPaymentsComponent";
 import OrderPaymentSummary from "@/pages/ProjectPayments/order-payment-summary";
 import { RenderSentBackComponent } from "@/pages/Sent Back Requests/RenderSentBackComponent";

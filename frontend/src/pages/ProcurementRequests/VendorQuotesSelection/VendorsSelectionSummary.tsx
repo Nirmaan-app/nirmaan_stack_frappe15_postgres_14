@@ -244,7 +244,7 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   const {data: usersList, isLoading: usersListLoading} = useUsersList()
 
-  const {data: vendor_list, isLoading: vendor_list_loading} = useVendorsList({vendorTypes: ["Material", "Material & Service"]})
+  const {allVendors: vendor_list, isLoading: vendor_list_loading} = useVendorsList({vendorTypes: ["Material", "Material & Service"]})
       
   const getFullName = useMemo(() => (id : string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
@@ -257,23 +257,6 @@ export const VendorsSelectionSummary : React.FC = () => {
     }
   }, [procurement_request_list])
 
-  // const getCategoryTotals = useMemo(() => {
-  //   const totals : {[category: string]: number} = {}
-
-  // if(!orderData?.procurement_list?.list?.length) return totals
-  //   orderData?.procurement_list?.list?.forEach(item => {
-  //     const category = item.category
-  //     const quote = item.quote || 0
-  //     const quantity = item.quantity
-  //     if(!totals[category]) {
-  //       totals[category] = 0
-  //     }
-  //     totals[category] += quote * quantity
-  //   })
-
-  //   return totals
-  // }, [orderData])
-
   const getVendorName = useMemo(() => (vendorId : string | undefined) : string => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
   }, [vendor_list])
@@ -281,41 +264,6 @@ export const VendorsSelectionSummary : React.FC = () => {
   const getLowest = useMemo(() => memoize((itemId: string) => {
         return getLowestQuoteFilled(orderData, itemId)
     }, (itemId: string) => itemId),[orderData]);
-
-  // const getFinalVendorQuotesData = useMemo(() => {
-  //   const data : CategoryWithChildren[] = []
-  //   if(orderData?.procurement_list.list?.length) {
-  //     const procurementList = orderData.procurement_list.list
-  //     procurementList.forEach(item => {
-  //       const category : string = item.category
-  //       const existingCategory = data?.find(entry => entry[category])
-  //       if(existingCategory) {
-  //         existingCategory[category]?.items.push({
-  //           ...item,
-  //           vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
-  //           amount: (item.quote || 0) * item.quantity,
-  //           threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
-  //           lowestQuotedAmount: getLowest(item.name) * item.quantity,
-  //         })
-  //       } else {
-  //         data.push({
-  //           [category]: {
-  //             totalAmount: getCategoryTotals[category],
-  //             key: uuidv4(),
-  //             items: [{
-  //               ...item,
-  //               vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
-  //               amount: (item.quote || 0) * item.quantity,
-  //               threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
-  //               lowestQuotedAmount: getLowest(item.name) * item.quantity,
-  //             }]
-  //           }
-  //         })
-  //       }
-  //     })
-  //   }
-  //   return data
-  // }, [orderData, vendor_list])
 
 
   const handleSubmit = async () => {
@@ -444,190 +392,6 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
                   <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
                   <ProcurementHeaderCard orderData={orderData} />
               </div>
-              {/* <div className="bg-white shadow-md rounded-lg border border-gray-200 mt-4"> */}
-                        {/* <h2 className="text-lg font-bold mb-3 flex items-center">
-                            <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
-                            Actions Summary
-                        </h2> */}
-                       {/* <div className="flex flex-col gap-4">
-                            {Object.keys(vendorWiseApprovalItems).length > 0 && (
-                                <div className="p-6 rounded-lg bg-green-100 opacity-70">
-                                    <div className="flex items-center mb-2">
-                                        <ListChecks className="h-5 w-5 mr-2 text-green-600" />
-                                        <h3 className="font-medium">Approval Products</h3>
-                                    </div>
-                                    <p className="text-sm">
-                                        These items will be sent to the project lead for approval.
-                                    </p>
-                                    <ul className="list-[number] text-red-700 pl-5 space-y-2">
-                                    {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
-                                        <li key={vendor} className="mt-2 space-y-2">
-                                            <h4 className="text-sm font-medium">
-                                                {getVendorName(vendor)}:
-                                            </h4>
-                                            <ul className="list-disc pl-5 text-black space-y-2">
-                                                {items.map((item) => (
-                                                    <li key={item.name} className="text-xs md:text-sm">
-                                                        {item.item} - {item.quantity} {item.unit} -
-                                                        {formatToIndianRupee(item.quantity * (item.quote || 0))}
-                                                        {item?.potentialLoss && (
-                                                          <span className="ml-2 text-red-700">
-                                                            (You are potentially losing {formatToIndianRupee(item.potentialLoss)} on this product)
-                                                          </span>
-                                                        )}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                          <p className="text-sm text-black font-medium -ml-5 mt-2">
-                                            Vendor Total: <span className="font-semibold">{formatToIndianRupee(total)}</span>
-                                          </p>
-                                        </li>
-                                    ))}
-                                    </ul>
-                                    <p className="mt-2 font-medium text-end">
-                                        <span className="text-red-700">Overall Total:</span> {formatToIndianRupee(approvalOverallTotal)}
-                                    </p>
-                                </div>
-                            )}
-
-                            {allDelayedItems.length > 0 && (
-                                <div className="p-6 space-y-2 rounded-lg bg-red-100 opacity-70">
-                                    <div className="flex items-center mb-2">
-                                        <SendToBack className="h-5 w-5 text-red-500 mr-2" />
-                                        <h3 className="font-medium">Delayed Products</h3>
-                                    </div>
-                                    <p className="text-sm">
-                                        These items are delayed and a <strong>new Delayed Sent Back</strong> will be created:
-                                    </p>
-                                    <ul className="list-disc space-y-2 pl-5">
-                                        {allDelayedItems.map((item) => (
-                                            <li key={item.name} className="text-xs md:text-sm">
-                                                {item.item} - {item.quantity} {item.unit}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-                        </div> */}
-
-{/* <div className="flex flex-col gap-6">
-  {Object.keys(vendorWiseApprovalItems).length > 0 && (
-    <div className="p-6 rounded-lg bg-green-50 border border-green-100">
-      <header className="flex items-start mb-4">
-        <div className="bg-green-100 p-2 rounded-lg">
-          <ListChecks className="h-5 w-5 text-green-600" />
-        </div>
-        <div className="ml-3">
-          <h3 className="font-semibold text-gray-800">Approval Products</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            Items pending project lead approval with vendor-specific breakdown
-          </p>
-        </div>
-      </header>
-
-      <div className="space-y-4">
-        {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
-          <div key={vendor} className="bg-white rounded-lg p-4 shadow-xs">
-            <div className="flex items-center mb-3">
-              <Building2 className="h-4 w-4 text-gray-400 mr-2" />
-              <h4 className="font-medium text-gray-700">
-                {getVendorName(vendor)}
-              </h4>
-            </div>
-
-            <div className="space-y-3">
-              {items.map((item) => (
-                <div key={item.name} className="border-b pb-3 last:border-0">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="font-medium text-gray-900">
-                        {item.item}
-                        {item.make && (
-                          <span className="ml-2 text-sm font-normal text-gray-500">
-                            ({item.make})
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        {item.quantity} {item.unit} • 
-                        {formatToIndianRupee(item.quote)}/unit
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-medium text-gray-900">
-                        {formatToIndianRupee(item.quantity * (item.quote || 0))}
-                      </div>
-                      {item?.potentialLoss && (
-                        <div className="text-xs text-red-600 mt-1">
-                          Potential loss: {formatToIndianRupee(item.potentialLoss)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-between items-center mt-4 pt-3 border-t">
-              <span className="text-sm font-medium text-gray-600">Vendor Total:</span>
-              <span className="font-semibold text-gray-800">
-                {formatToIndianRupee(total)}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-6 pt-4 border-t border-green-100">
-        <div className="flex justify-between items-center">
-          <span className="font-medium text-gray-700">Overall Total:</span>
-          <span className="font-semibold text-red-700">
-            {formatToIndianRupee(approvalOverallTotal)}
-          </span>
-        </div>
-      </div>
-    </div>
-  )}
-
-  {allDelayedItems.length > 0 && (
-    <div className="p-6 rounded-lg bg-red-50 border border-red-100">
-      <header className="flex items-start mb-4">
-        <div className="bg-red-100 p-2 rounded-lg">
-          <SendToBack className="h-5 w-5 text-red-500" />
-        </div>
-        <div className="ml-3">
-          <h3 className="font-semibold text-gray-800">Delayed Products</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            New Delayed Sent Back will be created for these items
-          </p>
-        </div>
-      </header>
-
-      <div className="space-y-3">
-        {allDelayedItems.map((item) => (
-          <div key={item.name} className="bg-white rounded-lg p-3 shadow-xs">
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="font-medium text-gray-900">
-                  {item.item}
-                  {item.make && (
-                    <span className="ml-2 text-sm font-normal text-gray-500">
-                      ({item.make})
-                    </span>
-                  )}
-                </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  {item.quantity} {item.unit}
-                </div>
-              </div>
-              <Clock className="h-5 w-5 text-red-400" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )}
-</div> */}
 
 <div className="flex flex-col gap-4">
     {/* Approval Items Summary */}
@@ -711,48 +475,6 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
         </div>
     )}
 </div>
-
-              {/* </div> */}
-              {/* {getFinalVendorQuotesData?.length > 0 ? (
-        <div className="overflow-x-auto">
-          <ConfigProvider
-          
-          >
-            <Table
-              dataSource={getFinalVendorQuotesData
-                ?.sort((a, b) =>
-                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
-                )
-                ?.map((key) => ({
-                  key: Object.values(key)[0]?.key,
-                  totalAmount: Object.values(key)[0]?.totalAmount,
-                  category: Object.keys(key)[0],
-                  items: Object.values(key)[0]?.items,
-                }))}
-              rowClassName={(record) => !record?.totalAmount ? "bg-red-100" : ""}
-              columns={columns}
-              pagination={false}
-              expandable={{
-                defaultExpandAllRows : true,
-                expandedRowRender: (record) => (
-                  <Table
-                    rowClassName={(record) => !record?.amount ? "bg-red-50" : ""}
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.name || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )} */}
               <div className="flex flex-col justify-end items-end mr-2 my-4">
                         <Dialog>
                             <DialogTrigger asChild>

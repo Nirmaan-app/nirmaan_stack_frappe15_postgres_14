@@ -138,6 +138,10 @@ export const queryKeys = {
     list: (params?: InflowListParams) => ['Project Inflows', 'list', params ?? {}] as const,
     // Add doc if needed later
   },
+  doc: (doctype: string, docId: string) => [doctype, 'get', docId] as const,
+  docList: (doctype: string) => [doctype, 'list'] as const,
+
+  targetRates: (prId: string, itemIds: string[]) => ['nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', prId, itemIds] as const,
 
 };
 

@@ -6,6 +6,7 @@ export interface SentBackCategory{
 	name: string
 	creation: string
 	modified: string
+	doctype: string
 	owner: string
 	modified_by: string
 	docstatus?: 0 | 1 | 2
