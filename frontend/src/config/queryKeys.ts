@@ -96,6 +96,7 @@ export const queryKeys = {
   projects: {
     doc: (docId: string) => ['Projects', docId] as const,
     list: (params?: ProjectListParams) => ['Projects', 'list', params ?? {}] as const,
+    allMinimal: () => ['Projects', 'allMinimalLookup'] as const,
   },
 
   customers: {
@@ -106,6 +107,7 @@ export const queryKeys = {
   vendors: {
     list: (params?: VendorListParams) => ['Vendors', 'list', params ?? {}] as const,
     // detail: (vendorId: string) => ['Vendors', 'detail', vendorId] as const,
+    allMinimal: () => ['Vendors', 'allMinimalLookup'] as const, // New key
   },
 
   sentBackCategory: {

@@ -12,8 +12,8 @@ import {
     getPOReportListOptions,
     getSRReportListOptions,
     getPaymentReportListOptions,
-    getProjectMinimalListOptions,
-    getVendorMinimalListOptions
+    // getProjectMinimalListOptions,
+    // getVendorMinimalListOptions
 } from '@/config/queryKeys';
 
 export interface POReportRowData {
@@ -38,6 +38,17 @@ interface UsePOReportsDataResult {
     mutateSRs: () => Promise<any>;
     mutatePayments: () => Promise<any>;
 }
+
+// New simpler options for fetching all minimal project/vendor data for lookups
+const getAllProjectsMinimalOptions = (): GetDocListArgs<FrappeDoc<Projects>> => ({
+    fields: ["name", "project_name"], // Only fetch what's needed for the map
+    limit: 0, // Fetch all
+});
+
+const getAllVendorsMinimalOptions = (): GetDocListArgs<FrappeDoc<Vendors>> => ({
+    fields: ["name", "vendor_name"], // Only fetch what's needed for the map
+    limit: 0, // Fetch all
+});
 
 export const usePOReportsData = (): UsePOReportsDataResult => {
     // --- Get Options ---
@@ -73,38 +84,59 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
     } = useFrappeGetDocList<ProjectPayments>(paymentQueryKey[0], paymentOptions as GetDocListArgs<FrappeDoc<ProjectPayments>>, paymentQueryKey);
 
     // --- Get Unique Project and Vendor IDs (Depends on PO/SR data) ---
-    const uniqueProjectIds = useMemo(() => {
-        const ids = new Set<string>();
-        purchaseOrders?.forEach(po => po.project && ids.add(po.project));
-        serviceRequests?.forEach(sr => sr.project && ids.add(sr.project));
-        return Array.from(ids);
-    }, [purchaseOrders, serviceRequests]);
+    // const uniqueProjectIds = useMemo(() => {
+    //     const ids = new Set<string>();
+    //     purchaseOrders?.forEach(po => po.project && ids.add(po.project));
+    //     serviceRequests?.forEach(sr => sr.project && ids.add(sr.project));
+    //     return Array.from(ids);
+    // }, [purchaseOrders, serviceRequests]);
 
-    const uniqueVendorIds = useMemo(() => {
-        const ids = new Set<string>();
-        purchaseOrders?.forEach(po => po.vendor && ids.add(po.vendor));
-        serviceRequests?.forEach(sr => sr.vendor && ids.add(sr.vendor));
-        return Array.from(ids);
-    }, [purchaseOrders, serviceRequests]);
+    // const uniqueVendorIds = useMemo(() => {
+    //     const ids = new Set<string>();
+    //     purchaseOrders?.forEach(po => po.vendor && ids.add(po.vendor));
+    //     serviceRequests?.forEach(sr => sr.vendor && ids.add(sr.vendor));
+    //     return Array.from(ids);
+    // }, [purchaseOrders, serviceRequests]);
 
     // --- Fetch Dependent Data (Project/Vendor Names) ---
-    const projectOptions = getProjectMinimalListOptions(uniqueProjectIds);
-    const vendorOptions = getVendorMinimalListOptions(uniqueVendorIds);
+    // const projectOptions = getProjectMinimalListOptions(uniqueProjectIds);
+    // const vendorOptions = getVendorMinimalListOptions(uniqueVendorIds);
 
-    const projectQueryKey = queryKeys.projects.list(projectOptions);
-    const vendorQueryKey = queryKeys.vendors.list(vendorOptions);
+    // --- Fetch ALL Dependent Data (Project/Vendor Names) - MODIFIED ---
+    const allProjectsOptions = getAllProjectsMinimalOptions();
+    const allVendorsOptions = getAllVendorsMinimalOptions();
 
-    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
-        projectQueryKey[0],
-        projectOptions as GetDocListArgs<FrappeDoc<Projects>>,
-        uniqueProjectIds.length > 0 ? projectQueryKey : null, // Use the generated key
+    // const projectQueryKey = queryKeys.projects.list(projectOptions);
+    // const vendorQueryKey = queryKeys.vendors.list(vendorOptions);
+
+    // Use simpler, static SWR keys if fetching all
+    const allProjectsQueryKey = queryKeys.projects.allMinimal(); // Define this in queryKeys.ts
+    const allVendorsQueryKey = queryKeys.vendors.allMinimal();   // Define this in queryKeys.ts
+
+    // const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
+    //     projectQueryKey[0],
+    //     projectOptions as GetDocListArgs<FrappeDoc<Projects>>,
+    //     uniqueProjectIds.length > 0 ? projectQueryKey : null, // Use the generated key
+    // );
+
+    //  const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>(
+    //     vendorQueryKey[0],
+    //     vendorOptions as GetDocListArgs<FrappeDoc<Vendors>>,
+    //     uniqueVendorIds.length > 0 ? vendorQueryKey : null, // Use the generated key
+    //  );
+
+    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
+        allProjectsQueryKey[0], // e.g., "Projects"
+        allProjectsOptions,
+        allProjectsQueryKey     // e.g., ["Projects", "allMinimal"]
     );
 
-     const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>(
-        vendorQueryKey[0],
-        vendorOptions as GetDocListArgs<FrappeDoc<Vendors>>,
-        uniqueVendorIds.length > 0 ? vendorQueryKey : null, // Use the generated key
+     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
+        allVendorsQueryKey[0], // e.g., "Vendors"
+        allVendorsOptions,
+        allVendorsQueryKey    // e.g., ["Vendors", "allMinimal"]
      );
+
 
     // --- Create Lookup Maps (Memoized) ---
     const projectMap = useMemo(() => {
@@ -136,7 +168,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
     // --- Combine and Process Data (Memoized) ---
     const reportData = useMemo<POReportRowData[] | null>(() => {
         // Wait until all *required* data for calculation is loaded
-        if (poLoading || srLoading || paymentsLoading || (uniqueProjectIds.length > 0 && projectsLoading) || (uniqueVendorIds.length > 0 && vendorsLoading)) {
+        if (poLoading || srLoading || paymentsLoading || projectsLoading || vendorsLoading) {
             return null; // Indicate data is not fully ready
         }
 
@@ -193,12 +225,11 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         purchaseOrders, serviceRequests, payments, projects, vendors, // Raw data
         poLoading, srLoading, paymentsLoading, projectsLoading, vendorsLoading, // Loading states
         projectMap, vendorMap, paymentsMap, // Derived maps
-        uniqueProjectIds, uniqueVendorIds // Ensure recalculation if IDs change
     ]);
 
     // --- Consolidated Loading and Error State ---
     const isLoading = poLoading || srLoading || paymentsLoading || projectsLoading || vendorsLoading;
-    const error = poError || srError || paymentsError /* || projectError || vendorError */; // Add errors from project/vendor fetches if needed
+    const error = poError || srError || paymentsError || projectsError || vendorsError; // Add errors from project/vendor fetches if needed
 
     return {
         reportData,
