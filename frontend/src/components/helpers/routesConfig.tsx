@@ -164,7 +164,7 @@ export const appRoutes: RouteObject[] = [
               {
                 path: ":srId",
                 children: [
-                  { index: true, lazy: () => import("@/pages/ServiceRequests/service-request/sr-summary") },
+                  { index: true, lazy: () => import("@/pages/ServiceRequests/service-request/sr-summary")},
                   { path: "order-view", element: <ApprovedSR summaryPage={true} /> },
                   { path: "resolve-sr", element: <SelectServiceVendor /> },
                 ],

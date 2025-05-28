@@ -38,15 +38,15 @@ export interface ProjectPaymentUpdateFields {
     }
 
 /* ---------- exported dialog --------------------------------------- */
-export interface PaymentDialogProps {
+export interface UpdatePaymentDialogProps {
   mode         : "fulfil" | "delete";
   payment      : ProjectPaymentUpdateFields;
   onSuccess    : () => void; // refetch list on success
 }
 
-export default function PaymentRequestDialog({
+export default function UpdatePaymentRequestDialog({
   mode, payment, onSuccess
-}: PaymentDialogProps) {
+}: UpdatePaymentDialogProps) {
 
   /* global dialog open/close from zustand */
   const { paymentDialog: open, togglePaymentDialog: toggle } =

@@ -227,8 +227,8 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
           ) : item.received && (item.received < item.quantity) ? (
             <ArrowDown className="text-primary" />
           ) : null}
-          {!originallyAllReceived && item.received ? (
-            <span className="">{item.received}
+          {!originallyAllReceived ? (
+            <span className="">{parseNumber(item.received)}
             {/* <span> (original : {item.quantity})</span> */}
             </span>
           ) : (<span>{item.quantity}</span>)}

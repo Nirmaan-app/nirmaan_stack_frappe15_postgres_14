@@ -37,7 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "../config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import PaymentRequestDialog, { ProjectPaymentUpdateFields } from "./UpdatePaymentDialog";
+import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./UpdatePaymentDialog";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -412,7 +412,7 @@ const openDialog = (p:ProjectPayments, m:"fulfil"|"delete")=>{
             </Dialog>
 
             {currentPayment && (
-               <PaymentRequestDialog
+               <UpdatePaymentRequestDialog
                   mode={dialogMode}
                   payment={currentPayment}
                   onSuccess={()=>refetch()}   // your list refetch

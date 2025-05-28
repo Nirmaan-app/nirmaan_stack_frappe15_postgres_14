@@ -389,14 +389,9 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                     )
                 },
                 cell: ({ row }) => {
-                    const data = row.original;
                     const amount = getTotalAmount(row.original.name, row.original.type)
                     return <div className="font-medium">
-                        {data.type === "Service Order" ? (
-                            data.gst === "true" ? formatToRoundedIndianRupee(amount?.totalWithTax)
-                            : "--"
-                        ) : formatToRoundedIndianRupee(amount?.totalWithTax)
-                        }
+                        {formatToRoundedIndianRupee(amount?.totalWithTax)}
                     </div>
                 },
             },

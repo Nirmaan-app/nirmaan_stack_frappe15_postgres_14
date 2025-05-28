@@ -1,6 +1,6 @@
 import { InvoiceDataType } from "./ProcurementOrders"
 
-interface ServiceCategoryType {
+export interface ServiceCategoryType {
 	name: string
 }
 
