@@ -1,7 +1,7 @@
-import { POStatus } from "../components/ProjectMaterialUsageTab";
+import { DeliveryStatus, POStatus } from "../components/ProjectMaterialUsageTab";
 
 // Helper function to determine delivery status
-export function determineDeliveryStatus(deliveredQuantity: number, orderedQuantity: number) {
+export function determineDeliveryStatus(deliveredQuantity: number, orderedQuantity: number) : { deliveryStatusVariant: "success" | "warning" | "destructive" | "default", deliveryStatusText: DeliveryStatus } {
   const deliveryPercentage = orderedQuantity > 0
     ? (deliveredQuantity / orderedQuantity) * 100
     : deliveredQuantity > 0 ? 100 : 0;

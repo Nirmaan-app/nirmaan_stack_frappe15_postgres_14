@@ -62,6 +62,19 @@ export const getUrlBoolParam = (key: string, defaultValue: boolean): boolean => 
     return val ? val === 'true' : defaultValue;
 };
 
+// --- Helper to get all URL param keys associated with a base sync key ---
+const getAllParamsForSyncKey = (baseSyncKey: string): string[] => {
+    return [
+        `${baseSyncKey}_pageIdx`,
+        `${baseSyncKey}_pageSize`,
+        `${baseSyncKey}_sort`,
+        `${baseSyncKey}_q`, // searchTerm
+        `${baseSyncKey}_searchBy`, // selectedSearchField
+        `${baseSyncKey}_filters`, // columnFilters
+        // Add any other params you sync with this prefix
+    ];
+};
+
 // --- Types ---
 export interface ServerDataTableConfig<TData> {
     doctype: string;
@@ -218,7 +231,8 @@ export function useServerDataTable<TData extends { name: string }>({
     shouldCache = false
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
 
-    // const { call, loading: isLoading } = useFrappePostCall<{message: { data: TData[]; total_count: number } }>("nirmaan_stack.api.data-table.get_list_with_count_via_reportview_logic"); // Get Frappe call method from context
+    const previousUrlSyncKeyRef = useRef<string | undefined>(urlSyncKey);
+    const [isKeyChanging, setIsKeyChanging] = useState(false);
 
 
     const apiEndpoint = 'nirmaan_stack.api.data-table.get_list_with_count_enhanced'; // Get Frappe call method from context
@@ -257,8 +271,7 @@ export function useServerDataTable<TData extends { name: string }>({
     );
     // -------------------------
 
-
-    // --- MODIFIED: Initialize columnFilters from single URL param ---
+    // --- Initialize columnFilters from single URL param ---
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => {
         if (urlSyncKey) {
             const encodedFilters = urlStateManager.getParam(`${urlSyncKey}_filters`); // Use single key
@@ -267,7 +280,6 @@ export function useServerDataTable<TData extends { name: string }>({
         }
         return initialState.columnFilters ?? [];
     });
-    // --- END MODIFICATION ---
 
     // console.log("columnFilters FROM HOOK:", columnFilters); // Good for debugging
 
@@ -313,19 +325,61 @@ export function useServerDataTable<TData extends { name: string }>({
           DEBOUNCE_DELAY
       ),
       [DEBOUNCE_DELAY] // Only recreate if delay changes
-  );
+    );
 
-  // Effect to call the debounced function when the *immediate* globalFilter changes
+    // Detect urlSyncKey change and reset states
   useEffect(() => {
-    // debouncedSetApiSearchTerm(globalFilter);
-    debouncedSetApiSearchTerm(searchTerm);
+    if (previousUrlSyncKeyRef.current && previousUrlSyncKeyRef.current !== urlSyncKey) {
+      console.log(`[useServerDataTable] Key changed from ${previousUrlSyncKeyRef.current} to ${urlSyncKey}`);
+      
+      setIsKeyChanging(true);
+      
+      // Clean up old params
+      const oldKey = previousUrlSyncKeyRef.current;
+      const paramsToRemove = [
+        `${oldKey}_pageIdx`,
+        `${oldKey}_pageSize`,
+        `${oldKey}_q`,
+        `${oldKey}_searchBy`,
+        `${oldKey}_sort`,
+        `${oldKey}_filters`,
+      ];
+      
+      paramsToRemove.forEach(param => {
+        urlStateManager.updateParam(param, null);
+      });
+      
+      // Reset all states to defaults
+      setPagination({ pageIndex: 0, pageSize: 50 });
+      setSorting([]);
+      setColumnFilters([]);
+      setSearchTerm('');
+      setSelectedSearchField(defaultInitialSearchField);
+      setDebouncedSearchTermForApi('');
+      setData([]);
+      setTotalCount(0);
+      
+      // Allow fetch on next tick
+      requestAnimationFrame(() => {
+        setIsKeyChanging(false);
+      });
+    }
+    
+    previousUrlSyncKeyRef.current = urlSyncKey;
+  }, [urlSyncKey, defaultInitialSearchField]);
 
-    // Cleanup function to cancel any pending debounced calls if the component unmounts
-    // or if globalFilter changes again before the delay expires.
-    return () => {
-        debouncedSetApiSearchTerm.cancel();
-    };
-}, [searchTerm, debouncedSetApiSearchTerm]);
+
+    // Effect to call the debounced function when the *immediate* globalFilter changes
+    useEffect(() => {
+        // debouncedSetApiSearchTerm(globalFilter);
+        debouncedSetApiSearchTerm(searchTerm);
+    
+        // Cleanup function to cancel any pending debounced calls if the component unmounts
+        // or if globalFilter changes again before the delay expires.
+        return () => {
+            debouncedSetApiSearchTerm.cancel();
+        };
+    }, [searchTerm, debouncedSetApiSearchTerm]);
 
     // --- URL Sync Effects ---
 
@@ -360,7 +414,6 @@ export function useServerDataTable<TData extends { name: string }>({
             // Update state only if decoded value differs from current state JSON stringified
             const decoded = decodeFiltersFromUrl(value);
             if(JSON.stringify(columnFilters) !== JSON.stringify(decoded)) {
-                 console.log("Updating columnFilters state from URL subscription");
                  setColumnFilters(decoded);
             }
         }),
@@ -403,7 +456,7 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- MODIFIED: Sync entire columnFilters state TO single URL param ---
     useEffect(() => {
         if (urlSyncKey) {
-             const encodedFilters = encodeFiltersForUrl(columnFilters);
+            const encodedFilters = encodeFiltersForUrl(columnFilters);
             updateUrlParam('filters', encodedFilters); // Use single key "_filters"
         }
     }, [columnFilters, urlSyncKey, updateUrlParam]);
@@ -417,7 +470,7 @@ export function useServerDataTable<TData extends { name: string }>({
     const fetchData = useCallback(async (isRefetch = false) => {
         // --- If clientData is provided, we don't fetch from backend ---
         if (clientData) {
-            console.log("[useServerDataTable] Using provided clientData. Skipping backend fetch.");
+            // console.log("[useServerDataTable] Using provided clientData. Skipping backend fetch.");
             setData(clientData);
             setTotalCount(clientTotalCount ?? clientData.length);
             setIsLoading(false); // Not loading from backend
@@ -496,7 +549,7 @@ export function useServerDataTable<TData extends { name: string }>({
         //     JSON.stringify(payload) // Key based on exact payload
         //    ];
 
-        console.log("[useServerDataTable calling backend] Payload:", payload);
+        // console.log("[useServerDataTable calling backend] Payload:", payload);
 
         try {
             const response = await triggerFetch(payload);
@@ -566,10 +619,11 @@ export function useServerDataTable<TData extends { name: string }>({
         //     return;
         // }
 
-        console.log("calling fetchData...");
-
-        fetchData();
-    }, [fetchData]); // Dependency is the memoized fetchData function
+        if (!isKeyChanging) {
+          console.log("calling fetchData...");
+          fetchData();
+        }
+    }, [fetchData, isKeyChanging]); // Dependency is the memoized fetchData function
 
     // --- Real-time Event Listener using useFrappeEventListener ---
     const handleRealtimeEvent = useCallback((message: any) => {
@@ -672,7 +726,7 @@ export function useServerDataTable<TData extends { name: string }>({
         table,
         data,
         totalCount,
-        isLoading: isLoading || isCallingApi,
+        isLoading: isLoading || isCallingApi || isKeyChanging,
         error: (error || apiError) as Error | null,
         // Expose states and setters
         pagination,

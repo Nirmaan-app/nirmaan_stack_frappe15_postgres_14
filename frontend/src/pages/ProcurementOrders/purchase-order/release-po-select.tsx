@@ -8,14 +8,14 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
+import { getPOTotal, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
-import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
+import { FrappeDoc, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../../components/ui/badge";
 import { TableSkeleton } from "../../../components/ui/skeleton";
@@ -260,11 +260,11 @@ export const ReleasePOSelect: React.FC = () => {
         , [counts])
 
 
-    const mergedPOsTab = useMemo(() =>
-        [
-            { label: (<div className="flex items-center"><span>Merged POs</span><span className="ml-2 text-xs font-bold">{counts.po.Merged}</span></div>), value: "Merged POs" },
-        ]
-        , [counts])
+    // const mergedPOsTab = useMemo(() =>
+    //     [
+    //         { label: (<div className="flex items-center"><span>Merged POs</span><span className="ml-2 text-xs font-bold">{counts.po.Merged}</span></div>), value: "Merged POs" },
+    //     ]
+    //     , [counts])
 
     // --- Define columns using TanStack's ColumnDef ---
     const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
@@ -541,8 +541,7 @@ export const ReleasePOSelect: React.FC = () => {
         ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO", "All POs", "Merged POs"].includes(tab),
         [tab]);
 
-    // Define which columns should use the date filter
-    // const dateColumns = useMemo(() => ["creation", "modified"], []); // Add other date column IDs if needed
+    const dynamicUrlSyncKey = useMemo(() => `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`, [tab, URL_SYNC_KEY]);
 
     const serverDataTable = useServerDataTable<ProcurementOrdersType>(
         (shouldShowTable ? {
@@ -553,7 +552,7 @@ export const ReleasePOSelect: React.FC = () => {
             // globalSearchFieldList: poGlobalSearchFields,
             searchableFields: poSearchableFieldsOptions,
             // enableRowSelection: true,
-            urlSyncKey: URL_SYNC_KEY,
+            urlSyncKey: dynamicUrlSyncKey,
             defaultSort: 'modified desc', // Default sort order
             additionalFilters: staticFiltersForTab,
 
@@ -592,6 +591,7 @@ export const ReleasePOSelect: React.FC = () => {
             }
             // Render the DataTable
             return (
+                <div key={dynamicUrlSyncKey}>
                 <DataTable<ProcurementOrdersType>
                     table={serverDataTable.table}
                     columns={columns} // Pass dynamically calculated columns
@@ -629,6 +629,7 @@ export const ReleasePOSelect: React.FC = () => {
                     onExport={'default'}
                 // showRowSelection={serverDataTable.isRowSelectionActive}
                 />
+                </div>
             );
         }
 

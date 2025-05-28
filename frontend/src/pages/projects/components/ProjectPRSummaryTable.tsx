@@ -1,7 +1,7 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from 'lodash/memoize';
 
@@ -19,7 +19,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
-import { ProcurementRequest, ProcurementItem, Category } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest, Category } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 
@@ -27,6 +27,7 @@ import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
+import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] = [
     "name", "creation", "modified", "owner", "project",
@@ -218,11 +219,11 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
             }
         },
         {
-            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Creation Date" />,
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Creation On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
             meta: {
-                exportHeaderName: "PO Creation Date",
+                exportHeaderName: "Creation On",
             }
         },
         {
@@ -281,7 +282,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
             cell: ({ row }) => {
                 const categories = row.original.category_list as { list: Category[] } | undefined;
                 const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
-                return (<div className="flex flex-wrap gap-1">{categoryItems.map((cat) => <Badge key={cat.name} variant="outline">{cat.name}</Badge>)}</div>);
+                return (<div className="flex flex-wrap gap-1">{categoryItems.map((cat, index) => <Badge key={`${row.original.name}-${cat.name}_${index}`} variant="outline">{cat.name}</Badge>)}</div>);
             }, size: 180, enableSorting: false,
             meta: {
                 excludeFromExport: true
@@ -361,31 +362,32 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
     //     }
     // }, [pr_data_from_hook]);
 
+    const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
+            "Procurement Packages", {
+                fields: ["work_package_name"],
+                orderBy: { field: "work_package_name", order: "asc" },
+                limit: 0,
+            },
+            "All_Work_Packages"
+        );
+    
+    const workPackageOptions = useMemo(() => {
+        if (!wp_list) return [];
+        return wp_list.map(wp => ({ label: wp.work_package_name!, value: wp.work_package_name! }));
+    }, [wp_list]);
+
 
     // --- Faceted Filter Options ---
-    // const facetFilterOptions = useMemo(() => ({
-    //     // Facet for the DERIVED status
-    //     derived_status: { title: "Status", options: PR_SUMMARY_STATUS_OPTIONS },
-    // }), [projectId]);
-
-    // --- Realtime Update Handling ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => {
-        console.log(`Realtime event for ${DOCTYPE} (ProjectPRSummary):`, event);
-        refetch(); // Refetch PR data
-        // Potentially mutate po_data and quote_data as well if they influence status/totals
-        // For simplicity, assuming direct PR changes are most critical for this view's refresh
-        toast({ title: "PR Summary updated.", duration: 2000 });
-    });
-    useFrappeDocTypeEventListener("Procurement Orders", (event) => { // Listen to PO changes
-        console.log(`Realtime event for POs (ProjectPRSummary):`, event);
-        refetch(); // Refetch PRs as PO changes can affect PR status
-        toast({ title: "PR Summary updated (due to PO change).", duration: 2000 });
-    });
+    const facetFilterOptions = useMemo(() => ({
+        // Facet for the DERIVED status
+        // derived_status: { title: "Status", options: PR_SUMMARY_STATUS_OPTIONS },
+        work_package: { title: "Work Package", options: workPackageOptions },
+    }), []);
 
 
     // --- Combined Loading & Error States ---
-    const isLoading = poDataLoading || quoteDataLoading || userListLoading || statusCountsLoading;
-    const combinedError = quoteError || poError || listError || statusCountsError;
+    const isLoading = poDataLoading || quoteDataLoading || userListLoading || statusCountsLoading || wpLoading;
+    const combinedError = quoteError || poError || listError || statusCountsError || wpError;
 
     if (combinedError && !pr_data_from_hook?.length) {
         toast({ title: "Error loading PR Summary", description: combinedError.message, variant: "destructive" });
@@ -420,7 +422,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
 
-                    // facetFilterOptions={facetFilterOptions}
+                    facetFilterOptions={facetFilterOptions}
                     dateFilterColumns={PR_SUMMARY_DATE_COLUMNS}
                     showExportButton={true}
                     onExport={'default'}

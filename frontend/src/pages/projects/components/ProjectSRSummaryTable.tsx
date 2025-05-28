@@ -1,7 +1,7 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from 'lodash/memoize';
 
@@ -150,7 +150,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
                 const sr = row.original;
                 return (
                     <div className="font-medium flex items-center gap-1 group">
-                        <Link className="text-blue-600 hover:underline whitespace-nowrap" to={`/service-requests-list/${sr.name}`}>
+                        <Link className="text-blue-600 hover:underline whitespace-nowrap" to={`/service-requests-list/${sr.name}/order-view`}>
                             {sr.name?.slice(-5)}
                         </Link>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -236,28 +236,6 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
         // }
         return opts;
     }, [vendorOptions, projectId]);
-
-
-    // --- Realtime Updates for SR list ---
-    useFrappeDocTypeEventListener(DOCTYPE, async (event) => {
-        refetch(); // Refetch the paginated list
-        if (projectId) await fetchSRAggregates({ project_id: projectId }); // Refetch aggregates too
-        toast({ title: "Service Requests summary updated.", duration: 2000 });
-        // if (event.doc && (!projectId || event.doc.project === projectId)) {
-        //     console.log(`Realtime event for ${DOCTYPE} (ProjectSRSummary):`, event);
-        //     refetch(); // Refetch the paginated list
-        //     if (projectId) fetchAggregates({ project_id: projectId }); // Refetch aggregates too
-        //     toast({ title: "Service Requests summary updated.", duration: 2000 });
-        // }
-    });
-    // Listen to ProjectPayments too if it affects total_amount_paid_for_srs
-    useFrappeDocTypeEventListener("Project Payments", async (event) => {
-        if (projectId) await fetchSRAggregates({ project_id: projectId }); // Refetch aggregates
-        // if (event.doc && event.doc.document_type === "Service Requests" && (!projectId || event.doc.project === projectId)) {
-        //     console.log(`Realtime ProjectPayment event for ${DOCTYPE} (ProjectSRSummary):`, event);
-        //     if (projectId) fetchAggregates({ project_id: projectId }); // Refetch aggregates
-        // }
-    });
 
 
     // --- Combined Loading & Error States ---

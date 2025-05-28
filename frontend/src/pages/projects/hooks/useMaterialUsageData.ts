@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
 import { memoize } from 'lodash';
 import { ProjectEstimates } from '@/types/NirmaanStack/ProjectEstimates';
@@ -6,7 +6,8 @@ import { po_item_data_item } from '../project';
 import { parseNumber } from '@/utils/parseNumber';
 import { useOrderTotals } from '@/hooks/useOrderTotals';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { MaterialUsageDisplayItem, POStatus } from '../components/ProjectMaterialUsageTab';
+import { DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, POStatus } from '../components/ProjectMaterialUsageTab';
+import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
 
 // Helper to parse numbers safely
 const safeParseFloat = (value: string | number | undefined | null, defaultValue = 0): number => {
@@ -75,7 +76,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
   }, [getAmountPaidForPO, getTotalAmount]);
 
   // Process and combine data
-  const materialUsageItems = useMemo((): MaterialUsageDisplayItem[] => {
+  const allMaterialUsageItems = useMemo((): MaterialUsageDisplayItem[] => {
     if (!po_item_data?.message || !projectEstimates) {
       return [];
     }
@@ -95,41 +96,57 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     const usageByItemKey = new Map<string, MaterialUsageDisplayItem>();
 
     allPoItems.forEach((poItem, index) => {
-      if (!poItem.item_id || !poItem.category) return;
+            if (!poItem.item_id || !poItem.category) return;
 
-      const itemKey = `${poItem.category}_${poItem.item_id}`;
-      let currentItemUsage = usageByItemKey.get(itemKey);
+            const itemKey = `${poItem.category}_${poItem.item_id}`;
+            let currentItemUsage = usageByItemKey.get(itemKey);
 
-      if (!currentItemUsage) {
-        const estimate = estimatesMap.get(poItem.item_id);
-        currentItemUsage = {
-          uniqueKey: itemKey + `_item_${index}`,
-          categoryName: poItem.category,
-          itemName: poItem.item_name || estimate?.item_name,
-          unit: poItem.unit || estimate?.uom,
-          orderedQuantity: 0,
-          deliveredQuantity: 0,
-          estimatedQuantity: safeParseFloat(estimate?.quantity_estimate),
-          poNumbers: [],
-        };
-      }
+            const individualPOsForItem: { po: string; status: POStatus }[] = currentItemUsage?.poNumbers || [];
 
-      currentItemUsage.orderedQuantity += safeParseFloat(poItem.quantity);
-      currentItemUsage.deliveredQuantity += safeParseFloat(poItem.received);
-      if (poItem.po_number) {
-        const existingPoEntry = currentItemUsage.poNumbers?.find(p => p.po === poItem.po_number);
-        if (!existingPoEntry) {
-          currentItemUsage.poNumbers?.push({
-            po: poItem.po_number,
-            status: getIndividualPOStatus(poItem.po_number),
-          });
-        }
-      }
-      usageByItemKey.set(itemKey, currentItemUsage);
-    });
+            if (poItem.po_number) {
+                const existingPoEntry = individualPOsForItem.find(p => p.po === poItem.po_number);
+                if (!existingPoEntry) {
+                    individualPOsForItem.push({
+                        po: poItem.po_number,
+                        status: getIndividualPOStatus(poItem.po_number),
+                    });
+                }
+            }
 
-    // Convert map to array and sort
+            const currentOrdered = (currentItemUsage?.orderedQuantity || 0) + safeParseFloat(poItem.quantity);
+            const currentDelivered = (currentItemUsage?.deliveredQuantity || 0) + safeParseFloat(poItem.received);
+            
+            const deliveryStatusInfo = determineDeliveryStatus(currentDelivered, currentOrdered);
+            const poPaymentStatusInfo = determineOverallItemPOStatus(individualPOsForItem);
+
+
+            if (!currentItemUsage) {
+                const estimate = estimatesMap.get(poItem.item_id);
+                currentItemUsage = {
+                    uniqueKey: itemKey + `_item_${index}`,
+                    categoryName: poItem.category,
+                    itemName: poItem.item_name || estimate?.item_name,
+                    unit: poItem.unit || estimate?.uom,
+                    orderedQuantity: safeParseFloat(poItem.quantity), // Initialize with first PO item
+                    deliveredQuantity: safeParseFloat(poItem.received), // Initialize
+                    estimatedQuantity: safeParseFloat(estimate?.quantity_estimate),
+                    poNumbers: individualPOsForItem, // Initialize with current PO details
+                    deliveryStatus: deliveryStatusInfo.deliveryStatusText,
+                    overallPOPaymentStatus: poPaymentStatusInfo,
+                };
+            } else {
+                // Aggregate quantities and update statuses
+                currentItemUsage.orderedQuantity = currentOrdered;
+                currentItemUsage.deliveredQuantity = currentDelivered;
+                currentItemUsage.poNumbers = individualPOsForItem; // Update with potentially new PO
+                currentItemUsage.deliveryStatus = deliveryStatusInfo.deliveryStatusText;
+                currentItemUsage.overallPOPaymentStatus = poPaymentStatusInfo;
+            }
+            usageByItemKey.set(itemKey, currentItemUsage);
+        });
+
     const flatList = Array.from(usageByItemKey.values());
+
     flatList.sort((a, b) => {
       if (a.categoryName.localeCompare(b.categoryName) !== 0) {
         return a.categoryName.localeCompare(b.categoryName);
@@ -140,9 +157,35 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     return flatList;
   }, [po_item_data, projectEstimates, getIndividualPOStatus]);
 
+
+  // --- Generate Filter Options ---
+
+  const categoryOptions = useMemo(() => {
+      if (!allMaterialUsageItems) return [];
+      const uniqueCategories = new Set(allMaterialUsageItems.map(item => item.categoryName));
+      return Array.from(uniqueCategories).sort().map(cat => ({ label: cat, value: cat }));
+    }, [allMaterialUsageItems]);
+
+    const deliveryStatusOptions: { label: string; value: DeliveryStatus }[] = useMemo(() => [
+      { label: "Fully Delivered", value: "Fully Delivered" },
+      { label: "Partially Delivered", value: "Partially Delivered" },
+      { label: "Pending Delivery", value: "Pending Delivery" },
+      { label: "Not Ordered", value: "Not Ordered" },
+    ], []);
+  
+    const poStatusOptions: { label: string; value: OverallItemPOStatus }[] = useMemo(() => [
+      { label: "Fully Paid", value: "Fully Paid" },
+      { label: "Partially Paid", value: "Partially Paid" },
+      { label: "Unpaid", value: "Unpaid" },
+      { label: "N/A", value: "N/A" },
+    ], []);
+
   return {
-    materialUsageItems,
+    allMaterialUsageItems,
     isLoading: po_item_loading || estimatesLoading,
-    error: po_item_error || estimatesError
+    error: po_item_error || estimatesError,
+    categoryOptions,
+    deliveryStatusOptions,
+    poStatusOptions,
   };
 }
