@@ -202,3 +202,6 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         />
     );
 };
+
+
+export default VendorMaterialOrdersTable;

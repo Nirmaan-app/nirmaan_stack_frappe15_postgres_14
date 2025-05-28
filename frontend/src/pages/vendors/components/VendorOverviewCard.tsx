@@ -123,3 +123,6 @@ const InfoItem: React.FC<{ label: string; value?: string | number | null }> = ({
         <span className="text-sm text-foreground">{value || "N/A"}</span>
     </CardDescription>
 );
+
+
+export default VendorOverviewCard;
