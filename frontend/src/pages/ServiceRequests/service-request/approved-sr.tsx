@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -51,7 +51,7 @@ import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDi
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import {formatDate as fnsFormateDate} from 'date-fns'
+import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 
 // const { Sider, Content } = Layout;
 
@@ -59,18 +59,6 @@ interface ApprovedSRProps {
     summaryPage?: boolean;
     accountsPage?: boolean;
 }
-
-interface SrInvoiceDialogData {
-    invoice_no: string;
-    invoice_date: string; // yyyy-MM-dd
-}
-
-const initialSrInvoiceDialogData: SrInvoiceDialogData = {
-    invoice_no: '',
-    invoice_date: fnsFormateDate(new Date(), 'yyyy-MM-dd'), // Default to today
-};
-
-
 
 export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: ApprovedSRProps) => {
 
@@ -104,7 +92,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const [gstEnabled, setGstEnabled] = useState(false)
 
     const [srPdfSheet, setSrPdfSheet] = useState(false)
-    const [deleteFlagged, setDeleteFlagged] = useState(null);
+    const [deleteFlagged, setDeleteFlagged] = useState<ProjectPayments | null>(null);
 
     const toggleSrPdfSheet = useCallback(() => {
         setSrPdfSheet((prevState) => !prevState)
@@ -116,40 +104,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         setEditSrTermsDialog((prevState) => !prevState)
     }, []);
 
-    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
-    const [invoiceDialogData, setInvoiceDialogData] = useState<SrInvoiceDialogData>(initialSrInvoiceDialogData);
-
-    console.log("invoiceDialogData", invoiceDialogData)
-
-    const [isGeneratingInvNo, setIsGeneratingInvNo] = useState(false);
-
-    // Hook for fetching new invoice number
-    const { call: generateInvoiceNumberAPI } = useFrappePostCall(
-        'nirmaan_stack.api.invoice_utils.generate_next_invoice_number' // Path to your new Python API
-    );
-
-    // Pre-fill dialog if invoice_no and invoice_date exist on orderData
-    useEffect(() => {
-        if (orderData?.invoice_no || orderData?.invoice_date) {
-            setInvoiceDialogData({
-                invoice_no: orderData.invoice_no || '',
-                invoice_date: orderData.invoice_date || fnsFormateDate(new Date(), 'yyyy-MM-dd'),
-            });
-        } else {
-            // Reset to defaults if no existing data, or when dialog is opened for a new generation
-             setInvoiceDialogData({
-                invoice_no: '',
-                invoice_date: fnsFormateDate(new Date(), 'yyyy-MM-dd'),
-            });
-        }
-    }, [orderData, isPrintDialogOpen]); // Depend on isPrintDialogOpen to reset/prefill when dialog opens
-
-
     const [warning, setWarning] = useState("");
 
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
-
-    const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc()
 
     const { call } = useFrappePostCall('frappe.client.set_value')
 
@@ -386,28 +343,28 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         validateAmount(amount);
     }, [validateAmount]);
 
-    const handleDeletePayment = async () => {
-        try {
+    // const handleDeletePayment = async () => {
+    //     try {
 
-            await deleteDoc("Project Payments", deleteFlagged?.name);
+    //         await deleteDoc("Project Payments", deleteFlagged?.name);
 
-            await projectPaymentsMutate();
+    //         await projectPaymentsMutate();
 
-            toast({
-                title: "Success!",
-                description: "Payment deleted successfully!",
-                variant: "success",
-            });
+    //         toast({
+    //             title: "Success!",
+    //             description: "Payment deleted successfully!",
+    //             variant: "success",
+    //         });
 
-        } catch (error) {
-            console.log("error", error);
-            toast({
-                title: "Failed!",
-                description: "Failed to delete Payment!",
-                variant: "destructive",
-            });
-        }
-    }
+    //     } catch (error) {
+    //         console.log("error", error);
+    //         toast({
+    //             title: "Failed!",
+    //             description: "Failed to delete Payment!",
+    //             variant: "destructive",
+    //         });
+    //     }
+    // }
 
 
     if (
@@ -426,92 +383,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             deleteServiceRequest(orderData.name); // Call the hook's function
         }
     }
-
-
-    const handleInvoiceDialogInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setInvoiceDialogData(prev => ({ ...prev, [name]: value }));
-    };
-
-
-    const handleGenerateInvoiceNumber = async () => {
-    setIsGeneratingInvNo(true);
-    try {
-        // Pass project_name if your backend API uses it for the prefix
-        const response = await generateInvoiceNumberAPI({ project_name: project?.project_name });
-        if (response.message) {
-            setInvoiceDialogData(prev => ({ ...prev, invoice_no: response.message }));
-        }
-    } catch (error) {
-        console.error("Error generating invoice number:", error);
-        toast({ title: "Failed", description: "Could not generate invoice number.", variant: "destructive" });
-    } finally {
-        setIsGeneratingInvNo(false);
-    }
-};
-
-
-// Modified handleGenerate (renamed from handlePrint / generateAndOpenPdf)
-const handleGenerateAndProceed = async (action: 'preview' | 'download') => {
-    if (!orderData) {
-        toast({ title: "Error", description: "Service Request data not loaded.", variant: "destructive" });
-        return;
-    }
-    if (!invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date) {
-        toast({ title: "Missing Info", description: "Invoice Number and Date are required.", variant: "destructive" });
-        return;
-    }
-
-    try {
-        // 1. Save invoice_no and invoice_date to the Service Request document
-        setIsGeneratingInvNo(true); // Use a general loading state for this combined action
-        await updateDoc("Service Requests", orderData.name, {
-            invoice_no: invoiceDialogData.invoice_no,
-            invoice_date: invoiceDialogData.invoice_date,
-        });
-        
-        // Mutate to get the latest SR doc (which now includes the saved invoice no/date)
-        await service_request_mutate(); 
-        toast({ title: "Info Saved", description: "Invoice number and date saved to Service Request.", variant: "success" });
-
-        // 2. Construct print URL (no custom params needed now as they are on the doc)
-        const params = {
-            doctype: "Service Requests",
-            name: orderData.name,
-            format: "SR Invoice", // Your print format name
-            no_letterhead: "1",
-            _lang: "en",
-        };
-
-        const customParams: Record<string, string> = {};
-        customParams["custom_project_name"] = project?.project_name || "";
-
-        const allParams = { ...params, ...customParams };
-        const queryString = new URLSearchParams(allParams).toString();
-        
-        let targetUrl = "";
-        if (action === 'preview') {
-            targetUrl = `/printview?${queryString}`;
-        } else { // download
-            // Using your custom download API if you have one, or the standard download_pdf
-            // For standard Frappe download_pdf:
-            targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
-        }
-        
-        window.open(targetUrl, "_blank");
-        setIsPrintDialogOpen(false);
-
-    } catch (error: any) {
-        console.error("Error saving invoice details or generating PDF:", error);
-        toast({
-            title: "Operation Failed",
-            description: error.message || "Could not save invoice details or generate PDF.",
-            variant: "destructive",
-        });
-    } finally {
-        setIsGeneratingInvNo(false);
-    }
-};
 
 
 
@@ -556,84 +427,6 @@ const handleGenerateAndProceed = async (action: 'preview' | 'download') => {
                             >
                                 Add Invoice
                             </Button>
-
-                        {!service_vendor?.vendor_gst && (
-                            <Button
-                                disabled={!orderData?.project_gst} // Keep your existing disabled logic
-                                size="sm"
-                                className="border border-primary"
-                                variant="outline"
-                                onClick={() => {
-                                    // Reset/Prefill dialog state when opening
-                                    setInvoiceDialogData({
-                                        invoice_no: orderData?.invoice_no || '',
-                                        invoice_date: orderData?.invoice_date || fnsFormateDate(new Date(), 'yyyy-MM-dd'),
-                                    });
-                                    setIsPrintDialogOpen(true);
-                                }}
-                            >
-                                View / Download Tax Invoice
-                            </Button>
-                        )}
-
-                            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Invoice Details for SR: {orderData?.name}</DialogTitle>
-                    <DialogDescription>
-                        Enter or generate the invoice number and confirm the date. These details will be saved.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-5 py-6">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="invoice_no">Invoice Number <span className="text-destructive">*</span></Label>
-                        <div className="flex items-center gap-2">
-                            <Input
-                                id="invoice_no"
-                                name="invoice_no"
-                                value={invoiceDialogData.invoice_no}
-                                onChange={handleInvoiceDialogInputChange}
-                                className="flex-grow"
-                                placeholder="e.g., INV-2024-0001"
-                            />
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                onClick={handleGenerateInvoiceNumber}
-                                disabled={isGeneratingInvNo}
-                                title="Generate Invoice Number"
-                            >
-                                {isGeneratingInvNo ? <TailSpin width="16" height="16" color="gray" /> : <RefreshCcw className="h-4 w-4" />}
-                            </Button>
-                        </div>
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label htmlFor="invoice_date">Invoice Date <span className="text-destructive">*</span></Label>
-                        <Input
-                            id="invoice_date"
-                            name="invoice_date"
-                            type="date"
-                            value={invoiceDialogData.invoice_date}
-                            onChange={handleInvoiceDialogInputChange}
-                        />
-                    </div>
-                </div>
-                <DialogFooter className="gap-2 sm:justify-end">
-                    <DialogClose asChild>
-                        <Button type="button" variant="outline">
-                            Cancel
-                        </Button>
-                    </DialogClose>
-                    <Button type="button" onClick={() => handleGenerateAndProceed('preview')} disabled={isGeneratingInvNo || !invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date}>
-                        Preview Invoice
-                    </Button>
-                    <Button type="button" onClick={() => handleGenerateAndProceed('download')} disabled={isGeneratingInvNo || !invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date}>
-                        Download PDF
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
 
                             <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
                                 <SheetContent className="overflow-auto">
@@ -700,7 +493,7 @@ const handleGenerateAndProceed = async (action: 'preview' | 'download') => {
                                     </Button>
 
                                     <RequestPaymentDialog
-                                        totalIncGST={getTotal * 1.18 || 0}
+                                        totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
                                         totalExGST={getTotal || 0}
                                         paid={getAmountPaid}
                                         pending={amountPending}
@@ -865,30 +658,17 @@ const handleGenerateAndProceed = async (action: 'preview' | 'download') => {
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 <TableCell className="text-red-500 text-end w-[5%]">
                                                     {!["Paid", "Approved"].includes(payment?.status) && !summaryPage &&
-                                                        <Dialog>
-                                                            <DialogTrigger>
-                                                                <Trash2
-                                                                    onClick={() => setDeleteFlagged(payment)}
-                                                                    className="w-4 h-4" />
-                                                            </DialogTrigger>
-                                                            <DialogContent>
-                                                                <DialogHeader>
-                                                                    <DialogTitle>Are you sure?</DialogTitle>
-                                                                </DialogHeader>
-                                                                <div className="flex items-center justify-end gap-2">
-                                                                    {deleteLoading ? <TailSpin color="red" height={40} width={40} /> : (
-                                                                        <>
-                                                                            <DialogClose asChild>
-                                                                                <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                                                            </DialogClose>
-                                                                            <Button onClick={() => handleDeletePayment()}>Delete</Button>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-
-                                                            </DialogContent>
-                                                        </Dialog>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"
+                                                        onClick={() => setDeleteFlagged(payment)} 
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
                                                     }
+
+                                                    <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={payment} onDeleteSuccess={() => projectPaymentsMutate()} />
                                                 </TableCell>
                                             </TableRow>
                                         )
@@ -1084,6 +864,7 @@ const handleGenerateAndProceed = async (action: 'preview' | 'download') => {
                 docName={service_request?.name}
                 documentData={orderData}
                 docMutate={service_request_mutate}
+                project={project}
             />
             {/* <SRAttachments SR={orderData} /> */}
 

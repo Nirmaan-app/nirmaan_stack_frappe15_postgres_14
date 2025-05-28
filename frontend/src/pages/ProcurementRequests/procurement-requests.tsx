@@ -119,7 +119,7 @@ export const ProcurementRequests: React.FC = () => {
     const allTabs = useMemo(() => 
         [
             { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{counts.pr.all}</span></div>), value: "All PRs" },
-             { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
+            //  { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
         ]
     ,[counts, role])
 
@@ -230,7 +230,7 @@ export const ProcurementRequests: React.FC = () => {
                 const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
                 return (
                     <div className="flex flex-wrap gap-1 items-start justify-start">
-                        {categoryItems.length > 0 ? categoryItems.map((cat) => <Badge key={cat.name} variant="outline" className="text-xs">{cat.name}</Badge>) : '--'}
+                        {categoryItems.length > 0 ? categoryItems.map((cat, index) => <Badge key={`${row.original.name}-${cat.name}_${index}`} variant="outline" className="text-xs">{cat.name}</Badge>) : '--'}
                     </div>
                 );
             }, size: 180, enableSorting: false,
