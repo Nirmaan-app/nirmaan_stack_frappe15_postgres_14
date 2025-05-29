@@ -95,7 +95,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         // { enabled: !!prId && (mode === 'edit' || mode === 'resolve') }
     );
 
-    const {emitDocOpen} =  useFrappeDocumentEventListener("Procurment Requests", prId, (event) => {
+    const {emitDocOpen} =  useFrappeDocumentEventListener("Procurment Requests", prId!, (event) => {
         if(prId) {
             existingPRDataMutate();
             console.log("Procurement Request document updated (real-time):", event);
@@ -178,11 +178,12 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         setComment,
         handleFuzzySearch,
         updateCategoryMakes,
+        itemFuseOptions
     } = useProcurementRequestForm(
+        makeListMutate,
         itemList,
         makeList,
         allMakeOptions,
-        makeListMutate
     );
 
     const { submitNewPR, resolveOrUpdatePR, cancelDraftPR, isSubmitting } = useSubmitProcurementRequest();
@@ -295,6 +296,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                         makeListMutate={makeListMutate}
                         categoryMakelist={categoryMakelist} // Pass if needed by dialog
                         categoryMakeListMutate={categoryMakeListMutate}
+                        itemFuseOptions={itemFuseOptions}
                     />
 
                     <div className="flex flex-col justify-between min-h-[48vh]">
