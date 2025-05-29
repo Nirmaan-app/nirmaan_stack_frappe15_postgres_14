@@ -5,6 +5,7 @@ import { useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from 'frappe-rea
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
+import { CategorySelection, ProcurementRequestItem } from '../types';
 
 interface UseSubmitProcurementRequestResult {
     submitNewPR: (finalCommentFromDialog: string) => Promise<void>;
@@ -86,6 +87,20 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     }, [userData?.user_id, createDoc, toast]);
 
 
+    const getRefinedCategoriesList = useCallback((procList: ProcurementRequestItem[]) => {
+        const categoriesList: CategorySelection[] = []
+        procList.forEach(item => {
+            const category = selectedCategories.find(c => c.name === item.category && c.status === item.status);
+            if(category) {
+                if (category?.name && categoriesList?.some(c => c.name === category.name && c.status === category.status)) {
+                    return;
+                }
+                categoriesList.push(category!);
+            }
+        });
+        return categoriesList;
+    }, [selectedCategories]);
+
     // --- Submission Functions ---
 
     const submitNewPR = useCallback(async (finalCommentFromDialog: string) => {
@@ -100,7 +115,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             const payload = {
                 project: projectId,
                 work_package: selectedWP,
-                category_list: JSON.stringify({ list: selectedCategories }), // Stringify if API expects JSON string
+                category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
                 procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
                 // Add other necessary fields
             };
@@ -114,7 +129,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             toast({ title: "Submission Failed", description: error.message || "Could not create Procurement Request.", variant: "destructive" });
         }
     // Dependencies for submitNewPR
-    }, [projectId, selectedWP, procList, selectedCategories, createDoc, addCommentIfNeeded, handleSuccess, toast]);
+    }, [projectId, selectedWP, procList, selectedCategories, getRefinedCategoriesList, createDoc, addCommentIfNeeded, handleSuccess, toast]);
 
 
     const resolveOrUpdatePR = useCallback(async (finalCommentFromDialog: string) => {
@@ -126,7 +141,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
 
         const updateData: any = {
             // Ensure lists are structured correctly for the API
-            category_list: JSON.stringify({ list: selectedCategories }), // Stringify if API expects JSON string
+            category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
             procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
             workflow_state: "Pending"
             // Add other necessary fields
@@ -144,7 +159,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             toast({ title: `${mode === 'edit' ? 'Update' : 'Resolve'} Failed`, description: error.message || "Could not update Procurement Request.", variant: "destructive" });
         }
     // Dependencies for resolveOrUpdatePR
-    }, [prId, procList, selectedCategories, mode, updateDoc, addCommentIfNeeded, handleSuccess, toast]);
+    }, [prId, procList, selectedCategories, getRefinedCategoriesList, mode, updateDoc, addCommentIfNeeded, handleSuccess, toast]);
 
 
     const cancelDraftPR = useCallback(async () => {

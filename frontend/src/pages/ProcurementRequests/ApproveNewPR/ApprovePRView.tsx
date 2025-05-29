@@ -111,7 +111,8 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         categoryMakelist,
         categoryMakeListMutate,
         makeListMutate,
-        handleLocalCategoryMakesUpdate
+        handleLocalCategoryMakesUpdate,
+        itemFuseOptions
     } = props;
 
     // // *** Add console log HERE to verify ***
@@ -283,6 +284,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 makeListMutate={makeListMutate}
                 categoryMakelist={categoryMakelist} // <<< Pass categoryMakelist
                 categoryMakeListMutate={categoryMakeListMutate}
+                itemFuseOptions={itemFuseOptions}
             // --- End Make Props ---
             />
 

@@ -6,7 +6,7 @@ import { Radio } from "antd";
 import { Trash2 } from "lucide-react";
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table';
+import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -29,7 +29,7 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 
 // --- Types ---
-import { ProcurementRequest, ProcurementItem, Category } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest, Category } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
@@ -46,6 +46,63 @@ const SentBackRequest = React.lazy(() => import("@/pages/Sent Back Requests/sent
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
 const URL_SYNC_KEY_BASE = 'pr'; // Base key for URL params for this page
+
+
+const PRDataTableWrapper: React.FC<{
+    tab: string;
+    columns: any;
+    fieldsToFetch: string[];
+    prSearchableFields: SearchFieldOption[];
+    staticFilters: any[];
+    facetFilterOptions: any;
+    dateColumns: any;
+    notifications: NotificationType[];
+}> = ({ 
+    tab, 
+    columns, 
+    fieldsToFetch,
+    prSearchableFields,
+    staticFilters,
+    facetFilterOptions,
+    dateColumns,
+    notifications
+}) => {
+    // Generate urlSyncKey inside the wrapper
+    const dynamicUrlSyncKey = `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
+    const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
+
+    const serverDataTable = useServerDataTable<ProcurementRequest>({
+            doctype: DOCTYPE,
+            columns,
+            fetchFields: fieldsToFetch,
+            searchableFields: prSearchableFields,
+            urlSyncKey: dynamicUrlSyncKey, // Unique key per tab for data table state
+            defaultSort: 'modified desc',
+            enableRowSelection: false, // Enable selection for delete
+            additionalFilters: staticFilters,
+    });
+
+    return (
+        <DataTable<ProcurementRequest>
+            table={serverDataTable.table}
+            columns={columns}
+            isLoading={serverDataTable.isLoading}
+            error={serverDataTable.error}
+            totalCount={serverDataTable.totalCount}
+            searchFieldOptions={prSearchableFields}
+            selectedSearchField={serverDataTable.selectedSearchField}
+            onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
+            searchTerm={serverDataTable.searchTerm}
+            onSearchTermChange={serverDataTable.setSearchTerm}
+            facetFilterOptions={facetFilterOptions}
+            dateFilterColumns={dateColumns}
+            showExportButton={true}
+            onExport={'default'}
+            isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
+        />
+    );
+};
+
 
 // --- Component ---
 export const ProcurementRequests: React.FC = () => {
@@ -119,7 +176,7 @@ export const ProcurementRequests: React.FC = () => {
     const allTabs = useMemo(() => 
         [
             { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{counts.pr.all}</span></div>), value: "All PRs" },
-             { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
+            //  { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
         ]
     ,[counts, role])
 
@@ -230,7 +287,7 @@ export const ProcurementRequests: React.FC = () => {
                 const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
                 return (
                     <div className="flex flex-wrap gap-1 items-start justify-start">
-                        {categoryItems.length > 0 ? categoryItems.map((cat) => <Badge key={cat.name} variant="outline" className="text-xs">{cat.name}</Badge>) : '--'}
+                        {categoryItems.length > 0 ? categoryItems.map((cat, index) => <Badge key={`${row.original.name}-${cat.name}_${index}`} variant="outline" className="text-xs">{cat.name}</Badge>) : '--'}
                     </div>
                 );
             }, size: 180, enableSorting: false,
@@ -310,23 +367,6 @@ export const ProcurementRequests: React.FC = () => {
         ["New PR Request", "In Progress", "All PRs"].includes(tab),
         [tab]);
 
-    const serverDataTable = useServerDataTable<ProcurementRequest>(
-        shouldRenderDataTable ? {
-            doctype: DOCTYPE,
-            columns: dataTableColumns,
-            fetchFields: fieldsToFetch,
-            searchableFields: prSearchableFields,
-            // globalSearchFieldList: globalSearchFieldsForDataTable,
-            // enableItemSearch: true, // Enable item search within procurement_list
-            urlSyncKey: `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`, // Unique key per tab for data table state
-            defaultSort: 'modified desc',
-            enableRowSelection: false, // Enable selection for delete
-            additionalFilters: staticFilters,
-        } : { // Minimal config for non-table tabs to satisfy hook types
-            doctype: DOCTYPE, columns: [], fetchFields: ["name"], searchableFields: [{ value: "name", label: "PR ID", placeholder: "Search by PR ID..." }]
-        }
-    );
-
     // --- Combined Loading & Error States ---
     const isSupportingDataLoading = projectsLoading || userListLoading;
     const supportingDataError = projectsError || userError;
@@ -336,7 +376,6 @@ export const ProcurementRequests: React.FC = () => {
             await handleDeletePR(deleteFlagged.name); // handleDeletePR should handle toast/mutate
             setDeleteFlagged(null); // Clear after action
             toggleDeleteDialog(); // Close dialog
-            if (shouldRenderDataTable) serverDataTable.refetch(); // Refetch table data
         }
     };
 
@@ -347,8 +386,6 @@ export const ProcurementRequests: React.FC = () => {
             // The useEffect for tab will update the URL
         }
     }, [tab]);
-
-    const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
 
 
     // --- Render Logic ---
@@ -361,32 +398,16 @@ export const ProcurementRequests: React.FC = () => {
             if (supportingDataError) return <AlertDestructive error={supportingDataError} />;
 
             return (
-                <DataTable<ProcurementRequest>
-                    table={serverDataTable.table}
+                <PRDataTableWrapper
+                    key={tab} // Key on wrapper ensures complete remount
+                    tab={tab}
                     columns={dataTableColumns}
-                    isLoading={serverDataTable.isLoading}
-                    error={serverDataTable.error}
-                    totalCount={serverDataTable.totalCount}
-                    searchFieldOptions={prSearchableFields}
-                    selectedSearchField={serverDataTable.selectedSearchField}
-                    onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
-                    searchTerm={serverDataTable.searchTerm}
-                    onSearchTermChange={serverDataTable.setSearchTerm}
-                    // globalFilterValue={serverDataTable.globalFilter}
-                    // onGlobalFilterChange={serverDataTable.setGlobalFilter}
-                    // searchPlaceholder={`Search ${tab}...`}
-                    // showItemSearchToggle={serverDataTable.showItemSearchToggle}
-                    // itemSearchConfig={{
-                    //     isEnabled: serverDataTable.isItemSearchEnabled,
-                    //     toggle: serverDataTable.toggleItemSearch,
-                    //     label: "Item Search"
-                    // }}
+                    fieldsToFetch={fieldsToFetch}
+                    prSearchableFields={prSearchableFields}
+                    staticFilters={staticFilters}
                     facetFilterOptions={facetFilterOptionsForDataTable}
-                    dateFilterColumns={dateColumnsForDataTable}
-                    showExportButton={true}
-                    onExport={'default'}
-                    isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
-                // toolbarActions={...} // Add if needed
+                    dateColumns={dateColumnsForDataTable}
+                    notifications={notifications}
                 />
             );
         }

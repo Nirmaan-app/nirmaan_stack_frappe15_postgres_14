@@ -96,6 +96,7 @@ export const queryKeys = {
   projects: {
     doc: (docId: string) => ['Projects', docId] as const,
     list: (params?: ProjectListParams) => ['Projects', 'list', params ?? {}] as const,
+    allMinimal: () => ['Projects', 'allMinimalLookup'] as const,
   },
 
   customers: {
@@ -106,6 +107,7 @@ export const queryKeys = {
   vendors: {
     list: (params?: VendorListParams) => ['Vendors', 'list', params ?? {}] as const,
     // detail: (vendorId: string) => ['Vendors', 'detail', vendorId] as const,
+    allMinimal: () => ['Vendors', 'allMinimalLookup'] as const, // New key
   },
 
   sentBackCategory: {
@@ -136,6 +138,10 @@ export const queryKeys = {
     list: (params?: InflowListParams) => ['Project Inflows', 'list', params ?? {}] as const,
     // Add doc if needed later
   },
+  doc: (doctype: string, docId: string) => [doctype, 'get', docId] as const,
+  docList: (doctype: string) => [doctype, 'list'] as const,
+
+  targetRates: (prId: string, itemIds: string[]) => ['nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', prId, itemIds] as const,
 
 };
 

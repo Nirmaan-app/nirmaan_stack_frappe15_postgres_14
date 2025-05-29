@@ -16,7 +16,9 @@
   "notes",
   "gst",
   "project_gst",
-  "advance"
+  "advance",
+  "invoice_no",
+  "invoice_date"
  ],
  "fields": [
   {
@@ -81,12 +83,22 @@
    "fieldname": "invoice_data",
    "fieldtype": "JSON",
    "label": "Invoice Data"
+  },
+  {
+   "fieldname": "invoice_no",
+   "fieldtype": "Data",
+   "label": "Invoice Number"
+  },
+  {
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-04-07 18:22:18.538270",
+ "modified": "2025-05-27 19:11:14.756953",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",
@@ -177,6 +189,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

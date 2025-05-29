@@ -7,7 +7,7 @@ import {
     useSWRConfig,
     FrappeDoc, // Keep for potential global cache invalidation if needed outside feature
 } from 'frappe-react-sdk';
-import Fuse from 'fuse.js';
+import Fuse, { IFuseOptions } from 'fuse.js';
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import {
@@ -100,6 +100,19 @@ export const useApprovePRLogic = ({
     const [isRequestItemDialogOpen, setIsRequestItemDialogOpen] = useState(false);
     const [isDeletePRDialogOpen, setIsDeletePRDialogOpen] = useState(false);
     const [isConfirmActionDialogOpen, setIsConfirmActionDialogOpen] = useState(false);
+
+    // --- Fuse.js Configuration for Item Selection ---
+    const itemFuseOptions: IFuseOptions<ItemOption> = useMemo(() => ({
+        keys: ['label', 'value', 'category'], // Search on item label (name), value (ID), and category
+        threshold: 0.3,
+        includeScore: false,
+        // Example: Give more weight to the item label (name)
+        // keys: [
+        //   { name: 'label', weight: 0.7 },
+        //   { name: 'value', weight: 0.2 },
+        //   { name: 'category', weight: 0.1 }
+        // ]
+    }), []);
 
     // --- Memoized Derived Data ---
     const itemOptions = useMemo((): ItemOption[] => {
@@ -1015,6 +1028,7 @@ export const useApprovePRLogic = ({
         makeList,
         makeListMutate,
         categoryMakelist,
-        categoryMakeListMutate
+        categoryMakeListMutate,
+        itemFuseOptions
     };
 };

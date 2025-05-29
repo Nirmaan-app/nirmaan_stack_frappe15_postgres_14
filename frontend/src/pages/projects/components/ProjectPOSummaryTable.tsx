@@ -1,7 +1,7 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from 'lodash/memoize';
 
@@ -18,11 +18,10 @@ import { TailSpin } from "react-loader-spinner";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts"; // Your existing getAmounts
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
-import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // For paid amounts
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"; // For WP lookup
 
@@ -290,7 +289,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
     const {
         table, data: poDataForPage, totalCount, isLoading: listIsLoading, error: listError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        isRowSelectionActive, refetch,
     } = useServerDataTable<ProcurementOrder>({
         doctype: DOCTYPE,
         columns: columns, // Columns are defined below
@@ -309,27 +307,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
         status: { title: "Status", options: PO_SUMMARY_STATUS_OPTIONS },
         // Add work_package facet if you create options for it
     }), [vendorOptions]);
-
-
-    // --- Realtime Updates ---
-    useFrappeDocTypeEventListener(DOCTYPE, (event) => { // For POs
-        refetch(); fetchPOAggregates({ project_id: projectId });
-        toast({ title: "PO Summary updated.", duration: 2000 });
-        // if (!projectId || event.doc?.project === projectId) {
-        //     refetch(); fetchPOAggregates({ project_id: projectId });
-        //     toast({ title: "PO Summary updated.", duration: 2000 });
-        // }
-    });
-    useFrappeDocTypeEventListener("Procurement Requests", (event) => { // For PRs (affects WP)
-        refetch();
-        // if (!projectId || event.doc?.project === projectId) refetch();
-    });
-    useFrappeDocTypeEventListener("Project Payments", (event) => { // For Payments (affects Amt Paid)
-        fetchPOAggregates({ project_id: projectId }); // Refetch aggregates
-        // if (event.doc?.document_type === DOCTYPE && (!projectId || event.doc.project === projectId)) {
-        //     fetchPOAggregates({ project_id: projectId }); // Refetch aggregates
-        // }
-    });
 
     const isLoadingOverall = prDataLoading || vendorsLoading || userListLoading || aggregatesLoading || projectPaymentsLoading;
     const combinedErrorOverall = vendorsError || userListError || listError || aggregatesError || projectPaymentsError || prDataError;

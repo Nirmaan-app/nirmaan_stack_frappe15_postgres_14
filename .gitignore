@@ -11,3 +11,4 @@ nirmaan_stack/public/node_modules
 nirmaan_stack/www/frontend.html
 build
 .env
+.roo*

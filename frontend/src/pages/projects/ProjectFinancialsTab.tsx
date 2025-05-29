@@ -173,7 +173,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                 </Suspense>
 
                       <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>
-                              <DialogContent className="text-start">
+                              <DialogContent className="text-start max-h-[80vh] overflow-auto">
                                   <DialogHeader className="text-start py-8 overflow-auto">
                                     <DialogTitle>Inflow Payments</DialogTitle>
                                   </DialogHeader>

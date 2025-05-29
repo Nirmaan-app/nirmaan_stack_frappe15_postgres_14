@@ -12,6 +12,8 @@ import { Makelist } from '@/types/NirmaanStack/Makelist'; // Added Makelist type
 import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import CategoryMakelist
 import { ManageCategoryMakesDialog } from '../../NewPR/components/ManageCategoryMakesDialog'; // Added Manage Makes Dialog
 import { CustomMakeMenuList } from '../../NewPR/components/ItemSelectorControls'; // Added Custom Menu List
+import { FuzzySearchSelect } from '@/components/ui/fuzzy-search-select';
+import { IFuseOptions } from 'fuse.js';
 
 
 
@@ -38,6 +40,7 @@ interface AddItemFormProps {
     makeListMutate: () => Promise<any>;
     categoryMakelist?: CategoryMakelistType[]; // <<< Add prop
     categoryMakeListMutate?: () => Promise<any>;
+    itemFuseOptions: IFuseOptions<ItemOption>;
     // --- End Make Props ---
 }
 
@@ -71,6 +74,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
         makeListMutate,
         categoryMakelist, // <<< Destructure
         categoryMakeListMutate,
+        itemFuseOptions
     } = props;
     // --- State for Makes ---
     const [currentMakeOption, setCurrentMakeOption] = useState<MakeOption | null>(null);
@@ -275,7 +279,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
                             {/* Row 1: Product Selection */}
                             <div className="w-full">
                                 <Label className="text-xs text-muted-foreground db-block mb-1">Select Product <span className='text-red-500'>*</span></Label>
-                                <ReactSelect
+                                {/* <ReactSelect
                                     value={currentItemOption}
                                     options={itemOptions}
                                     onChange={(selected) => setCurrentItemOption(selected as ItemOption)}
@@ -283,6 +287,18 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
                                     placeholder="Search or select a product..."
                                     isDisabled={isLoading}
                                     classNamePrefix="react-select" // Optional: for styling
+                                /> */}
+                                <FuzzySearchSelect
+                                    inputId='add-item-select'
+                                    placeholder="Search or select a product..."
+                                    value={currentItemOption}
+                                    allOptions={itemOptions}
+                                    fuseOptions={itemFuseOptions}
+                                    // options={itemOptions}
+                                    onChange={(selected) => setCurrentItemOption(selected as ItemOption)}
+                                    isClearable
+                                    isDisabled={isLoading}
+                                    // classNamePrefix="react-select" // Optional: for styling
                                 />
                             </div>
 
@@ -301,7 +317,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
                                         // // Pass custom props/handlers for "Manage Makes"
                                         onManageMakesClick={handleOpenManageMakesDialog} // Prop expected by CustomMakeMenuList
                                         components={{ MenuList: CustomMakeMenuList }} // Use custom menu list
-                                        selectProps={{ customProps: makeSelectCustomProps }} // Pass custom data via selectProps
+                                        // selectProps={{ customProps: makeSelectCustomProps }} // Pass custom data via selectProps
                                         isClearable
                                         classNamePrefix="react-select"
                                     />

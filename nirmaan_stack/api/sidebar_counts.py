@@ -8,10 +8,12 @@ def sidebar_counts(user: str) -> str:
     The dict is already split into normal/admin buckets so the client
     does zero post-processing.
     """
-    is_admin = frappe.get_roles(user) and (
-        "Nirmaan Admin Profile" in frappe.get_roles(user)
-        or user == "Administrator"
-    )
+    # is_admin = frappe.get_roles(user) and (
+    #     "Nirmaan Admin Profile" in frappe.get_roles(user)
+    #     or user == "Administrator"
+    # )
+
+    is_admin = user == "Administrator" or frappe.get_value("Nirmaan Users", user, "role_profile") == "Nirmaan Admin Profile"
 
     def simple(doctype, flt):
         return frappe.db.count(doctype, filters=flt)

@@ -1,15 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ConfigProvider, Menu, MenuProps } from "antd";
 import { useFrappeGetDocList } from 'frappe-react-sdk';
 
 import { useVendorData } from './hooks/useVendorData';
-import { VendorOverviewCard } from './components/VendorOverviewCard';
-import { VendorBankDetailsCard } from './components/VendorBankDetailsCard';
-import { VendorMaterialOrdersTable } from './components/VendorMaterialOrdersTable';
-import { VendorPaymentsTable } from './components/VendorPaymentsTable'; 
-import { ApprovedSRList } from "@/pages/ServiceRequests/service-request/approved-sr-list";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Category } from "@/types/NirmaanStack/Category";
@@ -18,13 +13,51 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { FilePenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditVendor } from "./edit-vendor";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
+import { urlStateManager } from "@/utils/urlStateManager";
+import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+
+const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
+const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
+const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
+const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
+const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
+const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
 
 type MenuItem = Required<MenuProps>["items"][number];
 
 export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
-    const [currentTab, setCurrentTab] = useState("overview");
+
+    // --- Tab State Management ---
+    const initialTab = useMemo(() => {
+        // Determine initial tab based on role, default to "Approved PO" if not admin/lead
+        const defaultTab = "overview";
+        return getUrlStringParam("tab", defaultTab);
+    }, []); // Calculate only once based on role
+
+    const [currentTab, setCurrentTab] = useState(initialTab);
     const [editSheetOpen, setEditSheetOpen] = useState(false);
     const toggleEditSheet = useCallback(() => setEditSheetOpen(prev => !prev), []);
+
+    // Effect to sync tab state TO URL
+    useEffect(() => {
+        // Only update URL if the state `tab` is different from the URL's current 'tab' param
+        if (urlStateManager.getParam("tab") !== currentTab) {
+            urlStateManager.updateParam("tab", currentTab);
+        }
+    }, [currentTab]);
+    
+    // Effect to sync URL state TO tab state (for popstate/direct URL load)
+    useEffect(() => {
+        const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
+            // Update state only if the new URL value is different from current state
+            const newTab = value || initialTab; // Fallback to initial if param removed
+            if (currentTab !== newTab) {
+                setCurrentTab(newTab);
+            }
+        });
+        return unsubscribe; // Cleanup subscription
+    }, [initialTab]); // Depend on `tab` to avoid stale closures
 
     // --- Main Vendor Data ---
     const { vendor, vendorAddress, isLoading: vendorLoading, error: vendorError, mutateVendor } = useVendorData(vendorId);
@@ -52,6 +85,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
             { label: "Service Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
+        { label: "Approved Quotes", key: "approvedQuotes" },
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
     const handleMenuClick: MenuProps["onClick"] = useCallback(e => setCurrentTab(e.key), []);
@@ -88,6 +122,10 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                             vendorId={vendorId}
                             projectOptions={projectOptions}
                         />;
+            case "approvedQuotes":
+                return <VendorApprovedQuotesTable
+                            vendorId={vendorId} 
+                        />;
             default:
                 return <div>Select a tab.</div>;
         }
@@ -120,7 +158,9 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             </ConfigProvider>
 
             <div className="mt-6">
-                {renderTabContent()}
+                <Suspense fallback={<LoadingFallback />}>
+                    {renderTabContent()}
+                </Suspense>
             </div>
 
             <Sheet open={editSheetOpen} onOpenChange={setEditSheetOpen}>

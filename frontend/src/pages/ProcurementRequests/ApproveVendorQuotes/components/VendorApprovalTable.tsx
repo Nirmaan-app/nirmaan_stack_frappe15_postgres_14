@@ -171,8 +171,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                             </AccordionTrigger>
 
                             {/* Content: The Table */}
-                            <AccordionContent>
-                                <CardContent className="p-0">
+                            <AccordionContent className="overflow-auto">
+                                <CardContent className="p-0 ">
                                     <Table>
                                         <TableHeader className="bg-primary/20">
                                             <TableRow>
