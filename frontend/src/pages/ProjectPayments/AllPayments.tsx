@@ -1,12 +1,12 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React, { useCallback, useContext, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList, useFrappeDocTypeEventListener, Filter, FrappeDoc } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc } from "frappe-react-sdk";
 import { Download, Info } from "lucide-react";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table';
+import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -16,7 +16,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalAmountPaid, getPOTotal } from "@/utils/getAmounts";
+import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import SITEURL from "@/constants/siteURL";
@@ -49,6 +49,62 @@ interface AllPaymentsProps {
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
+const AllPaymentsTableWrapper: React.FC<{
+    tab: string;
+    columns: any;
+    fieldsToFetch: string[];
+    paymentsSearchableFields: SearchFieldOption[];
+    staticFiltersForTab: any[];
+    facetFilterOptions: any;
+    dateColumns: any;
+    URL_SYNC_KEY: string;
+}> = ({ 
+    tab, 
+    columns, 
+    fieldsToFetch,
+    paymentsSearchableFields,
+    staticFiltersForTab,
+    facetFilterOptions,
+    dateColumns,
+    URL_SYNC_KEY
+}) => {
+    
+    // --- useServerDataTable Hook Instantiation ---
+    const {
+        table, totalCount, isLoading: listIsLoading, error: listError,
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+    } = useServerDataTable<ProjectPayments>({
+        doctype: DOCTYPE,
+        columns: columns,
+        fetchFields: fieldsToFetch,
+        searchableFields: paymentsSearchableFields,
+        urlSyncKey: URL_SYNC_KEY,
+        defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
+        enableRowSelection: false, // No bulk actions currently
+        additionalFilters: staticFiltersForTab,
+    });
+
+    return (
+        <DataTable<ProjectPayments>
+            table={table}
+            columns={columns}
+            isLoading={listIsLoading}
+            error={listError}
+            totalCount={totalCount}
+            searchFieldOptions={paymentsSearchableFields}
+            selectedSearchField={selectedSearchField}
+            onSelectedSearchFieldChange={setSelectedSearchField}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            facetFilterOptions={facetFilterOptions}
+            dateFilterColumns={dateColumns}
+            showExportButton={true}
+            onExport={'default'}
+        />
+    );
+};
+
 export const AllPayments: React.FC<AllPaymentsProps> = ({
     tab = "Payments Pending", // Default tab
     projectId,
@@ -69,17 +125,17 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         [customerId, projectId]);
 
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
-        "Projects", { fields: ["name", "project_name"], filters: projectFiltersForLookup as Filter<FrappeDoc<Projects>>[], limit: 1000 },
+        "Projects", { fields: ["name", "project_name"], filters: projectFiltersForLookup as Filter<FrappeDoc<Projects>>[], limit: 0 },
         `Projects_AllPay_${customerId || projectId || 'all'}`
     );
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
     // Fetch related POs and SRs for "PO Value" calculation
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
-        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "order_list", "loading_charges", "freight_charges"], limit: 100000 }, 'POs_AllPay'
+        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "order_list", "loading_charges", "freight_charges"], limit: 0 }, 'POs_AllPay'
     );
     const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
-        DOC_TYPES.SERVICE_REQUESTS, { fields: ["name", "service_order_list", "gst"], limit: 10000 }, 'SRs_AllPay'
+        DOC_TYPES.SERVICE_REQUESTS, { fields: ["name", "service_order_list", "gst"], limit: 0 }, 'SRs_AllPay'
     );
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
 
@@ -297,33 +353,11 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     }, [projectOptions, vendorOptions, projectId, tab]);
 
 
-    // --- useServerDataTable Hook Instantiation ---
-    const {
-        table, data, totalCount, isLoading: listIsLoading, error: listError,
-        // globalFilter, setGlobalFilter,
-        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
-        selectedSearchField, setSelectedSearchField,
-        searchTerm, setSearchTerm,
-        isRowSelectionActive,
-        refetch,
-    } = useServerDataTable<ProjectPayments>({
-        doctype: DOCTYPE,
-        columns: columns,
-        fetchFields: fieldsToFetch,
-        searchableFields: paymentsSearchableFields,
-        // globalSearchFieldList: globalSearchFields,
-        // enableItemSearch: false, // Item search not applicable
-        urlSyncKey: urlSyncKey,
-        defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
-        enableRowSelection: false, // No bulk actions currently
-        additionalFilters: staticFilters,
-    });
-
     // --- Combined Loading & Error States ---
     const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading;
-    const combinedErrorOverall = projectsError || vendorsError || poError || srError || listError;
+    const combinedErrorOverall = projectsError || vendorsError || poError || srError || userError;
 
-    if (combinedErrorOverall && !data?.length) {
+    if (combinedErrorOverall) {
         <AlertDestructive error={combinedErrorOverall} />
     }
 
@@ -331,30 +365,19 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     return (
         <div className="flex-1 space-y-4">
 
-            {isLoadingOverall && !data?.length ? (
+            {isLoadingOverall ? (
                 <TableSkeleton />
             ) : (
-                <DataTable<ProjectPayments>
-                    table={table}
+                <AllPaymentsTableWrapper
+                    key={urlSyncKey} // Key on wrapper ensures complete remount
+                    tab={tab}
                     columns={columns}
-                    isLoading={listIsLoading}
-                    error={listError}
-                    totalCount={totalCount}
-                    searchFieldOptions={paymentsSearchableFields}
-                    selectedSearchField={selectedSearchField}
-                    onSelectedSearchFieldChange={setSelectedSearchField}
-                    searchTerm={searchTerm}
-                    onSearchTermChange={setSearchTerm}
-                    // globalFilterValue={globalFilter}
-                    // onGlobalFilterChange={setGlobalFilter}
-                    // searchPlaceholder={`Search ${tab}...`}
-                    // showItemSearchToggle={showItemSearchToggle} // Will be false
-                    // itemSearchConfig={{ isEnabled: isItemSearchEnabled, toggle: toggleItemSearch, label: "Item Search"}}
+                    fieldsToFetch={fieldsToFetch}
+                    paymentsSearchableFields={paymentsSearchableFields}
+                    staticFiltersForTab={staticFilters}
                     facetFilterOptions={facetFilterOptions}
-                    dateFilterColumns={dateColumns}
-                    showExportButton={true} // Optional
-                    onExport={'default'}
-                // toolbarActions={...} // Optional
+                    dateColumns={dateColumns}
+                    URL_SYNC_KEY={urlSyncKey}
                 />
             )}
         </div>

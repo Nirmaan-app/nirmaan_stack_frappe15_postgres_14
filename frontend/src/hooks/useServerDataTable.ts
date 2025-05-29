@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -231,8 +231,52 @@ export function useServerDataTable<TData extends { name: string }>({
     shouldCache = false
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
 
-    const previousUrlSyncKeyRef = useRef<string | undefined>(urlSyncKey);
-    const [isKeyChanging, setIsKeyChanging] = useState(false);
+    // Add this near the top of your hook after state declarations
+    // const previousUrlSyncKeyRef = useRef<string | undefined>(urlSyncKey);
+
+    // // Add this effect to clean up URL params when urlSyncKey changes or component unmounts
+    // useEffect(() => {
+    //   const currentUrlSyncKey = urlSyncKey;
+    //   const previousUrlSyncKey = previousUrlSyncKeyRef.current;
+    
+    //   // Clean up previous URL params if urlSyncKey changed
+    //   if (previousUrlSyncKey && previousUrlSyncKey !== currentUrlSyncKey) {
+    //     const paramsToRemove = [
+    //       `${previousUrlSyncKey}_pageIdx`,
+    //       `${previousUrlSyncKey}_pageSize`,
+    //       `${previousUrlSyncKey}_q`,
+    //       `${previousUrlSyncKey}_searchBy`,
+    //       `${previousUrlSyncKey}_sort`,
+    //       `${previousUrlSyncKey}_filters`,
+    //     ];
+    
+    //     paramsToRemove.forEach(param => {
+    //       urlStateManager.updateParam(param, null);
+    //     });
+    //   }
+    
+    //   // Update ref for next render
+    //   previousUrlSyncKeyRef.current = currentUrlSyncKey;
+    
+    //   // Cleanup function when component unmounts
+    //   return () => {
+    //     if (currentUrlSyncKey) {
+    //       const paramsToRemove = [
+    //         `${currentUrlSyncKey}_pageIdx`,
+    //         `${currentUrlSyncKey}_pageSize`,
+    //         `${currentUrlSyncKey}_q`,
+    //         `${currentUrlSyncKey}_searchBy`,
+    //         `${currentUrlSyncKey}_sort`,
+    //         `${currentUrlSyncKey}_filters`,
+    //       ];
+        
+    //       paramsToRemove.forEach(param => {
+    //         urlStateManager.updateParam(param, null);
+    //       });
+    //     }
+    //   };
+    // }, [urlSyncKey]);
+
 
 
     const apiEndpoint = 'nirmaan_stack.api.data-table.get_list_with_count_enhanced'; // Get Frappe call method from context
@@ -326,47 +370,6 @@ export function useServerDataTable<TData extends { name: string }>({
       ),
       [DEBOUNCE_DELAY] // Only recreate if delay changes
     );
-
-    // Detect urlSyncKey change and reset states
-  useEffect(() => {
-    if (previousUrlSyncKeyRef.current && previousUrlSyncKeyRef.current !== urlSyncKey) {
-      console.log(`[useServerDataTable] Key changed from ${previousUrlSyncKeyRef.current} to ${urlSyncKey}`);
-      
-      setIsKeyChanging(true);
-      
-      // Clean up old params
-      const oldKey = previousUrlSyncKeyRef.current;
-      const paramsToRemove = [
-        `${oldKey}_pageIdx`,
-        `${oldKey}_pageSize`,
-        `${oldKey}_q`,
-        `${oldKey}_searchBy`,
-        `${oldKey}_sort`,
-        `${oldKey}_filters`,
-      ];
-      
-      paramsToRemove.forEach(param => {
-        urlStateManager.updateParam(param, null);
-      });
-      
-      // Reset all states to defaults
-      setPagination({ pageIndex: 0, pageSize: 50 });
-      setSorting([]);
-      setColumnFilters([]);
-      setSearchTerm('');
-      setSelectedSearchField(defaultInitialSearchField);
-      setDebouncedSearchTermForApi('');
-      setData([]);
-      setTotalCount(0);
-      
-      // Allow fetch on next tick
-      requestAnimationFrame(() => {
-        setIsKeyChanging(false);
-      });
-    }
-    
-    previousUrlSyncKeyRef.current = urlSyncKey;
-  }, [urlSyncKey, defaultInitialSearchField]);
 
 
     // Effect to call the debounced function when the *immediate* globalFilter changes
@@ -619,11 +622,9 @@ export function useServerDataTable<TData extends { name: string }>({
         //     return;
         // }
 
-        if (!isKeyChanging) {
-          console.log("calling fetchData...");
-          fetchData();
-        }
-    }, [fetchData, isKeyChanging]); // Dependency is the memoized fetchData function
+        console.log("calling fetchData...");
+        fetchData();
+    }, [fetchData]); // Dependency is the memoized fetchData function
 
     // --- Real-time Event Listener using useFrappeEventListener ---
     const handleRealtimeEvent = useCallback((message: any) => {
@@ -726,7 +727,7 @@ export function useServerDataTable<TData extends { name: string }>({
         table,
         data,
         totalCount,
-        isLoading: isLoading || isCallingApi || isKeyChanging,
+        isLoading: isLoading || isCallingApi,
         error: (error || apiError) as Error | null,
         // Expose states and setters
         pagination,

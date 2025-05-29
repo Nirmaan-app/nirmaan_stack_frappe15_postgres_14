@@ -85,7 +85,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "not in", ["Cancelled", "Merged"]], ["project", "in", projects?.map(i => i?.name)]],
-        limit: 100000,
+        limit: 0,
         orderBy: { field: "modified", order: "desc" },
     },
     projects ? undefined : null
@@ -94,7 +94,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
     const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
         filters: [["status", "=", "Approved"], ["project", "in", projects?.map(i => i?.name)]],
-        limit: 10000,
+        limit: 0,
         orderBy: { field: "modified", order: "desc" },
     },
     projects ? undefined : null
@@ -102,13 +102,13 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["name", "vendor_name"],
-        limit: 10000,
+        limit: 0,
     }, 'Vendors');
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
         filters: [["status", "=", "Paid"]],
-        limit: 100000
+        limit: 0
     })
 
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
