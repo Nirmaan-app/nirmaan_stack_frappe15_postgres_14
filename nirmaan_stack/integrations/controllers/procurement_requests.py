@@ -14,6 +14,33 @@ from ...api.approve_vendor_quotes import generate_pos_from_selection
 # 'Any' might still be useful for generic dictionary values if strict typing isn't needed there.
 from typing import TypedDict
 
+# Constants for Auto-Approval Logic
+AUTO_APPROVAL_THRESHOLD = 20000.0  # ₹20,000
+AUTO_APPROVED_PR_COUNT_KEY = "auto_approved_pr_count"
+SKIP_PR_INTERVAL = 8 # Skip auto-approval for every 8th PR
+
+# Helper functions for managing the auto-approval counter
+def get_auto_approval_counter() -> int:
+    """Retrieves the current auto-approved PR count from Frappe Singles."""
+    count = frappe.db.get_single_value("Auto Approval Counter Settings", AUTO_APPROVED_PR_COUNT_KEY)
+    return int(count) if count is not None else 0
+
+def increment_auto_approval_counter():
+    """Increments the auto-approved PR count. Resets if it reaches SKIP_PR_INTERVAL."""
+    current_count = get_auto_approval_counter()
+    new_count = current_count + 1
+    if new_count >= SKIP_PR_INTERVAL:
+        frappe.db.set_single_value("Auto Approval Counter Settings", AUTO_APPROVED_PR_COUNT_KEY, 0)
+        # frappe.log_simple(f"Auto-approval counter reset to 0 after reaching {SKIP_PR_INTERVAL}.")
+    else:
+        frappe.db.set_single_value("Auto Approval Counter Settings", AUTO_APPROVED_PR_COUNT_KEY, new_count)
+        # frappe.log_simple(f"Auto-approval counter incremented to {new_count}.")
+
+def reset_auto_approval_counter():
+    """Resets the auto-approved PR count to 0."""
+    frappe.db.set_single_value("Auto Approval Counter Settings", AUTO_APPROVED_PR_COUNT_KEY, 0)
+    # frappe.log_simple("Auto-approval counter explicitly reset to 0.")
+
 # Structure matching the required return type of get_historical_average_quote
 # Using built-in 'list' and 'dict' for generic types (Python 3.9+)
 class HistoricalAverageResult(TypedDict):
@@ -300,7 +327,7 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
     Checks:
     1. Workflow state must be "Vendor Selected".
     2. Total actual amount (sum of item quantity * item quote from list) < 20000.
-    3. Percentage difference between total estimated amount and total actual amount <= 5%.
+    NOT REQUIRED CHECK Percentage difference between total estimated amount and total actual amount <= 5%.
 
     Args:
         doc: The Procurement Request document object.
@@ -349,7 +376,7 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
     total_estimated_amount = 0.0
 
     items_processed_count = 0 # Count items used for calculation
-    get_historical_average_quote_cached.cache_clear() # Clear cache before calculations
+    # get_historical_average_quote_cached.cache_clear() # Clear cache before calculations
 
     for item in items:
         if not isinstance(item, dict):
@@ -396,18 +423,18 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
         total_actual_amount += quantity * actual_quote
 
         # Calculate Estimated Amount component
-        try:
-            rate_result = get_historical_average_quote_cached(item_id)
-            estimated_rate = rate_result["averageRate"]
-            if estimated_rate <= 0:
-                frappe.msgprint(f"Could not determine a valid historical estimated rate (> 0) for item '{item_display_name}' (ID: {item_id}). Cannot perform comparison.", indicator="red", title="Validation Failed")
-                continue # Skip this item, but continue with others
-        except Exception as e:
-            frappe.log_error(f"Error calculating estimated rate for item {item_id} in PR {doc.name}: {e}", "Procurement PO Validation Error")
-            frappe.msgprint(f"An error occurred while calculating the estimated rate for item '{item_display_name}'.", indicator="red", title="System Error")
-            return False
+        # try:
+        #     rate_result = get_historical_average_quote_cached(item_id)
+        #     estimated_rate = rate_result["averageRate"]
+        #     if estimated_rate <= 0:
+        #         frappe.msgprint(f"Could not determine a valid historical estimated rate (> 0) for item '{item_display_name}' (ID: {item_id}). Cannot perform comparison.", indicator="red", title="Validation Failed")
+        #         continue # Skip this item, but continue with others
+        # except Exception as e:
+        #     frappe.log_error(f"Error calculating estimated rate for item {item_id} in PR {doc.name}: {e}", "Procurement PO Validation Error")
+        #     frappe.msgprint(f"An error occurred while calculating the estimated rate for item '{item_display_name}'.", indicator="red", title="System Error")
+        #     return False
 
-        total_estimated_amount += quantity * estimated_rate
+        # total_estimated_amount += quantity * estimated_rate
 
     # If no 'Pending' items were found to process after filtering
     if items_processed_count == 0:
@@ -416,41 +443,56 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
         # Let's assume it should fail if the intent requires items.
         return False
     
-    if total_actual_amount <= 5000.0:
-        # If total actual amount is less than 5000, we can skip the rest of the checks
-        frappe.msgprint(f"Procurement Request {doc.name} has total actual amount ({total_actual_amount:.2f}) less than 5000. Skipping further checks.", indicator="green", title="Validation Passed")
-        return True
-
-    # --- Check 2: Actual Amount Threshold ---
-    actual_amount_threshold = 20000.0
-    if total_actual_amount >= actual_amount_threshold:
-        frappe.msgprint(f"Validation Failed for PR {doc.name}: Total Actual Amount ({total_actual_amount:.2f}) is not less than {actual_amount_threshold}.", indicator="red", title="Validation Failed")
-        return False
-
-    # --- Check 3: Percentage Difference ---
-    percentage_threshold = 5.0
-    percentage_difference = 0.0
-
-    if total_estimated_amount == 0:
-        if total_actual_amount != 0:
-            # Estimated is 0, but actual isn't. Infinite difference.
-            frappe.msgprint(f"Validation Failed for PR {doc.name}: Total Estimated Amount is zero, but Total Actual Amount is {total_actual_amount:.2f}. Cannot calculate valid percentage difference.", indicator="red", title="Validation Failed")
-            return False
-        # else: both are 0, difference is 0%, which is <= 5%, so proceed.
+    # --- Auto-Approval Logic based on Value Threshold and Counter ---
+    if total_actual_amount < AUTO_APPROVAL_THRESHOLD: # This covers anything under ₹20,000
+        current_auto_approved_count = get_auto_approval_counter()
+        
+        if current_auto_approved_count == (SKIP_PR_INTERVAL - 1): # This is the 9th PR (0-indexed count)
+            frappe.msgprint(f"Procurement Request {doc.name} (Value: {total_actual_amount:.2f}) is the {SKIP_PR_INTERVAL}th auto-approval candidate. Skipping auto-approval for manual review.", indicator="orange", title="Manual Review Required")
+            reset_auto_approval_counter()
+            return False # Fail validation to force manual review
+        else:
+            increment_auto_approval_counter()
+            frappe.msgprint(f"Procurement Request {doc.name} (Value: {total_actual_amount:.2f}) auto-approved. Auto-approval count: {get_auto_approval_counter()}/{SKIP_PR_INTERVAL-1}", indicator="green", title="Auto-Approved")
+            return True # Auto-approve
     else:
-        difference = abs(total_estimated_amount - total_actual_amount)
-        percentage_difference = (difference / total_estimated_amount) * 100
-
-    if percentage_difference > percentage_threshold:
-        frappe.msgprint(
-            f"Validation Failed for PR {doc.name}: Percentage difference between Estimated ({total_estimated_amount:.2f}) and Actual ({total_actual_amount:.2f}) amounts is {percentage_difference:.2f}%, which exceeds the threshold of {percentage_threshold}%.",
-            indicator="red", title="Validation Failed"
-        )
+        # If total actual amount is >= AUTO_APPROVAL_THRESHOLD, it fails auto-approval
+        frappe.msgprint(f"Validation Failed for PR {doc.name}: Total Actual Amount ({total_actual_amount:.2f}) is not less than {AUTO_APPROVAL_THRESHOLD:.2f}.", indicator="red", title="Validation Failed")
         return False
 
-    # --- All Checks Passed ---
-    frappe.msgprint(f"Procurement Request {doc.name} passed validation for PO creation.", indicator="green", title="Validation Passed")
-    return True
+    # --- Check 3: Percentage Difference (This check is now only reached if total_actual_amount >= AUTO_APPROVAL_THRESHOLD) ---
+    # This part of the code will now only be reached if the PR is NOT auto-approved by the above logic.
+    # The original task implies that if it's auto-approved, no further checks are needed.
+    # If the intent was to apply percentage difference check *after* the 20k threshold,
+    # then this block should be moved inside the `else` block above, or the `return False`
+    # for the threshold check should be removed and the percentage check applied.
+    # Based on "Auto-approve PRs with values less than ₹20,000", if it's less, it's approved (or skipped).
+    # If it's NOT less, it fails. So, the percentage difference check is effectively bypassed for now.
+    # If this is not the desired behavior, further clarification is needed.
+    # For now, I'm assuming the 20k threshold is the primary gate for auto-approval.
+    # percentage_threshold = 5.0
+    # percentage_difference = 0.0
+
+    # if total_estimated_amount == 0:
+    #     if total_actual_amount != 0:
+    #         # Estimated is 0, but actual isn't. Infinite difference.
+    #         frappe.msgprint(f"Validation Failed for PR {doc.name}: Total Estimated Amount is zero, but Total Actual Amount is {total_actual_amount:.2f}. Cannot calculate valid percentage difference.", indicator="red", title="Validation Failed")
+    #         return False
+    #     # else: both are 0, difference is 0%, which is <= 5%, so proceed.
+    # else:
+    #     difference = abs(total_estimated_amount - total_actual_amount)
+    #     percentage_difference = (difference / total_estimated_amount) * 100
+
+    # if percentage_difference > percentage_threshold:
+    #     frappe.msgprint(
+    #         f"Validation Failed for PR {doc.name}: Percentage difference between Estimated ({total_estimated_amount:.2f}) and Actual ({total_actual_amount:.2f}) amounts is {percentage_difference:.2f}%, which exceeds the threshold of {percentage_threshold}%.",
+    #         indicator="red", title="Validation Failed"
+    #     )
+    #     return False
+
+    # # --- All Checks Passed ---
+    # frappe.msgprint(f"Procurement Request {doc.name} passed validation for PO creation.", indicator="green", title="Validation Passed")
+    # return True
 
 def after_insert(doc, method):
     # if(frappe.db.exists({"doctype": "Procurement Requests", "project": doc.project, "work_package": doc.work_package, "owner": doc.owner, "workflow_state": "Pending"})):
