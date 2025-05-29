@@ -21,6 +21,7 @@ import {
     CATEGORY_DOCTYPE, CATEGORY_LIST_FIELDS_TO_FETCH
 } from "./items.constants"; // Adjust path
 import { useDialogStore } from "@/zustand/useDialogStore";
+import { UnitOptions } from "@/components/helpers/SelectUnit";
 
 
 export default function ItemsPage() {
@@ -116,8 +117,8 @@ export default function ItemsPage() {
         },
         {
             accessorKey: "creation",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Item Creation Date" />,
-            cell: ({ row }) => <div className="font-medium text-center whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
+            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
             meta: {
                 exportHeaderName: "Item Creation Date",
@@ -143,7 +144,8 @@ export default function ItemsPage() {
 
     const facetFilterOptions = useMemo(() => ({
         category: { title: "Category", options: categoryFacetOptions },
-    }), [categoryFacetOptions]);
+        unit_name: { title: "Unit", options: UnitOptions },
+    }), [categoryFacetOptions, UnitOptions]);
 
     const canManageItems = userData?.role === "Nirmaan Admin Profile"; // Define roles that can add/edit
 

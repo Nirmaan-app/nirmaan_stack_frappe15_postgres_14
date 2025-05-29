@@ -13,14 +13,6 @@ import {
   CardHeader,
   CardTitle
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -36,14 +28,14 @@ import { toast } from "@/components/ui/use-toast";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import SITEURL from "@/constants/siteURL";
 import { usePOValidation } from "@/hooks/usePOValidation";
+import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { debounce } from "lodash";
 import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -71,7 +63,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
 }) => {
 
   const { errors, isValid } = usePOValidation(PO);
-  const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
   const { upload: upload, loading: uploadLoading } = useFrappeFileUpload();
   const { call, loading: callLoading } = useFrappePostCall("frappe.client.set_value");
   const { createDoc, loading: createLoading } = useFrappeCreateDoc();
@@ -179,31 +170,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
       });
     }
   };
-
-  const handleDeletePayment = async () => {
-    try {
-
-      await deleteDoc("Project Payments", deleteFlagged?.name);
-
-      await AllPoPaymentsListMutate();
-
-      await poPaymentsMutate();
-
-      toast({
-        title: "Success!",
-        description: "Payment deleted successfully!",
-        variant: "success",
-      });
-
-    } catch (error) {
-      console.log("error", error);
-      toast({
-        title: "Failed!",
-        description: "Failed to delete Payment!",
-        variant: "destructive",
-      });
-    }
-  }
 
   return (
     <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
@@ -390,30 +356,16 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     <TableCell>{payment?.status}</TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
-                        <Dialog>
-                          <DialogTrigger>
-                            <Trash2
-                              onClick={() => setDeleteFlagged(payment)}
-                              className="w-4 h-4" />
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Are you sure?</DialogTitle>
-                            </DialogHeader>
-                            <div className="flex items-center justify-end gap-2">
-                              {deleteLoading ? <TailSpin color="red" height={40} width={40} /> : (
-                                <>
-                                  <DialogClose asChild>
-                                    <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                  </DialogClose>
-                                  <Button onClick={handleDeletePayment}>Delete</Button>
-                                </>
-                              )}
-                            </div>
-
-                          </DialogContent>
-                        </Dialog>
+                      <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"
+                          onClick={() => setDeleteFlagged(payment)} 
+                      >
+                          <Trash2 className="h-4 w-4" />
+                      </Button>
                       }
+                      <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={payment} onDeleteSuccess={() => poPaymentsMutate()} />
                     </TableCell>
                   </TableRow>
                 );

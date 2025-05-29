@@ -44,8 +44,9 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         "Procurement Packages", {
             fields: ["work_package_name", "work_package_image"],
             orderBy: { field: "work_package_name", order: "asc" },
-            limit: 1000,
-        }
+            limit: 0,
+        },
+        "All_Work_Packages"
     );
 
     // Fetch Categories based on selectedWP
@@ -54,7 +55,7 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
             fields: ["category_name", "work_package", "image_url", "tax", "new_items", "name"],
             filters: selectedWP ? [["work_package", "=", selectedWP]] : [], // Only filter if WP selected
             orderBy: { field: "category_name", order: "asc" },
-            limit: 1000,
+            limit: 0,
         },
         !!selectedWP ? undefined : null // Only fetch if selectedWP is set
     );
@@ -67,7 +68,7 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
             fields: ["name", "item_name", "make_name", "unit_name", "category", "creation"],
             filters: categoryNames.length > 0 ? [["category", "in", categoryNames]] : [],
             orderBy: { field: "creation", order: "desc" },
-            limit: 100000, // Still large, consider alternatives if perf issues
+            limit: 0, // Still large, consider alternatives if perf issues
         },
         categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
     );
@@ -76,7 +77,7 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         fields: ["category", "make"],
         filters: [["category", "in", categoryNames]],
         orderBy: { field: "category", order: "asc" },
-        limit: 100000,
+        limit: 0,
     },
     categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
     )
@@ -85,7 +86,7 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
      const { data: make_list, isLoading: makeLoading, error: makeError, mutate: makeListMutate } = useFrappeGetDocList<Makelist>(
         "Makelist", {
             fields: ["name", "make_name"],
-            limit: 10000, // Consider if this needs pagination for very large lists
+            limit: 0, // Consider if this needs pagination for very large lists
         }
     );
 

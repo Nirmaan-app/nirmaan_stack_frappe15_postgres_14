@@ -1,6 +1,6 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import { KeyedMutator } from 'swr';
-import { useFrappeGetDocList, useFrappePostCall } from 'frappe-react-sdk';
+import { FrappeDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import { useDialogStore } from '@/zustand/useDialogStore'; // Adjust import path
 import { useToast } from "@/components/ui/use-toast"; // Adjust import path
 import { TailSpin } from 'react-loader-spinner';
@@ -18,6 +18,12 @@ import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment'; // A
 import { InvoiceTable } from './components/InvoiceTable'; // Adjust import path
 import { DeliveryChallanTable } from './components/DeliveryChallanTable'; // Adjust import path
 import SITEURL from '@/constants/siteURL'; // Adjust import path
+import { formatDate } from 'date-fns';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { RefreshCcw } from 'lucide-react';
+import { Projects } from '@/types/NirmaanStack/Projects';
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -29,17 +35,58 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
     documentData: T | null | undefined;
     // Mutator specifically for the *parent* document (PO or SR)
     docMutate: KeyedMutator<T[]>; // Use 'any' for flexibility or define a more specific SWRResponse type if possible
+    project?: FrappeDoc<Projects>
 }
+
+interface SrInvoiceDialogData {
+    invoice_no: string;
+    invoice_date: string; // yyyy-MM-dd
+}
+
+const initialSrInvoiceDialogData: SrInvoiceDialogData = {
+    invoice_no: '',
+    invoice_date: formatDate(new Date(), 'yyyy-MM-dd'), // Default to today
+};
 
 export const DocumentAttachments = <T extends DocumentType>({
     docType,
     docName,
     documentData,
     docMutate,
+    project
 }: DocumentAttachmentsProps<T>) => {
 
     const { toggleNewInvoiceDialog } = useDialogStore();
     const { toast } = useToast();
+
+    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+    const [invoiceDialogData, setInvoiceDialogData] = useState<SrInvoiceDialogData>(initialSrInvoiceDialogData);
+
+    console.log("invoiceDialogData", invoiceDialogData)
+
+    const [isGeneratingInvNo, setIsGeneratingInvNo] = useState(false);
+
+    const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
+    // Hook for fetching new invoice number
+    const { call: generateInvoiceNumberAPI } = useFrappePostCall(
+        'nirmaan_stack.api.invoice_utils.generate_next_invoice_number' // Path to your new Python API
+    );
+
+    // Pre-fill dialog if invoice_no and invoice_date exist on orderData
+    useEffect(() => {
+        if (documentData?.invoice_no || documentData?.invoice_date) {
+            setInvoiceDialogData({
+                invoice_no: documentData.invoice_no || '',
+                invoice_date: documentData.invoice_date || formatDate(new Date(), 'yyyy-MM-dd'),
+            });
+        } else {
+            // Reset to defaults if no existing data, or when dialog is opened for a new generation
+             setInvoiceDialogData({
+                invoice_no: '',
+                invoice_date: formatDate(new Date(), 'yyyy-MM-dd'),
+            });
+        }
+    }, [documentData, isPrintDialogOpen]); // Depend on isPrintDialogOpen to reset/prefill when dialog opens
 
     // --- Data Fetching ---
     const { data: attachmentsData, isLoading: attachmentsLoading, error: attachmentsError } = useFrappeGetDocList<NirmaanAttachment>(
@@ -155,6 +202,92 @@ export const DocumentAttachments = <T extends DocumentType>({
     // Check if DC table should be shown (only for POs in specific statuses)
     const showDcTable = isPO && documentStatus && ["Delivered", "Partially Delivered"].includes(documentStatus);
 
+
+    const handleInvoiceDialogInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+            const { name, value } = e.target;
+            setInvoiceDialogData(prev => ({ ...prev, [name]: value }));
+        };
+    
+    
+        const handleGenerateInvoiceNumber = async () => {
+        setIsGeneratingInvNo(true);
+        try {
+            // Pass project_name if your backend API uses it for the prefix
+            const response = await generateInvoiceNumberAPI({ project_name: project?.project_name });
+            if (response.message) {
+                setInvoiceDialogData(prev => ({ ...prev, invoice_no: response.message }));
+            }
+        } catch (error) {
+            console.error("Error generating invoice number:", error);
+            toast({ title: "Failed", description: "Could not generate invoice number.", variant: "destructive" });
+        } finally {
+            setIsGeneratingInvNo(false);
+        }
+    };
+    
+    
+    // Modified handleGenerate (renamed from handlePrint / generateAndOpenPdf)
+    const handleGenerateAndProceed = async (action: 'preview' | 'download') => {
+        if (!documentData) {
+            toast({ title: "Error", description: "Service Request data not loaded.", variant: "destructive" });
+            return;
+        }
+        if (!invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date) {
+            toast({ title: "Missing Info", description: "Invoice Number and Date are required.", variant: "destructive" });
+            return;
+        }
+    
+        try {
+            // 1. Save invoice_no and invoice_date to the Service Request document
+            setIsGeneratingInvNo(true); // Use a general loading state for this combined action
+            await updateDoc("Service Requests", documentData.name, {
+                invoice_no: invoiceDialogData.invoice_no,
+                invoice_date: invoiceDialogData.invoice_date,
+            });
+            
+            // Mutate to get the latest SR doc (which now includes the saved invoice no/date)
+            await docMutate(); 
+            toast({ title: "Info Saved", description: "Invoice number and date saved to Service Request.", variant: "success" });
+    
+            // 2. Construct print URL (no custom params needed now as they are on the doc)
+            const params = {
+                doctype: "Service Requests",
+                name: documentData.name,
+                format: "SR Invoice", // Your print format name
+                no_letterhead: "1",
+                _lang: "en",
+            };
+    
+            const customParams: Record<string, string> = {};
+            customParams["custom_project_name"] = project?.project_name || "";
+    
+            const allParams = { ...params, ...customParams };
+            const queryString = new URLSearchParams(allParams).toString();
+            
+            let targetUrl = "";
+            if (action === 'preview') {
+                targetUrl = `/printview?${queryString}`;
+            } else { // download
+                // Using your custom download API if you have one, or the standard download_pdf
+                // For standard Frappe download_pdf:
+                targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+            }
+            
+            window.open(targetUrl, "_blank");
+            setIsPrintDialogOpen(false);
+    
+        } catch (error: any) {
+            console.error("Error saving invoice details or generating PDF:", error);
+            toast({
+                title: "Operation Failed",
+                description: error.message || "Could not save invoice details or generate PDF.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsGeneratingInvNo(false);
+        }
+    };
+
     return (
         <div className={`grid gap-4 grid-cols-1 ${showDcTable ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}> {/* Dynamic grid */}
             {/* Invoice Card */}
@@ -162,6 +295,25 @@ export const DocumentAttachments = <T extends DocumentType>({
                 <CardHeader className="border-b border-gray-200">
                     <CardTitle className="flex justify-between items-center">
                         <p className="text-xl max-sm:text-lg text-red-600">Invoices</p>
+                        <div className='flex gap-2 items-center'>
+                            {docType === "Service Requests" && (documentData as ServiceRequests)?.gst !== "true" && (
+                                        <Button
+                                            disabled={!documentData?.project_gst} // Keep your existing disabled logic
+                                            size="sm"
+                                            className="text-primary border-primary hover:bg-primary/5"
+                                            variant="outline"
+                                            onClick={() => {
+                                                // Reset/Prefill dialog state when opening
+                                                setInvoiceDialogData({
+                                                    invoice_no: documentData?.invoice_no || '',
+                                                    invoice_date: documentData?.invoice_date || formatDate(new Date(), 'yyyy-MM-dd'),
+                                                });
+                                                setIsPrintDialogOpen(true);
+                                            }}
+                                        >
+                                            View / Download Tax Invoice
+                                        </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="sm" // Consistent button size
@@ -170,6 +322,8 @@ export const DocumentAttachments = <T extends DocumentType>({
                         >
                             Add Invoice
                         </Button>
+
+                        </div>
                     </CardTitle>
                 </CardHeader>
                 <CardContent> {/* Remove padding to let table control it */}
@@ -200,6 +354,65 @@ export const DocumentAttachments = <T extends DocumentType>({
                     </CardContent>
                 </Card>
             )}
+            
+                                        <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Invoice Details for SR: {documentData?.name}</DialogTitle>
+                                <DialogDescription>
+                                    Enter or generate the invoice number and confirm the date. These details will be saved.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="grid gap-5 py-6">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="invoice_no">Invoice Number <span className="text-destructive">*</span></Label>
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            id="invoice_no"
+                                            name="invoice_no"
+                                            value={invoiceDialogData.invoice_no}
+                                            onChange={handleInvoiceDialogInputChange}
+                                            className="flex-grow"
+                                            placeholder="e.g., INV-2024-0001"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            onClick={handleGenerateInvoiceNumber}
+                                            disabled={isGeneratingInvNo}
+                                            title="Generate Invoice Number"
+                                        >
+                                            {isGeneratingInvNo ? <TailSpin width="16" height="16" color="gray" /> : <RefreshCcw className="h-4 w-4" />}
+                                        </Button>
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="invoice_date">Invoice Date <span className="text-destructive">*</span></Label>
+                                    <Input
+                                        id="invoice_date"
+                                        name="invoice_date"
+                                        type="date"
+                                        value={invoiceDialogData.invoice_date}
+                                        onChange={handleInvoiceDialogInputChange}
+                                    />
+                                </div>
+                            </div>
+                            <DialogFooter className="gap-2 sm:justify-end">
+                                <DialogClose asChild>
+                                    <Button type="button" variant="outline">
+                                        Cancel
+                                    </Button>
+                                </DialogClose>
+                                <Button type="button" onClick={() => handleGenerateAndProceed('preview')} disabled={isGeneratingInvNo || !invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date}>
+                                    Preview Invoice
+                                </Button>
+                                <Button type="button" onClick={() => handleGenerateAndProceed('download')} disabled={isGeneratingInvNo || !invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date}>
+                                    Download PDF
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
         </div>
     );
 };

@@ -1,11 +1,10 @@
-// src/features/procurement-requests/components/ItemSelectorControls.tsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import ReactSelect, { components, MenuListProps, OptionProps, SingleValue } from 'react-select';
+import React, { useState, useMemo, useCallback } from 'react';
+import ReactSelect, { components, MenuListProps, SingleValue } from 'react-select';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog"; // Adjust path
 import { Pencil, CirclePlus } from "lucide-react";
-import { CategoryMakesMap, CategoryOption, CategorySelection, ItemOption, MakeOption, ProcurementRequestItem } from '../types'; // Adjust path
+import { CategoryMakesMap, CategorySelection, ItemOption, MakeOption, ProcurementRequestItem } from '../types'; // Adjust path
 import { useUserData } from '@/hooks/useUserData'; // Adjust path
 import { Category } from '@/types/NirmaanStack/Category';
 import { parseNumber } from '@/utils/parseNumber';
@@ -13,60 +12,16 @@ import { Label } from '@/components/ui/label';
 import { ManageCategoryMakesDialog } from './ManageCategoryMakesDialog';
 import { Makelist } from '@/types/NirmaanStack/Makelist';
 import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist';
-
-// Custom MenuList for ReactSelect to add "Create/Request" button
-const CustomMenuList = (props: MenuListProps<ItemOption, false>) => {
-    const {
-        children,
-        selectProps: {
-            onAddItemClick
-        }
-    } = props;
-
-    return (
-        <div>
-            <components.MenuList {...props}>
-                <div>{children}</div>
-            </components.MenuList>
-            {onAddItemClick && (
-                <div className="bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
-                    <Button
-                        variant="ghost"
-                        className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
-                        onClick={onAddItemClick}
-                        onTouchStart={onAddItemClick}
-                    >
-                        <CirclePlus className="mr-2 h-4 w-4" />
-                        Create/Request New Item
-                    </Button>
-                </div>
-            )}
-        </div>
-    );
-};
-
-// Define the expected structure of custom props passed via selectProps
-interface CustomMakeMenuListSelectProps {
-    customProps?: {
-        onManageMakesClick?: () => void; // The handler for the button
-    };
-}
+import { IFuseOptions } from 'fuse.js';
+import { FuzzySearchSelect } from '@/components/ui/fuzzy-search-select';
 
 // Custom MenuList for Make Select
 export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
-    const {
-        children,
-        selectProps: {
-            onManageMakesClick
-        } // Access custom props passed via selectProps
-    } = props;
+    const { children, selectProps } = props;
 
-    // Use type assertion for safer access to customProps
-    // const typedSelectProps = selectProps as CustomMakeMenuListSelectProps;
-    // const onManageMakesClick = typedSelectProps?.customProps?.onManageMakesClick;
+    const onManageMakesClick = (selectProps as any)?.onManageMakesClick;
 
     return (
-
         <div>
             <components.MenuList {...props}>
                 <div>{children}</div>
@@ -81,6 +36,33 @@ export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
                     >
                         <CirclePlus className="w-4 h-4" />
                         Add Existing / New Make
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+const ItemCustomMenuList = (props: MenuListProps<ItemOption, false>) => {
+    const { children } = props;
+    const onAddItemClick = (props as any)?.onAddItemClick;
+    // const isNewItemsDisabled = (props as any)?.isNewItemsDisabled;
+
+    return (
+        <div>
+            <components.MenuList {...props}>{children}</components.MenuList>
+            {onAddItemClick && (
+                <div className="bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
+                    <Button
+                        variant="ghost"
+                        className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
+                        onClick={onAddItemClick}
+                        onTouchStart={onAddItemClick}
+                        // disabled={isNewItemsDisabled} // Disable button based on prop
+                    >
+                        <CirclePlus className="mr-2 h-4 w-4" />
+                        Create/Request New Item
                     </Button>
                 </div>
             )}
@@ -107,6 +89,7 @@ interface ItemSelectorControlsProps {
     categoryMakelist?: CategoryMakelist[]; // <<< Pass categoryMakelist for AddMakeComponent in dialog
     categoryMakeListMutate?: () => Promise<any>;
     initialCategoryMakes: CategoryMakesMap; // <<< Add baseline makes map from store
+    itemFuseOptions: IFuseOptions<ItemOption>;
 }
 
 export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
@@ -126,6 +109,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     categoryMakelist,
     categoryMakeListMutate,
     initialCategoryMakes, // <<< Receive baseline makes
+    itemFuseOptions
 }) => {
     // --- State ---
     const [curItem, setCurItem] = useState<SingleValue<ItemOption>>(null);
@@ -211,8 +195,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     ]);
     // --- End FINAL REVISED LOGIC ---
 
-
-    const isNewItemsDisabled = useMemo(() => {
+    const isNewItemsCreationDisabledForCategory = useMemo(() => {
         if (!curItem?.category || !categoryList) return false;
         const categoryDetails = categoryList.find(c => c.name === curItem.category);
         return categoryDetails?.new_items === "false" && userData?.role !== "Nirmaan Admin Profile";
@@ -233,7 +216,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         }
         onAddItem({
             name: curItem.value, item: curItem.label, unit: curItem.unit,
-            quantity: parseFloat(curQuantity), category: curItem.category,
+            quantity: parseNumber(curQuantity), category: curItem.category,
             tax: curItem.tax, make: curMake?.value || undefined,
             comment: curComment.trim() || undefined,
         });
@@ -269,10 +252,6 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         }
 
     }, [currentItemCategoryName, updateCategoryMakesInStore, allMakeOptions]);
-
-    // --- Custom Props for Select ---
-    const itemSelectCustomProps = { onOpenNewItemDialog, isNewItemsDisabled };
-    const makeSelectCustomProps = { onManageMakesClick: handleOpenManageMakesDialog };
 
     return (
         <div className='space-y-4'>
@@ -313,18 +292,20 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             {/* --- Item Selector --- */}
             <div>
                 <Label htmlFor="item-select" className="block text-sm font-medium text-gray-700 mb-1">Item <sup className="text-red-500">*</sup></Label>
-                {/* <>{console.log("Item Options", itemOptions)}</> */}
-                <ReactSelect
+                 <FuzzySearchSelect
                     inputId='item-select'
                     placeholder={"Select or Create/Request Item..."}
                     value={curItem}
-                    isDisabled={disabled}
-                    options={itemOptions}
+                    allOptions={itemOptions}
+                    fuseOptions={itemFuseOptions}
                     onChange={handleItemChange}
-                    onAddItemClick={onOpenNewItemDialog}
-                    components={{ MenuList: CustomMenuList }} // Use CustomMenuList for Item
-                    selectProps={{ customProps: itemSelectCustomProps }}
+                    isDisabled={disabled}
                     isClearable
+                    customMenuListComponent={ItemCustomMenuList} // Pass your custom menu
+                    customMenuListProps={{ // Props for your custom menu
+                        onAddItemClick: onOpenNewItemDialog,
+                        isNewItemsDisabled: isNewItemsCreationDisabledForCategory // Pass the disabled state
+                    }}
                 />
             </div>
 
@@ -343,7 +324,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
                         onChange={(selectedOption) => setCurMake(selectedOption)}
                         onManageMakesClick={handleOpenManageMakesDialog}
                         components={{ MenuList: CustomMakeMenuList }} // Use CustomMakeMenuList for Make
-                        selectProps={{ customProps: makeSelectCustomProps }}
+                        // selectProps={{ customProps: makeSelectCustomProps }}
                         isClearable
                     />
                 </div>
@@ -404,7 +385,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
                         (initialCategoryMakes[currentItemCategoryName]) ?? // Fallback to initial state
                         [] // Default to empty array
                     }
-                    allMakeOptions={allMakeOptions}
+                    // allMakeOptions={allMakeOptions}
                     onMakesAssociated={handleMakesManaged}
                     makeList={makeList} // Pass makeList down
                     makeListMutate={makeListMutate}

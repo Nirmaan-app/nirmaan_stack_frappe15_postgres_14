@@ -1,7 +1,7 @@
 import redlogo from "@/assets/red-logo.png";
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Category, ProcurementItem, ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
 import { Projects } from '@/types/NirmaanStack/Projects';
@@ -11,14 +11,16 @@ import memoize from 'lodash/memoize';
 import { FolderPlus, MessageCircleMore } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
+import { getCategoryListFromDocument, getItemListFromDocument, ProgressDocumentType} from '../types'
 
 interface GenerateRFQDialogProps {
-    orderData: ProcurementRequest | undefined;
+    orderData: ProgressDocumentType;
 }
 
 const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
     const [open, setOpen] = useState(false);
-    const [selectedItems, setSelectedItems] = useState<{ [category: string]: string[] }>({});
+    const [selectedItemsForRfq, setSelectedItemsForRfq] = useState<{ [category: string]: string[] }>({});
+
     const componentRef = useRef<HTMLDivElement>(null);
 
     const { data: procurement_project } = useFrappeGetDoc("Projects", orderData?.project)
@@ -28,126 +30,138 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
         documentTitle: `RFQ_Preview`,
     });
 
+    // Use helper functions to get item and category lists
+    const currentItemList = useMemo(() => getItemListFromDocument(orderData), [orderData]);
+    const currentCategoryList = useMemo(() => getCategoryListFromDocument(orderData), [orderData]);
+
     const handleItemSelection = useCallback((categoryName: string, itemName: string) => {
-        setSelectedItems((prevSelected) => {
+        setSelectedItemsForRfq((prevSelected) => {
             const categoryItems = prevSelected[categoryName] || [];
             if (categoryItems.includes(itemName)) {
-                return {
-                    ...prevSelected,
-                    [categoryName]: categoryItems.filter((item) => item !== itemName),
-                };
+                return { ...prevSelected, [categoryName]: categoryItems.filter((item) => item !== itemName) };
             } else {
-                return {
-                    ...prevSelected,
-                    [categoryName]: [...categoryItems, itemName],
-                };
+                return { ...prevSelected, [categoryName]: [...categoryItems, itemName] };
             }
         });
     }, []);
 
-    const handleCategorySelection = useCallback((categoryName: string, items: ProcurementItem[]) => {
-        setSelectedItems((prevSelected) => {
-            const categoryItemNames = items.map((item) => item.name);
-            const categoryItems = prevSelected[categoryName] || [];
-            const allSelected = categoryItemNames.every((itemName) => categoryItems.includes(itemName));
 
-            if (allSelected) {
-                return {
-                    ...prevSelected,
-                    [categoryName]: categoryItems.filter((itemName) => !categoryItemNames.includes(itemName)),
-                };
-            } else {
-                return {
-                    ...prevSelected,
-                    [categoryName]: [...categoryItemNames],
-                };
+    const handleCategorySelection = useCallback((categoryName: string) => {
+        const itemsInThisCategory = currentItemList.filter(item => item.category === categoryName);
+        const categoryItemNames = itemsInThisCategory.map((item) => item.name);
+
+        setSelectedItemsForRfq((prevSelected) => {
+            const currentCategorySelection = prevSelected[categoryName] || [];
+            const allCurrentlySelectedInCategory = categoryItemNames.every((itemName) => currentCategorySelection.includes(itemName)) && categoryItemNames.length === currentCategorySelection.length;
+
+            if (allCurrentlySelectedInCategory && categoryItemNames.length > 0) { // If all are selected, deselect all for this category
+                const newSelected = { ...prevSelected };
+                delete newSelected[categoryName]; // Or set to [] : newSelected[categoryName] = [];
+                return newSelected;
+            } else { // Otherwise, select all for this category
+                return { ...prevSelected, [categoryName]: categoryItemNames };
             }
         });
-    }, []);
+    }, [currentItemList]);
+
 
     const handleSelectAll = useCallback(() => {
-        setSelectedItems((prevSelected) => {
-            if (orderData?.category_list?.list) {
-                const allSelected: { [category: string]: string[] } = {};
-                orderData.category_list.list.forEach((category: Category) => {
-                    const categoryItems = orderData?.procurement_list?.list?.filter((item) => item?.category === category.name);
-                    allSelected[category.name] = categoryItems.map((item) => item.name);
-                });
-                const isAllSelected = Object.keys(prevSelected).length === Object.keys(allSelected).length &&
-                    Object.keys(prevSelected).every(category =>
-                        prevSelected[category].length === allSelected[category].length);
-                if (isAllSelected) {
-                    return {};
-                }
-                return allSelected;
-            }
-            return {};
+        if (currentCategoryList.length === 0 || currentItemList.length === 0) return;
+
+        const allSelectedFromCategories: { [category: string]: string[] } = {};
+        currentCategoryList.forEach((category) => {
+            const itemsInThisCategory = currentItemList.filter((item) => item.category === category.name);
+            allSelectedFromCategories[category.name] = itemsInThisCategory.map((item) => item.name);
         });
-    }, []);
 
-    const isItemSelected = useMemo(() => memoize((categoryName: string, itemName: string) => {
-        return selectedItems[categoryName]?.includes(itemName) || false;
-    }, (categoryName: string, itemName: string) => categoryName + itemName), [selectedItems]);
+        // Check if everything is already selected
+        const totalItemsInDoc = currentItemList.length;
+        const totalCurrentlySelected = Object.values(selectedItemsForRfq).flat().length;
 
-    const isCategorySelected = useMemo(() => memoize((categoryName: string, items: ProcurementItem[]) => {
-        return items.every((item) => isItemSelected(categoryName, item.name));
-    }, (categoryName: string, items: ProcurementItem[]) => categoryName + JSON.stringify(items)), [selectedItems]);
+        if (totalCurrentlySelected === totalItemsInDoc && totalItemsInDoc > 0) {
+            setSelectedItemsForRfq({}); // Deselect all
+        } else {
+            setSelectedItemsForRfq(allSelectedFromCategories); // Select all
+        }
+    }, [currentCategoryList, currentItemList, selectedItemsForRfq]);
 
-    const getSelectedItemsArray = useMemo(() => memoize(() => {
-        return Object.values(selectedItems).flat();
-    }), [selectedItems]);
+
+    const isItemSelected = useCallback((categoryName: string, itemName: string) => {
+        return selectedItemsForRfq[categoryName]?.includes(itemName) || false;
+    }, [selectedItemsForRfq]);
+
+    const isCategoryFullySelected = useCallback((categoryName: string) => {
+        const itemsInThisCategory = currentItemList.filter(item => item.category === categoryName);
+        if (itemsInThisCategory.length === 0) return false; // Cannot be fully selected if no items
+        const selectedInThisCategory = selectedItemsForRfq[categoryName] || [];
+        return itemsInThisCategory.length === selectedInThisCategory.length &&
+               itemsInThisCategory.every(item => selectedInThisCategory.includes(item.name));
+    }, [currentItemList, selectedItemsForRfq]);
+
+
+    const totalItemsInDocument = currentItemList.length;
+    const totalSelectedItems = Object.values(selectedItemsForRfq).flat().length;
+    const areAllItemsSelected = totalItemsInDocument > 0 && totalSelectedItems === totalItemsInDocument;
+
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant={"outline"} className="text-primary border-primary flex gap-1">
+                <Button variant={"outline"} size="sm" className="text-primary border-primary flex gap-1 items-center">
                     <FolderPlus className="w-4 h-4" />
                     Generate RFQ
                 </Button>
             </DialogTrigger>
-            <DialogContent className="overflow-auto max-h-[80vh]">
+            <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
                 <DialogHeader>
-                    <DialogTitle className='text-center text-primary'>Generate RFQ</DialogTitle>
+                    <DialogTitle className='text-center text-primary'>Generate RFQ for {orderData?.name}</DialogTitle>
+                    <DialogDescription className="text-center text-sm">
+                        Select items to include in the RFQ document.
+                    </DialogDescription>
                 </DialogHeader>
-                <DialogDescription>
-                    Select items for generating the list.
-                </DialogDescription>
                 {orderData && (
-                    <div className='space-y-6'>
-                        <div className="flex items-center mb-4 pb-2">
-                            <Checkbox
-                                id={`select-all`}
-                                checked={getSelectedItemsArray().length === orderData?.procurement_list?.list?.length}
-                                onCheckedChange={handleSelectAll}
-                            />
-                            <Label htmlFor={`select-all`} className="ml-2 font-semibold">
-                                {getSelectedItemsArray().length === orderData?.procurement_list?.list?.length ? 'Deselect All' : 'Select All'}
-                            </Label>
-                        </div>
-                        {orderData?.category_list?.list?.map((category: Category) => {
-                            const categoryItems = orderData?.procurement_list?.list?.filter((item) => item?.category === category.name);
+                    <div className='flex-grow space-y-4 overflow-y-auto pr-2'> {/* Make this section scrollable */}
+                        {currentCategoryList.length > 0 && currentItemList.length > 0 && (
+                             <div className="flex items-center py-2 border-b">
+                                <Checkbox
+                                    id="select-all-rfq-items"
+                                    checked={areAllItemsSelected}
+                                    onCheckedChange={handleSelectAll}
+                                />
+                                <Label htmlFor="select-all-rfq-items" className="ml-2 font-semibold text-sm">
+                                    {areAllItemsSelected ? 'Deselect All Items' : 'Select All Items'} ({totalSelectedItems}/{totalItemsInDocument})
+                                </Label>
+                            </div>
+                        )}
+
+                        {currentCategoryList.map((category) => {
+                            const itemsInThisCategory = currentItemList.filter((item) => item.category === category.name);
+                            if (itemsInThisCategory.length === 0) return null;
+
                             return (
                                 <div key={category.name}>
-                                    <div className="flex items-center mb-4 border-b-2 pb-2">
+                                    <div className="flex items-center mb-2 border-b pb-1.5">
                                         <Checkbox
-                                            id={`category-${category.name}`}
-                                            checked={isCategorySelected(category.name, categoryItems)}
-                                            onCheckedChange={() => handleCategorySelection(category.name, categoryItems)}
+                                            id={`category-rfq-${category.name}`}
+                                            checked={isCategoryFullySelected(category.name)}
+                                            onCheckedChange={() => handleCategorySelection(category.name)}
                                         />
-                                        <Label htmlFor={`category-${category.name}`} className="ml-2 font-semibold">
+                                        <Label htmlFor={`category-rfq-${category.name}`} className="ml-2 font-medium text-sm">
                                             {category.name}
                                         </Label>
                                     </div>
-                                    <ul className="ml-4 space-y-2">
-                                        {categoryItems.map((item: ProcurementItem) => (
-                                            <li key={item.name} className="flex items-center border-b pb-2">
+                                    <ul className="ml-4 space-y-1.5">
+                                        {itemsInThisCategory.map((item) => (
+                                            <li key={item.name} className="flex items-center border-b border-dashed border-gray-200 pb-1.5 last:border-b-0 last:pb-0">
                                                 <Checkbox
-                                                    id={`item-${item.name}`}
+                                                    id={`item-rfq-${item.name}`}
                                                     checked={isItemSelected(category.name, item.name)}
                                                     onCheckedChange={() => handleItemSelection(category.name, item.name)}
                                                 />
-                                                <Label htmlFor={`item-${item.name}`} className="ml-2 font-light">
-                                                    {item.item}{<i>{item.make ? ` - ${item.make}` : ''}</i>} ({item.quantity} {item.unit})
+                                                <Label htmlFor={`item-rfq-${item.name}`} className="ml-2 text-xs font-normal cursor-pointer">
+                                                    {item.item}
+                                                    {item.make && <span className="text-muted-foreground text-xs italic"> - {item.make}</span>}
+                                                    <span className="text-muted-foreground text-xs"> ({item.quantity} {item.unit})</span>
                                                 </Label>
                                             </li>
                                         ))}
@@ -155,17 +169,19 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                                 </div>
                             );
                         })}
-                        <div className='flex items-end justify-end gap-2'>
-                            <DialogClose asChild>
-                                <Button>Cancel</Button>
-                            </DialogClose>
-                            <Button onClick={handlePrint} disabled={getSelectedItemsArray().length === 0}>
-                                Print RFQ
-                            </Button>
-                        </div>
-                        <RFQPDf componentRef={componentRef} selectedItems={selectedItems} orderData={orderData} procurement_project={procurement_project} />
+                        {currentItemList.length === 0 && <p className="text-muted-foreground text-center py-4">No items available in this document.</p>}
                     </div>
                 )}
+                <DialogFooter className="mt-auto pt-4 border-t"> {/* Footer sticks to bottom */}
+                    <DialogClose asChild>
+                        <Button variant="outline">Cancel</Button>
+                    </DialogClose>
+                    <Button onClick={handlePrint} disabled={totalSelectedItems === 0}>
+                        Print RFQ
+                    </Button>
+                </DialogFooter>
+                {/* RFQPDf is hidden and used by react-to-print */}
+                <RFQPDf componentRef={componentRef} selectedItems={selectedItemsForRfq} orderData={orderData} procurement_project={procurement_project} />
             </DialogContent>
         </Dialog>
     );
@@ -175,24 +191,25 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
 interface RFQPdfProps {
     componentRef: React.RefObject<HTMLDivElement>;
     selectedItems: { [category: string]: string[] };
-    orderData: ProcurementRequest | undefined;
+    orderData: ProgressDocumentType | undefined;
     procurement_project: Projects | undefined;
 }
 
 const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData, procurement_project }) => {
-    const [itemList, setItemList] = useState<ProcurementItem[] | null>(null);
-
-    useEffect(() => {
-        if (orderData) {
-            const items: ProcurementItem[] = []
-            Object.keys(selectedItems).forEach((category) => {
-                const categoryItems = selectedItems[category];
-                const categoryItemsForRFQ = orderData?.procurement_list?.list?.filter((item) => categoryItems.includes(item.name));
-                items.push(...categoryItemsForRFQ);
-            });
-            setItemList(items);
-        }
+    const itemListForPdf = useMemo(() => {
+        if (!orderData) return [];
+        const itemsFromDoc = getItemListFromDocument(orderData);
+        const rfqItems: Array<ProcurementItem | SentBackItem> = [];
+        Object.keys(selectedItems).forEach((categoryName) => {
+            const itemsInCategorySelected = selectedItems[categoryName];
+            const itemsFromSource = itemsFromDoc.filter(
+                item => item.category === categoryName && itemsInCategorySelected.includes(item.name)
+            );
+            rfqItems.push(...itemsFromSource);
+        });
+        return rfqItems;
     }, [orderData, selectedItems]);
+
 
     return (
         <div className='hidden'>
@@ -249,29 +266,27 @@ const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData,
                                 <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Rate excl. GST</th>
                             </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {itemList?.map((i) => {
-                                return (
-                                    <tr className="">
-                                        <td className="px-6 py-2 text-sm">
-                                            {i.item}{<div className="text-xs font-bold">{i.make ? ` - ${i.make}` : ''}</div>}
-                                            {(i.comment) &&
-                                                <div className="flex gap-1 items-start block p-1">
-                                                    <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
-                                                    <div className="text-xs text-gray-400">{i.comment}</div>
-                                                </div>
-                                            }
-                                        </td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">
-                                            {i.category}
-                                        </td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{i.unit}</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{i.quantity}</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
-                                    </tr>
-                                )
-                            })}
-                        </tbody>
+                        <tbody>
+                      {itemListForPdf.map((i, index) => ( // Iterate over itemListForPdf
+                          <tr key={`pdf-item-${i.name}-${index}`}> {/* More unique key */}
+                              <td className="px-6 py-2 text-xs"> {/* Smaller font for PDF table */}
+                                  {i.item}
+                                  {i.make && <div className="text-xxs font-normal">{` - ${i.make}`}</div>} {/* text-xxs if you have it */}
+                                  {i.comment && (
+                                      <div className="flex gap-1 items-start p-0.5 mt-0.5">
+                                          <MessageCircleMore className="w-3 h-3 flex-shrink-0" />
+                                          <div className="text-xxs text-gray-500">{i.comment}</div>
+                                      </div>
+                                  )}
+                              </td>
+                              <td className="px-2 py-2 text-xs whitespace-nowrap">{i.category}</td>
+                              <td className="px-2 py-2 text-xs whitespace-nowrap">{i.unit}</td>
+                              <td className="px-2 py-2 text-xs whitespace-nowrap">{i.quantity}</td>
+                              <td className="px-2 py-2 text-sm whitespace-nowrap">-</td> {/* Rate excl. GST - empty as per example */}
+                          </tr>
+                      ))}
+                      {itemListForPdf.length === 0 && <tr><td colSpan={5} className="text-center p-4">No items selected for RFQ.</td></tr>}
+                  </tbody>
                     </table>
                     <div className="pt-24">
                         <p className="text-md font-bold text-red-700 underline">Note</p>

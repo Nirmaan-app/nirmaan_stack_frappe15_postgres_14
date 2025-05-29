@@ -56,3 +56,6 @@ const InfoItem: React.FC<{ label: string; value?: string | number | null }> = ({
         <p className="text-sm text-foreground font-medium">{value || "N/A"}</p>
     </div>
 );
+
+
+export default VendorBankDetailsCard;

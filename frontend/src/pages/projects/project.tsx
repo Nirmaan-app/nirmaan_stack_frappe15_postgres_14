@@ -1492,8 +1492,8 @@ type MenuItem = Required<MenuProps>["items"][number];
 
       {/* Content Area for the Active Tab */}
       <Suspense fallback={<LoadingFallback />}>
-                {renderTabContent()}
-        </Suspense>
+            {renderTabContent()}
+      </Suspense>
 
       {/* Overview Section */}
 

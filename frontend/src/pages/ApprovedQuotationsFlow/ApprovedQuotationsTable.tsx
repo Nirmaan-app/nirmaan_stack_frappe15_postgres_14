@@ -1,38 +1,34 @@
-import React, { useMemo } from "react";
+import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { ApprovedQuotations as ApprovedQuotationsType } from "@/types/NirmaanStack/ApprovedQuotations";
-import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice"; // Assuming you have a rounded version too
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"; // Assuming you have a rounded version too
 
 import {
     APPROVED_QUOTATION_DOCTYPE, AQ_LIST_FIELDS_TO_FETCH, AQ_SEARCHABLE_FIELDS, AQ_DATE_COLUMNS,
-    VENDOR_DOCTYPE, VENDOR_LOOKUP_FIELDS,
     ITEM_DOCTYPE, ITEM_LOOKUP_FIELDS,
-    CATEGORY_DOCTYPE, CATEGORY_LOOKUP_FIELDS
 } from "./approvedQuotations.constants";
+import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
+import { UnitOptions } from "@/components/helpers/SelectUnit";
 
 export default function ApprovedQuotationsPage() {
 
-    // Fetch supporting data for column rendering and facet options
-    const { data: vendorsList, isLoading: vendorsLoading } = useFrappeGetDocList<VendorsType>(
-        VENDOR_DOCTYPE,
-        { fields: VENDOR_LOOKUP_FIELDS, limit: 10000 },
-        'vendors_for_aq_page'
-    );
+
+    const {data: vendorsList, vendorOptionsForSelect, isLoading: vendorsLoading} = useVendorsList({vendorTypes: ['Service', 'Material & Service', 'Material']});
+
     // Fetch Items if you need to display item-specific info not on AQ or for linking
     const { data: itemsList, isLoading: itemsLoading } = useFrappeGetDocList<ItemsType>(
         ITEM_DOCTYPE,
-        { fields: ITEM_LOOKUP_FIELDS, limit: 10000 },
+        { fields: ITEM_LOOKUP_FIELDS, limit: 0 },
         'items_for_aq_page'
     );
     // const { data: categoryList, isLoading: categoriesLoading } = useFrappeGetDocList<CategoryType>(
@@ -127,7 +123,7 @@ export default function ApprovedQuotationsPage() {
         {
             accessorKey: "quantity",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Qty" />,
-            cell: ({ row }) => <div className="font-medium text-center">{row.getValue("quantity") || "1"}</div>, // Default to 1 if not present
+            cell: ({ row }) => <div className="font-medium">{row.getValue("quantity") || "1"}</div>, // Default to 1 if not present
             meta: {
                 isNumeric: true,
                 exportHeaderName: "Quantity",
@@ -217,10 +213,6 @@ export default function ApprovedQuotationsPage() {
         shouldCache: true,
     });
 
-    const vendorFacetOptions = useMemo(() =>
-        vendorsList?.map(v => ({ label: v.vendor_name, value: v.name })) || [],
-        [vendorsList]);
-
     // Deriving item options from the actual approved quotes or from a full Items list
     const itemFacetOptions = useMemo(() => {
         // If you want options based on items *actually present* in approved quotes:
@@ -237,12 +229,10 @@ export default function ApprovedQuotationsPage() {
 
 
     const facetFilterOptions = useMemo(() => ({
-        vendor: { title: "Vendor", options: vendorFacetOptions },
-        item_name: { title: "Item Name", options: itemFacetOptions }, // If filtering by item_name
-        // If your AQ doctype has 'category' as a Link field to the Category doctype,
-        // and you want to filter by the category's name:
-        // category: { title: "Category", options: categoryFacetOptions },
-    }), [vendorFacetOptions, itemFacetOptions]);
+        vendor: { title: "Vendor", options: vendorOptionsForSelect },
+        item_name: { title: "Item Name", options: itemFacetOptions }, 
+        unit: { title: "Unit", options: UnitOptions },
+    }), [vendorOptionsForSelect, itemFacetOptions, UnitOptions]);
 
     const overallIsLoading = aqTableLoading || vendorsLoading || itemsLoading;
     const overallError = aqTableError; // Simplification, can combine errors if needed

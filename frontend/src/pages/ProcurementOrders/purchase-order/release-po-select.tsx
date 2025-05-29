@@ -8,14 +8,14 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
+import { getPOTotal, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { ColumnDef } from "@tanstack/react-table";
 import { Radio } from "antd";
-import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
+import { FrappeDoc, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../../components/ui/badge";
 import { TableSkeleton } from "../../../components/ui/skeleton";
@@ -35,6 +35,59 @@ const ApproveSelectAmendPO = React.lazy(() => import("../amend-po/approve-select
 
 const DOCTYPE = 'Procurement Orders';
 const URL_SYNC_KEY = 'po'; // Unique key for URL state for this table instance
+
+
+const PODataTableWrapper: React.FC<{
+    tab: string;
+    columns: any;
+    fieldsToFetch: string[];
+    poSearchableFieldsOptions: SearchFieldOption[];
+    staticFiltersForTab: any[];
+    facetFilterOptions: any;
+    dateColumns: any;
+}> = ({ 
+    tab, 
+    columns, 
+    fieldsToFetch,
+    poSearchableFieldsOptions,
+    staticFiltersForTab,
+    facetFilterOptions,
+    dateColumns
+}) => {
+    // Generate urlSyncKey inside the wrapper
+    const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
+    
+    // Instantiate hook here
+    const serverDataTable = useServerDataTable<ProcurementOrdersType>({
+        doctype: DOCTYPE,
+        columns: columns,
+        fetchFields: fieldsToFetch,
+        searchableFields: poSearchableFieldsOptions,
+        urlSyncKey: dynamicUrlSyncKey,
+        defaultSort: 'modified desc',
+        additionalFilters: staticFiltersForTab,
+    });
+
+    return (
+        <DataTable<ProcurementOrdersType>
+            table={serverDataTable.table}
+            columns={columns}
+            isLoading={serverDataTable.isLoading}
+            error={serverDataTable.error}
+            totalCount={serverDataTable.totalCount}
+            searchFieldOptions={poSearchableFieldsOptions}
+            selectedSearchField={serverDataTable.selectedSearchField}
+            onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
+            searchTerm={serverDataTable.searchTerm}
+            onSearchTermChange={serverDataTable.setSearchTerm}
+            facetFilterOptions={facetFilterOptions}
+            dateFilterColumns={dateColumns}
+            showExportButton={true}
+            onExport={'default'}
+        />
+    );
+};
+
 
 export const ReleasePOSelect: React.FC = () => {
 
@@ -260,11 +313,11 @@ export const ReleasePOSelect: React.FC = () => {
         , [counts])
 
 
-    const mergedPOsTab = useMemo(() =>
-        [
-            { label: (<div className="flex items-center"><span>Merged POs</span><span className="ml-2 text-xs font-bold">{counts.po.Merged}</span></div>), value: "Merged POs" },
-        ]
-        , [counts])
+    // const mergedPOsTab = useMemo(() =>
+    //     [
+    //         { label: (<div className="flex items-center"><span>Merged POs</span><span className="ml-2 text-xs font-bold">{counts.po.Merged}</span></div>), value: "Merged POs" },
+    //     ]
+    //     , [counts])
 
     // --- Define columns using TanStack's ColumnDef ---
     const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
@@ -541,27 +594,6 @@ export const ReleasePOSelect: React.FC = () => {
         ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO", "All POs", "Merged POs"].includes(tab),
         [tab]);
 
-    // Define which columns should use the date filter
-    // const dateColumns = useMemo(() => ["creation", "modified"], []); // Add other date column IDs if needed
-
-    const serverDataTable = useServerDataTable<ProcurementOrdersType>(
-        (shouldShowTable ? {
-            doctype: DOCTYPE,
-            columns: columns,
-            fetchFields: fieldsToFetch,
-            // defaultSearchField: "name", // Search PO ID by default when specific search is on
-            // globalSearchFieldList: poGlobalSearchFields,
-            searchableFields: poSearchableFieldsOptions,
-            // enableRowSelection: true,
-            urlSyncKey: URL_SYNC_KEY,
-            defaultSort: 'modified desc', // Default sort order
-            additionalFilters: staticFiltersForTab,
-
-            // enableItemSearch: enableItemSearchFeature, // Pass flag to enable item search possibility
-        } : { // Provide minimal config when table shouldn't render to satisfy hook types
-            doctype: DOCTYPE, columns: [], fetchFields: ["name"], searchableFields: [{ value: "name", label: "PO ID", placeholder: "Search by PO ID..." }]
-        }));
-
     // --- Tab Change Handler ---
     const handleTabClick = useCallback((value: string) => {
         if (tab !== value) {
@@ -580,67 +612,37 @@ export const ReleasePOSelect: React.FC = () => {
         if (tab === "Approve Amended PO") return <ApproveSelectAmendPO />;
         if (tab === "Approve Sent Back PO") return <ApproveSelectSentBack />;
 
-        // Handle tabs that should show the DataTable
         if (shouldShowTable) {
-            // Show loading skeleton if *any* supporting data is loading
             if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
-                return <TableSkeleton />; // Use your skeleton component
+                return <TableSkeleton />;
             }
-            // Show error if supporting data failed
-            if (!projects || !vendorsList || !userList /* || !projectPayments - handle partial errors? */) {
+            if (!projects || !vendorsList || !userList) {
                 return <div className="text-red-600 text-center p-4">Error loading supporting data for table view.</div>;
             }
-            // Render the DataTable
+            
+            // Use wrapper component with key to force complete remount
             return (
-                <DataTable<ProcurementOrdersType>
-                    table={serverDataTable.table}
-                    columns={columns} // Pass dynamically calculated columns
-                    isLoading={serverDataTable.isLoading}
-                    error={serverDataTable.error}
-                    totalCount={serverDataTable.totalCount}
-                    // globalFilterValue={serverDataTable.globalFilter}
-                    // onGlobalFilterChange={serverDataTable.setGlobalFilter}
-                    // globalSearchConfig={{
-                    //     isEnabled: serverDataTable.isGlobalSearchEnabled,
-                    //     toggle: serverDataTable.toggleGlobalSearch,
-                    //     specificPlaceholder: "Search by PO ID...",
-                    //     globalPlaceholder: "Search All PO Fields..."
-                    // }}
-
-                    // --- Pass new props ---
-                    // searchPlaceholder="Search POs (Global)..." // Placeholder for global search
-                    // showItemSearchToggle={serverDataTable.showItemSearchToggle} // From hook
-                    // itemSearchConfig={{ // Config for the item search toggle
-                    //     isEnabled: serverDataTable.isItemSearchEnabled,
-                    //     toggle: serverDataTable.toggleItemSearch,
-                    //     label: "Item Search" // Optional custom label
-                    // }}
-                    // --- End new props ---
-                    // --- NEW Search Props ---
-                    searchFieldOptions={poSearchableFieldsOptions}
-                    selectedSearchField={serverDataTable.selectedSearchField} // From hook
-                    onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField} // From hook
-                    searchTerm={serverDataTable.searchTerm} // From hook
-                    onSearchTermChange={serverDataTable.setSearchTerm} // From hook
-                    // --- END NEW ---
+                <PODataTableWrapper
+                    key={tab} // Key on wrapper ensures complete remount
+                    tab={tab}
+                    columns={columns}
+                    fieldsToFetch={fieldsToFetch}
+                    poSearchableFieldsOptions={poSearchableFieldsOptions}
+                    staticFiltersForTab={staticFiltersForTab}
                     facetFilterOptions={facetFilterOptions}
-                    dateFilterColumns={dateColumns}
-                    showExportButton={true}
-                    onExport={'default'}
-                // showRowSelection={serverDataTable.isRowSelectionActive}
+                    dateColumns={dateColumns}
                 />
             );
         }
 
-        // Fallback if tab doesn't match any view
         return <div>Invalid Tab Selected</div>;
 
     };
     // --- End Render View Logic ---
 
-    const combinedErrorOverall = projectsError || vendorsError || projectPaymentsError || userError || serverDataTable.error;
+    const combinedErrorOverall = projectsError || vendorsError || projectPaymentsError || userError;
 
-    if (combinedErrorOverall && !serverDataTable?.data?.length) { // Show prominent error if main list fails
+    if (combinedErrorOverall) { // Show prominent error if main list fails
         return <AlertDestructive error={combinedErrorOverall} />
     }
 

@@ -4,8 +4,10 @@ import { TailSpin } from "react-loader-spinner";
 
 
 const SentBackSummary = React.lazy(() => import("./sent-back-summary"));
-const SentBackVendorQuotes = React.lazy(() => import("./SentBackVendorQuotes"));
+// const SentBackVendorQuotes = React.lazy(() => import("./SentBackVendorQuotes"));
 const SBQuotesSelectionReview = React.lazy(() => import("./SBQuotesSelectionReview"));
+
+const ProcurementProgressContainer = React.lazy(() => import("../ProcurementRequests/VendorQuotesSelection/ProcurementProgressContainer"));
 
 export const RenderSentBackComponent : React.FC = () => {
 
@@ -20,7 +22,7 @@ export const RenderSentBackComponent : React.FC = () => {
                 {mode === "summary" ? (
                     <SentBackSummary />
                   ) : ["edit", "view"].includes(mode) ? (
-                    <SentBackVendorQuotes />
+                    <ProcurementProgressContainer />
                   ) : mode === "review" ? (
                     <SBQuotesSelectionReview /> 
                   ) : (

@@ -7,9 +7,7 @@ interface SelectUnitProps extends SelectPrimitive.SelectProps {
     className?: string;
 }
 
-export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, className, ...rest }) => {
-
-  const options : {value: string, label: string}[] = [
+export const UnitOptions : {value: string, label: string}[] = [
     // { value: "PCS", label: "PCS" },
     // {value : "PKT", label : "PKT"},
     { value: "BOX", label: "BOX" },
@@ -29,6 +27,9 @@ export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, classN
     { value: "SQFT", label: "SQFT" },
     { value: "RFT", label: "RFT" },
   ]
+
+export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, className, ...rest }) => {
+
     return (
         <Select
             value={value}
@@ -39,7 +40,7 @@ export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, classN
             <SelectValue className={className} placeholder="Select Unit" />
           </SelectTrigger>
           <SelectContent>
-            {options.map((option) => (
+            {UnitOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                     {option.label}
                 </SelectItem>

@@ -1,131 +1,8 @@
-// import { useCallback, useMemo } from 'react';
-// import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
-// import { useToast } from '@/components/ui/use-toast'; // Adjust path
-// import Fuse, { FuseResult } from 'fuse.js';
-// import { Items } from '@/types/NirmaanStack/Items';
-// import { CategorySelection, ProcurementRequestItem } from '../types';
-
-// interface UseProcurementRequestFormResult {
-//     // State slices from store (or direct access via useStore hook)
-//     selectedWP: string;
-//     procList: ProcurementRequestItem[];
-//     selectedCategories: CategorySelection[];
-//     undoStack: ProcurementRequestItem[];
-//     newPRComment: string;
-//     isStoreInitialized: boolean;
-
-//     // Actions bound to the store
-//     selectWorkPackage: (wp: string) => void;
-//     addOrUpdateItem: (itemData: Omit<ProcurementRequestItem, 'uniqueId'>, isRequest?: boolean) => void;
-//     // updateItemInList: (updatedItem: Partial<ProcurementRequestItem> & { name: string }) => void; // Handled by Edit Dialog now
-//     deleteItemFromList: (itemName: string) => void;
-//     undoLastDelete: () => void;
-//     setComment: (comment: string) => void;
-//     handleFuzzySearch: (input: string) => FuseResult<Items>[];
-// }
-
-// // This hook acts as an interface to the Zustand store for form-related actions
-// export const useProcurementRequestForm = (itemList?: Items[] /* Pass fetched items for fuzzy search */): UseProcurementRequestFormResult => {
-//     const { toast } = useToast();
-
-//     // Select needed state and actions from the store
-//     const {
-//         selectedWP,
-//         procList,
-//         selectedCategories,
-//         undoStack,
-//         newPRComment,
-//         isStoreInitialized,
-//         setSelectedWP,
-//         addProcItem,
-//         // updateProcItem, // Will be called from EditItemDialog now
-//         deleteProcItem,
-//         undoDelete,
-//         setNewPRComment
-//      } = useProcurementRequestStore(state => ({
-//         selectedWP: state.selectedWP,
-//         procList: state.procList,
-//         selectedCategories: state.selectedCategories,
-//         undoStack: state.undoStack,
-//         newPRComment: state.newPRComment,
-//         isStoreInitialized: state.isInitialized,
-//         setSelectedWP: state.setSelectedWP,
-//         addProcItem: state.addProcItem,
-//         // updateProcItem: state.updateProcItem,
-//         deleteProcItem: state.deleteProcItem,
-//         undoDelete: state.undoDelete,
-//         setNewPRComment: state.setNewPRComment,
-//     }));
-
-//     const selectWorkPackage = useCallback((wp: string) => {
-//         // Maybe add confirmation dialog here if procList is not empty
-//         setSelectedWP(wp);
-//     }, [setSelectedWP]);
-
-//     const addOrUpdateItem = useCallback((itemData: Omit<ProcurementRequestItem, 'uniqueId'>, isRequest = false) => {
-//         const success = addProcItem({
-//             ...itemData,
-//             status: isRequest ? 'Request' : 'Pending',
-//             // uniqueId will be added by addProcItem if needed
-//         });
-
-//         if (success) {
-//             toast({
-//                 title: `${isRequest ? "Requested" : "Added"} Item: ${itemData.item}`,
-//                 variant: "success",
-//             });
-//         } else {
-//             toast({
-//                 title: "Item Already Exists",
-//                 description: `Item "${itemData.item}" is already in the list. Edit quantity instead.`,
-//                 variant: "destructive",
-//             });
-//         }
-//     }, [addProcItem, toast]);
-
-//     // Setup Fuse instance for fuzzy search (memoized)
-//     const fuse = useMemo(() => {
-//         if (!itemList) return null;
-//         return new Fuse(itemList, {
-//             keys: ["item_name"], // Fields to search
-//             threshold: 0.3,
-//             distance: 100,
-//             includeScore: true,
-//         });
-//     }, [itemList]); // Recreate only when itemList changes
-
-//     const handleFuzzySearch = useCallback((input: string): FuseResult<Items>[] => {
-//         if (!fuse || !input.trim()) {
-//             return [];
-//         }
-//         return fuse.search(input);
-//     }, [fuse]);
-
-//     return {
-//         selectedWP,
-//         procList,
-//         selectedCategories,
-//         undoStack,
-//         newPRComment,
-//         isStoreInitialized,
-
-//         selectWorkPackage,
-//         addOrUpdateItem,
-//         // updateItemInList: updateProcItem, // Expose if needed directly, but prefer dialogs handling it
-//         deleteItemFromList: deleteProcItem,
-//         undoLastDelete: undoDelete,
-//         setComment: setNewPRComment,
-//         handleFuzzySearch,
-//     };
-// };
-
-
-// src/features/procurement-requests/hooks/useProcurementRequestForm.ts
 import { useCallback, useMemo } from 'react';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
-import Fuse, { FuseResult } from 'fuse.js';
-import { CategoryMakesMap, CategorySelection, MakeOption, ProcurementRequestItem } from '../types';
+import Fuse, { FuseResult, IFuseOptions } from 'fuse.js';
+import { CategoryMakesMap, CategorySelection, ItemOption, MakeOption, ProcurementRequestItem } from '../types';
 import { Items } from '@/types/NirmaanStack/Items';
 import { Makelist } from '@/types/NirmaanStack/Makelist';
 
@@ -146,39 +23,12 @@ interface UseProcurementRequestFormResult {
     undoLastDelete: () => void;
     setComment: (comment: string) => void;
     handleFuzzySearch: (input: string) => FuseResult<Items>[]; // Corrected type Item from Items
+    
+    itemFuseOptions: IFuseOptions<ItemOption>;
 }
 
-export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelist[], allMakeOptions: MakeOption[] = [], makeListMutate: () => Promise<any>): UseProcurementRequestFormResult => {
+export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>, rawItemList?: Items[], makeList?: Makelist[], allMakeOptionsFromDataHook: MakeOption[] = [], ): UseProcurementRequestFormResult => {
     const { toast } = useToast();
-
-    // const {
-    //     selectedWP,
-    //     procList,
-    //     selectedCategories,
-    //     undoStack,
-    //     newPRComment,
-    //     isStoreInitialized,
-    //     setSelectedWP,
-    //     addProcItem,
-    //     updateProcItem, // <-- SELECT updateProcItem FROM STORE
-    //     deleteProcItem,
-    //     undoDelete,
-    //     setNewPRComment
-    //  } = useProcurementRequestStore(state => ({
-    //     selectedWP: state.selectedWP,
-    //     procList: state.procList,
-    //     selectedCategories: state.selectedCategories,
-    //     undoStack: state.undoStack,
-    //     newPRComment: state.newPRComment,
-    //     isStoreInitialized: state.isInitialized,
-    //     setSelectedWP: state.setSelectedWP,
-    //     addProcItem: state.addProcItem,
-    //     updateProcItem: state.updateProcItem, // <-- ADDED HERE
-    //     deleteProcItem: state.deleteProcItem,
-    //     undoDelete: state.undoDelete,
-    //     setNewPRComment: state.setNewPRComment,
-    // }));
-
 
     // --- Select state and actions individually ---
     const selectedWP = useProcurementRequestStore(state => state.selectedWP);
@@ -198,6 +48,18 @@ export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelis
     const updateCategoryMakes = useProcurementRequestStore(state => state.updateCategoryMakes);
     // --- End of individual selection ---
 
+    // --- Fuse.js Configuration for Item Selection ---
+    const itemFuseOptions: IFuseOptions<ItemOption> = useMemo(() => ({
+        keys: ['label', 'value', 'category'], // Search on item label (name), value (ID), and category
+        threshold: 0.3,
+        includeScore: false,
+        // Example: Give more weight to the item label (name)
+        // keys: [
+        //   { name: 'label', weight: 0.7 },
+        //   { name: 'value', weight: 0.2 },
+        //   { name: 'category', weight: 0.1 }
+        // ]
+    }), []);
 
     const selectWorkPackage = useCallback((wp: string, wpSpecificMakes: CategoryMakesMap) => {
         console.log("Hook: Selecting WP", wp, "with makes:", wpSpecificMakes);
@@ -255,14 +117,14 @@ export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelis
 
     // Setup Fuse instance
     const fuse = useMemo(() => {
-        if (!itemList) return null;
-        return new Fuse(itemList, {
+        if (!rawItemList) return null;
+        return new Fuse(rawItemList, {
             keys: ["item_name"],
             threshold: 0.3,
             distance: 100,
             includeScore: true,
         });
-    }, [itemList]);
+    }, [rawItemList]);
 
     const handleFuzzySearch = useCallback((input: string): FuseResult<Items>[] => {
         if (!fuse || !input.trim()) return [];
@@ -284,7 +146,8 @@ export const useProcurementRequestForm = (itemList?: Items[], makeList?: Makelis
       setComment, // Use the memoized callback
       handleFuzzySearch,
       updateCategoryMakes,
-      makeListMutate,
-      allMakeOptions,
+      makeListMutate: makeListMutateHook,
+      allMakeOptions: allMakeOptionsFromDataHook,
+      itemFuseOptions,          // Provide the Fuse configuration
   };
 };

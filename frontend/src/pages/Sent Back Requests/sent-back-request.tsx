@@ -1,12 +1,12 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, useFrappeDocTypeEventListener, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
-import { DataTable } from '@/components/data-table/new-data-table';
+import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import {
@@ -40,22 +40,74 @@ import { Badge } from "@/components/ui/badge";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
-// URL_SYNC_KEY will be dynamic based on the tab/type prop
+const URL_SYNC_KEY = 'sb'; // Unique key for URL state for this table instance
 
 interface SentBackRequestProps {
     tab: string; // e.g., "Rejected", "Delayed", "Cancelled"
 }
 
+const SBDataTableWrapper: React.FC<{
+    tab: string;
+    columns: any;
+    fieldsToFetch: string[];
+    sbSearchableFields: SearchFieldOption[];
+    staticFilters: any[];
+    facetFilterOptions: any;
+    dateColumns: any;
+}> = ({ 
+    tab, 
+    columns, 
+    fieldsToFetch,
+    sbSearchableFields,
+    staticFilters,
+    facetFilterOptions,
+    dateColumns
+}) => {
+    // Generate urlSyncKey inside the wrapper
+    const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
+
+    // --- useServerDataTable Hook Instantiation ---
+    const {
+        table, totalCount, isLoading: listIsLoading, error: listError,
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+    } = useServerDataTable<SentBackCategory>({
+        doctype: DOCTYPE,
+        columns: columns,
+        fetchFields: fieldsToFetch,
+        searchableFields: sbSearchableFields,
+
+        urlSyncKey: dynamicUrlSyncKey, // Dynamic URL key based on tab/type
+        defaultSort: 'modified desc',
+        enableRowSelection: false, // For delete action
+        additionalFilters: staticFilters,
+        requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
+    });
+
+    return (
+        <DataTable<SentBackCategory>
+            table={table}
+            columns={columns}
+            isLoading={listIsLoading}
+            error={listError}
+            totalCount={totalCount}
+            searchFieldOptions={sbSearchableFields}
+            selectedSearchField={selectedSearchField}
+            onSelectedSearchFieldChange={setSelectedSearchField}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            facetFilterOptions={facetFilterOptions}
+            dateFilterColumns={dateColumns}
+            showExportButton={true} // Optional
+            onExport={'default'}
+        />
+    );
+};
+
 // --- Component ---
 export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     const { role } = useUserData();
     const { db } = useContext(FrappeContext) as FrappeConfig;
-
-    // const tab = useUrlParam("tab");
-
-    // Determine type from tab prop
-    // const type = useMemo(() => tab, [tab]);
-    const urlSyncKey = useMemo(() => `sb_${tab?.toLowerCase().replace(/\s+/g, '_')}`, [tab]);
 
     const projectsFetchOptions = getProjectListOptions();
 
@@ -264,32 +316,8 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         type: { title: "Type", options: typeOptions },
     }), [projectOptions]);
 
-    // --- useServerDataTable Hook Instantiation ---
-    const {
-        table, data, totalCount, isLoading: listIsLoading, error: listError,
-        // globalFilter, setGlobalFilter,
-        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
-        selectedSearchField, setSelectedSearchField,
-        searchTerm, setSearchTerm,
-        isRowSelectionActive,
-        refetch,
-    } = useServerDataTable<SentBackCategory>({
-        doctype: DOCTYPE,
-        columns: columns,
-        fetchFields: fieldsToFetch,
-        searchableFields: sbSearchableFields,
-
-        // globalSearchFieldList: globalSearchFields,
-        // enableItemSearch: true, // Enable item search within item_list
-        urlSyncKey: urlSyncKey, // Dynamic URL key based on tab/type
-        defaultSort: 'modified desc',
-        enableRowSelection: false, // For delete action
-        additionalFilters: staticFilters,
-        requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
-    });
-
     // --- Delete Handler ---
-    const { handleDeleteSB, deleteLoading } = usePRorSBDelete(refetch); // Pass refetch to the delete hook
+    const { handleDeleteSB, deleteLoading } = usePRorSBDelete(); // Pass refetch to the delete hook
 
     const handleConfirmDelete = async () => {
         if (deleteFlagged) {
@@ -302,7 +330,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
 
     // --- Combined Loading & Error States ---
     const isLoading = projectsLoading || userListLoading;
-    const combinedError = projectsError || userError || listError;
+    const combinedError = projectsError || userError;
 
     if (combinedError) {
         <AlertDestructive error={combinedError} />
@@ -313,31 +341,15 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
             {isLoading ? (
                 <TableSkeleton />
             ) : (
-                <DataTable<SentBackCategory>
-                    table={table}
+                <SBDataTableWrapper
+                    key={tab} // Key on wrapper ensures complete remount
+                    tab={tab}
                     columns={columns}
-                    isLoading={listIsLoading}
-                    error={listError}
-                    totalCount={totalCount}
-                    searchFieldOptions={sbSearchableFields}
-                    selectedSearchField={selectedSearchField}
-                    onSelectedSearchFieldChange={setSelectedSearchField}
-                    searchTerm={searchTerm}
-                    onSearchTermChange={setSearchTerm}
-                    // globalFilterValue={globalFilter}
-                    // onGlobalFilterChange={setGlobalFilter}
-                    // searchPlaceholder={`Search ${tab} Items...`}
-                    // showItemSearchToggle={showItemSearchToggle}
-                    // itemSearchConfig={{
-                    //     isEnabled: isItemSearchEnabled,
-                    //     toggle: toggleItemSearch,
-                    //     label: "Item Search"
-                    // }}
+                    fieldsToFetch={fieldsToFetch}
+                    sbSearchableFields={sbSearchableFields}
+                    staticFilters={staticFilters}
                     facetFilterOptions={facetFilterOptions}
-                    dateFilterColumns={dateColumns}
-                    showExportButton={true} // Optional
-                    onExport={'default'}
-                // toolbarActions={...} // Optional
+                    dateColumns={dateColumns}
                 />
             )}
             {/* Delete Confirmation Dialog */}

@@ -117,6 +117,13 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({ vendor
 
     if (error) return <AlertDestructive error={error} />;
 
+    const statusOptions = useMemo(() => [
+        { label: "Requested", value: "Requested" },
+        { label: "Approved", value: "Approved" },
+        { label: "Paid", value: "Paid" },
+        { label: "Rejected", value: "Rejected" },
+    ], []);
+
     return (
         <>
             <DataTable<ProjectPayments>
@@ -130,7 +137,10 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({ vendor
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
                 showExportButton={true}
-                facetFilterOptions={{ project: { title: "Project", options: projectOptions } }}
+                facetFilterOptions={{ 
+                    project: { title: "Project", options: projectOptions },
+                    status: { title: "Status", options: statusOptions }
+                 }}
                 dateFilterColumns={["payment_date", "creation"]}
                 exportFileName={`vendor_payments_${vendorId}`}
             />
@@ -148,3 +158,6 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({ vendor
         </>
     );
 };
+
+
+export default VendorPaymentsTable;
