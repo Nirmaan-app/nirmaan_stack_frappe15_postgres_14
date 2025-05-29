@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from "@/components/ui/use-toast";
 import {
      RFQData, ProcurementItem, Category as PRCategory
@@ -12,6 +11,8 @@ import { useUsersForLookup } from './useUsersForLookup';
 import { useFrappeDocumentEventListener } from 'frappe-react-sdk'; // Only this for events
 import { VendorOption, ProgressDocumentType, getItemListFromDocument, getCategoryListFromDocument } from '../types';
 import { TargetRateDetailFromAPI } from '../../ApproveVendorQuotes/types';
+import { urlStateManager } from '@/utils/urlStateManager';
+import { getUrlStringParam } from '@/hooks/useServerDataTable';
 
 // Props for the logic hook
 export interface UseProcurementProgressLogicProps {
@@ -75,12 +76,36 @@ export const useProcurementProgressLogic = ({
     documentMutate,
     currentUser,
 }: UseProcurementProgressLogicProps): UseProcurementProgressLogicReturn => {
-    const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
 
-    const [mode, setMode] = useState<'edit' | 'view' | 'review'>(
-        () => (searchParams.get("mode") as 'edit' | 'view' | 'review') || "edit"
-    );
+    // --- Tab State Management ---
+    const initialMode = useMemo(() => {
+        // Determine initial tab based on role, default to "Approved PO" if not admin/lead
+        const defaultTab = "edit";
+        return getUrlStringParam("mode", defaultTab) as 'edit' | 'view' | 'review';
+    }, []); // Calculate only once based on role
+
+    const [mode, setMode] = useState<'edit' | 'view' | 'review'>(initialMode);
+
+
+    useEffect(() => {
+        if (urlStateManager.getParam("mode") !== mode) {
+            urlStateManager.updateParam("mode", mode);
+        }
+    }, [mode]);
+    
+    useEffect(() => {
+        const unsubscribe = urlStateManager.subscribe("mode", (_, value) => {
+            const newMode = value || initialMode; // Fallback to initial if param removed
+            if (mode !== newMode) {
+                setMode(newMode as 'edit' | 'view' | 'review');
+            }
+        });
+        return unsubscribe; // Cleanup subscription
+    }, [initialMode]); // Depend on `tab` to avoid stale closures
+
+    // const [mode, setMode] = useState<'edit' | 'view' | 'review'>(
+    //     () => (searchParams.get("mode") as 'edit' | 'view' | 'review') || "edit"
+    // );
     const [currentDocumentState, setCurrentDocumentState] = useState<ProgressDocumentType | undefined>(initialDocument);
     const [formData, setFormData] = usePersistentState<RFQData>(`procurementDraft_${prId}`, {
         selectedVendors: [],
@@ -213,13 +238,6 @@ export const useProcurementProgressLogic = ({
         }
     }, [viewers, currentUser, prId]);
 
-
-    const updateURLNoReload = useCallback((newModeQueryParam: string) => {
-        const currentParams = new URLSearchParams(searchParams);
-        currentParams.set("mode", newModeQueryParam);
-        navigate(`${location.pathname}?${currentParams.toString()}`, { replace: true });
-    }, [navigate, location.pathname, searchParams]);
-
     const handleModeChange = useCallback(async (newMode: 'edit' | 'view') => {
         if (mode === newMode || isUpdatingDocument) return;
 
@@ -228,8 +246,7 @@ export const useProcurementProgressLogic = ({
             if (!success) return; // Prevent mode switch if save fails
         }
         setMode(newMode);
-        updateURLNoReload(newMode);
-    }, [mode, isUpdatingDocument, currentDocumentState, formData, selectedVendorQuotes, actionSaveDraft, updateURLNoReload, setMode]);
+    }, [mode, isUpdatingDocument, currentDocumentState, formData, selectedVendorQuotes, actionSaveDraft, setMode]);
 
     const availableVendorOptionsForDialog = useMemo(() => {
         const currentSelectedValuesInRfq = new Set(formData.selectedVendors.map(v => v.value));

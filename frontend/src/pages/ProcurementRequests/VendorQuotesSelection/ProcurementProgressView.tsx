@@ -100,7 +100,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                                             <div>
                                                 <p className="font-semibold mb-2 tracking-tight">Edit Mode:</p>
                                                 <ul className="list-disc list-inside space-y-1 text-xs">
-                                                    <li>Add vendors via the button below.</li>
+                                                    <li>Add vendors via the <strong>Add Vendors</strong> button.</li>
                                                     <li>Enter quotes/makes in the table.</li>
                                                     <li>Switch to <b>View</b> mode to select the final quotes for each item.</li>
                                                 </ul>
@@ -109,8 +109,8 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                                             <div>
                                                 <p className="font-semibold mb-2 tracking-tight">View Mode:</p>
                                                 <ul className="list-disc list-inside space-y-1 text-xs">
-                                                    <li>Select the desired vendor quote for each item by clicking the corresponding radio button.</li>
-                                                    <li>Click <b>Continue</b> (enabled when at least one quote is selected) to proceed to the final review.</li>
+                                                    <li>Select the desired vendor quote for each item by clicking the corresponding item/vendor quote card.</li>
+                                                    <li>Click <b>Continue</b> ({currentDocument?.doctype === "Sent Back Category" ? "you must not leave any items vendor quote unselected" : "enabled when at least one quote is selected"}) to proceed to the final review.</li>
                                                 </ul>
                                             </div>
                                         )}
