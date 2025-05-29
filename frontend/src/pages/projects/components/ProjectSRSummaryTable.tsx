@@ -27,6 +27,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList"; // Adjust path
 import { TailSpin } from "react-loader-spinner";
+import { useOrderPayments } from "@/hooks/useOrderPayments";
 
 // Fields to fetch for the SR Summary table list view
 export const SR_SUMMARY_LIST_FIELDS_TO_FETCH: (keyof ServiceRequests | 'name')[] = [
@@ -78,6 +79,8 @@ interface SRAggregates {
 // --- Component ---
 export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ projectId }) => {
     const { toast } = useToast();
+
+    const { getAmount: getTotalAmountPaidForSR } = useOrderPayments()
 
     // --- URL Key for this specific table instance ---
     const urlSyncKey = useMemo(() => `prj_sr_summary_${projectId || 'all'}`, [projectId]);
@@ -205,14 +208,24 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
             }
 
         },
-    ], [projectId, getProjectName, getVendorName, getSRRowTotal]);
+        {
+            id: "amount_paid_po", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmountPaidForSR(row.original.name, ["Paid"]))}</div>,
+            size: 130, enableSorting: false,
+            meta: {
+                exportHeaderName: "Amt. Paid",
+                exportValue: (row: ServiceRequests) => {
+                    return formatToRoundedIndianRupee(getTotalAmountPaidForSR(row.name, ["Paid"]));
+                }
+            }
+        },
+    ], [projectId, getProjectName, getVendorName, getSRRowTotal, getTotalAmountPaidForSR]);
 
 
     // --- useServerDataTable Hook for the paginated SR list ---
     const {
         table, data: serviceRequestsData, totalCount, isLoading: listIsLoading, error: listError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        isRowSelectionActive, refetch,
     } = useServerDataTable<ServiceRequests>({
         doctype: DOCTYPE,
         columns: columns, // Columns are defined below using `useMemo`

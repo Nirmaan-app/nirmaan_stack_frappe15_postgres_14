@@ -289,7 +289,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
     const {
         table, data: poDataForPage, totalCount, isLoading: listIsLoading, error: listError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        isRowSelectionActive, refetch,
     } = useServerDataTable<ProcurementOrder>({
         doctype: DOCTYPE,
         columns: columns, // Columns are defined below

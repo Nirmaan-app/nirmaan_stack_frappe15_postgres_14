@@ -38,6 +38,8 @@ import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_CO
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./UpdatePaymentDialog";
+import { useOrderPayments } from "@/hooks/useOrderPayments";
+import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -56,6 +58,9 @@ interface SelectOption { label: string; value: string; }
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
+
+    const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
+    const { getTotalAmount } = useOrderTotals()
 
     const [dialogMode,setDialogMode] = useState<"fulfil"|"delete">("fulfil");
     const [currentPayment,setCurrent] = useState<ProjectPaymentUpdateFields | null>(null);
@@ -104,17 +109,18 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return vendors?.find(vendor => vendor.name === vendorId);
     }), [vendors]);
 
-const openDialog = (p:ProjectPayments, m:"fulfil"|"delete")=>{
-  setCurrent({
-    name   : p.name,
-    project_label : projectOptions.find(o=>o.value===p.project)?.label ?? p.project,
-    vendor_label  : (vendorOptions.find(o=>o.value===p.vendor)?.label  ?? p.vendor)!,
-    document_name : p.document_name,
-    amount        : p.amount
-  });
-  setDialogMode(m);
-  togglePaymentDialog();
-};
+    const openDialog = (p:ProjectPayments, m:"fulfil"|"delete")=>{
+      setCurrent({
+        name   : p.name,
+        project_label : projectOptions.find(o=>o.value===p.project)?.label ?? p.project,
+        vendor_label  : (vendorOptions.find(o=>o.value===p.vendor)?.label  ?? p.vendor)!,
+        document_name : p.document_name,
+        document_type : p.document_type,
+        amount        : p.amount
+      });
+      setDialogMode(m);
+      togglePaymentDialog();
+    };
 
     // const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
     //     const vendor = getVendorDetails(vendorId);
@@ -192,6 +198,28 @@ const openDialog = (p:ProjectPayments, m:"fulfil"|"delete")=>{
             enableColumnFilter: true, size: 180,
         },
         {
+            id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value" />,
+            cell: ({ row }) => {
+                const totalValue = getTotalAmount(row.original.document_name, row.original.document_type)?.totalWithTax;
+                return <div className="font-medium pr-2">{formatToRoundedIndianRupee(totalValue)}</div>;
+            }, size: 150, enableSorting: false,
+            meta: {
+                exportHeaderName: "PO Value",
+                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmount(row.document_name, row.document_type).totalWithTax),
+            }
+        },
+        {
+            id: "total_paid_for_doc", header: ({ column }) => <DataTableColumnHeader column={column} title="Total Paid" />,
+            cell: ({ row }) => {
+                const amountPaid = getTotalAmountPaidForPO(row.original.document_name, ['Paid']);
+                return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid)}</div>;
+            }, size: 180, enableSorting: false,
+            meta: {
+                exportHeaderName: "Total Paid",
+                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmountPaidForPO(row.document_name, ['Paid'])),
+            }
+        },
+        {
             accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amt" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(parseNumber(row.original.amount))}</div>,
             size: 130,
@@ -230,7 +258,7 @@ const openDialog = (p:ProjectPayments, m:"fulfil"|"delete")=>{
                 </div>
             ), size: 120,
         } as ColumnDef<ProjectPayments>] : []),
-    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openDialog]); // Add dependencies
+    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openDialog, getTotalAmountPaidForPO, getTotalAmount]); // Add dependencies
 
     // Function to determine if a row can be selected (passed to hook)
     const canPaymentRowBeSelected = useCallback((row: Row<ProjectPayments>): boolean => {

@@ -19,12 +19,14 @@ import { useState } from "react";
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { useFrappeFileUpload } from "frappe-react-sdk";
 import { DOC_TYPES } from "../approve-payments/constants";
+import { useOrderPayments } from "@/hooks/useOrderPayments";
+import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 /* ---------- tiny sub-component for label/value rows --------------- */
-const Row = ({ label, val }: { label: string; val: string | number }) => (
+const Row = ({ label, val, labelClass, valClass }: { label: string; val: string | number, labelClass?: string, valClass?: string }) => (
   <div className="flex items-center justify-between text-sm">
-    <span className="text-muted-foreground">{label}:</span>
-    <span className="font-medium">{val}</span>
+    <span className={labelClass ?? "text-muted-foreground"}>{label}:</span>
+    <span className={valClass ?? "font-medium"}>{val}</span>
   </div>
 );
 
@@ -34,6 +36,7 @@ export interface ProjectPaymentUpdateFields {
         project_label : string;
         vendor_label  : string;
         document_name : string;
+        document_type : string;
         amount        : number;
     }
 
@@ -47,6 +50,9 @@ export interface UpdatePaymentDialogProps {
 export default function UpdatePaymentRequestDialog({
   mode, payment, onSuccess
 }: UpdatePaymentDialogProps) {
+
+  const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
+  const { getTotalAmount } = useOrderTotals()
 
   /* global dialog open/close from zustand */
   const { paymentDialog: open, togglePaymentDialog: toggle } =
@@ -133,7 +139,9 @@ export default function UpdatePaymentRequestDialog({
           <Row label="Project"  val={payment.project_label} />
           <Row label="Vendor"   val={payment.vendor_label} />
           <Row label="Doc #"    val={payment.document_name} />
-          <Row label="Req. Amt" val={fmt(payment.amount)} />
+          <Row label="Req. Amt" val={fmt(payment.amount)} labelClass="font-bold" valClass="font-bold" />
+          <Row label="PO Value" val={fmt(getTotalAmount(payment.document_name, payment.document_type)?.totalWithTax)} />
+          <Row label="Total Paid" val={fmt(getTotalAmountPaidForPO(payment.document_name, ["Paid"]))} />
         </div>
 
         {mode === "fulfil" ? (

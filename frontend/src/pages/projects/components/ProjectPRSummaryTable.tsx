@@ -277,17 +277,17 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
                 }
             }
         },
-        {
-            accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
-            cell: ({ row }) => {
-                const categories = row.original.category_list as { list: Category[] } | undefined;
-                const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
-                return (<div className="flex flex-wrap gap-1">{categoryItems.map((cat, index) => <Badge key={`${row.original.name}-${cat.name}_${index}`} variant="outline">{cat.name}</Badge>)}</div>);
-            }, size: 180, enableSorting: false,
-            meta: {
-                excludeFromExport: true
-            }
-        },
+        // {
+        //     accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
+        //     cell: ({ row }) => {
+        //         const categories = row.original.category_list as { list: Category[] } | undefined;
+        //         const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
+        //         return (<div className="flex flex-wrap gap-1">{categoryItems.map((cat, index) => <Badge key={`${row.original.name}-${cat.name}_${index}`} variant="outline">{cat.name}</Badge>)}</div>);
+        //     }, size: 180, enableSorting: false,
+        //     meta: {
+        //         excludeFromExport: true
+        //     }
+        // },
         {
             accessorKey: "estimated_total_value", // Use the processed total
             header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value(Incl. GST)" />,
