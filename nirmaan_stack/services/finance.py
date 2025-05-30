@@ -78,9 +78,9 @@ def get_source_document_financials(source_doc: frappe.model.document.Document) -
         total_value_without_gst = service_items_base_total # Assuming services don't have item-wise tax in your model
         
         # SR GST logic: If doc.gst is a percentage string like "18"
-        sr_gst_percent = flt(source_doc.get("gst")) # e.g., from "18" or "5"
-        if sr_gst_percent > 0:
-            gst_amount_on_services = total_value_without_gst * (sr_gst_percent / 100.0)
+        sr_gst_enabled =  source_doc.get("gst", "false") == "true" # e.g., "true" or "false"
+        if sr_gst_enabled:
+            gst_amount_on_services = total_value_without_gst * (18.0 / 100.0)
             payable_total = total_value_without_gst + gst_amount_on_services
         else: # No GST or GST is "0"
             payable_total = total_value_without_gst
@@ -150,7 +150,7 @@ def get_total_pending(src):
     pending_payments = frappe.get_all(
         "Project Payments",
         filters=[
-            ["status", "in", ("Requested", "Approved")],
+            ["status", "in", ("Requested", "Approved", "Rejected")],
             ["document_type", "=", src.doctype],
             ["document_name", "=", src.name]
         ],

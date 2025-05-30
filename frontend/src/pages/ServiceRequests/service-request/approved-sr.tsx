@@ -587,7 +587,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         onKeyDown={(e) => e.preventDefault()}
                                                     />
                                                 </div>
-
                                             </div>
 
                                             <CustomAttachment
@@ -668,7 +667,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     </Button>
                                                     }
 
-                                                    <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={payment} onDeleteSuccess={() => projectPaymentsMutate()} />
+                                                    <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => projectPaymentsMutate()} />
                                                 </TableCell>
                                             </TableRow>
                                         )
