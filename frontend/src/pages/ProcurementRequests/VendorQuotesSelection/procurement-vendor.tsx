@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ProcurementRequest, ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
@@ -36,12 +36,22 @@ export const ProcurementOrder: React.FC = () => {
 
   const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: prMutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
     {
-      fields: ["*"],
+      fields: ["workflow_state", "procurement_list", "name", "work_package", "category_list",
+        "`tabProcurement Request Item Detail`.item_id as item_code_from_child", // Example
+        "`tabProcurement Request Item Detail`.quantity as quantity_from_child"
+
+      ],
       filters: [["name", "=", orderId]],
       limit: 1000
     },
     orderId ? `Procurement Requests ${orderId}` : null
   );
+
+  const {data: order} = useFrappeGetDoc("Procurement Requests", orderId)
+
+  console.log("order", order)
+
+  console.log("procurement_request_list", procurement_request_list)
 
   useEffect(() => {
     if (procurement_request_list) {
