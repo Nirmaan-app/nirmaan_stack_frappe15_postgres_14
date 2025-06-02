@@ -6,7 +6,7 @@ import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ProcurementRequest, ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
 import { useContext, useEffect, useMemo, useState } from "react";
@@ -16,11 +16,11 @@ import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHe
 import { Button } from "../../../components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
 import { toast } from "../../../components/ui/use-toast";
-import { Projects } from "@/types/NirmaanStack/Projects";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 import { HistoricalQuotesHoverCard } from "./components/HistoricalQuotesHoverCard"; // Import the hover card
-import { TargetRateDetailFromAPI, FrappeTargetRateApiResponse, ApiSelectedQuotation, ApprovedQuotations, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Adjust path if needed
+import { TargetRateDetailFromAPI, FrappeTargetRateApiResponse, ApiSelectedQuotation, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Adjust path if needed
+import { useProcurementRequest } from "@/hooks/useProcurementRequest";
 
 
 export const ProcurementOrder: React.FC = () => {
@@ -30,34 +30,7 @@ export const ProcurementOrder: React.FC = () => {
 
   if (!orderId) return <div>No Order ID Provided</div>
 
-  const [orderData, setOrderData] = useState<ProcurementRequest | null>(null)
-
-  // const { getItemEstimate } = useItemEstimate()
-
-  const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: prMutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
-    {
-      fields: ["workflow_state", "procurement_list", "name", "work_package", "category_list",
-        "`tabProcurement Request Item Detail`.item_id as item_code_from_child", // Example
-        "`tabProcurement Request Item Detail`.quantity as quantity_from_child"
-
-      ],
-      filters: [["name", "=", orderId]],
-      limit: 1000
-    },
-    orderId ? `Procurement Requests ${orderId}` : null
-  );
-
-  const {data: order} = useFrappeGetDoc("Procurement Requests", orderId)
-
-  console.log("order", order)
-
-  console.log("procurement_request_list", procurement_request_list)
-
-  useEffect(() => {
-    if (procurement_request_list) {
-      setOrderData(procurement_request_list[0])
-    }
-  }, [procurement_request_list])
+  const { data: procurement_request, isLoading: procurement_request_loading, error: procurement_request_error, mutate: prMutate } = useProcurementRequest(orderId)
 
 
   useFrappeDocumentEventListener("Procurement Requests", orderId, (event) => {
@@ -71,18 +44,12 @@ export const ProcurementOrder: React.FC = () => {
     true // emitOpenCloseEventsOnMount (default)
   )
 
-  const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
-    fields: ["*"],
-    filters: [["name", "=", procurement_request_list?.[0]?.project!]],
-    limit: 1,
-  }, procurement_request_list?.[0]?.project ? `Projects ${procurement_request_list?.[0]?.project}` : null);
-
   // --- Fetch Target Rates using Custom API ---
   const itemIdsToFetch = useMemo(() => {
-    return procurement_request_list?.[0]?.procurement_list?.list
-      ?.map(item => item.name) // Assuming item.name is the item_id
+    return procurement_request?.order_list
+      ?.map(item => item.item_id) // Assuming item.name is the item_id
       .filter(id => !!id) ?? [];
-  }, [procurement_request_list]);
+  }, [procurement_request]);
 
   const {
     data: targetRatesApiResponse,
@@ -105,43 +72,6 @@ export const ProcurementOrder: React.FC = () => {
     return map;
   }, [targetRatesApiResponse]);
 
-  // Log error if target rate fetch fails
-  useEffect(() => {
-    if (targetRatesError) {
-      console.error("Error fetching target rates in procurement-vendor:", targetRatesError);
-      // Optional: Show toast notification
-      // toast({ title: "Error", description: "Could not load target rates.", variant: "destructive" });
-    }
-  }, [targetRatesError]);
-
-  // --- End Target Rate Fetching ---
-
-  const categoryMakesMap = useMemo(() => {
-    const map = new Map<string, string[]>();
-    if (projectDoc?.[0]?.project_work_packages) {
-      try {
-        const workPackages = (typeof projectDoc[0].project_work_packages === "string"
-          ? JSON.parse(projectDoc[0].project_work_packages)
-          : projectDoc[0].project_work_packages
-        )?.work_packages ?? [];
-
-        workPackages.forEach((wp: any) => {
-          (wp.category_list?.list ?? []).forEach((cat: any) => {
-            const catInOrder = orderData?.category_list?.list.find(i => i.name === cat.name);
-            if (cat.name && catInOrder && catInOrder.makes && catInOrder?.makes?.length > 0) {
-              map.set(cat.name, catInOrder?.makes);
-            } else if (cat.name && cat.makes?.length > 0) {
-              map.set(cat.name, cat.makes);
-            }
-          });
-        });
-      } catch (e) {
-        console.error("Failed to parse project work packages for makes:", e);
-      }
-    }
-    return map;
-  }, [projectDoc, orderData]);
-
 
   const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
 
@@ -151,9 +81,9 @@ export const ProcurementOrder: React.FC = () => {
     fields: ["*"],
     filters: [["reference_name", "=", orderId], ['subject', 'in', ['approving pr', 'creating pr']]],
     orderBy: { field: "creation", order: "desc" },
-    limit: 1000,
+    limit: 0,
   },
-    orderId ? undefined : null
+    orderId ? `Nirmaan Comments-${orderId}` : null
   )
 
   const { data: usersList, isLoading: usersListLoading } = useUsersList()
@@ -164,32 +94,17 @@ export const ProcurementOrder: React.FC = () => {
 
   const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
-
-  useEffect(() => {
-    if (procurement_request_list && procurement_request_list.length > 0) {
-      // Parse procurement_list if it's a string
-      const requestData = procurement_request_list[0];
-      if (typeof requestData.procurement_list === 'string') {
-        try {
-          requestData.procurement_list = JSON.parse(requestData.procurement_list);
-        } catch (e) {
-          console.error("Failed to parse procurement_list:", e);
-          // Handle error appropriately, maybe set to an empty list
-          requestData.procurement_list = { list: [] };
-        }
+  const categorizedItems = useMemo(() => {
+    if (!procurement_request) return {}
+    return procurement_request.order_list.reduce((acc, item) => {
+      const category = item.category
+      if (!acc[category]) {
+        acc[category] = []
       }
-      // Parse category_list if it's a string
-      if (typeof requestData.category_list === 'string') {
-        try {
-          requestData.category_list = JSON.parse(requestData.category_list);
-        } catch (e) {
-          console.error("Failed to parse category_list:", e);
-          requestData.category_list = { list: [] };
-        }
-      }
-      setOrderData(requestData);
-    }
-  }, [procurement_request_list]);
+      acc[category].push(item)
+      return acc
+    }, {} as Record<string, ProcurementRequestItemDetail[]>)
+  }, [procurement_request])
 
 
   const handleStartProcuring = async () => {
@@ -213,11 +128,11 @@ export const ProcurementOrder: React.FC = () => {
     }
   }
   // Combined loading state
-  const isLoading = procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading || targetRatesLoading;
+  const isLoading = procurement_request_loading || usersListLoading || universalCommentsLoading || targetRatesLoading;
 
-  if (procurement_request_list_loading || usersListLoading || universalCommentsLoading || projectLoading) return <LoadingFallback />
+  if (isLoading) return <LoadingFallback />
 
-  if (orderData?.workflow_state !== "Approved") {
+  if (procurement_request?.workflow_state !== "Approved") {
     return (
       <div className="flex items-center justify-center h-[90vh]">
         <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -226,14 +141,14 @@ export const ProcurementOrder: React.FC = () => {
           </h2>
           <p className="text-gray-600 text-lg">
             Hey there, the PR:{" "}
-            <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+            <span className="font-medium text-gray-900">{procurement_request?.name}</span>{" "}
             is no longer available in the{" "}
             <span className="italic">Approved</span> state. The current state is{" "}
             <span className="font-semibold text-blue-600">
-              {orderData?.workflow_state}
+              {procurement_request?.workflow_state}
             </span>{" "}
             And the last modification was done by <span className="font-medium text-gray-900">
-              {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getFullName(orderData?.modified_by)}
+              {procurement_request?.modified_by === "Administrator" ? procurement_request?.modified_by : getFullName(procurement_request?.modified_by)}
             </span>
             !
           </p>
@@ -253,17 +168,16 @@ export const ProcurementOrder: React.FC = () => {
       <div className="flex-1 space-y-4">
         <div className="space-y-2">
           <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
-          <ProcurementHeaderCard orderData={orderData} />
+          <ProcurementHeaderCard orderData={procurement_request} />
         </div>
         <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-4">
-          {/* Check if category_list exists and is an array */}
-          {Array.isArray(orderData?.category_list?.list) && orderData.category_list.list.map((cat) => {
-            return <div key={cat.name} className="min-w-[400px]"> {/* Added key here */}
+          {Object.entries(categorizedItems)?.map(([category, items]) => {
+            return <div key={category} className="min-w-[400px]"> {/* Added key here */}
               <Table>
                 <TableHeader>
                   <TableRow className="bg-red-100">
                     <TableHead className="w-[50%]">
-                      <span className="font-extrabold text-red-700">{cat.name}</span>
+                      <span className="font-extrabold text-red-700">{category}</span>
                       {/* <div className="text-xs font-bold text-gray-500">
                         {categoryMakesMap.get(cat.name)?.length ? (
                           <>
@@ -282,8 +196,8 @@ export const ProcurementOrder: React.FC = () => {
                 </TableHeader>
                 <TableBody>
                   {/* Check if procurement_list exists and is an array */}
-                  {Array.isArray(orderData?.procurement_list?.list) && orderData.procurement_list.list.map((item: ProcurementItem) => { // Added type
-                    if (item.category === cat.name) {
+                  {items.map((item: ProcurementRequestItemDetail) => { // Added type
+                    if (item.category === category) {
                       // const minQuote = getItemEstimate(item.name)?.averageRate
                       // --- Get Target Rate Info ---
                       const targetRateDetail = targetRatesDataMap.get(item.name); // item.name is the item_id
@@ -300,10 +214,10 @@ export const ProcurementOrder: React.FC = () => {
                       const mappedQuotes = mapApiQuotesToApprovedQuotations(contributingQuotes);
                       // --- End Target Rate Info ---
                       return (
-                        <TableRow key={item.item}>
+                        <TableRow key={item.item_id}>
                           <TableCell>
                             <div className="inline items-baseline">
-                              <span>{item.item}</span>
+                              <span>{item.item_name}</span>
                               {/* Conditionally display Make with specific styling */}
                               {item.make && (
                                 <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
@@ -367,7 +281,7 @@ export const ProcurementOrder: React.FC = () => {
                         <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                       </AlertDialogCancel>
                       <Button
-                        onClick={() => handleDeletePR(orderData?.name, true)}
+                        onClick={() => handleDeletePR(procurement_request?.name, true)}
                         className="flex-1">
                         Confirm
                       </Button>
