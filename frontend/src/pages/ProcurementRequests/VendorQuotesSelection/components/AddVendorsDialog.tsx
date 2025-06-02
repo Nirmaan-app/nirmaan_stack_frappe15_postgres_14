@@ -22,11 +22,11 @@ export const AddVendorsDialog: React.FC<AddVendorsDialogProps> = ({
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle className="text-center">Add Vendors to RFQ</DialogTitle>
+                    <DialogTitle className="text-center" data-cy="vendor-addition-text">Add Vendors to RFQ</DialogTitle>
                     <DialogDescription className='text-center'>Select vendors you want to send the RFQ to.</DialogDescription>
                 </DialogHeader>
                 <div className="flex gap-2 items-center py-4">
-                    <div className="flex-grow">
+                    <div className="flex-grow" data-cy="vendor-addition-dropdown">
                          <VendorsReactMultiSelect
                              vendorOptions={vendorOptions}
                              setSelectedVendors={onVendorSelect} // Use the passed handler
@@ -40,9 +40,9 @@ export const AddVendorsDialog: React.FC<AddVendorsDialogProps> = ({
                 </div>
                 <DialogFooter>
                     <DialogClose asChild>
-                        <Button variant="outline">Cancel</Button>
+                        <Button variant="outline" data-cy="vendor-selection-cancel-button">Cancel</Button>
                     </DialogClose>
-                    <Button onClick={onConfirm} disabled={selectedVendors.length === 0}>
+                    <Button data-cy="vendor-selection-confirm-button" onClick={onConfirm} disabled={selectedVendors.length === 0}>
                         Confirm Selection
                     </Button>
                 </DialogFooter>

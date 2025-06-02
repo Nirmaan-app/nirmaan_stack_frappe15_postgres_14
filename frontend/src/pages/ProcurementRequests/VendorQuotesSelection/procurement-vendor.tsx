@@ -339,14 +339,14 @@ export const ProcurementOrder: React.FC = () => {
         <div className="flex justify-between items-end">
           <AlertDialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
             <AlertDialogTrigger asChild>
-              <Button className="flex items-center gap-1">
+              <Button className="flex items-center gap-1" data-cy="delete-pr-procurement-vendor">
                 <Trash2 className="w-4 h-4" />
                 Delete PR
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
               <AlertDialogHeader className="text-start">
-                <AlertDialogTitle className="text-center">
+                <AlertDialogTitle className="text-center" data-cy="delete-pr-procurement-vendor-dialog-text">
                   Delete Procurement Request
                 </AlertDialogTitle>
                 <AlertDialogDescription>Are you sure you want to delete this PR?</AlertDialogDescription>
@@ -354,9 +354,10 @@ export const ProcurementOrder: React.FC = () => {
                   {deleteLoading ? <TailSpin color="red" width={40} height={40} /> : (
                     <>
                       <AlertDialogCancel className="flex-1" asChild>
-                        <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                        <Button variant={"outline"} className="border-primary text-primary" data-cy="delete-pr-procurement-vendor-dialog-cancel">Cancel</Button>
                       </AlertDialogCancel>
                       <Button
+                        data-cy="delete-pr-procurement-vendor-dialog-confirm"
                         onClick={() => handleDeletePR(orderData?.name, true)}
                         className="flex-1">
                         Confirm
@@ -369,7 +370,7 @@ export const ProcurementOrder: React.FC = () => {
             </AlertDialogContent>
           </AlertDialog>
           {update_loading ? <TailSpin color="red" height={30} width={30} /> : (
-            <Button onClick={handleStartProcuring} className="flex items-center gap-1">
+            <Button onClick={handleStartProcuring} className="flex items-center gap-1" data-cy="procurement-vendor-continue-button">
               Continue
               <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
             </Button>

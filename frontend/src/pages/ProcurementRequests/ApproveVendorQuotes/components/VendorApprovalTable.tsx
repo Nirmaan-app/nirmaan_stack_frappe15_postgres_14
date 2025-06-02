@@ -123,7 +123,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                     const vendorState = getVendorCheckboxState(vendorId, items.length);
 
                     return (
-                        <AccordionItem value={vendorId} key={key} className="border rounded-md overflow-hidden bg-white shadow-sm">
+                        <AccordionItem value={vendorId} key={key} className="border rounded-md overflow-hidden bg-white shadow-sm" data-cy="vendor-name-property">
                             {/* Custom Trigger using CardHeader structure */}
                             <AccordionTrigger className={`!py-0 !px-0 hover:!no-underline focus-visible:!ring-1 focus-visible:!ring-ring focus-visible:!ring-offset-1 rounded-t-md ${vendorState.isFullySelected ? "bg-primary/10" : ""}`}>
                                 <CardHeader className="flex flex-row items-center justify-between p-3 w-full cursor-pointer hover:bg-muted/50 transition-colors">
@@ -172,7 +172,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
                             {/* Content: The Table */}
                             <AccordionContent className="overflow-auto">
-                                <CardContent className="p-0 ">
+                                <CardContent className="p-0 " data-cy="items-name-table">
                                     <Table>
                                         <TableHeader className="bg-primary/20">
                                             <TableRow>

@@ -15,14 +15,14 @@ export const RevertPRDialog: React.FC<RevertPRDialogProps> = ({ isOpen, onClose,
         <AlertDialog open={isOpen} onOpenChange={onClose}>
             <AlertDialogContent>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Revert RFQ Selections?</AlertDialogTitle>
+                    <AlertDialogTitle data-cy="revert-pr-dialog-text">Revert RFQ Selections?</AlertDialogTitle>
                     <AlertDialogDescription>
                         Are you sure? This will remove all selected vendor quotes and makes from this PR. The PR workflow state will be set back to 'Approved'. This action cannot be easily undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
-                    <Button onClick={onConfirm} disabled={isLoading} variant="destructive">
+                    <AlertDialogCancel data-cy="revert-pr-dialog-cancel-button" disabled={isLoading}>Cancel</AlertDialogCancel>
+                    <Button data-cy="revert-pr-dialog-confirm-button" onClick={onConfirm} disabled={isLoading} variant="destructive">
                         {isLoading ? <TailSpin color="#fff" height={20} width={20} /> : "Confirm Revert"}
                     </Button>
                 </AlertDialogFooter>

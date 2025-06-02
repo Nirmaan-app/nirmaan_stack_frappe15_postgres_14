@@ -224,7 +224,7 @@ export const ReleasePOSelect: React.FC = () => {
         ) ? [
             {
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="approve-po-navigation">
                         <span>Approve PO</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.pr.approve}
@@ -235,7 +235,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             {
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="approve-ammended-po-navigation">
                         <span>Approve Amended PO</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.po['PO Amendment']}
@@ -246,7 +246,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             {
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="approve-sent-back-po-navigation">
                         <span>Approve Sent Back PO</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.sb.approve}
@@ -262,7 +262,7 @@ export const ReleasePOSelect: React.FC = () => {
         ...(role !== "Nirmaan Estimates Executive Profile" ? [
             {
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="approved-po-navigation">
                         <span>Approved PO</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.po['PO Approved']}
@@ -273,7 +273,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             {
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="dispatched-po-navigation">
                         <span>Dispatched PO</span>
                         <span className="ml-2 rounded text-xs font-bold">
                             {counts.po['Dispatched']}
@@ -284,7 +284,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             { // Use the new state variable here
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="partially-delivered-po-navigation">
                         <span>Partially Delivered PO</span>
                         <span className="ml-2 rounded text-xs font-bold">
                             {counts.po['Partially Delivered']}
@@ -295,7 +295,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             { // Use the renamed state variable here
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="delivered-po-navigation">
                         <span>Delivered PO</span>
                         <span className="ml-2 rounded text-xs font-bold">
                             {counts.po['Delivered']}

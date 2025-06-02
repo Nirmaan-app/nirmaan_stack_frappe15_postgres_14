@@ -22,10 +22,11 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
 
     return (
         <div className="flex max-sm:flex-col gap-2 justify-end items-center">
-            <Button variant="outline" className='border-primary text-primary hover:text-red-400 mr-4' size="sm" onClick={handleOpenDeletePRDialog}>
+            <Button variant="outline" data-cy="delete-pr-button"  className='border-primary text-primary hover:text-red-400 mr-4' size="sm" onClick={handleOpenDeletePRDialog}>
                  <Trash2 className="h-4 w-4 mr-1" /> Delete PR
              </Button>
             <Button
+                data-cy="reject-pr-button"
                 variant="outline"
                 className='border-primary text-primary hover:text-red-400'
                 onClick={onPrepareReject}
@@ -35,6 +36,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
                 Reject PR
             </Button>
             <Button
+                data-cy="approve-pr-button"
                 onClick={onPrepareApprove}
                 disabled={!canApprove || isLoading} // Can only approve if conditions met
                 title={!canApprove ? "Resolve requested items or add items first" : "Approve PR"} // Tooltip

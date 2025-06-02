@@ -209,6 +209,7 @@ export function DataTable<TData, TValue>({
       <div className="flex justify-between items-center">
         <div className="flex justify-between items-center py-4 w-full">
           <Input
+            data-cy="procurement-requests-search-bar"
             id="globalFilterInput"
             placeholder="Search..."
             value={globalFilter}
@@ -248,7 +249,7 @@ export function DataTable<TData, TValue>({
       </div>
 
       <div className="rounded-md border max-h-[70vh] overflow-y-auto relative">
-        <Table className="min-w-full">
+        <Table data-cy="procurement-requests-data-table" className="min-w-full">
           <TableHeader className="sticky top-0 bg-white z-10 bg-red-50">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>

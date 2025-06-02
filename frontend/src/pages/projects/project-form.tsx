@@ -649,7 +649,7 @@ export const ProjectForm = () => {
                                         <FormItem className="lg:flex lg:items-center gap-4">
                                             <FormLabel className="md:basis-2/12">Project Name<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                             <div className="flex flex-col items-start md:basis-2/4">
-                                                <FormControl className="">
+                                                <FormControl className="" data-cy="project-name">
                                                     <Input placeholder="Project Name" {...field} />
                                                 </FormControl>
                                                 <FormMessage />

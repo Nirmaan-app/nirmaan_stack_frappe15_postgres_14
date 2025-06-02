@@ -467,8 +467,8 @@ export const ProcurementProgress: React.FC = () => {
             <h2 className="text-lg font-semibold tracking-tight max-sm:text-base ml-2">RFQ List</h2>
             <div className="flex items-center gap-1">
               <div className="flex items-center border border-primary text-primary rounded-md text-xs cursor-pointer">
-                <span role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>Edit</span>
-                <span role="radio" tabIndex={0} aria-checked={mode === "view"} onClick={() => onClick("view")} className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`}>View</span>
+                <span role="radio" tabIndex={0} aria-checked={mode === "edit"} onClick={() => onClick("edit")} className={`${mode === "edit" ? "bg-red-100" : ""} py-1 px-4 rounded-md`} data-cy="vendor-quotes-edit-button">Edit</span>
+                <span role="radio" tabIndex={0} aria-checked={mode === "view"} onClick={() => onClick("view")} className={`${mode === "view" ? "bg-red-100" : ""} py-1 px-4 rounded-md`} data-cy="vendor-quotes-view-button">View</span>
               </div>
               <HoverCard>
                 <HoverCardTrigger>
@@ -501,7 +501,7 @@ export const ProcurementProgress: React.FC = () => {
 
           <div className="flex gap-2 items-center max-sm:justify-end max-sm:w-full">
             {mode === "edit" && (
-              <Button onClick={() => setAddVendorsDialog(true)} variant={"outline"} className="text-primary border-primary flex gap-1">
+              <Button onClick={() => setAddVendorsDialog(true)} variant={"outline"} className="text-primary border-primary flex gap-1" data-cy="vendore-quote-vendor-selection-button">
                 <CirclePlus className="w-4 h-4" />
                 Select {formData?.selectedVendors?.length > 0 && "More"} Vendors
               </Button>
@@ -516,14 +516,14 @@ export const ProcurementProgress: React.FC = () => {
         <div className="flex justify-between items-end">
           <AlertDialog open={revertDialog} onOpenChange={toggleRevertDialog}>
             <AlertDialogTrigger asChild>
-              <Button className="flex items-center gap-1">
+              <Button className="flex items-center gap-1" data-cy="revert-pr-button">
                 <Undo2 className="w-4 h-4" />
                 Revert PR
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
               <AlertDialogHeader className="text-start">
-                <AlertDialogTitle className="text-center">
+                <AlertDialogTitle className="text-center" data-cy="revert-pr-dialog-text">
                   Revert Procurement Request
                 </AlertDialogTitle>
                 <AlertDialogDescription>Are you sure you want to revert the PR changes?, this will permanently empty the rfq data filled if any.</AlertDialogDescription>
@@ -531,9 +531,10 @@ export const ProcurementProgress: React.FC = () => {
                   {update_loading ? <TailSpin color="red" width={40} height={40} /> : (
                     <>
                       <AlertDialogCancel className="flex-1" asChild>
-                        <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                        <Button variant={"outline"} className="border-primary text-primary" data-cy="revert-pr-dialog-cancel-button">Cancel</Button>
                       </AlertDialogCancel>
                       <Button
+                        data-cy="revert-pr-dialog-confirm-button"
                         onClick={handleRevertPR}
                         className="flex-1">
                         Confirm
@@ -545,16 +546,16 @@ export const ProcurementProgress: React.FC = () => {
               </AlertDialogHeader>
             </AlertDialogContent>
           </AlertDialog>
-          <Button disabled={mode === "edit" || !selectedVendorQuotes?.size} onClick={handleReviewChanges}>Continue</Button>
+          <Button disabled={mode === "edit" || !selectedVendorQuotes?.size} onClick={handleReviewChanges} data-cy="vendor-selection-continue-button">Continue</Button>
         </div>
 
         <Dialog open={addVendorsDialog} onOpenChange={() => setAddVendorsDialog(!addVendorsDialog)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle className="text-center">Add Vendors</DialogTitle>
+              <DialogTitle className="text-center" data-cy="vendor-addition-text">Add Vendors</DialogTitle>
             </DialogHeader>
             <DialogDescription className="flex gap-2 items-center">
-              <div className="w-[90%]">
+              <div className="w-[90%]" data-cy="vendor-addition-dropdown">
                 <VendorsReactMultiSelect vendorOptions={vendorOptions || []} setSelectedVendors={setSelectedVendors} />
               </div>
               <Sheet>
@@ -579,9 +580,9 @@ export const ProcurementProgress: React.FC = () => {
             </DialogDescription>
             <div className="flex items-end gap-4">
               <DialogClose className="flex-1" asChild>
-                <Button variant={"outline"}>Cancel</Button>
+                <Button variant={"outline"} data-cy="vendor-selection-cancel-button">Cancel</Button>
               </DialogClose>
-              <Button onClick={handleVendorSelection} className="flex-1">Confirm</Button>
+              <Button onClick={handleVendorSelection} className="flex-1" data-cy="vendor-selection-confirm-button">Confirm</Button>
             </div>
           </DialogContent>
         </Dialog>

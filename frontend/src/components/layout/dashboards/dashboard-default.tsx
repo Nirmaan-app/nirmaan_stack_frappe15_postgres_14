@@ -63,7 +63,7 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
       doctype: "Procurement Packages",
       linkTo: "/product-packages",
       Icon: Boxes,
-      dataCy: "admin-dashboard-proc-packages-card",
+      dataCy: "admin-dashboard-product-packages-card",
     },
     {
       id: "approved-quotations",
@@ -71,7 +71,7 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
       doctype: "Approved Quotations",
       linkTo: "/approved-quotes",
       Icon: Boxes,
-      dataCy: "admin-dashboard-approved-quotes-card",
+      dataCy: "admin-dashboard-approved-quotations-card",
     },
   ];
 

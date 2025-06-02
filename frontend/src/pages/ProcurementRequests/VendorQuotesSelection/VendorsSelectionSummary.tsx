@@ -478,14 +478,14 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
               <div className="flex flex-col justify-end items-end mr-2 my-4">
                         <Dialog>
                             <DialogTrigger asChild>
-                                <Button className="flex items-center gap-1">
+                                <Button className="flex items-center gap-1" data-cy="vendor-selection-summary-send-for-approval-button">
                                     <ArrowBigUpDash className="" />
                                     Send for Approval
                                 </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
-                                    <DialogTitle>Have you cross-checked your selections?</DialogTitle>
+                                    <DialogTitle data-cy="send-for-approval-dialog-text">Have you cross-checked your selections?</DialogTitle>
                                     <DialogDescription>
                                         {allDelayedItems.length !== 0 && (
                                             <p>
@@ -503,8 +503,8 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
 
                                         {allDelayedItems.length !== 0 ? (
                                             <div className='flex flex-col gap-2 mt-2 text-start'>
-                                                <h4 className='font-bold'>some items are delayed, any reason?</h4>
-                                                <TextArea className='border-primary focus:border-red-800 bg-red-200' placeholder='type here...' value={comment?.delaying} onChange={(e) => setComment({ ...comment, "delaying": e.target.value })} />
+                                                <h4 className='font-bold' data-cy="send-for-approval-dialog-remarks-input">some items are delayed, any reason?</h4>
+                                                <TextArea className='border-primary focus:border-red-800 bg-red-200' placeholder='type here...' value={comment?.delaying} onChange={(e) => setComment({ ...comment, "delaying": e.target.value })}/>
                                             </div>
                                         ) : <></>}
                                     </DialogDescription>
@@ -512,12 +512,12 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
                                 <DialogDescription className='flex items-center justify-center gap-2'>
                                     {(sendForApprCallLoading) ? <TailSpin width={60} color={"red"} /> : (
                                         <>
-                                            <DialogClose><Button variant="secondary" className="flex items-center gap-1">
+                                            <DialogClose><Button variant="secondary" className="flex items-center gap-1" data-cy="send-for-approval-dialog-cancel-button">
                                                 <Undo2 className="h-4 w-4" />
                                                 Cancel</Button></DialogClose>
                                             <Button variant="default" 
                                             onClick={handleSubmit} 
-                                            className="flex items-center gap-1">
+                                            className="flex items-center gap-1" data-cy="send-for-approval-dialog-confirm-button">
                                                 <CheckCheck className="h-4 w-4" />
                                                 Confirm</Button>
                                         </>

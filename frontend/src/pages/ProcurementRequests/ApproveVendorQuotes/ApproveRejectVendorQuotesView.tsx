@@ -98,6 +98,7 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
                 {isPrEditable && canPerformActions && (
                     <div className="flex justify-end gap-2">
                         <Button
+                            data-cy="reject-button"
                             onClick={toggleSendBackDialog}
                             variant="outline"
                             size="sm"
@@ -108,6 +109,7 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
                             {sendBackActionText}
                         </Button>
                         <Button
+                            data-cy="approve-button"
                             onClick={toggleApproveDialog}
                             variant="default" // Or outline with primary colors
                             size="sm"
