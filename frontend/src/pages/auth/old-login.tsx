@@ -54,6 +54,7 @@ export default function Login() {
                     type="text"
                     placeholder="m@example.com"
                     tabIndex={0}
+                    data-cy="username-login-input-email"
                   />
                   {errors?.email && <ErrorText>{errors?.email?.message}</ErrorText>}
                 </div>
@@ -68,7 +69,9 @@ export default function Login() {
                     name="password"
                     autoComplete="current-password"
                     type="password"
-                    placeholder="***********" />
+                    placeholder="***********"
+                    data-cy="username-login-input-password"
+                    />
                 </div>
 
               <div className="text-end">
@@ -77,7 +80,7 @@ export default function Login() {
                 </Link>
                 </div>
                 {errors?.password && <h1>{errors.password?.message}</h1>}
-                <Button className="w-full" type="submit" onClick={handleSubmit(onSubmit)}>
+                <Button className="w-full" type="submit" onClick={handleSubmit(onSubmit)} data-cy="login-button">
                   Login
                 </Button>
                 {error && <h3 className="text-red-500">{error.message}</h3>}

@@ -47,6 +47,7 @@ const QuantityQuoteInput: React.FC<QuantityQuoteInputProps> = ({
 
   return (
       <Input
+        data-cy="vendor-quote-rate"
         type="text"
         value={inputValue}
         onChange={handleChange}

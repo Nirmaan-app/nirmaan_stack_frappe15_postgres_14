@@ -89,6 +89,7 @@ export const MakesSelection: React.FC<MakesSelectionProps> = ({ defaultMake, ven
       <MenuList {...props}>
         {props.children}
         <div
+          // data-cy="create-new-make"
           className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
           onClick={() => toggleShowAlert()}
         >
@@ -113,15 +114,16 @@ export const MakesSelection: React.FC<MakesSelectionProps> = ({ defaultMake, ven
           menuPortalTarget={document.body}
           styles={portalStyles}
           menuPosition="fixed"
+          data-cy="vendor-quote-make-selection"
         />
       </div>
 
       <Dialog open={showAlert} onOpenChange={toggleShowAlert}>
-        <DialogContent className="text-start">
+        <DialogContent className="text-start" data-cy="add-make-dialog">
           <DialogHeader>
-            <DialogTitle>Add New Makes</DialogTitle>
+            <DialogTitle data-cy="add-make-title">Add New Makes</DialogTitle>
           </DialogHeader>
-          <DialogDescription>
+          <DialogDescription data-cy="add-make-input">
             <AddMakeComponent category={item?.category} categoryMakeListMutate={categoryMakeListMutate} makeList={makeList} makeListMutate={makeListMutate}
               handleMakeChange={handleMakeChange}
               toggleShowAlert={toggleShowAlert}

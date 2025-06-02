@@ -122,7 +122,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                         {mode === "edit" 
                         // && !isEffectivelyReadOnly 
                         && (
-                            <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary">
+                            <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary" data-cy="vendore-quote-vendor-selection-button">
                                 <CirclePlus className="mr-2 h-4 w-4" /> Add {formData.selectedVendors.length > 0 ? "More" : ""} Vendors
                             </Button>
                         )}
@@ -148,12 +148,12 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
 
                 <div className="flex justify-between items-end mt-6 pt-4 border-t">
                     {(currentDocument.workflow_state === "Approved" || currentDocument.workflow_state === "In Progress") && mode !== 'review' ? (
-                        <Button variant="outline" onClick={toggleRevertDialog} disabled={effectiveLoading} size="sm">
+                        <Button data-cy="revert-pr-button" variant="outline" onClick={toggleRevertDialog} disabled={effectiveLoading} size="sm">
                             <Undo2 className="mr-2 h-4 w-4" /> Revert Selections
                         </Button>
                     ) : <div />}
                     {mode === 'view' && (
-                        <Button onClick={handleProceedToReview} disabled={!canContinueToReview || effectiveLoading} size="sm">
+                        <Button data-cy="vendor-selection-continue-button" onClick={handleProceedToReview} disabled={!canContinueToReview || effectiveLoading} size="sm">
                             Continue to Review
                         </Button>
                     )}

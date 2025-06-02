@@ -18,6 +18,7 @@ export const ModeSwitcher: React.FC<ModeSwitcherProps> = ({ currentMode, onModeC
             disabled ? "opacity-50 cursor-not-allowed" : ""
         )}>
             <span
+                data-cy="vendor-quotes-edit-button"
                 role="radio"
                 tabIndex={disabled ? -1 : 0}
                 aria-checked={currentMode === "edit"}
@@ -28,6 +29,7 @@ export const ModeSwitcher: React.FC<ModeSwitcherProps> = ({ currentMode, onModeC
                 Edit
             </span>
             <span
+                data-cy="vendor-quotes-view-button"
                 role="radio"
                 tabIndex={disabled ? -1 : 0}
                 aria-checked={currentMode === "view"}

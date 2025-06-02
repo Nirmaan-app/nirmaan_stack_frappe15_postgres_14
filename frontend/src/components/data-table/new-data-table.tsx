@@ -193,7 +193,7 @@ export function DataTable<T>({
          className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto relative">
       {/* Setting position relative for proper stacking context */}
       
-      <Table className="min-w-full table-fixed">
+      <Table className="min-w-full table-fixed" data-cy="procurement-requests-data-table">
 
         {/* ---- colgroup guarantees identical widths ---- */}
         <colgroup>
@@ -394,6 +394,7 @@ function Toolbar(props: {
         </Select>
       )}
       <Input 
+        data-cy="procurement-requests-search-bar"
         aria-label={ph}
         id={searchInputId} 
         className="h-9 w-full sm:w-[250px] lg:w-[300px]"

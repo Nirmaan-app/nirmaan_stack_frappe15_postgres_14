@@ -463,7 +463,7 @@ const handleResolvePR = async () => {
                       <TableHead className="min-w-[100px]">Tax (%)</TableHead>
                       <TableHead className="min-w-[100px]">Quote</TableHead>
                       <TableHead className="min-w-[100px]">Amount</TableHead>
-                      <TableHead className="">Delete</TableHead>
+                      <TableHead className="" data-cy="delete-item-button">Delete</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -493,7 +493,7 @@ const handleResolvePR = async () => {
                             value={item.category}
                             onValueChange={(value) => handleInputChange(item.name, "category", value)}
                           >
-                            <SelectTrigger disabled={!item?.procurement_package}>
+                            <SelectTrigger data-cy="category-dropdown" disabled={!item?.procurement_package}>
                               <SelectValue className="text-gray-200" placeholder="Select Category" />
                             </SelectTrigger>
                             <SelectContent>
@@ -507,6 +507,7 @@ const handleResolvePR = async () => {
                         {/* Description Field */}
                         <TableCell className="whitespace-pre-wrap">
                           <Textarea
+                            data-cy="item-name-description"
                             value={item?.item || ""}
                             onChange={(e) =>
                               handleInputChange(
@@ -520,12 +521,13 @@ const handleResolvePR = async () => {
 
                         {/* Unit Field */}
                         <TableCell>
-                          <SelectUnit value={item?.unit || ""} onChange={(value) => handleInputChange(item.name, "unit", value)} />
+                          <SelectUnit data-cy="unit" value={item?.unit || ""} onChange={(value) => handleInputChange(item.name, "unit", value)} />
                         </TableCell>
 
                         {/* Quantity Field */}
                         <TableCell>
                           <Input
+                            data-cy="quantity"
                             type="number"
                             value={item?.quantity || ""}
                             onChange={(e) =>
@@ -543,7 +545,7 @@ const handleResolvePR = async () => {
                             value={item.tax}
                             onValueChange={(value) => handleInputChange(item.name, "tax", value)}
                           >
-                            <SelectTrigger >
+                            <SelectTrigger data-cy="tax">
                               <SelectValue className="text-gray-200" placeholder="Select Tax %" />
                             </SelectTrigger>
                             <SelectContent>
@@ -556,6 +558,7 @@ const handleResolvePR = async () => {
                         </TableCell>
                         <TableCell>
                           <Input
+                            data-cy="quote"
                             type="number"
                             value={amounts[item.name] || ""}
                             onChange={(e) =>
@@ -593,6 +596,7 @@ const handleResolvePR = async () => {
               <div className="flex items-center gap-2">
 
               <Button
+                data-cy="custom-pr-next-button"
                 disabled={!checkNextButtonStatus()}
                 onClick={handleSaveAmounts}
               >
@@ -636,7 +640,9 @@ const handleResolvePR = async () => {
           <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
             <Dialog>
               <DialogTrigger asChild>
-                <Button className="flex items-center gap-1">
+                <Button
+                  data-cy="custom-pr-send-for-approval-button"
+                  className="flex items-center gap-1">
                     <Settings2 className="h-4 w-4" />
                     {resolve ? "Resolve" : "Send for Approval"}
                 </Button>
@@ -647,6 +653,7 @@ const handleResolvePR = async () => {
                   <DialogDescription>
                     Click on Confirm to submit for approval!
                     <Textarea
+                      data-cy="custom-pr-confirmation-comment"
                       className="mt-4"
                       placeholder={`Optional`}
                       onChange={(e: any) =>
@@ -661,6 +668,7 @@ const handleResolvePR = async () => {
                 <DialogDescription className="flex items-center justify-center gap-2">
                   <DialogClose asChild>
                     <Button
+                      data-cy="custom-pr-confirmation-cancel"
                       disabled={newCustomPRLoading || resolveCustomPRCallLoading}
                       variant="secondary"
                       className="flex items-center gap-1"
@@ -670,6 +678,7 @@ const handleResolvePR = async () => {
                     </Button>
                   </DialogClose>
                     <Button
+                      data-cy="custom-pr-confirmation-confirm"
                       variant="default"
                       className="flex items-center gap-1"
                       onClick={resolve ? handleResolvePR : handleSubmit}

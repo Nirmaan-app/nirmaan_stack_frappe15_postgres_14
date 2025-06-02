@@ -523,6 +523,7 @@ export function NewSidebar() {
                       }}
                       selectedKeys={selectedKeys}
                       tooltip={item.label}
+                      data-cy={`${item.label.toLowerCase().replace(/\s+/g, '-')}-button`}
                     >
                       {item.icon && <item.icon />}
                       <span className="font-medium">{item.label}</span>

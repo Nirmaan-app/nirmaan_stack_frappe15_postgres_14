@@ -45,7 +45,7 @@ export const ServiceRequestsTabs : React.FC = () => {
         ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role)  ? [
             {
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="approve-service-order-button">
                         <span>Approve Service Order</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.sr.selected}
@@ -56,7 +56,7 @@ export const ServiceRequestsTabs : React.FC = () => {
             },
             {
                 label: (
-                    <div className="flex items-center">
+                    <div className="flex items-center" data-cy="approve-amended-so-button">
                         <span>Approve Amended SO</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.sr.amended}
@@ -71,7 +71,7 @@ export const ServiceRequestsTabs : React.FC = () => {
     const items = useMemo(() => [
         {
           label: (
-              <div className="flex items-center">
+              <div className="flex items-center" data-cy="in-progress-sr-button">
                   <span>In Progress SR</span>
                   <span className="ml-2 text-xs font-bold">
                       {counts.sr.pending}
@@ -82,7 +82,7 @@ export const ServiceRequestsTabs : React.FC = () => {
       },
       {
           label: (
-              <div className="flex items-center">
+              <div className="flex items-center" data-cy="approved-sr-button">
                   <span>Approved SR</span>
                   <span className="ml-2 rounded text-xs font-bold">
                       {counts.sr.approved}

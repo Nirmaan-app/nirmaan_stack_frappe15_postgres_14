@@ -73,22 +73,23 @@ export const RenderRightActionButton = ({
       ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button className="sm:mr-4 mr-2">
+          <Button data-cy="add-new-pr-normal-custom-button" className="sm:mr-4 mr-2">
             <CirclePlus className="w-5 h-5 pr-1" />
             Add New PR
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="mr-16">
-          <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
+          <DropdownMenuItem data-cy="add-new-pr-normal" onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
             Normal
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-custom-pr`)}>
+          <DropdownMenuItem data-cy="add-new-pr-custom" onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-custom-pr`)}>
             Custom
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       ) : (
         <Button
+        data-cy="add-new-pr-button"
         className="sm:mr-4 mr-2"
         onClick={() =>
           navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)

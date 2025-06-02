@@ -159,18 +159,18 @@ export const ProcurementRequests: React.FC = () => {
 
     // --- Tab Definitions ---
     const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{counts.pr.pending}</span></div>), value: "Approve PR" },
+        { label: (<div className="flex items-center" data-cy="approve-pr-navigation"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{counts.pr.pending}</span></div>), value: "Approve PR" },
     ] : []), [role, counts]);
 
     const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{counts.pr.approved}</span></div>), value: "New PR Request" },
-        { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{counts.pr.in_progress}</span></div>), value: "In Progress" },
+        { label: (<div className="flex items-center" data-cy="new-pr-request-navigation"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{counts.pr.approved}</span></div>), value: "New PR Request" },
+        { label: (<div className="flex items-center" data-cy="in-progress-navigation"><span>In Progress</span><span className="ml-2 text-xs font-bold">{counts.pr.in_progress}</span></div>), value: "In Progress" },
     ] : []), [role, counts]);
 
     const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{counts.sb.rejected.pending}</span></div>), value: "Rejected" },
-        { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.delayed.pending}</span></div>), value: "Delayed" },
-        { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
+        { label: (<div className="flex items-center" data-cy="sent-back-navigation"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{counts.sb.rejected.pending}</span></div>), value: "Rejected" },
+        { label: (<div className="flex items-center" data-cy="skipped-pr-navigation"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.delayed.pending}</span></div>), value: "Delayed" },
+        { label: (<div className="flex items-center" data-cy="rejected-po-navigation"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
     ] : []), [role, counts]);
 
     const allTabs = useMemo(() => 
