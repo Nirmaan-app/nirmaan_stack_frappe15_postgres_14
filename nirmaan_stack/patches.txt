@@ -43,3 +43,5 @@ nirmaan_stack.patches.v2_6.backfill_pr_item_work_package #3
 
 nirmaan_stack.patches.v2_4.po_dispatch_date #3
 nirmaan_stack.patches.v2_7.migrate_pr_procurement_list_to_child_table
+
+nirmaan_stack.patches.v2_7.migrate_project_wp_to_child_tables #15
