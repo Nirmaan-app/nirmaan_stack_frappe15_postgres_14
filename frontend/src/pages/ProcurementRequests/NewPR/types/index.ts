@@ -1,13 +1,15 @@
 // Represents an item within the Procurement Request list (stored in Zustand)
+
+export type { ProcurementRequestItemDetail as BackendPRItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 export interface ProcurementRequestItem {
   uniqueId?: string; // Client-side unique ID for list keys before saving
   name: string;      // Item DocName (or UUID for new/requested items)
   item: string;      // Item display name
   unit: string;
   quantity: number;
-  work_package?: string; // Work Package DocName (key)
+  work_package: string; // Work Package DocName (key)
   category: string;  // Category DocName (key)
-  tax: number;
+  tax?: number;
   comment?: string;
   make?: string;     // Selected Make DocName for this item
   status: 'Pending' | 'Request' | 'Approved' | 'Rejected'; // Add other relevant statuses if needed

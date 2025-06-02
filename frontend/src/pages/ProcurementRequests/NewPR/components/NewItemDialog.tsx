@@ -22,8 +22,7 @@ import { ListChecks, CirclePlus } from "lucide-react";
 
 import { ProcurementRequestItem, CategoryOption } from '../types'; // Adjust path
 import { useUserData } from '@/hooks/useUserData'; // Adjust path
-import Fuse, { FuseResult } from 'fuse.js';
-import { ItemStatus } from '../constants';
+import { FuseResult } from 'fuse.js';
 import { Items } from '@/types/NirmaanStack/Items';
 import { Category } from '@/types/NirmaanStack/Category';
 

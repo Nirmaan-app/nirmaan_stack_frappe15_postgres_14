@@ -59,7 +59,7 @@ export interface RFQData {
 
 export interface ProcurementRequestItemDetail {
 	name: string;
-	creaton: string;
+	creation: string;
 	modified: string;
 	item_id: string;
 	item_name: string;
