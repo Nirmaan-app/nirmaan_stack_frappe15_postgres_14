@@ -12,6 +12,15 @@ export interface WorkPackage {
 	category_list: CategoryList
 }
 
+// Child DocType: Project Work Package Category Make
+export interface ProjectWPCategoryMake {
+    name: string; // Frappe child row name
+    procurement_package: string; // Link to Procurement Packages DocName
+    category: string;            // Link to Category DocName
+    make?: string | null;          // Link to Makelist DocName (optional)
+    // Add other fields from this child doctype if needed by frontend
+}
+
 
 export interface Projects{
 	name: string
@@ -65,4 +74,7 @@ export interface Projects{
 	/**	Project GST : JSON	*/
 	project_gst_number?: any
 	project_value?: string
+
+	// NEW Child Table field
+  project_wp_category_makes?: ProjectWPCategoryMake[]; // Array of child table rows
 }
