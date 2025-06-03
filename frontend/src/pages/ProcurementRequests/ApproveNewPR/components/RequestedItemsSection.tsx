@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PRCategory, PRItem } from '../types';
+import { PRCategory, PRItemUIData as PRItem } from '../types';
 import { AlertTriangle } from 'lucide-react';
 import { RequestedItemTable } from './RequestedItemTable';
 
