@@ -7,8 +7,9 @@ import SITEURL from "@/constants/siteURL"
 import { getUrlStringParam } from "@/hooks/useServerDataTable"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
+import { Projects } from "@/types/NirmaanStack/Projects"
 import { formatDate } from "@/utils/FormatDate"
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice"
+import {formatToRoundedIndianRupee} from "@/utils/FormatPrice"
 import { getTotalInflowAmount } from "@/utils/getAmounts"
 import { urlStateManager } from "@/utils/urlStateManager"
 import { Radio } from "antd"
@@ -20,7 +21,7 @@ const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-
 const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
 
 interface ProjectFinancialsTabProps {
-  projectData?: any
+  projectData?: Projects
   projectCustomer?: Customers;
   // updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
   getTotalAmountPaid: {
@@ -65,10 +66,10 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
-  const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
-    fields: ["*"],
-    filters: [["project", "=", projectData?.name]],
-    limit: 1000
+  const {data : projectInflows} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
+    fields: ["name", "amount", "payment_date", "utr", "inflow_attachment", "creation"],
+    filters: [["project", "=", projectData?.name!]],
+    limit: 0
   })
 
   const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
