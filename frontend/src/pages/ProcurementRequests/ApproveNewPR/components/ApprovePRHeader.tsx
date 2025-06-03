@@ -1,9 +1,9 @@
 import React from 'react';
 import { ProcurementActionsHeaderCard } from '@/components/helpers/ProcurementActionsHeaderCard'; // Assuming this is reusable
-import { OrderData, Project } from '../types';
+import { OrderData, Project, PRScreenData } from '../types';
 
 interface ApprovePRHeaderProps {
-    orderData: OrderData;
+    orderData: PRScreenData;
     projectDoc?: Project; // Optional project details
 }
 

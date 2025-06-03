@@ -39,9 +39,9 @@ export default function ListPR() {
     "Procurement Requests",
     {
       fields: ["*"],
-      filters: [["project", "=", selectedProject]],
+      filters: [["project", "=", selectedProject!]],
       orderBy: { field: "modified", order: "desc" },
-      limit: 1000,
+      limit: 0,
     },
     selectedProject ? `Procurement Requests ${selectedProject}` : null
   );
@@ -210,7 +210,7 @@ const RenderStatusBadge : React.FC<StatusBadgeProps> = ({ item, selectedProject 
     {
       fields: ["*"],
       filters: [["project", "=", selectedProject]],
-      limit: 1000,
+      limit: 0,
     },
     selectedProject ? `Procurement Orders ${selectedProject}` : null
   );

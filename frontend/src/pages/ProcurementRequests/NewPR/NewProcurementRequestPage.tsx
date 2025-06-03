@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
 
 // Import UI Components
@@ -17,7 +17,7 @@ import { MessageCircleWarning } from 'lucide-react';
 
 // Store, Hooks, Types
 import { useProcurementRequestStore } from './store/useProcurementRequestStore';
-import { Category, ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
+import { ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
 import { BackendPRItemDetail, CategoryMakesMap, CategorySelection, ProcurementRequestItem } from './types';
 import { useProcurementRequestData } from './hooks/useProcurementRequestData';
 import { useProcurementRequestForm } from './hooks/useProcurementRequestForm';
@@ -61,6 +61,7 @@ export const extractMakesFromChildTableForWP = (project: Projects | undefined, s
 export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boolean }> = ({ resolve = false, edit = false }) => {
     const { projectId, prId } = useParams<{ projectId: string; prId?: string }>();
     const mode = edit ? 'edit' : resolve ? 'resolve' : 'create';
+    // const navigate = useNavigate();
 
     // Local state for UI flow and dialogs
     const [page, setPage] = useState<PageState>('loading');
@@ -84,6 +85,10 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         // Correct options syntax for conditional fetching
         // { enabled: !!prId && (mode === 'edit' || mode === 'resolve') }
     );
+
+    // if(existingPRData && ((mode === "edit" && existingPRData?.workflow_state !== "Draft") || (mode === "resolve" && existingPRData?.workflow_state !== "Rejected"))) {
+    //     navigate(`/prs&milestones/procurement-requests/${existingPRData?.name}`)
+    // }
 
     const {emitDocOpen} =  useFrappeDocumentEventListener("Procurment Requests", prId!, (event) => {
         if(prId) {
@@ -125,10 +130,10 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         }
 
         let initialDataForStore: { 
-         workPackage: string, 
-         procList: ProcurementRequestItem[], // Frontend item structure
-         categories: CategorySelection[] // Your existing type for selectedCategories
-     } | undefined = undefined;
+            workPackage: string, 
+            procList: ProcurementRequestItem[], // Frontend item structure
+            categories: CategorySelection[] // Your existing type for selectedCategories
+        } | undefined = undefined;
      let initialWpMakesMap: CategoryMakesMap = {};
 
      if ((mode === 'edit' || mode === 'resolve') && existingPRData) {
@@ -170,8 +175,9 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
              initialWpMakesMap = extractMakesFromChildTableForWP(project, initialDataForStore.workPackage);
          }
      }
+     const projId = mode === "create" ? projectId : existingPRData?.project
      
-     initializeStore(mode, projectId, prId, initialWpMakesMap, initialDataForStore);
+     initializeStore(mode, projId, prId, initialWpMakesMap, initialDataForStore);
 
 }, [mode, projectId, prId, initializeStore, existingPRData, existingPRLoading, project]);
 

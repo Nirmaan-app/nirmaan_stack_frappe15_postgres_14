@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'; // Added useMemo
 import { useParams, useNavigate } from 'react-router-dom';
-import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
 
 import { ApprovePRView } from './ApprovePRView';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic';

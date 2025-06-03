@@ -223,7 +223,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
                 <AlertDialogContent className="sm:max-w-[600px]"> {/* Consistent width */}
                     <AlertDialogHeader>
                         <AlertDialogTitle className="flex justify-between items-center">
-                            <span>Edit Product: {editItem.item}</span>
+                            <span>Edit Product: {editItem.item_name}</span>
                             <AlertDialogCancel onClick={onClose} className="border-none shadow-none p-0 h-6 w-6 relative -top-2 -right-2">
                                 X
                             </AlertDialogCancel>
@@ -237,7 +237,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
                         {/* Item Name (Read Only) */}
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label className="text-right">Product Name</Label>
-                            <p className="col-span-3 text-sm font-medium py-2">{editItem.item}</p>
+                            <p className="col-span-3 text-sm font-medium py-2">{editItem.item_name}</p>
                         </div>
 
                         {/* --- Make Selector --- */}
@@ -312,7 +312,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
                                 <AlertDialogHeader>
                                     <AlertDialogTitle>Delete Product from PR?</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        Are you sure you want to remove "{editItem.item}" from this Procurement Request?
+                                        Are you sure you want to remove "{editItem.item_name}" from this Procurement Request?
                                     </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>

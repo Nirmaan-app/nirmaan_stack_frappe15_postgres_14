@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea'; // Use Textarea for comments
 import ReactSelect from 'react-select';
 import { SelectUnit } from '@/components/helpers/SelectUnit'; // Assuming this is your unit selector
-import { FuzzyMatch, ItemOption, NewItemState, RequestItemState } from '../types';
+import { FuzzyMatch, ItemOption, NewItemState } from '../types';
 import { TailSpin } from 'react-loader-spinner';
 import { parseNumber } from '@/utils/parseNumber';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
