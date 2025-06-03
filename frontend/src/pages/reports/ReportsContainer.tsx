@@ -4,12 +4,13 @@ import { Radio } from "antd";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { POReportType, ProjectReportType, ReportType, useReportStore } from './store/useReportStore';
+import { POReportOption, SROption, ProjectReportType, ReportType, useReportStore } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 
 const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
 const POReports = React.lazy(() => import('./components/POReports'));
+const SRReports = React.lazy(() => import('./components/SRReports')); // New SR component
 
 
 // Define options for the selector
@@ -17,14 +18,22 @@ const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Cash Sheet', value: 'Cash Sheet' },
 ];
 
-const poReportOptions: { label: string; value: POReportType }[] = [
+const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
     { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
+    { label: 'Dispatched for 3+ days', value: 'Dispatched for 3 days' }, // User-friendly label
+];
+
+// Options for SR Reports
+const srReportOptions: { label: string; value: SROption }[] = [
+    { label: 'Pending Invoices', value: 'Pending Invoices' },
+    // As requested, value is 'PO with Excess Payments', label can be more SR-specific
+    { label: 'Excess Payments (SR)', value: 'PO with Excess Payments' },
 ];
 
 export default function ReportsContainer() {
 
-    const {role} = useUserData();
+    const { role } = useUserData();
 
     const initialTab = useMemo(() => {
         return getUrlStringParam("tab", REPORTS_TABS.PROJECTS);
@@ -83,6 +92,10 @@ export default function ReportsContainer() {
             ),
             value: REPORTS_TABS.PO,
         },
+        { // New SR Tab
+            label: <div className="flex items-center"><span>SR</span></div>,
+            value: REPORTS_TABS.SR,
+        },
     ], [role])
 
     const onClick = useCallback(
@@ -98,6 +111,8 @@ export default function ReportsContainer() {
             return projectReportOptions;
         } else if (activeTab === REPORTS_TABS.PO) {
             return poReportOptions;
+        } else if (activeTab === REPORTS_TABS.SR) {
+            return srReportOptions; // Return SR options
         }
         return [];
     }, [activeTab]);
@@ -108,9 +123,9 @@ export default function ReportsContainer() {
 
 
     return (
-        <div 
-        className="flex-1 space-y-4"
-        > 
+        <div
+            className="flex-1 space-y-4"
+        >
             <div className="flex justify-between items-center gap-4 flex-wrap">
                 {tabs && (
                     <Radio.Group
@@ -133,7 +148,7 @@ export default function ReportsContainer() {
                         onValueChange={(value: string) => handleReportTypeChange(value as ReportType)} // Cast necessary
                         disabled={currentReportOptions.length === 0}
                     >
-                        <SelectTrigger className="w-[200px] text-red-600 border-red-600">
+                        <SelectTrigger className="w-[250px] text-red-600 border-red-600">
                             <SelectValue placeholder="Select type..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -153,6 +168,8 @@ export default function ReportsContainer() {
                     <ProjectReports />
                 ) : activeTab === REPORTS_TABS.PO ? (
                     <POReports />
+                ) : activeTab === REPORTS_TABS.SR ? ( // Render SRReports for SR tab
+                    <SRReports />
                 ) : (
                     <div>Select a report tab.</div> // Fallback for invalid tab
                 )}

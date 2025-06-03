@@ -11,7 +11,7 @@ export const PROJECT_REPORTS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 // Define which columns are date columns for the date filter component
-export const PROJECT_REPORTS_DATE_COLUMNS: string[] = ["creation", "modified"]; // Assuming these are on ProcessedProject
+export const PROJECT_REPORTS_DATE_COLUMNS: string[] = ["creation"]; // Assuming these are on ProcessedProject
 
 // Define columns that can be used for faceted filtering (if any are suitable)
 // For reports, facets might be less common unless on aggregated categories or statuses.
