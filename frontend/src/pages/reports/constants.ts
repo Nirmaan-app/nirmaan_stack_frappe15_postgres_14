@@ -1,6 +1,7 @@
 export const REPORTS_TABS = {
   PROJECTS: 'projects',
   PO: 'po',
+  SR: 'sr',
 } as const; // Use "as const" for stricter typing
 
 // export const INVOICE_TASK_TYPE = "po_invoice_approval";

@@ -1,16 +1,16 @@
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
 import { useMemo } from 'react';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
-import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
+// import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
-import { getPOTotal, getSRTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
+import { getPOTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
     getPOReportListOptions,
-    getSRReportListOptions,
+    // getSRReportListOptions,
     getPaymentReportListOptions,
     // getProjectMinimalListOptions,
     // getVendorMinimalListOptions
@@ -18,7 +18,7 @@ import {
 
 export interface POReportRowData {
     name: string;
-    type: 'PO' | 'SR';
+    // type: 'PO' | 'SR';
     creation: string;
     project: string;
     projectName?: string;
@@ -27,7 +27,7 @@ export interface POReportRowData {
     totalAmount: number;
     invoiceAmount: number;
     amountPaid: number;
-    originalDoc: ProcurementOrder | ServiceRequests;
+    originalDoc: ProcurementOrder; //| ServiceRequests;
 }
 
 interface UsePOReportsDataResult {
@@ -35,7 +35,7 @@ interface UsePOReportsDataResult {
     isLoading: boolean;
     error: Error | null;
     mutatePOs: () => Promise<any>;
-    mutateSRs: () => Promise<any>;
+    // mutateSRs: () => Promise<any>;
     mutatePayments: () => Promise<any>;
 }
 
@@ -53,12 +53,12 @@ const getAllVendorsMinimalOptions = (): GetDocListArgs<FrappeDoc<Vendors>> => ({
 export const usePOReportsData = (): UsePOReportsDataResult => {
     // --- Get Options ---
     const poOptions = getPOReportListOptions();
-    const srOptions = getSRReportListOptions();
-    const paymentOptions = getPaymentReportListOptions(); // Already filtered for Paid PO/SR payments
+    // const srOptions = getSRReportListOptions();
+    const paymentOptions = getPaymentReportListOptions(['Procurement Orders']); // Already filtered for Paid PO/SR payments
 
     // --- Generate Query Keys ---
     const poQueryKey = queryKeys.procurementOrders.list(poOptions);
-    const srQueryKey = queryKeys.serviceRequests.list(srOptions);
+    // const srQueryKey = queryKeys.serviceRequests.list(srOptions);
     const paymentQueryKey = queryKeys.projectPayments.list(paymentOptions);
 
     // --- Fetch Core Data ---
@@ -69,12 +69,12 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         mutate: mutatePOs,
     } = useFrappeGetDocList<ProcurementOrder>(poQueryKey[0], poOptions as GetDocListArgs<FrappeDoc<ProcurementOrder>>, poQueryKey);
 
-    const {
-        data: serviceRequests,
-        isLoading: srLoading,
-        error: srError,
-        mutate: mutateSRs,
-    } = useFrappeGetDocList<ServiceRequests>(srQueryKey[0], srOptions as GetDocListArgs<FrappeDoc<ServiceRequests>>, srQueryKey);
+    // const {
+    //     data: serviceRequests,
+    //     isLoading: srLoading,
+    //     error: srError,
+    //     mutate: mutateSRs,
+    // } = useFrappeGetDocList<ServiceRequests>(srQueryKey[0], srOptions as GetDocListArgs<FrappeDoc<ServiceRequests>>, srQueryKey);
 
     const {
         data: payments, // These are already filtered by status='Paid' and doc_type = PO/SR
@@ -131,11 +131,11 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         allProjectsQueryKey     // e.g., ["Projects", "allMinimal"]
     );
 
-     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
+    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
         allVendorsQueryKey[0], // e.g., "Vendors"
         allVendorsOptions,
         allVendorsQueryKey    // e.g., ["Vendors", "allMinimal"]
-     );
+    );
 
 
     // --- Create Lookup Maps (Memoized) ---
@@ -168,12 +168,12 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
     // --- Combine and Process Data (Memoized) ---
     const reportData = useMemo<POReportRowData[] | null>(() => {
         // Wait until all *required* data for calculation is loaded
-        if (poLoading || srLoading || paymentsLoading || projectsLoading || vendorsLoading) {
+        if (poLoading || paymentsLoading || projectsLoading || vendorsLoading) {
             return null; // Indicate data is not fully ready
         }
 
         // Handle cases where initial fetches might return undefined/null before loading finishes
-         if (!purchaseOrders && !serviceRequests) {
+        if (!purchaseOrders) {
             return []; // No POs or SRs found
         }
 
@@ -184,7 +184,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
             const { totalAmt } = getPOTotal(po, po.loading_charges, po.freight_charges); // Assuming totalAmt includes tax
             combinedData.push({
                 name: po.name,
-                type: 'PO',
+                // type: 'PO',
                 creation: po.creation,
                 project: po.project,
                 projectName: projectMap[po.project] || po.project_name || po.project,
@@ -198,45 +198,45 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         });
 
         // Process Service Requests
-        (serviceRequests || []).forEach(sr => {
-             const total = getSRTotal(sr);
-             const totalWithTax = sr.gst === "true" ? total * 1.18 : total;
-            combinedData.push({
-                name: sr.name,
-                type: 'SR',
-                creation: sr.creation,
-                project: sr.project,
-                projectName: projectMap[sr.project] || sr.project,
-                vendor: sr.vendor,
-                vendorName: vendorMap[sr.vendor] || sr.vendor,
-                totalAmount: parseNumber(totalWithTax),
-                invoiceAmount: getTotalInvoiceAmount(sr.invoice_data),
-                amountPaid: paymentsMap[sr.name] || 0, // Look up pre-calculated paid amount
-                originalDoc: sr,
-            });
-        });
+        // (serviceRequests || []).forEach(sr => {
+        //      const total = getSRTotal(sr);
+        //      const totalWithTax = sr.gst === "true" ? total * 1.18 : total;
+        //     combinedData.push({
+        //         name: sr.name,
+        //         type: 'SR',
+        //         creation: sr.creation,
+        //         project: sr.project,
+        //         projectName: projectMap[sr.project] || sr.project,
+        //         vendor: sr.vendor,
+        //         vendorName: vendorMap[sr.vendor] || sr.vendor,
+        //         totalAmount: parseNumber(totalWithTax),
+        //         invoiceAmount: getTotalInvoiceAmount(sr.invoice_data),
+        //         amountPaid: paymentsMap[sr.name] || 0, // Look up pre-calculated paid amount
+        //         originalDoc: sr,
+        //     });
+        // });
 
-         // Sort the combined list by creation date descending
-         combinedData.sort((a, b) => new Date(b.creation).getTime() - new Date(a.creation).getTime());
+        // Sort the combined list by creation date descending
+        combinedData.sort((a, b) => new Date(b.creation).getTime() - new Date(a.creation).getTime());
 
         return combinedData;
 
     }, [
-        purchaseOrders, serviceRequests, payments, projects, vendors, // Raw data
-        poLoading, srLoading, paymentsLoading, projectsLoading, vendorsLoading, // Loading states
+        purchaseOrders, payments, projects, vendors, // Raw data
+        poLoading, paymentsLoading, projectsLoading, vendorsLoading, // Loading states
         projectMap, vendorMap, paymentsMap, // Derived maps
     ]);
 
     // --- Consolidated Loading and Error State ---
-    const isLoading = poLoading || srLoading || paymentsLoading || projectsLoading || vendorsLoading;
-    const error = poError || srError || paymentsError || projectsError || vendorsError; // Add errors from project/vendor fetches if needed
+    const isLoading = poLoading || paymentsLoading || projectsLoading || vendorsLoading;
+    const error = poError || paymentsError || projectsError || vendorsError; // Add errors from project/vendor fetches if needed
 
     return {
         reportData,
         isLoading,
         error: error instanceof Error ? error : null,
         mutatePOs,
-        mutateSRs,
+        // mutateSRs,
         mutatePayments,
     };
 };

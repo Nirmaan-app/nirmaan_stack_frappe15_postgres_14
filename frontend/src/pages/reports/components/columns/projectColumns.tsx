@@ -1,125 +1,121 @@
-import { ColumnDef } from "@tanstack/react-table";
-import { ProcessedProject } from "../../hooks/useProjectReportsData"; // Adjust path
-import { parseNumber } from "@/utils/parseNumber"; // Adjust path
-import { Link } from "react-router-dom"; // Or your router's Link component
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { ColumnDef, Row, Table } from "@tanstack/react-table";
+import { Projects } from "@/types/NirmaanStack/Projects"; // Base Project type
+import { parseNumber } from "@/utils/parseNumber";
+import { Link } from "react-router-dom";
+import formatToIndianRupee from "@/utils/FormatPrice"; // Assuming formatToRoundedIndianRupee is also here
 import { formatDate } from "@/utils/FormatDate";
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Skeleton } from "@/components/ui/skeleton"; // For cell loading state
+import { ProjectCalculatedFields } from "../../hooks/useProjectReportCalculations";
 
-// Helper function FOR EXPORTING LAKHS (returns string like "1.23 L")
-// We don't include the Rupee symbol here for cleaner CSV data, but you can add it if needed.
-const formatValueToLakhsString = (value: string | number | undefined | null): string => {
+// Helper functions (formatValueToLakhsString, formatDisplayValueToLakhs) remain the same...
+export const formatValueToLakhsString = (value: string | number | undefined | null): string => {
   const num = parseNumber(value);
-  if (isNaN(num)) return "-"; // Or "" for empty cell
-  if (num === 0) return "0.00 L"; // Explicit zero with lakhs suffix
-
-  const valueInLakhs = (num / 100000).toFixed(2); // Keep 2 decimal places
+  if (isNaN(num)) return "-";
+  if (num === 0) return "0.00 L";
+  const valueInLakhs = (num / 100000).toFixed(2);
   return `${valueInLakhs} L`;
 };
 
-// Helper function FOR DISPLAYING LAKHS (returns string like "₹1.23 L")
 const formatDisplayValueToLakhs = (value: string | number | undefined | null): string => {
   const num = parseNumber(value);
   if (isNaN(num)) return "-";
   if (num === 0) return "₹0 L";
-
   const valueInLakhs = num / 100000;
   return formatToIndianRupee(valueInLakhs) + " L";
 };
 
 
-export const projectColumns: ColumnDef<ProcessedProject>[] = [
+// Define the expected structure of table.options.meta
+interface ProjectTableMeta {
+  getProjectCalculatedFields: (projectId: string) => ProjectCalculatedFields | null;
+  isLoadingGlobalDeps: boolean;
+}
+
+// A generic cell renderer for calculated fields
+const CalculatedCell: React.FC<{
+  row: Row<Projects>;
+  table: Table<Projects>;
+  accessor: keyof ProjectCalculatedFields | 'totalCredit'; // Which field to access from calculatedData
+  formatter: (value: number | undefined) => string;
+}> = ({ row, table, accessor, formatter }) => {
+  const meta = table.options.meta as ProjectTableMeta | undefined;
+
+  if (!meta || typeof meta.getProjectCalculatedFields !== 'function') {
+    console.error("Table meta not configured correctly for calculated fields.");
+    return <span className="text-destructive text-xs">Meta Error</span>;
+  }
+
+  if (meta.isLoadingGlobalDeps) {
+    return <Skeleton className="h-4 w-20 my-1" />;
+  }
+
+  const calculatedData = meta.getProjectCalculatedFields(row.original.name);
+
+  if (calculatedData === null) { // Data is still being processed or not available
+    return <Skeleton className="h-4 w-20 my-1" />;
+  }
+
+  let valueToFormat: number | undefined;
+  if (accessor === 'totalCredit') {
+    valueToFormat = parseNumber(calculatedData.totalInvoiced) - parseNumber(calculatedData.totalInflow);
+  } else {
+    valueToFormat = calculatedData[accessor];
+  }
+
+  return <div className="tabular-nums">{formatter(valueToFormat)}</div>;
+};
+
+
+// projectColumns is now a function that returns the column definitions.
+// This allows for more flexibility if columns needed to be truly dynamic based on props,
+// though for this case, accessing meta via `table` in cell renderers is the key.
+export const getProjectColumns = (): ColumnDef<Projects>[] => [
   {
     accessorKey: "project_name",
-    header: "Project Name",
-    cell: ({ row }) => {
-      const name = row.original.project_name;
-      const id = row.original.name;
-      // Optional: Link to project details page
-      return <Link to={`/projects/${id}`} className="text-blue-600 hover:underline">{name || id}</Link>;
-    },
-    // Enable sorting/filtering if needed using tanstack table features
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
+    cell: ({ row }) => (
+      <Link to={`/projects/${row.original.name}`} className="text-blue-600 hover:underline">
+        {row.original.project_name || row.original.name}
+      </Link>
+    ),
+    size: 200, // Adjust size as needed
+    meta: { exportHeaderName: "Project Name", exportValue: (row: Projects) => row.project_name || row.name }
   },
-
   {
     accessorKey: "creation",
-    header: "Project Creation Date",
-    cell: ({ row }) => {
-      const date = row.original.creation;
-      return <div>{formatDate(date)}</div>;
-    },
-    meta: {
-      exportValue: (row: ProcessedProject) => formatDate(row.creation),
-    }
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Creation Date" />,
+    cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
+    meta: { exportHeaderName: "Creation Date", exportValue: (row: Projects) => formatDate(row.creation) }
   },
   {
     accessorKey: "project_value",
-    header: "Value (excl. GST)",
-    cell: ({ row }) => {
-      // Access the original project_value field
-      return <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>;
-    },
-    meta: {
-      // Use export formatter for CSV
-      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.project_value),
-      //  align: 'right'
-    }
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Value (excl. GST)" />,
+    cell: ({ row }) => <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>,
+    meta: { exportHeaderName: "Value (excl. GST)", exportValue: (row: Projects) => formatValueToLakhsString(row.project_value), isNumeric: true }
   },
   {
-    // Use accessorKey pointing to the calculated field
-    accessorKey: "totalInvoiced",
-    header: "Total PO + SR Amount (incl. GST)",
-    cell: ({ row }) => {
-      // Access the calculated totalInvoiced field
-      const totalInvoiced = row.original.totalInvoiced;
-      return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInvoiced)}</div>;
-    },
-    meta: {
-      // Use export formatter for CSV
-      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInvoiced),
-      //  align: 'right'
-    }
+    id: "totalInvoiced", // Use ID for columns not directly on `Projects`
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR (incl. GST)" />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalInvoiced" formatter={formatDisplayValueToLakhs} />,
+    meta: { exportHeaderName: "Total PO+SR (incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
   },
   {
-    accessorKey: "totalInflow",
-    header: "Inflow",
-    cell: ({ row }) => {
-      // Access the calculated totalInflow field
-      const totalInflow = row.original.totalInflow;
-      return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInflow)}</div>;
-    },
-    meta: {
-      // Use export formatter for CSV
-      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInflow),
-      //  align: 'right'
-    }
+    id: "totalInflow",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Inflow" />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalInflow" formatter={formatDisplayValueToLakhs} />,
+    meta: { exportHeaderName: "Inflow", isNumeric: true }
   },
   {
-    accessorKey: "totalOutflow",
-    header: "Outflow",
-    cell: ({ row }) => {
-      // Access the calculated totalOutflow field (sum of 'Paid' payments)
-      const totalOutflow = row.original.totalOutflow;
-      return <div className="tabular-nums">{formatDisplayValueToLakhs(totalOutflow)}</div>;
-    },
-    meta: {
-      // Use export formatter for CSV
-      exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalOutflow),
-      //  align: 'right'
-    }
+    id: "totalOutflow",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} />,
+    meta: { exportHeaderName: "Outflow", isNumeric: true }
   },
   {
-    accessorKey: "totalCredit",
-    header: "Credit Outstanding",
-    cell: ({ row }) => {
-      // Access the calculated totalInflow field
-      // const totalInflow = row.original.totalInflow;
-      // return <div className="tabular-nums">{formatDisplayValueToLakhs(totalInflow)}</div>;
-      return <div>placeholder</div>
-    },
-    // meta: {
-    //   // Use export formatter for CSV
-    //  exportValue: (row: ProcessedProject) => formatValueToLakhsString(row.totalInflow),
-    // //  align: 'right'
-    // }
+    id: "totalCredit",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Credit Outstanding" />,
+    cell: (props) => { return "placeholder" }//<CalculatedCell {...props} accessor="totalCredit" formatter={formatDisplayValueToLakhs} />,
+    // meta: { exportHeaderName: "Credit Outstanding", isNumeric: true }
   },
 ];

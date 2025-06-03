@@ -35,17 +35,17 @@ interface VendorListParams extends ListParams {
 }
 
 // Interface for report-specific list fetching
-interface ProjectListParams extends ListParams {}
-interface POListParams extends ListParams {}
-interface SRListParams extends ListParams {}
-interface PaymentListParams extends ListParams {}
-interface InflowListParams extends ListParams {}
-interface CustomerListParams extends ListParams {}
+interface ProjectListParams extends ListParams { }
+interface POListParams extends ListParams { }
+interface SRListParams extends ListParams { }
+interface PaymentListParams extends ListParams { }
+interface InflowListParams extends ListParams { }
+interface CustomerListParams extends ListParams { }
 
 
 // --- Define Fields Constants (Good Practice) ---
 const PROJECT_REPORT_FIELDS: (keyof Projects)[] = ['name', 'project_name', 'project_value', 'creation', 'modified'];
-const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'order_list', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name'];
+const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'order_list', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date'];
 const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'service_order_list', 'gst', 'invoice_data', 'status', 'modified'];
 const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status']; // Added 'project'
 const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date']; // Add fields as needed
@@ -150,7 +150,7 @@ export const queryKeys = {
 // PO Reports Tab Options
 export const getPOReportListOptions = (): POListParams => ({
   fields: PO_REPORT_FIELDS,
-  filters: [["status", "in", ["Partially Delivered", "Delivered"]]],
+  filters: [["status", "in", ["Dispatched", "Partially Delivered", "Delivered"]]],
   limit: 100000, // Consider pagination in future if needed
   orderBy: { field: 'creation', order: 'desc' },
 });
@@ -162,11 +162,11 @@ export const getSRReportListOptions = (): SRListParams => ({
   orderBy: { field: 'creation', order: 'desc' },
 });
 
-export const getPaymentReportListOptions = (): PaymentListParams => ({
+export const getPaymentReportListOptions = (docTypes: ('Procurement Orders' | 'Service Requests')[]): PaymentListParams => ({
   fields: PAYMENT_REPORT_FIELDS,
   // Fetch payments related to POs/SRs and are marked 'Paid' for the PO Report context
   filters: [
-    ['document_type', 'in', ['Procurement Orders', 'Service Requests']],
+    ['document_type', 'in', docTypes],
     ['status', '=', 'Paid'], // Status relevant for PO Report 'Amt Paid'
   ],
   limit: 100000,
@@ -271,14 +271,14 @@ export const getVendorListOptions = (vendorType: string[] = ["Material", "Materi
   vendorType: vendorType, // Include for key uniqueness
 });
 
-export const getProjectListOptions = (projectOptions?: {filters?: Filter<FrappeDoc<Projects>>[], fields?: string[]}): ProjectListParams => ({
+export const getProjectListOptions = (projectOptions?: { filters?: Filter<FrappeDoc<Projects>>[], fields?: string[] }): ProjectListParams => ({
   fields: projectOptions?.fields || PROJECT_MINIMAL_FIELDS,
   filters: projectOptions?.filters || [],
   limit: 1000,
   orderBy: { field: "project_name", order: "asc" },
 });
 
-export const getCustomerListOptions = (customerOptions?: {filters?: Filter<FrappeDoc<Customers>>[]}): CustomerListParams => ({
+export const getCustomerListOptions = (customerOptions?: { filters?: Filter<FrappeDoc<Customers>>[] }): CustomerListParams => ({
   fields: CUSTOMER_MINIMAL_FIELDS,
   filters: customerOptions?.filters || [],
   limit: 1000,
