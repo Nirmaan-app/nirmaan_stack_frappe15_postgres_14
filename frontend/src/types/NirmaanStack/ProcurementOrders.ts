@@ -1,19 +1,19 @@
 export interface PurchaseOrderItem {
-  name: string;
-  item: string;
-  unit: string;
-  quantity: number;
+	name: string;
+	item: string;
+	unit: string;
+	quantity: number;
 	received?: number;
-  category: string;
+	category: string;
 	work_package?: string;
-  quote: number;
-  make?: string;
-  status: string;
-  tax: number;
-  comment?: string;
+	quote: number;
+	make?: string;
+	status: string;
+	tax: number;
+	comment?: string;
 	po?: string;
 	makes: {
-		list : {
+		list: {
 			make: string;
 			enabled: string;
 		}[]
@@ -102,7 +102,8 @@ export interface ProcurementOrder {
 	status: string
 	/**	Delivery Contact : Data	*/
 	delivery_contact?: string
-	custom? : string
-	delivery_data?: {data : DeliveryDataType}
-	invoice_data?: {data : InvoiceDataType}
+	custom?: string
+	delivery_data?: { data: DeliveryDataType }
+	invoice_data?: { data: InvoiceDataType }
+	dispatch_date?: string | null;
 }

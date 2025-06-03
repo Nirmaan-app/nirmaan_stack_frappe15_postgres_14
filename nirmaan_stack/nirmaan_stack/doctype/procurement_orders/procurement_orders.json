@@ -31,7 +31,8 @@
   "status",
   "delivery_contact",
   "delivery_data",
-  "invoice_data"
+  "invoice_data",
+  "dispatch_date"
  ],
  "fields": [
   {
@@ -197,12 +198,17 @@
    "fieldname": "invoice_data",
    "fieldtype": "JSON",
    "label": "Invoice Data"
+  },
+  {
+   "fieldname": "dispatch_date",
+   "fieldtype": "Datetime",
+   "label": "Dispatch Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-06 18:46:07.888894",
+ "modified": "2025-06-02 15:41:21.923580",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
