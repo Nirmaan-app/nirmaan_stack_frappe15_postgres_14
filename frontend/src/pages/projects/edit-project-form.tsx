@@ -16,13 +16,12 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
-import { Projects, Projects as ProjectsType, ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
+import { Projects as ProjectsType, ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
 import { formatToLocalDateTimeString } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
 import {
-  FrappeDoc,
   useFrappeDocTypeEventListener,
   useFrappeGetDoc,
   useFrappeGetDocList,
@@ -76,6 +75,10 @@ import {
 import { Separator } from "../../components/ui/separator";
 import NewCustomer from "../customers/add-new-customer";
 import { ProjectQueryKeys } from "./project";
+import { Customers } from "@/types/NirmaanStack/Customers";
+import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
+import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
+import { Address } from "@/types/NirmaanStack/Address";
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -175,113 +178,11 @@ interface SelectOption {
 //     work_package: string;
 // }
 
-interface EditProjectFormProps {
-  toggleEditSheet: () => void;
-  // projectMutate: KeyedMutatator<FrappeDoc<Projects>>;
-}
 
-export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
-  const { projectId } = useParams<{ projectId: string }>();
+const formatWorkPackagesForForm = (data: ProjectsType | undefined): ProjectFormValues['project_work_packages']['work_packages'] => {
 
-  const { data, mutate: projectMutate } = useFrappeGetDoc<ProjectsType>(
-    "Projects",
-    projectId,
-    projectId ? ProjectQueryKeys.project(projectId) : null
-  );
-
-  console.log("projectData", data)
-
-  // console.log("projectData", data)
-
-  const {
-    data: procuremeent_packages_list,
-  } = useFrappeGetDocList("Procurement Packages", {
-    fields: ["work_package_name"],
-    limit: 0,
-  });
-
-  const {
-    data: company,
-    isLoading: company_isLoading,
-    error: company_error,
-    mutate: company_mutate,
-  } = useFrappeGetDocList("Customers", {
-    fields: ["name", "company_name"],
-    limit: 0,
-  });
-
-  const {
-    data: project_types,
-    isLoading: project_types_isLoading,
-    error: project_types_error,
-    mutate: project_types_mutate,
-  } = useFrappeGetDocList("Project Types", {
-    fields: ["name", "project_type_name"],
-    limit: 0,
-  });
-
-  const {
-    data: project_address,
-    mutate: project_address_mutate,
-  } = useFrappeGetDoc("Address", data?.project_address, data?.project_address ? undefined : null);
-
-  // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
-  //     fields: ["*"],
-  //     limit: 1000
-  // });
-
-  useFrappeDocTypeEventListener("Project Types", async (d) => {
-    await project_types_mutate();
-  });
-
-  const form = useForm<ProjectFormValues>({
-    resolver: zodResolver(projectFormSchema),
-    mode: "onChange",
-    // defaultValues: {
-    //   project_name: data?.project_name || "",
-    //   customer: data?.customer || "",
-    //   project_type: data?.project_type || "",
-    //   project_value: data?.project_value || "",
-    //   address_line_1: project_address?.address_line1 || "",
-    //   address_line_2: project_address?.address_line2 || "",
-    //   pin: project_address?.pincode || "",
-    //   email: project_address?.email_id || "",
-    //   phone: project_address?.phone || "",
-    //   project_start_date: data?.project_start_date
-    //     ? new Date(data?.project_start_date)
-    //     : new Date(),
-    //   project_end_date: data?.project_end_date
-    //     ? new Date(data?.project_end_date)
-    //     : new Date(),
-    //   project_work_packages: data?.project_work_packages
-    //     ? JSON.parse(data?.project_work_packages)
-    //     : {
-    //       work_packages: [],
-    //     },
-    //   project_gst_number: data?.project_gst_number
-    //     ? JSON.parse(data?.project_gst_number)
-    //     : {
-    //       list: [
-    //         {
-    //           location: "Bengaluru",
-    //           gst: "29ABFCS9095N1Z9",
-    //         }
-    //       ]
-    //     },
-    //   project_scopes: data?.project_scopes
-    //     ? JSON.parse(data?.project_scopes)
-    //     : {
-    //       scopes: [],
-    //     },
-    // },
-  });
-
-  // console.log("formValues", form.getValues())
-
-  useEffect(() => {
-    if (data && project_address) {
-
-      // Transform `project_wp_category_makes` (child table) to frontend's nested structure
+  if(!data) return [];
+  // Transform `project_wp_category_makes` (child table) to frontend's nested structure
       const transformedWpConfigForForm: ProjectFormValues['project_work_packages']['work_packages'] = [];
       const wpCategoryMap: Record<string, Record<string, { name: string; makes: SelectOption[] }>> = {};
 
@@ -341,6 +242,113 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
           },
         });
       });
+    
+      return transformedWpConfigForForm;
+}
+
+interface EditProjectFormProps {
+  toggleEditSheet: () => void;
+  // projectMutate: KeyedMutatator<FrappeDoc<Projects>>;
+}
+
+export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
+  const { projectId } = useParams<{ projectId: string }>();
+
+  const { data, mutate: projectMutate } = useFrappeGetDoc<ProjectsType>(
+    "Projects",
+    projectId,
+    projectId ? ProjectQueryKeys.project(projectId) : null
+  );
+
+  // console.log("projectData", data)
+
+  const {
+    data: procuremeent_packages_list,
+  } = useFrappeGetDocList<ProcurementPackages>("Procurement Packages", {
+    fields: ["work_package_name"],
+    limit: 0,
+  });
+
+  const {
+    data: company,
+    isLoading: company_isLoading,
+    error: company_error,
+    mutate: company_mutate,
+  } = useFrappeGetDocList<Customers>("Customers", {
+    fields: ["name", "company_name"],
+    limit: 0,
+  });
+
+  const {
+    data: project_types,
+    isLoading: project_types_isLoading,
+    error: project_types_error,
+    mutate: project_types_mutate,
+  } = useFrappeGetDocList<ProjectTypes>("Project Types", {
+    fields: ["name", "project_type_name"],
+    limit: 0,
+  });
+
+  const {
+    data: project_address,
+    mutate: project_address_mutate,
+  } = useFrappeGetDoc<Address>("Address", data?.project_address, data?.project_address ? undefined : null);
+
+  // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
+  //     fields: ["*"],
+  //     limit: 1000
+  // });
+
+  useFrappeDocTypeEventListener("Project Types", async (d) => {
+    await project_types_mutate();
+  });
+
+  const form = useForm<ProjectFormValues>({
+    resolver: zodResolver(projectFormSchema),
+    mode: "onChange",
+    defaultValues: {
+      project_name: data?.project_name || "",
+      customer: data?.customer || "",
+      project_type: data?.project_type || "",
+      project_value: data?.project_value || "",
+      address_line_1: project_address?.address_line1 || "",
+      address_line_2: project_address?.address_line2 || "",
+      pin: project_address?.pincode || "",
+      email: project_address?.email_id || "",
+      phone: project_address?.phone || "",
+      project_start_date: data?.project_start_date
+        ? new Date(data?.project_start_date)
+        : new Date(),
+      project_end_date: data?.project_end_date
+        ? new Date(data?.project_end_date)
+        : new Date(),
+      project_work_packages: {
+          work_packages: formatWorkPackagesForForm(data),
+        },
+      project_gst_number: data?.project_gst_number
+        ? (typeof data?.project_gst_number === "string" ? JSON.parse(data?.project_gst_number) : data?.project_gst_number)
+        : {
+          list: [
+            {
+              location: "Bengaluru",
+              gst: "29ABFCS9095N1Z9",
+            }
+          ]
+        },
+      project_scopes: data?.project_scopes
+        ? JSON.parse(data?.project_scopes)
+        : {
+          scopes: [],
+        },
+    },
+  });
+
+  // console.log("formValues", form.getValues())
+
+  useEffect(() => {
+    if (data && project_address) {
+
+      const transformedWpConfigForForm = formatWorkPackagesForForm(data);
 
       form.reset({
         project_name: data?.project_name || "",

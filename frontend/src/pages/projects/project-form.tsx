@@ -4,7 +4,7 @@ import NewCustomer from "@/pages/customers/add-new-customer"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Steps } from "antd"
 import { format } from "date-fns"
-import { useFrappeDocTypeEventListener, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
+import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
 import { BadgeIndianRupee, CalendarIcon, CirclePlus, ListChecks, Pencil, Undo2 } from "lucide-react"
 import React, { useCallback, useEffect, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
@@ -27,6 +27,12 @@ import { Separator } from "../../components/ui/separator"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "../../components/ui/sheet"
 import { useToast } from "../../components/ui/use-toast"
 import useSectionContext, { SectionProvider } from "./SectionContext"
+import { Category } from "@/types/NirmaanStack/Category"
+import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist"
+import { WorkPackage } from "@/types/NirmaanStack/Projects"
+import { Customers } from "@/types/NirmaanStack/Customers"
+import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes"
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 
 
 const { Step } = Steps;
@@ -237,15 +243,15 @@ export const ProjectForm = () => {
         mode: "onBlur",
         defaultValues
     })
-    const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
+    const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList<Customers>('Customers', {
         fields: ["name", "company_name", "creation"],
-        limit: 1000,
+        limit: 0,
         orderBy: { field: "creation", order: "desc" }
     });
 
-    const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList('Project Types', {
+    const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList<ProjectTypes>('Project Types', {
         fields: ["name", "project_type_name", "creation"],
-        limit: 1000,
+        limit: 0,
         orderBy: { field: "creation", order: "desc" }
     });
 
@@ -254,10 +260,10 @@ export const ProjectForm = () => {
         await project_types_mutate()
     })
 
-    const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
+    const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList<NirmaanUsers>('Nirmaan Users', {
         fields: ["name", "full_name", "role_profile"],
         filters: [["name", "!=", "Administrator"]],
-        limit: 1000
+        limit: 0
     });
 
     const { call: createProjectAndAddress, loading: createProjectAndAddressLoading } = useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address")
@@ -267,7 +273,7 @@ export const ProjectForm = () => {
     const [popoverOpen, setPopoverOpen] = useState(false);
     const [popoverOpen2, setPopoverOpen2] = useState(false);
     const [duration, setDuration] = useState(0)
-    const [areaNames, setAreaNames] = useState([]);
+    const [areaNames, setAreaNames] = useState<{ name: string; status: string; }[]>([]);
     const [newProjectId, setNewProjectId] = useState();
     const { toast } = useToast()
     const [section, setSection] = useState("projectDetails")
@@ -354,7 +360,7 @@ export const ProjectForm = () => {
                     variant: 'destructive',
                 });
             }
-        } catch (error) {
+        } catch (error: any) {
             toast({
                 title: "Failed!",
                 description: `${error?.message}`,
@@ -406,10 +412,10 @@ export const ProjectForm = () => {
         value: item.name
     })) || [];
 
-    const estimates_exec_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Estimates Executive Profile").map(item => ({
-        label: item.full_name, // Adjust based on your data structure
-        value: item.name
-    })) || [];
+    // const estimates_exec_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Estimates Executive Profile").map(item => ({
+    //     label: item.full_name, // Adjust based on your data structure
+    //     value: item.name
+    // })) || [];
 
     const accountant_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Accountant Profile").map(item => ({
         label: item.full_name, // Adjust based on your data structure
@@ -420,7 +426,7 @@ export const ProjectForm = () => {
         work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
 
-    const handleSubdivisionChange = (e) => {
+    const handleSubdivisionChange = (e: number) => {
         let n = e;
         setAreaNames(Array.from({ length: Number(n) }, (_, i) => ({
             name: `Area ${i + 1}`,
@@ -428,7 +434,7 @@ export const ProjectForm = () => {
         })));
     }
 
-    const handleAreaNameChange = (index, event) => {
+    const handleAreaNameChange = (index: number, event: React.ChangeEvent<HTMLInputElement>) => {
         const newAreaNames = [...areaNames];
         newAreaNames[index].name = event.target.value;
         setAreaNames(newAreaNames);
@@ -748,7 +754,7 @@ export const ProjectForm = () => {
                                         )
                                     }}
                                 />
-                                {Array.from({ length: form.getValues().subdivisions }).map((_, index) => {
+                                {Array.from({ length: Number(form.getValues().subdivisions) }).map((_, index) => {
                                     return <FormItem className="lg:flex lg:items-center gap-4">
                                         <FormLabel className="md:basis-2/12">Area {index + 1}:</FormLabel>
                                         <div className="md:basis-2/4">
@@ -1284,26 +1290,31 @@ export const ProjectForm = () => {
     )
 }
 
-const WorkPackageSelection = ({ form, wp_list }) => {
+
+interface WorkPackageSelection {
+    form: any;
+    wp_list: wpType[];
+}
+const WorkPackageSelection: React.FC<WorkPackageSelection> = ({ form , wp_list }) => {
 
     const [openValue, setOpenValue] = useState(null);
-    const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
+    const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList<Category>("Category", {
         fields: ["category_name", "work_package", "name"],
         filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
-        limit: 10000,
+        limit: 0,
     });
 
-    const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
+    const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
         fields: ["make", "category"],
-        limit: 100000,
+        limit: 0,
     });
 
-    const workPackages = form.watch("project_work_packages.work_packages");
+    const workPackages: WorkPackage[] = form.watch("project_work_packages.work_packages");
 
-    const handleSelectAll = (checked) => {
+    const handleSelectAll = (checked: boolean) => {
         if (checked) {
-            const allWorkPackages = categoriesList.reduce((acc, category) => {
-                const existingPackage = acc.find((wp) => wp.work_package_name === category.work_package);
+            const allWorkPackages = categoriesList?.reduce((acc: WorkPackage[], category) => {
+                const existingPackage = acc.find((wp) => wp?.work_package_name === category.work_package);
                 if (existingPackage) {
                     existingPackage.category_list.list.push({
                         name: category.category_name,
@@ -1331,18 +1342,18 @@ const WorkPackageSelection = ({ form, wp_list }) => {
         }
     };
 
-    const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
+    const handleSelectMake = (workPackageName: string, categoryName: string, selectedMakes: string[]) => {
         const updatedWorkPackages = [...workPackages];
 
         let workPackage = updatedWorkPackages.find((wp) => wp.work_package_name === workPackageName);
 
         if (!workPackage) {
             const associatedCategories = categoriesList
-                .filter((cat) => cat.work_package === workPackageName)
+                ?.filter((cat) => cat.work_package === workPackageName)
                 .map((cat) => ({
                     name: cat.category_name,
                     makes: [],
-                }));
+                })) || [];
 
             workPackage = {
                 work_package_name: workPackageName,
@@ -1412,7 +1423,7 @@ const WorkPackageSelection = ({ form, wp_list }) => {
                                                             checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                             onCheckedChange={(checked) => {
                                                                 const updatedCategories = categoriesList
-                                                                    .filter((cat) => cat.work_package === item.work_package_name)
+                                                                    ?.filter((cat) => cat.work_package === item.work_package_name)
                                                                     .map((cat) => ({
                                                                         name: cat.category_name,
                                                                         makes: [],
@@ -1439,7 +1450,7 @@ const WorkPackageSelection = ({ form, wp_list }) => {
                                             ?.filter((cat) => cat.work_package === item.work_package_name)
                                             ?.map((cat) => {
                                                 const categoryMakeOptions = categoryMakeList?.filter((make) => make.category === cat.name);
-                                                const makeOptions = categoryMakeOptions.map((make) => ({
+                                                const makeOptions = categoryMakeOptions?.map((make) => ({
                                                     label: make.make,
                                                     value: make.make,
                                                 }));
@@ -1486,8 +1497,25 @@ const WorkPackageSelection = ({ form, wp_list }) => {
     );
 };
 
+interface ReviewDetailsProps {
+    company?: Customers[];
+    user?: NirmaanUsers[];
+    form: any;
+    duration: number;
+    setSection: React.Dispatch<React.SetStateAction<string>>
+    sections: string[]
+    setCurrentStep: React.Dispatch<React.SetStateAction<number>>
+    sectionTitles: {
+        projectDetails: string;
+        projectAddressDetails: string;
+        projectTimeline: string;
+        projectAssignees: string;
+        packageSelection: string;
+        reviewDetails: string;
+    }
+}
 
-const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
+const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, user, ...sectionProps }) => {
 
     const { setSection, setCurrentStep } = sectionProps
 
@@ -1545,7 +1573,7 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {form
-                            .getValues("project_work_packages")?.work_packages?.map((workPackage, index) => (
+                            .getValues("project_work_packages")?.work_packages?.map((workPackage: WorkPackage, index: number) => (
                                 <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} border-b pb-4`}>
                                     <p className="text-md font-medium text-gray-700">
                                         {workPackage.work_package_name}
@@ -1555,7 +1583,7 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
                                             <li key={idx} className="text-sm text-gray-600">
                                                 <span className="font-semibold">- {category.name}:</span>{" "}
                                                 {category.makes.length > 0
-                                                    ? category.makes.map((make) => make.label).join(", ")
+                                                    ? category.makes.map((make) => make?.label).join(", ")
                                                     : "N/A"}
                                             </li>
                                         ))}
@@ -1571,7 +1599,11 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
     );
 };
 
-const Section = ({ sectionKey, children }) => {
+interface SectionProps {
+    sectionKey: string;
+    children: React.ReactNode[];
+}
+const Section: React.FC<SectionProps> = ({ sectionKey, children }) => {
     const { setSection, sections, setCurrentStep, sectionTitles } = useSectionContext();
 
     // Flatten children to handle fragments and arrays of elements
@@ -1604,7 +1636,8 @@ const Section = ({ sectionKey, children }) => {
 };
 
 
-const Detail = ({ label, value }) => (
+
+const Detail = ({ label, value }: { label: string; value: string | undefined | null }) => (
     <div className="flex justify-between items-start border-b pb-2 mb-2">
         <p className="text-sm text-gray-600 font-semibold">{label}</p>
         <p className="text-sm text-gray-800 italic">{value || "N/A"}</p>
