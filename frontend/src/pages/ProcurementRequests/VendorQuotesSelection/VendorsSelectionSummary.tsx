@@ -7,205 +7,36 @@ import {
     DialogTitle,
     DialogTrigger
 } from "@/components/ui/dialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
-import { COLUMN_WIDTHS } from "@/pages/Sent Back Requests/SBQuotesSelectionReview";
-import { ProcurementItemWithVendor, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
-import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
-import { useFrappeDocumentEventListener, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener, useFrappePostCall } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import { ArrowBigUpDash, BookOpenText, Building2, CheckCheck, Clock, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from "lucide-react";
+import { ArrowBigUpDash, CheckCheck, ListChecks, SendToBack, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard";
-import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { toast } from "../../../components/ui/use-toast";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useVendorsList } from "./hooks/useVendorsList";
 import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
+import { useProcurementRequest } from "@/hooks/useProcurementRequest";
 
-export interface DataItem extends ProcurementItemWithVendor {
-  amount: number;
-  vendor_name?: string;
-  lowestQuotedAmount: number;
-  threeMonthsLowestAmount: number;
+// DataItem might not be strictly needed if we directly use ProcurementRequestItemDetail
+// and add transient properties like 'potentialLoss' directly when processing.
+// However, if it helps for clarity:
+interface DisplayItem extends ProcurementRequestItemDetail {
+  amount?: number; // Calculated amount based on quote
+  vendor_name?: string; // Added by getVendorName
+  lowestQuotedAmount?: number; // From getLowest
+  threeMonthsLowestAmount?: number; // From getItemEstimate (if used)
+  potentialLoss?: number;
 }
-
-export interface CategoryData {
-  items: DataItem[];
-  category?: string;
-  totalAmount?: number | string;
-  key: string;
-}
-
-export interface CategoryWithChildren {
-  [category: string]: CategoryData;
-}
-
-export const columns : TableColumnsType<CategoryData> = [
-  {
-    title: "Category",
-    dataIndex: "category",
-    key: "category",
-    className: COLUMN_WIDTHS.category,
-    render: (text) => {
-      return (
-        <strong className="text-primary">{text}</strong>
-      )
-    },
-  },
-  {
-    title: "Total Amount",
-    dataIndex: "totalAmount",
-    key: "amount",
-    className: COLUMN_WIDTHS.totalAmount,
-    render: (text) => <Badge>{text ? formatToIndianRupee(text) : "Delayed"}</Badge>,
-  },
-];
-
-export const innerColumns : TableColumnsType<DataItem> = [
-  {
-    title: "Item Name",
-    dataIndex: "item",
-    key: "item",
-    className: COLUMN_WIDTHS.item,
-    render: (text, record) => (
-      <div className="flex flex-col gap-1">
-        <div className="inline items-baseline">
-        <span>{text}</span>
-        {record?.comment && (
-          <HoverCard>
-            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-              <div className="relative pb-4">
-                <span className="block">{record.comment}</span>
-                <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
-              </div>
-            </HoverCardContent>
-          </HoverCard>
-        )}
-        </div>
-        {record?.make && (
-          <span className="text-xs">Selected make : <b>{record.make}</b></span>
-        )}
-      </div>
-    )
-  },
-  {
-    title: "Unit",
-    dataIndex: "unit",
-    key: "unit",
-    className: COLUMN_WIDTHS.unit,
-  },
-  {
-    title: "Quantity",
-    dataIndex: "quantity",
-    key: "quantity",
-    className: COLUMN_WIDTHS.quantity,
-  },
-  {
-    title: "Rate",
-    dataIndex: "quote",
-    key: "quote",
-    className: COLUMN_WIDTHS.rate,
-    render: (text) => (
-      <span className="italic">
-        {text ? formatToIndianRupee(text) : "Delayed"}
-      </span>
-    ),
-  },
-  {
-    title: "Vendor",
-    dataIndex: "vendor_name",
-    key: "vendor",
-    className: COLUMN_WIDTHS.vendor,
-    render: (text) => (
-      <span className="italic">
-        {text || "Delayed"}
-      </span>
-    ),
-  },
-  {
-    title: "Amount",
-    dataIndex: "amount",
-    key: "amount",
-    className: COLUMN_WIDTHS.amount,
-    render: (text, record) => {
-      const amount = text;
-      const lowest3 = record?.threeMonthsLowestAmount
-    
-      if (!lowest3 || !amount) {
-        return (
-          <i>
-            {amount || "Delayed"}
-          </i>
-        );
-      }
-
-       const percentageDifference = (
-        (Math.abs(amount - lowest3) / lowest3) * 100
-      ).toFixed(0);
-    
-      const isLessThan = amount < lowest3;
-      const isEqual = amount === lowest3;
-      const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-      const Icon = isLessThan ? MoveDown : MoveUp;
-    
-      return (
-        <div
-          className="flex items-center gap-1"
-        >
-          <i>{formatToIndianRupee(amount)}</i>
-          {!isEqual && (
-              <div className={`${colorClass} flex items-center`}>
-                <span className="text-sm">
-                  ({`${percentageDifference}%`})
-                </span>
-                <Icon className="w-4 h-4" />
-              </div>
-            )}
-        </div>
-      );
-    },
-  },
-  {
-    title: "Lowest Quoted Amount",
-    dataIndex: "lowestQuotedAmount",
-    key: "lowestQuotedAmount",
-    className: COLUMN_WIDTHS.lowestQuotedAmount,
-    render: (text) => (
-      <span className="italic">
-        {text ? formatToIndianRupee(text) : "--"}
-      </span>
-    ),
-  },
-  {
-    title: "Target Amount",
-    dataIndex: "threeMonthsLowestAmount",
-    key: "threeMonthsLowestAmount",
-    className: COLUMN_WIDTHS.threeMonthsLowestAmount,
-    render: (text, record) => {
-
-      const amount = record.amount;
-      const lowest3 = text;
-
-      if (!amount || !lowest3) {
-          return <i>--</i>;
-      }
-      const isLessThan = amount < lowest3;
-      const isEqual = amount === lowest3;
-      const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-
-      return <i className={`${!isEqual && colorClass}`}>{formatToIndianRupee(lowest3)}</i>;
-  },
-},
-];
 
 export const VendorsSelectionSummary : React.FC = () => {
 
@@ -223,13 +54,8 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   const {getItemEstimate} = useItemEstimate()
 
-  const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: pr_mutate } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests",
-      {
-          fields: ["*"],
-          filters: [['name', '=', prId]]
-      },
-      prId ? `Procurement Requests:${prId}` : null
-  );
+
+  const { data: procurement_request, isLoading: procurement_request_loading, mutate: pr_mutate } = useProcurementRequest(prId);
 
   useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
       console.log("Procurement Request document updated (real-time):", event);
@@ -251,19 +77,25 @@ export const VendorsSelectionSummary : React.FC = () => {
   }, [usersList]);
 
   useEffect(() => {
-    if(procurement_request_list && procurement_request_list.length) {
-      const procurementRequest = procurement_request_list[0]
-      setOrderData(procurementRequest)
-    }
-  }, [procurement_request_list])
+    if (procurement_request) {
+      // Ensure order_list is an array (it should be if fetched correctly as child table)
+      const items = procurement_request.order_list && Array.isArray(procurement_request.order_list) ? procurement_request.order_list : [];
+      setOrderData({ ...procurement_request, order_list: items });
+    } 
+  }, [procurement_request]);
+
 
   const getVendorName = useMemo(() => (vendorId : string | undefined) : string => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
   }, [vendor_list])
 
-  const getLowest = useMemo(() => memoize((itemId: string) => {
-        return getLowestQuoteFilled(orderData, itemId)
-    }, (itemId: string) => itemId),[orderData]);
+  // getLowestQuoteFilled needs to be adapted to work with orderData.order_list
+  // and the ProcurementRequestItemDetail structure.
+  const getLowest = useMemo(() => memoize((itemId: string): number => {
+        // Pass orderData directly, ensure getLowestQuoteFilled handles the new structure
+        return getLowestQuoteFilled(orderData, itemId); 
+    }, (itemId: string) => `${itemId}-${JSON.stringify(orderData?.order_list?.find(i => i.item_id === itemId)?.quote)}`), // Cache key depends on item and its quote
+  [orderData]);
 
 
   const handleSubmit = async () => {
@@ -303,21 +135,22 @@ export const VendorsSelectionSummary : React.FC = () => {
 
 
 interface VendorWiseApprovalItems {
-  [vendor : string] : {
-    items : (ProcurementItemWithVendor & {potentialLoss? : number})[];
-    total : number;
+    [vendor: string]: { // vendor here is vendor_id (DocName)
+      items: DisplayItem[]; // Use DisplayItem or add properties to ProcurementRequestItemDetail
+      total: number;
+    };
   }
-}
+
 
   const generateActionSummary = useCallback(() => {
-    let allDelayedItems : ProcurementItemWithVendor[] = [];
+    let allDelayedItems : DisplayItem[] = [];
     let vendorWiseApprovalItems : VendorWiseApprovalItems  = {};
     let approvalOverallTotal : number = 0;
 
-    orderData?.procurement_list?.list.forEach((item: ProcurementItemWithVendor) => {
+    orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
         const vendor = item?.vendor;
-        const targetRate = getItemEstimate(item?.name)?.averageRate
-        const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)
+        const targetRate = getItemEstimate(item?.item_id)?.averageRate
+        const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.item_id)
         if (!vendor) {
             // Delayed items
             allDelayedItems.push(item);
@@ -345,15 +178,15 @@ interface VendorWiseApprovalItems {
         vendorWiseApprovalItems,
         approvalOverallTotal,
     };
-}, [orderData]);
+}, [orderData, getLowest, getItemEstimate]);
 
 const {
     allDelayedItems,
     vendorWiseApprovalItems,
     approvalOverallTotal,
-} = generateActionSummary();
+  } = useMemo(() => generateActionSummary(), [generateActionSummary]); // Memoize the result
 
-if (procurement_request_list_loading || vendor_list_loading || usersListLoading) return <LoadingFallback />
+if (procurement_request_loading || vendor_list_loading || usersListLoading) return <LoadingFallback />
 
   if (orderData?.workflow_state !== "In Progress") {
     return (
@@ -414,8 +247,8 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
                         <dd className="mt-1 pl-5"> {/* Indent item details */}
                             <ul className="list-disc space-y-1 text-gray-800"> {/* Changed text color, list style */}
                                 {items.map((item) => (
-                                    <li key={item.item} className="text-sm"> {/* Standardized text size */}
-                                        {item.item}
+                                    <li key={item.item_id} className="text-sm"> {/* Standardized text size */}
+                                        {item.item_name}
                                         {/* --- Make Name Added Here --- */}
                                         {item.make && (
                                             <span className="text-gray-500 italic ml-1">({item.make})</span>
@@ -460,8 +293,8 @@ if (procurement_request_list_loading || vendor_list_loading || usersListLoading)
             </p>
             <ul className="list-disc space-y-1 pl-5 text-gray-800"> {/* Adjusted text color, list style */}
                 {allDelayedItems.map((item) => (
-                    <li key={item.item} className="text-sm"> {/* Standardized text size */}
-                        {item.item}
+                    <li key={item.item_id} className="text-sm"> {/* Standardized text size */}
+                        {item.item_name}
                          {/* --- Also added Make Name here for consistency --- */}
                          {item.make && (
                             <span className="text-gray-500 italic ml-1">({item.make})</span>

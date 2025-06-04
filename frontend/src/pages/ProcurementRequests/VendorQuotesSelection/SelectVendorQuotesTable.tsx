@@ -1,8 +1,6 @@
 import React, { useCallback } from 'react';
-import {
-    ProcurementItem, RFQData, ProcurementItemBase, ProcurementItemWithVendor
+import { RFQData
 } from "@/types/NirmaanStack/ProcurementRequests";
-import { SentBackItem } from "@/types/NirmaanStack/SentBackCategory";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,11 +13,11 @@ import { parseNumber } from "@/utils/parseNumber";
 import { CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { TargetRateDetailFromAPI, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Keep
-import { ProgressDocumentType, getItemListFromDocument, getCategoryListFromDocument } from './types'; // Local feature types
+import { ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProgressItem } from './types'; // Local feature types
 
 
 interface SelectVendorQuotesTableProps {
-    currentDocument: ProgressDocumentType;
+    currentDocument: ProgressDocument;
     formData: RFQData;
     selectedVendorQuotes: Map<string, string>; // item.name -> vendor.value (ID)
     mode: 'edit' | 'view' | 'review';
@@ -32,7 +30,7 @@ interface SelectVendorQuotesTableProps {
     onDeleteVendorFromRFQ: (vendorId: string) => void;
     setFormData: React.Dispatch<React.SetStateAction<RFQData>>; // For MakesSelection to directly update RFQData
     // Callback to update the item list in the parent (currentDocumentState)
-    updateCurrentDocumentItemList: (updater: (prevItems: Array<ProcurementItem | SentBackItem>) => Array<ProcurementItem | SentBackItem>) => void;
+    updateCurrentDocumentItemList: (updater: (prevItems: ProgressItem[]) => ProgressItem[]) => void;
 }
 
 export function SelectVendorQuotesTable({
@@ -70,8 +68,8 @@ export function SelectVendorQuotesTable({
         updateCurrentDocumentItemList(prevItems =>
             prevItems.map(item => {
                 if ('vendor' in item && item.vendor === vendorId) {
-                    const { vendor, quote, make, ...rest } = item as ProcurementItemWithVendor;
-                    return rest as ProcurementItemBase; // Return as base item
+                    const { vendor, quote, make, ...rest } = item;
+                    return rest; // Return as base item
                 }
                 return item;
             })
@@ -161,7 +159,7 @@ export function SelectVendorQuotesTable({
                     </TableHeader>
                     <TableBody>
                         {itemsInCategory.map((item) => {
-                            const targetRateDetail = targetRatesData?.get(item.name);
+                            const targetRateDetail = targetRatesData?.get(item.item_id);
                             let targetRateValue = -1;
                             if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
                                 const parsedRate = parseNumber(targetRateDetail.rate);
@@ -170,9 +168,9 @@ export function SelectVendorQuotesTable({
                             const mappedContributingQuotes = mapApiQuotesToApprovedQuotations(targetRateDetail?.selected_quotations_items || []);
 
                             return (
-                                <TableRow key={item.name}>
-                                    <TableCell className="py-2.5 align-top">
-                                        <div className="font-medium text-sm">{item.item}</div>
+                                <TableRow key={item.item_id}>
+                                    <TableCell className="py-2.5 text-start align-middle">
+                                        <div className="font-medium text-sm">{item.item_name}</div>
                                         {item.comment && (
                                             <div className="flex items-start gap-1 mt-1">
                                                 <MessageCircleMore className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
@@ -188,20 +186,20 @@ export function SelectVendorQuotesTable({
                                                 <div className="min-w-[180px]" />
                                             ) : (
                                                 formData.selectedVendors.map(vendor => {
-                                                    const itemVendorDetails = formData.details[item.name]?.vendorQuotes?.[vendor.value];
+                                                    const itemVendorDetails = formData.details[item.item_id]?.vendorQuotes?.[vendor.value];
                                                     const currentQuote = itemVendorDetails?.quote ?? "";
-                                                    const currentMake = itemVendorDetails?.make ?? formData.details[item.name]?.initialMake;
-                                                    const isSelectedForQuote = selectedVendorQuotes.get(item.name) === vendor.value;
+                                                    const currentMake = itemVendorDetails?.make ?? formData.details[item.item_id]?.initialMake;
+                                                    const isSelectedForQuote = selectedVendorQuotes.get(item.item_id) === vendor.value;
                                                     const canSelectThisQuote = (currentQuote || String(currentQuote) === "0") && !isReadOnly && mode !== 'edit';
 
                                                     return (
-                                                        <div key={`${item.name}-${vendor.value}`} className="flex-shrink-0">
+                                                        <div key={`${item.item_id}-${vendor.value}`} className="flex-shrink-0">
                                                             <div
                                                                 role="radio"
                                                                 aria-checked={isSelectedForQuote}
                                                                 tabIndex={canSelectThisQuote ? 0 : -1}
-                                                                onClick={() => canSelectThisQuote && onVendorSelectForItem(item.name, vendor.value)}
-                                                                onKeyDown={(e) => canSelectThisQuote && (e.key === 'Enter' || e.key === ' ') && onVendorSelectForItem(item.name, vendor.value)}
+                                                                onClick={() => canSelectThisQuote && onVendorSelectForItem(item.item_id, vendor.value)}
+                                                                onKeyDown={(e) => canSelectThisQuote && (e.key === 'Enter' || e.key === ' ') && onVendorSelectForItem(item.item_id, vendor.value)}
                                                                 className={`min-w-[150px] max-w-[150px] space-y-1.5 p-2 border rounded-md transition-all relative hover:shadow-sm
                                                                     ${isSelectedForQuote ? "ring-1 ring-primary bg-primary/5 shadow-md" : "bg-card"}
                                                                     ${!canSelectThisQuote && mode === 'view' ? "opacity-60 cursor-not-allowed" : canSelectThisQuote ? "cursor-pointer focus:ring-1 focus:ring-ring" : ""}
@@ -212,7 +210,7 @@ export function SelectVendorQuotesTable({
                                                                     <Label className="text-xs font-medium text-muted-foreground">Make</Label>
                                                                     {mode === "edit" && !isReadOnly ? (
                                                                         <MakesSelection
-                                                                            defaultMake={formData.details[item.name]?.initialMake}
+                                                                            defaultMake={formData.details[item.item_id]?.initialMake}
                                                                             vendor={vendor}
                                                                             item={item}
                                                                             formData={formData}
@@ -227,7 +225,7 @@ export function SelectVendorQuotesTable({
                                                                     {mode === "edit" && !isReadOnly ? (
                                                                         <QuantityQuoteInput
                                                                             value={currentQuote}
-                                                                            onChange={(val) => handleInternalQuoteChange(item.name, vendor.value, val)}
+                                                                            onChange={(val) => handleInternalQuoteChange(item.item_id, vendor.value, val)}
                                                                         />
                                                                     ) : (
                                                                         <p className={`text-sm font-semibold ${targetRateValue !== -1 && parseNumber(String(currentQuote)) < targetRateValue ? "text-green-600" : ""}`}>{(currentQuote || String(currentQuote) === "0") ? formatToIndianRupee(parseNumber(String(currentQuote))) : "-"}</p>

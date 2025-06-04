@@ -1,12 +1,11 @@
-// src/features/procurement/approve-reject-quotes/components/DelayedItemsTable.tsx
 import React from 'react';
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from "@/components/ui/table"; // Adjust path
-import { ProcurementItem } from '@/types/NirmaanStack/ProcurementRequests'; // Adjust path
+import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests'; // Adjust path
 
 interface DelayedItemsTableProps {
-    items: ProcurementItem[]; // Array of items with status 'Delayed'
+    items: ProcurementRequestItemDetail[]; // Array of items with status 'Delayed'
 }
 
 export const DelayedItemsTable: React.FC<DelayedItemsTableProps> = ({ items = [] }) => {
@@ -19,7 +18,7 @@ export const DelayedItemsTable: React.FC<DelayedItemsTableProps> = ({ items = []
             }
             acc[category].push(item);
             return acc;
-        }, {} as { [category: string]: ProcurementItem[] });
+        }, {} as { [category: string]: ProcurementRequestItemDetail[] });
     }, [items]);
 
     if (items.length === 0) {
@@ -45,7 +44,7 @@ export const DelayedItemsTable: React.FC<DelayedItemsTableProps> = ({ items = []
                          <TableBody>
                              {categoryItems.map((item, index) => (
                                  <TableRow key={`${item.name}-${index}`}>
-                                     <TableCell>{item.item}</TableCell>
+                                     <TableCell>{item.item_name}</TableCell>
                                      <TableCell className='text-center'>{item.unit}</TableCell>
                                      <TableCell className='text-center'>{item.quantity}</TableCell>
                                  </TableRow>

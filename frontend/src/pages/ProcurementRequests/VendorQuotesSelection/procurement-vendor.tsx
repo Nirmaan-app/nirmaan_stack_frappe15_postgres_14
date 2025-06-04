@@ -5,11 +5,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard";
@@ -21,6 +21,7 @@ import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 import { HistoricalQuotesHoverCard } from "./components/HistoricalQuotesHoverCard"; // Import the hover card
 import { TargetRateDetailFromAPI, FrappeTargetRateApiResponse, ApiSelectedQuotation, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Adjust path if needed
 import { useProcurementRequest } from "@/hooks/useProcurementRequest";
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 
 export const ProcurementOrder: React.FC = () => {
@@ -30,7 +31,7 @@ export const ProcurementOrder: React.FC = () => {
 
   if (!orderId) return <div>No Order ID Provided</div>
 
-  const { data: procurement_request, isLoading: procurement_request_loading, error: procurement_request_error, mutate: prMutate } = useProcurementRequest(orderId)
+  const { data: procurement_request, isLoading: procurement_request_loading, mutate: prMutate, error: procurement_request_error } = useProcurementRequest(orderId)
 
 
   useFrappeDocumentEventListener("Procurement Requests", orderId, (event) => {
@@ -54,7 +55,7 @@ export const ProcurementOrder: React.FC = () => {
   const {
     data: targetRatesApiResponse,
     isLoading: targetRatesLoading,
-    error: targetRatesError
+    error: targetRatesError,
   } = useFrappeGetCall<FrappeTargetRateApiResponse>(
     'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', // Replace with your actual API path
     { item_ids_json: itemIdsToFetch.length > 0 ? JSON.stringify(itemIdsToFetch) : undefined },
@@ -77,7 +78,7 @@ export const ProcurementOrder: React.FC = () => {
 
   const { handleDeletePR, deleteLoading } = usePRorSBDelete(prMutate);
 
-  const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
+  const { data: universalComments, isLoading: universalCommentsLoading, error: universalCommentsError } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
     fields: ["*"],
     filters: [["reference_name", "=", orderId], ['subject', 'in', ['approving pr', 'creating pr']]],
     orderBy: { field: "creation", order: "desc" },
@@ -86,7 +87,7 @@ export const ProcurementOrder: React.FC = () => {
     orderId ? `Nirmaan Comments-${orderId}` : null
   )
 
-  const { data: usersList, isLoading: usersListLoading } = useUsersList()
+  const { data: usersList, isLoading: usersListLoading, error: usersListError } = useUsersList()
 
   const getFullName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name == id)?.full_name || ""
@@ -130,7 +131,11 @@ export const ProcurementOrder: React.FC = () => {
   // Combined loading state
   const isLoading = procurement_request_loading || usersListLoading || universalCommentsLoading || targetRatesLoading;
 
+  const combinedError = procurement_request_error || usersListError || universalCommentsError || targetRatesError;
+
   if (isLoading) return <LoadingFallback />
+
+  if(combinedError) return <AlertDestructive error={combinedError} />
 
   if (procurement_request?.workflow_state !== "Approved") {
     return (

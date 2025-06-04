@@ -26,6 +26,7 @@ import { Projects, WorkPackage } from '@/types/NirmaanStack/Projects';
 import { toast } from '@/components/ui/use-toast';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
+import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 
 
 type PageState = 'loading' | 'wp-selection' | 'item-selection' | 'error';
@@ -77,14 +78,17 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
 
     const initialCategoryMakes = useProcurementRequestStore(state => state.initialCategoryMakes)
 
+    const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useProcurementRequest(prId)
+
+
     // Fetch existing PR data only if in edit/resolve mode
-    const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useFrappeGetDoc<ProcurementRequest>(
-        "Procurement Requests",
-        prId!,
-        !!prId && (mode === 'edit' || mode === 'resolve') ? undefined : null
-        // Correct options syntax for conditional fetching
-        // { enabled: !!prId && (mode === 'edit' || mode === 'resolve') }
-    );
+    // const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useFrappeGetDoc<ProcurementRequest>(
+    //     "Procurement Requests",
+    //     prId!,
+    //     !!prId && (mode === 'edit' || mode === 'resolve') ? undefined : null
+    //     // Correct options syntax for conditional fetching
+    //     // { enabled: !!prId && (mode === 'edit' || mode === 'resolve') }
+    // );
 
     // if(existingPRData && ((mode === "edit" && existingPRData?.workflow_state !== "Draft") || (mode === "resolve" && existingPRData?.workflow_state !== "Rejected"))) {
     //     navigate(`/prs&milestones/procurement-requests/${existingPRData?.name}`)
