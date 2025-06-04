@@ -14,7 +14,8 @@
   "type",
   "sent_back_details_section",
   "comments",
-  "amended_from"
+  "amended_from",
+  "order_list"
  ],
  "fields": [
   {
@@ -74,12 +75,18 @@
    "fieldname": "rfq_data",
    "fieldtype": "JSON",
    "label": "RFQ Data"
+  },
+  {
+   "fieldname": "order_list",
+   "fieldtype": "Table",
+   "label": "Order List",
+   "options": "Procurement Request Item Detail"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-03-07 13:22:10.033490",
+ "modified": "2025-06-04 15:47:22.189180",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Sent Back Category",
@@ -170,6 +177,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
