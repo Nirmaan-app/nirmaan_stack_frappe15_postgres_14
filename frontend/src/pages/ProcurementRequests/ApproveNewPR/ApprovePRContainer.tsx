@@ -4,7 +4,6 @@ import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sd
 
 import { ApprovePRView } from './ApprovePRView';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic';
-import { PRDocType } from './types';
 import { Projects as Project } from '@/types/NirmaanStack/Projects';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
@@ -17,6 +16,7 @@ import { usePRComments } from './hooks/usePRComments';
 import { useRelatedPRData } from './hooks/useRelatedPRData';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { toast } from '@/components/ui/use-toast';
+import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 
 export const ApprovePRContainer: React.FC = () => {
     const { prId } = useParams<{ prId: string }>();
@@ -28,12 +28,14 @@ export const ApprovePRContainer: React.FC = () => {
     }
 
     // --- 1. Fetch Main PR Document ---
-    const prQueryKey = queryKeys.procurementRequests.doc(prId);
-    const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
-        "Procurement Requests",
-        prId,
-        prQueryKey
-    );
+    // const prQueryKey = queryKeys.procurementRequests.doc(prId);
+
+    const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useProcurementRequest(prId)
+    // const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
+    //     "Procurement Requests",
+    //     prId,
+    //     prQueryKey
+    // );
 
     useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
           console.log("Procurement Requests document updated (real-time):", event);

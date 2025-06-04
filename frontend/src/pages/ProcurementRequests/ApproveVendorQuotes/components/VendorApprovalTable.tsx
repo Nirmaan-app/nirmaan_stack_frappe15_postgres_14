@@ -7,12 +7,13 @@ import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { SelectionState, VendorDataSourceItem, VendorItemDetails } from '../types'; // Assuming types are defined in a shared location
+import { SelectionState, VendorGroupForTable, VendorItemDetailsToDisplay } from '../types'; // Assuming types are defined in a shared location
 import formatToIndianRupee, { formatToRoundedIndianRupee } from '@/utils/FormatPrice'; // Adjust path
 import { HistoricalQuotesHoverCard } from '../../VendorQuotesSelection/components/HistoricalQuotesHoverCard';
+import { parseNumber } from '@/utils/parseNumber';
 
 interface VendorApprovalTableProps {
-    dataSource: VendorDataSourceItem[];
+    dataSource: VendorGroupForTable[];
     // Receive the selection state directly from the parent
     selection: SelectionState;
     // Callback to update the parent's selection state
@@ -35,7 +36,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
     const handleVendorCheckChange = useCallback((
         vendorId: string,
-        allItemsForVendor: VendorItemDetails[],
+        allItemsForVendor: VendorItemDetailsToDisplay[],
         isChecked: boolean | 'indeterminate'
     ) => {
         // Create a mutable copy of the current selection state passed from parent
@@ -118,7 +119,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                 className="w-full space-y-2"
             >
                 {dataSource.map((vendorItem) => {
-                    const { vendorId, vendorName, totalAmount, items, key, potentialSavingLoss } = vendorItem;
+                    const { vendorId, vendorName, totalAmount, items, key, potentialSavingLossForVendor } = vendorItem;
                     // Calculate state based on the selection prop
                     const vendorState = getVendorCheckboxState(vendorId, items.length);
 
@@ -146,14 +147,14 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                     </div>
                                     {/* Right Side: Totals and Savings */}
                                     <div className="flex flex-col items-end gap-2 text-xs">
-                                        {potentialSavingLoss !== undefined && (
+                                        {potentialSavingLossForVendor !== undefined && (
                                             <div className='flex gap-2 items-end'>
                                                 <span className='text-gray-500'>Potential Saving/Loss:</span>
                                                 <span className={cn(
                                                     "font-semibold",
-                                                    potentialSavingLoss > 0 ? "text-green-600" : potentialSavingLoss < 0 ? "text-red-600" : "text-gray-600"
+                                                    potentialSavingLossForVendor > 0 ? "text-green-600" : potentialSavingLossForVendor < 0 ? "text-red-600" : "text-gray-600"
                                                 )}>
-                                                    {formatToIndianRupee(potentialSavingLoss || "N/A")} {potentialSavingLoss > 0 ? '(S)' : potentialSavingLoss < 0 ? '(L)' : ''}
+                                                    {formatToIndianRupee(potentialSavingLossForVendor || "N/A")} {potentialSavingLossForVendor > 0 ? '(S)' : potentialSavingLossForVendor < 0 ? '(L)' : ''}
                                                 </span>
                                             </div>
                                         )}
@@ -191,7 +192,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                         <TableBody>
                                             {items.map((item) => {
                                                 // Determine if item selected based on passed 'selection' prop
-                                                const isItemSelected = selection.get(vendorId)?.has(item.name) ?? false;
+                                                const isItemSelected = selection.get(vendorId)?.has(item.item_id) ?? false;
                                                 // const itemSavingLoss = ((item.lowestQuotedAmount || item.targetAmount) && item.amount)
                                                 //                        ? parseNumber(item.lowestQuotedAmount || item.targetAmount) - item.amount
                                                 //                        : undefined;
@@ -204,12 +205,12 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                                 id={`item-${vendorId}-${item.name}`}
                                                                 checked={isItemSelected} // Use checked state from prop
                                                                 onCheckedChange={(checkedState) => handleItemCheckChange(vendorId, item.name, checkedState)}
-                                                                aria-label={`Select item ${item.item}`}
+                                                                aria-label={`Select item ${item.item_name}`}
                                                             />
                                                         </TableCell>
                                                         {/* ... rest of the TableCells ... */}
                                                         <TableCell className="font-medium text-gray-900">
-                                                            {item.item}
+                                                            {item.item_name}
                                                             {/* Conditionally display Make with specific styling */}
                                                             {item.make && (
                                                                 <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
@@ -220,11 +221,11 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                         <TableCell className="text-right">{formatToIndianRupee(item.quote)}</TableCell>
 
                                                         <TableCell className="text-right">
-                                                            {item.targetRate > 0 ? (
+                                                            {parseNumber(item?.targetRate) > 0 ? (
                                                                 // Wrap the formatted rate with the HoverCard component
-                                                                <HistoricalQuotesHoverCard quotes={item.contributingQuotes}>
+                                                                <HistoricalQuotesHoverCard quotes={item.contributingHistoricalQuotes}>
                                                                     {/* This is the trigger element */}
-                                                                    <span>{formatToIndianRupee(item.targetRate * 0.98)}</span>
+                                                                    <span>{formatToIndianRupee(parseNumber(item.targetRate) * 0.98)}</span>
                                                                 </HistoricalQuotesHoverCard>
                                                             ) : (
                                                                 // Display N/A if no target rate could be calculated
@@ -233,8 +234,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                         </TableCell>
                                                         {/* <TableCell className="text-right">{formatToIndianRupee(item.targetRate)}</TableCell> */}
                                                         <TableCell className="text-right">{formatToIndianRupee(item.amount)}</TableCell>
-                                                        <TableCell className="text-right">{formatToIndianRupee(item.lowestQuotedAmount || "N/A")}</TableCell>
-                                                        <TableCell className="text-right">{formatToIndianRupee((item.targetAmount * 0.98) || "N/A")}</TableCell>
+                                                        <TableCell className="text-right">{formatToIndianRupee(item.lowestQuotedAmountForItem || "N/A")}</TableCell>
+                                                        <TableCell className="text-right">{formatToIndianRupee((parseNumber(item?.targetAmount) * 0.98) || "N/A")}</TableCell>
                                                         <TableCell className={cn(
                                                             "text-right font-semibold pr-4",
                                                             itemSavingLoss === undefined ? "text-gray-500" :
