@@ -15,6 +15,8 @@ import {
     RowSelectionState,
     Row,
     getFilteredRowModel,
+    TableMeta,
+    getPaginationRowModel,
 } from '@tanstack/react-table';
 import { useFrappeDocTypeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { debounce } from 'lodash';
@@ -108,7 +110,7 @@ export interface ServerDataTableConfig<TData> {
     enableRowSelection?: boolean | ((row: Row<TData>) => boolean); // Allow function type
     /** Hook for row selection changes */
     onRowSelectionChange?: (updater: React.SetStateAction<RowSelectionState>) => void;
-     /** Optional Frappe orderBy string (e.g., "creation desc") */
+    /** Optional Frappe orderBy string (e.g., "creation desc") */
     defaultSort?: string;
     /** Key for storing/retrieving state in URL. If not provided, URL sync is disabled */
     urlSyncKey?: string;
@@ -137,7 +139,7 @@ export interface ServerDataTableConfig<TData> {
      */
     clientTotalCount?: number;
     shouldCache?: boolean;
-    
+    meta?: TableMeta<TData> | undefined
 }
 
 export interface ServerDataTableResult<TData> {
@@ -171,8 +173,9 @@ export interface ServerDataTableResult<TData> {
     selectedSearchField: string;
     setSelectedSearchField: React.Dispatch<React.SetStateAction<string>>;
     // -----------------------------------------
-     // --- NEW: Expose the actual enableRowSelection value used ---
-     isRowSelectionActive: boolean; // Indicates if selection features are enabled in the table instance
+    // --- NEW: Expose the actual enableRowSelection value used ---
+    isRowSelectionActive: boolean; // Indicates if selection features are enabled in the table instance
+    isClientSideMode: boolean
 }
 
 
@@ -195,7 +198,7 @@ const decodeFiltersFromUrl = (encodedString: string | null): ColumnFiltersState 
         const parsed = JSON.parse(jsonString);
         // Basic validation: is it an array? are items objects with id/value?
         if (Array.isArray(parsed) && parsed.every(item => typeof item === 'object' && item !== null && 'id' in item && 'value' in item)) {
-             // Further validation could be added for specific value types if needed
+            // Further validation could be added for specific value types if needed
             return parsed as ColumnFiltersState;
         }
         console.warn("Decoded filter string is not a valid ColumnFiltersState:", parsed);
@@ -210,7 +213,7 @@ const decodeFiltersFromUrl = (encodedString: string | null): ColumnFiltersState 
 // --- The Hook ---
 export function useServerDataTable<TData extends { name: string }>({
     doctype,
-    columns : userDefinedDisplayColumns,
+    columns: userDefinedDisplayColumns,
     fetchFields,
     searchableFields,
     // defaultSearchField,
@@ -228,8 +231,13 @@ export function useServerDataTable<TData extends { name: string }>({
     requirePendingItems = false, // Default to false
     clientData,
     clientTotalCount,
-    shouldCache = false
+    shouldCache = false,
+    meta
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
+
+    // --- NEW: Determine if operating in client-side mode ---
+    const isClientSideMode = useMemo(() => clientData !== undefined, [clientData]);
+    // ---------------------------------------------------------
 
     // Add this near the top of your hook after state declarations
     // const previousUrlSyncKeyRef = useRef<string | undefined>(urlSyncKey);
@@ -238,7 +246,7 @@ export function useServerDataTable<TData extends { name: string }>({
     // useEffect(() => {
     //   const currentUrlSyncKey = urlSyncKey;
     //   const previousUrlSyncKey = previousUrlSyncKeyRef.current;
-    
+
     //   // Clean up previous URL params if urlSyncKey changed
     //   if (previousUrlSyncKey && previousUrlSyncKey !== currentUrlSyncKey) {
     //     const paramsToRemove = [
@@ -249,15 +257,15 @@ export function useServerDataTable<TData extends { name: string }>({
     //       `${previousUrlSyncKey}_sort`,
     //       `${previousUrlSyncKey}_filters`,
     //     ];
-    
+
     //     paramsToRemove.forEach(param => {
     //       urlStateManager.updateParam(param, null);
     //     });
     //   }
-    
+
     //   // Update ref for next render
     //   previousUrlSyncKeyRef.current = currentUrlSyncKey;
-    
+
     //   // Cleanup function when component unmounts
     //   return () => {
     //     if (currentUrlSyncKey) {
@@ -269,7 +277,7 @@ export function useServerDataTable<TData extends { name: string }>({
     //         `${currentUrlSyncKey}_sort`,
     //         `${currentUrlSyncKey}_filters`,
     //       ];
-        
+
     //       paramsToRemove.forEach(param => {
     //         urlStateManager.updateParam(param, null);
     //       });
@@ -280,7 +288,7 @@ export function useServerDataTable<TData extends { name: string }>({
 
 
     const apiEndpoint = 'nirmaan_stack.api.data-table.get_list_with_count_enhanced'; // Get Frappe call method from context
-    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{message: { data: TData[]; total_count: number } }>(apiEndpoint); // Get Frappe call method from context
+    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number } }>(apiEndpoint); // Get Frappe call method from context
 
     // --- SWR Mutate for Cache Invalidation ---
     const { mutate } = useSWRConfig();
@@ -298,9 +306,9 @@ export function useServerDataTable<TData extends { name: string }>({
     );
 
     // --- NEW: Search State ---
-    const defaultInitialSearchField = useMemo(() => 
+    const defaultInitialSearchField = useMemo(() =>
         searchableFields?.find(f => f.default)?.value || searchableFields?.[0]?.value || 'name',
-    [searchableFields]);
+        [searchableFields]);
 
     const [selectedSearchField, setSelectedSearchField] = useState<string>(() =>
         urlSyncKey
@@ -335,7 +343,9 @@ export function useServerDataTable<TData extends { name: string }>({
 
     // State for the search term that *actually* triggers the API call (after debounce)
     // const [debouncedSearchTermForApi, setDebouncedSearchTermForApi] = useState<string>(globalFilter);
-    const [debouncedSearchTermForApi, setDebouncedSearchTermForApi] = useState<string>(searchTerm);
+    const [debouncedSearchTermForApi, setDebouncedSearchTermForApi] = useState<string>(
+        isClientSideMode ? '' : searchTerm // Initialize differently based on mode
+    );
 
     // --- NEW: State for Item Search ---
     // const [isItemSearchEnabled, setIsItemSearchEnabled] = useState<boolean>(() =>
@@ -357,74 +367,73 @@ export function useServerDataTable<TData extends { name: string }>({
     const [rowSelection, setRowSelection] = useState<RowSelectionState>(initialState.rowSelection ?? {});
 
     // --- Debounce Logic using lodash.debounce ---
-    // Create a debounced function that updates the API search term state.
-    // Use useMemo to ensure the debounced function is stable unless DEBOUNCE_DELAY changes.
     const debouncedSetApiSearchTerm = useMemo(
-      () => debounce(
-          (value: string) => {
-              setDebouncedSearchTermForApi(value);
-              // Reset to first page when search term changes
-              setPagination(p => ({ ...p, pageIndex: 0 }));
-          },
-          DEBOUNCE_DELAY
-      ),
-      [DEBOUNCE_DELAY] // Only recreate if delay changes
+        () => debounce(
+            (value: string) => {
+                if (!isClientSideMode) { // Only relevant for server-side mode
+                    setDebouncedSearchTermForApi(value);
+                    setPagination(p => ({ ...p, pageIndex: 0 }));
+                }
+            },
+            DEBOUNCE_DELAY
+        ),
+        [isClientSideMode, DEBOUNCE_DELAY]
     );
 
 
     // Effect to call the debounced function when the *immediate* globalFilter changes
     useEffect(() => {
-        // debouncedSetApiSearchTerm(globalFilter);
-        debouncedSetApiSearchTerm(searchTerm);
-    
-        // Cleanup function to cancel any pending debounced calls if the component unmounts
-        // or if globalFilter changes again before the delay expires.
-        return () => {
-            debouncedSetApiSearchTerm.cancel();
-        };
-    }, [searchTerm, debouncedSetApiSearchTerm]);
+        if (!isClientSideMode) { // Only apply debounce for server-side search
+            debouncedSetApiSearchTerm(searchTerm);
+            return () => {
+                debouncedSetApiSearchTerm.cancel();
+            };
+        }
+        // For client-side mode, TanStack Table handles filtering with `searchTerm` directly.
+    }, [searchTerm, isClientSideMode, debouncedSetApiSearchTerm]);
+
 
     // --- URL Sync Effects ---
 
     // Subscribe to URL changes and update local state
     useEffect(() => {
-      if (!urlSyncKey) return;
-      const keyPrefix = `${urlSyncKey}_`;
-      const subscriptions = [
-          urlStateManager.subscribe(`${keyPrefix}pageIdx`, (_, value) => setPagination(p => ({ ...p, pageIndex: parseInt(value || '0', 10) }))),
-          urlStateManager.subscribe(`${keyPrefix}pageSize`, (_, value) => {
-              const newSize = parseInt(value || '10', 10);
-               // Ensure page size is valid, default to 10 if not
-               const validSize = newSize > 0 ? newSize : 10;
-              setPagination(p => ({ ...p, pageIndex: 0, pageSize: validSize })); // Reset page index
-          }),
-        //   urlStateManager.subscribe(`${keyPrefix}search`, (_, value) => setGlobalFilter(value ?? '')), // Update immediate filter
-        //   urlStateManager.subscribe(`${keyPrefix}globalSearch`, (_, value) => setIsGlobalSearchEnabled(value === 'true')),
-          urlStateManager.subscribe(`${keyPrefix}sort`, (_, value) => { try { setSorting(value ? JSON.parse(value) : []) } catch { setSorting([]) } }),
+        if (!urlSyncKey) return;
+        const keyPrefix = `${urlSyncKey}_`;
+        const subscriptions = [
+            urlStateManager.subscribe(`${keyPrefix}pageIdx`, (_, value) => setPagination(p => ({ ...p, pageIndex: parseInt(value || '0', 10) }))),
+            urlStateManager.subscribe(`${keyPrefix}pageSize`, (_, value) => {
+                const newSize = parseInt(value || '50', 10);
+                // Ensure page size is valid, default to 10 if not
+                const validSize = newSize > 0 ? newSize : 10;
+                setPagination(p => ({ ...p, pageIndex: 0, pageSize: validSize })); // Reset page index
+            }),
+            //   urlStateManager.subscribe(`${keyPrefix}search`, (_, value) => setGlobalFilter(value ?? '')), // Update immediate filter
+            //   urlStateManager.subscribe(`${keyPrefix}globalSearch`, (_, value) => setIsGlobalSearchEnabled(value === 'true')),
+            urlStateManager.subscribe(`${keyPrefix}sort`, (_, value) => { try { setSorting(value ? JSON.parse(value) : []) } catch { setSorting([]) } }),
 
-          // --- NEW: Sync item search state from URL ---
-        //   ...(enableItemSearch ? [urlStateManager.subscribe(`${keyPrefix}itemSearch`, (_, value) => setIsItemSearchEnabled(value === 'true'))] : []),
-          // ------------------------------------------
-        //   urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => { try { setColumnFilters(value ? JSON.parse(value) : []) } catch { setColumnFilters([]) } }),
+            // --- NEW: Sync item search state from URL ---
+            //   ...(enableItemSearch ? [urlStateManager.subscribe(`${keyPrefix}itemSearch`, (_, value) => setIsItemSearchEnabled(value === 'true'))] : []),
+            // ------------------------------------------
+            //   urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => { try { setColumnFilters(value ? JSON.parse(value) : []) } catch { setColumnFilters([]) } }),
 
 
-        // --- NEW: Sync search state from URL ---
-        urlStateManager.subscribe(`${keyPrefix}q`, (_, value) => setSearchTerm(value ?? '')),
-        urlStateManager.subscribe(`${keyPrefix}searchBy`, (_, value) => setSelectedSearchField(value ?? defaultInitialSearchField)),
-        // -----------------------------------------
-        // --- MODIFIED: Subscribe to the single encoded filters param ---
-        urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => {
-            // Update state only if decoded value differs from current state JSON stringified
-            const decoded = decodeFiltersFromUrl(value);
-            if(JSON.stringify(columnFilters) !== JSON.stringify(decoded)) {
-                 setColumnFilters(decoded);
-            }
-        }),
-        // --- END MODIFICATION ---
-      ];
-      // Return cleanup function to unsubscribe all
-      return () => subscriptions.forEach(unsub => unsub());
-  }, [urlSyncKey, defaultInitialSearchField, columnFilters]); // Add columnFilters here to compare on popstate update
+            // --- NEW: Sync search state from URL ---
+            urlStateManager.subscribe(`${keyPrefix}q`, (_, value) => setSearchTerm(value ?? '')),
+            urlStateManager.subscribe(`${keyPrefix}searchBy`, (_, value) => setSelectedSearchField(value ?? defaultInitialSearchField)),
+            // -----------------------------------------
+            // --- MODIFIED: Subscribe to the single encoded filters param ---
+            urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => {
+                // Update state only if decoded value differs from current state JSON stringified
+                const decoded = decodeFiltersFromUrl(value);
+                if (JSON.stringify(columnFilters) !== JSON.stringify(decoded)) {
+                    setColumnFilters(decoded);
+                }
+            }),
+            // --- END MODIFICATION ---
+        ];
+        // Return cleanup function to unsubscribe all
+        return () => subscriptions.forEach(unsub => unsub());
+    }, [urlSyncKey, defaultInitialSearchField, columnFilters]); // Add columnFilters here to compare on popstate update
 
 
     // Update URL when local state changes (avoiding infinite loops)
@@ -469,22 +478,21 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- Data Fetching ---
     // Use useRef to prevent fetching on initial mount if desired, or manage initial fetch state.
     // const isInitialMount = useRef(true);
-    
+
     const fetchData = useCallback(async (isRefetch = false) => {
         // --- If clientData is provided, we don't fetch from backend ---
-        if (clientData) {
-            // console.log("[useServerDataTable] Using provided clientData. Skipping backend fetch.");
-            setData(clientData);
-            setTotalCount(clientTotalCount ?? clientData.length);
-            setIsLoading(false); // Not loading from backend
-            setError(null);
+        if (isClientSideMode) {
+            // console.log("[useServerDataTable] Client-side mode: Using provided clientData.");
+            // Data is already set via useEffect watching clientData.
+            // No fetch needed.
+            setIsLoading(false); // Ensure loading is false
             return;
         }
         // --- End clientData handling ---
 
         // Don't fetch if already loading, unless it's a manual refetch trigger
         if (isLoading && !isRefetch) return;
-        
+
         setIsLoading(true); // Set loading true when fetch starts
         setError(null); // Clear previous error
         resetApiState(); // Reset error/completion state of useFrappePostCall
@@ -574,16 +582,17 @@ export function useServerDataTable<TData extends { name: string }>({
             setIsLoading(false); // Set loading false when fetch completes
         }
     }, [
+        isClientSideMode,
         triggerFetch, resetApiState, doctype, JSON.stringify(fetchFields),
         pagination.pageIndex, pagination.pageSize, JSON.stringify(sorting),
-        JSON.stringify(columnFilters), debouncedSearchTermForApi, 
+        JSON.stringify(columnFilters), debouncedSearchTermForApi,
         // isGlobalSearchEnabled,
         // defaultSearchField, 
         // isItemSearchEnabled,
         // JSON.stringify(globalSearchFieldList), 
         selectedSearchField, JSON.stringify(searchableFields),
         defaultSort,
-        JSON.stringify(additionalFilters), 
+        JSON.stringify(additionalFilters),
         // internalTrigger,
         requirePendingItems,
         clientData, clientTotalCount // Add clientData and clientTotalCount to dependencies
@@ -592,15 +601,22 @@ export function useServerDataTable<TData extends { name: string }>({
 
 
     // Effect to update data if clientData prop changes
+    // Effect to update internal data states if clientData prop changes
     useEffect(() => {
-        if (clientData) {
-            setData(clientData);
-            setTotalCount(clientTotalCount ?? clientData.length);
+        if (isClientSideMode) {
+            // console.log("[useServerDataTable] clientData or clientTotalCount prop changed.");
+            setData(clientData || []); // Ensure clientData is not undefined
+            setTotalCount(clientTotalCount ?? (clientData?.length || 0));
+            setIsLoading(false); // Not loading from server
+            setError(null);
+            // Optionally, reset pagination if clientData changes significantly,
+            // though URL sync might handle this if pageIdx becomes invalid.
+            // setPagination(p => ({ ...p, pageIndex: 0 }));
         }
-    }, [clientData, clientTotalCount]);
+    }, [clientData, clientTotalCount, isClientSideMode]); // Key dependency
 
-   // Effect to trigger data fetching when dependencies change
-   useEffect(() => {
+    // Effect to trigger data fetching when dependencies change
+    useEffect(() => {
         // Optional: Prevent fetch on initial mount if you have initial data or want manual trigger first
         // if (isInitialMount.current) {
         //     isInitialMount.current = false;
@@ -621,18 +637,20 @@ export function useServerDataTable<TData extends { name: string }>({
         //     console.log("Returning from initial mount...");
         //     return;
         // }
-
+        if (isClientSideMode) {
+            return;
+        }
         console.log("calling fetchData...");
         fetchData();
-    }, [fetchData]); // Dependency is the memoized fetchData function
+    }, [fetchData, isClientSideMode]); // Dependency is the memoized fetchData function
 
     // --- Real-time Event Listener using useFrappeEventListener ---
     const handleRealtimeEvent = useCallback((message: any) => {
         console.log(`[useServerDataTable ${doctype}] Socket event received:`, message?.event, message);
         // Check if the event is relevant to the current doctype
-        if (message?.doctype === doctype) {
+        if (!isClientSideMode && message?.doctype === doctype) {
             console.log(`[useServerDataTable ${doctype}] Relevant event received. Invalidating cache and refetching.`);
-        
+
             // --- SWR Cache Invalidation ---
             // Invalidate based on a prefix to catch all variations of filters/pagination for this list
             // This tells SWR to mark data starting with this key pattern as stale.
@@ -644,32 +662,33 @@ export function useServerDataTable<TData extends { name: string }>({
             //     undefined, // Setting data to undefined forces refetch on next render/focus
             //     { revalidate: true } // Trigger revalidation (refetch) immediately if component is mounted
             // );
-        
+
             // OR a simpler invalidation (might be less precise but often works):
             // mutate(key => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint, undefined, { revalidate: true });
-        
+
             // Since we manage data with useState now, we might need to directly trigger fetchData
             fetchData(true); // Call fetchData directly to update our local state
             toast({ title: "Data Updated", description: "Data updated successfully.", variant: "success" });
         }
-    }, [doctype, apiEndpoint, mutate, fetchData]); // Add fetchData to deps
-    
+    }, [doctype, apiEndpoint, mutate, fetchData, isClientSideMode]); // Add fetchData to deps
+
 
     useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
 
     // --- TanStack Table Instance ---
     const table = useReactTable<TData>({
         data,
+        meta,
         columns: userDefinedDisplayColumns,
         // Manual server-side operations
-        manualPagination: !clientData,
-        manualSorting: !clientData,
-        manualFiltering: !clientData, // We handle filtering via API call
+        manualPagination: !isClientSideMode,
+        manualSorting: !isClientSideMode,
+        manualFiltering: !isClientSideMode, // We handle filtering via API call
         // Page count calculation
-        pageCount: Math.ceil(totalCount / pagination.pageSize),
+        pageCount: isClientSideMode
+            ? Math.ceil(totalCount / pagination.pageSize) // Use totalCount for client mode
+            : (totalCount > 0 ? Math.ceil(totalCount / pagination.pageSize) : -1), // -1 or server calculated for server mode
         // State managed by the hook
-        onGlobalFilterChange: setSearchTerm,
-        globalFilterFn: fuzzyFilter,
         state: {
             pagination,
             sorting,
@@ -682,7 +701,8 @@ export function useServerDataTable<TData extends { name: string }>({
         onPaginationChange: setPagination,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters, // Update local state, URL effect handles sync
-        // onGlobalFilterChange: setSearchTerm, // Update local state immediately for input field
+        onGlobalFilterChange: setSearchTerm, // Update local state immediately for input field
+        globalFilterFn: fuzzyFilter,
         onColumnVisibilityChange: setColumnVisibility,
         onRowSelectionChange: onRowSelectionChange ?? setRowSelection, // Use passed handler or internal one
         // Models (keep faceted utils for potential UI helpers)
@@ -692,6 +712,7 @@ export function useServerDataTable<TData extends { name: string }>({
         getFacetedRowModel: getFacetedRowModel(), // Useful for faceted filter UI options
         getFacetedUniqueValues: getFacetedUniqueValues(), // Useful for faceted filter UI options
         // Configuration
+        getPaginationRowModel: getPaginationRowModel(),
         enableRowSelection: configEnableRowSelection,
         // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
         // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
@@ -712,13 +733,18 @@ export function useServerDataTable<TData extends { name: string }>({
 
     // --- MODIFIED: Refetch function ---
     const refetch = useCallback(() => {
-        console.log(`[useServerDataTable ${doctype}] Manual refetch triggered.`);
-        // Invalidate cache first
-        mutate(key => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint, undefined, { revalidate: false }); // Invalidate, don't auto-refetch yet
-        // Trigger internal state change OR direct fetch
-        // setInternalTrigger(count => count + 1); // This will trigger the useEffect [fetchData]
-        fetchData(true); // Or call directly, passing true to bypass loading check
-    }, [mutate, apiEndpoint, fetchData]); // Added fetchData
+        if (!isClientSideMode) {
+            // console.log(`[useServerDataTable ${doctype}] Manual refetch triggered (server-side mode).`);
+            fetchData(true);
+        } else {
+            // console.log(`[useServerDataTable ${doctype}] Manual refetch triggered (client-side mode) - no server action.`);
+            // In client mode, a "refetch" might mean re-evaluating the clientData source,
+            // which should happen outside this hook (e.g., the parent component re-passes new clientData).
+            // Or, if it means re-applying filters/sorts, TanStack table does that reactively.
+            toast({ title: "Client Data", description: "Table is using client-side data. Refresh the source to update.", variant: "info" });
+        }
+    }, [isClientSideMode, fetchData]);
+
     // -----------------------------------
 
 
@@ -749,5 +775,6 @@ export function useServerDataTable<TData extends { name: string }>({
         // showItemSearchToggle: enableItemSearch, // Indicate if toggle should be shown
         refetch,
         isRowSelectionActive: !!configEnableRowSelection,
+        isClientSideMode,
     };
 }

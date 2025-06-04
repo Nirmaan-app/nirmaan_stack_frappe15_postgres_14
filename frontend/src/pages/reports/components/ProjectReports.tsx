@@ -1,143 +1,148 @@
-import { DataTable } from "@/components/data-table/data-table";
-import { ProcessedProject, useProjectReportsData } from "../hooks/useProjectReportsData";
-import React from "react";
-import { projectColumns } from "./columns/projectColumns";
+import { useMemo, useCallback } from "react"; // Added useCallback
+import { DataTable } from "@/components/data-table/new-data-table";
+import { Projects } from "@/types/NirmaanStack/Projects"; // Base Project type
+import { useProjectReportCalculations } from "../hooks/useProjectReportCalculations"; // Updated hook
+import { formatValueToLakhsString, getProjectColumns } from "./columns/projectColumns"; // Columns are now from a function
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { ReportType, useReportStore } from "../store/useReportStore";
-// import { useServerDataTable } from "@/hooks/useServerDataTable";
-// import { PROJECT_REPORTS_DATE_COLUMNS, PROJECT_REPORTS_SEARCHABLE_FIELDS } from "../config/projectReportsTable.config";
-import { toast } from "@/components/ui/use-toast";
-import { exportToCsv } from "@/utils/exportToCsv";
+import { useServerDataTable } from "@/hooks/useServerDataTable";
+import {
+    PROJECT_REPORTS_SEARCHABLE_FIELDS,
+    PROJECT_REPORTS_DATE_COLUMNS,
+} from "../config/projectReportsTable.config"; // Make sure this file exists and is correct
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-// import { DataTable } from "@/components/data-table/new-data-table";
+import { toast } from "@/components/ui/use-toast"; // For custom export
+import { exportToCsv } from "@/utils/exportToCsv"; // For custom export
+import { parseNumber } from "@/utils/parseNumber"; // For custom export credit calc
+import { formatDate } from "@/utils/FormatDate";
+
+// Define base fields for Projects doctype fetch
+const projectBaseFields: (keyof Projects)[] = [
+    'name', 'project_name', 'project_value', 'creation', 'modified', 'status',
+];
+const projectReportListOptions = () => ({
+    fields: projectBaseFields as string[],
+});
 
 export default function ProjectReports() {
-    const { processedProjects, isLoading: isDataProcessing, error: dataProcessingError } = useProjectReportsData();
+    const {
+        getProjectCalculatedFields,
+        isLoadingGlobalDeps,
+        globalDepsError,
+    } = useProjectReportCalculations();
 
-    const columns = React.useMemo(() => projectColumns, []);
+    const selectedReportType = useReportStore((state) => state.selectedReportType as ReportType); // Currently only 'Cash Sheet'
 
-    // Get selected report type from Zustand store (for default export filename)
-    const selectedReportType = useReportStore((state) => state.selectedReportType as ReportType);
+    const tableColumns = useMemo(() => getProjectColumns(), []); // Get column definitions
 
-    // Define the data getter function for project reports
-    const getProjectExportData = (
-          reportType: ReportType,
-          allData: ProcessedProject[]
-      ): ProcessedProject[] => {
-          // For "Cash Sheet" (the only type for projects currently), export all data.
-          if (reportType === 'Cash Sheet') {
-              return allData;
-          }
-          // Add logic here if more project report types are introduced
-          return allData; // Default: return all
-      };
+    const {
+        table,
+        data: projectsData, // This is Projects[] from the backend via useServerDataTable
+        isLoading: isProjectsLoading,
+        error: projectsError,
+        totalCount,
+        searchTerm, setSearchTerm,
+        selectedSearchField, setSelectedSearchField,
+    } = useServerDataTable<Projects>({ // Generic is now Projects
+        doctype: "Projects",
+        columns: tableColumns, // Pass the generated columns
+        fetchFields: projectReportListOptions().fields as string[],
+        searchableFields: PROJECT_REPORTS_SEARCHABLE_FIELDS, // For client-side search
+        urlSyncKey: "project_reports_cash_sheet_table", // Make specific if report type changes columns
+        defaultSort: 'creation desc',
+        enableRowSelection: false,
+        meta: {
+            getProjectCalculatedFields,
+            isLoadingGlobalDeps
+        }
+    });
 
+    const exportFileName = useMemo(() => {
+        // Since there's only "Cash Sheet", the name is fixed for now.
+        // If other project report types are added, this logic would need selectedReportType.
+        return "projects_report_Cash_Sheet";
+    }, [selectedReportType]);
 
-    // --- useServerDataTable Hook for UI State Management ---
-    // This hook will now primarily manage client-side table state (pagination, sorting, client-side search)
-    // because we provide `clientData`.
-    // const {
-    //     table,
-    //     data: tableDisplayData, // This will be the paginated/sorted subset of processedProjects
-    //     totalCount, // This will be processedProjects.length if clientTotalCount not provided
-    //     isLoading: isTableHookLoading, // Should be false if clientData is used
-    //     error: tableHookError,
-    //     searchTerm, setSearchTerm,
-    //     selectedSearchField, setSelectedSearchField,
-    //     isRowSelectionActive,
-    //     refetch, // Will refetch via useProjectReportsData if we wire it up
-    // } = useServerDataTable<ProcessedProject>({
-    //     doctype: "ProjectReportsVirtual", // Virtual doctype name, not a real one
-    //     columns: projectColumns,          // Your display columns
-    //     fetchFields: [],                  // Not used when clientData is provided
-    //     searchableFields: PROJECT_REPORTS_SEARCHABLE_FIELDS, // For client-side search config
-    //     clientData: processedProjects || [], // Provide the processed data
-    //     clientTotalCount: processedProjects?.length || 0,
-    //     urlSyncKey: "project_reports",    // URL key for this specific report table
-    //     defaultSort: 'creation desc',     // Default client-side sort
-    //     enableRowSelection: false,         // Enable selection for export
-    // });
-
-    // if (error) {
-    //     console.error("Error fetching project reports data:", error);
-    //     // Avoid infinite toasts if error persists
-    //     // toast({ title: "Error", description: "Could not load project reports.", variant: "destructive" });
-    //     return (
-    //          <Alert variant="destructive" className="m-4">
-    //             <Terminal className="h-4 w-4" />
-    //             <AlertTitle>Error Loading Project Reports</AlertTitle>
-    //             <AlertDescription>
-    //                 Failed to fetch the necessary data. Please try refreshing the page or contact support if the problem persists.
-    //                 <br />
-    //                 <span className="text-xs">{error.message}</span>
-    //             </AlertDescription>
-    //         </Alert>
-    //     )
-    // }
-
-
-    const exportFileNamePrefix = "projects_cash_sheet";
-    // --- New Export Handler ---
-  const handleExport = () => {
-    if (isDataProcessing || processedProjects?.length === 0) {
-         toast({ title: "Export", description: "No data available to export or still loading.", variant: "default" });
-        return;
-    }
-
-    try {
-        // 1. Get the data specifically prepared for this export type
-        //    We pass ALL original data (`data` prop) to the getter,
-        //    so it can apply report-type filtering before any table filtering.
-        const dataToExportRaw = getProjectExportData(selectedReportType, processedProjects || []);
-
-        // 2. OPTIONAL: Apply table's current filters (search, column filters) to the report-specific data
-        //    This is more complex as it requires replicating table filtering logic outside the table.
-        //    Easier approach: Export based on Report Type filter applied to the *full* dataset.
-        //    Let's stick to the easier approach for now: export data filtered *only* by the report type.
-        const dataToExport = dataToExportRaw;
-
-         // OR, if you want to export exactly what's visible *after* table filters:
-         // const visibleFilteredData = getExportData(selectedReportType, allFilteredRows); // Apply report type filter to table-filtered data
-
-        if (!dataToExport || dataToExport.length === 0) {
-             toast({ title: "Export", description: `No data found matching report type: ${selectedReportType}`, variant: "default" });
-             return;
+    // Custom export handler to include calculated fields
+    const handleCustomExport = useCallback(() => {
+        if (!projectsData || projectsData.length === 0) {
+            toast({ title: "Export", description: "No data available to export.", variant: "default" });
+            return;
+        }
+        if (isLoadingGlobalDeps) {
+            toast({ title: "Export", description: "Dependency data is still loading. Please wait.", variant: "default" });
+            return;
         }
 
-        // 3. Determine filename based on prefix and maybe the report type
-         const finalFileName = `${exportFileNamePrefix}${selectedReportType ? `_${selectedReportType.replace(/\s+/g, '_')}` : ''}`;
+        const dataToExport = projectsData.map(project => {
+            const calculated = getProjectCalculatedFields(project.name);
+            const credit = (calculated && calculated.totalInvoiced != null && calculated.totalInflow != null)
+                ? parseNumber(calculated.totalInvoiced) - parseNumber(calculated.totalInflow)
+                : undefined;
+
+            return {
+                // Spread base project properties you want to export
+                project_name: project.project_name,
+                creation: formatDate(project.creation), // Format dates for export
+                project_value_lakhs: formatValueToLakhsString(project.project_value),
+                // Add calculated fields, formatted for export
+                totalInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalInvoiced) : 'N/A',
+                totalInflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalInflow) : 'N/A',
+                totalOutflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalOutflow) : 'N/A',
+                totalCredit_lakhs: credit !== undefined ? formatValueToLakhsString(credit) : 'N/A',
+            };
+        });
+
+        // Define columns specifically for export or ensure exportToCsv can use simplified headers
+        const exportColumns = [
+            { header: "Project Name", accessorKey: "project_name" },
+            { header: "Creation Date", accessorKey: "creation" },
+            { header: "Value (excl. GST)", accessorKey: "project_value_lakhs" },
+            { header: "Total PO+SR (incl. GST)", accessorKey: "totalInvoiced_lakhs" },
+            { header: "Inflow", accessorKey: "totalInflow_lakhs" },
+            { header: "Outflow", accessorKey: "totalOutflow_lakhs" },
+            { header: "Credit Outstanding", accessorKey: "totalCredit_lakhs" },
+        ];
+
+        try {
+            exportToCsv(exportFileName, dataToExport, exportColumns as ColumnDef<any, any>[]); // Adjust columns for exportToCsv
+            toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success" });
+        } catch (e) {
+            console.error("Export failed:", e);
+            toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
+        }
+
+    }, [projectsData, getProjectCalculatedFields, isLoadingGlobalDeps, exportFileName, tableColumns]);
 
 
-        // 4. Call the generic export utility
-        exportToCsv(finalFileName, dataToExport, columns);
+    const isLoading = isLoadingGlobalDeps || isProjectsLoading;
+    const error = globalDepsError || projectsError;
 
-        toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success"});
-
-    } catch (error) {
-         console.error("Export failed:", error);
-         toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive"});
-    }
-};
-
-    if (dataProcessingError) {
-        // Display prominent error from data fetching/processing
-        return (
-             <AlertDestructive error={dataProcessingError} />
-        );
+    if (error) {
+        return <AlertDestructive error={error as Error} />;
     }
 
     return (
         <div className="space-y-4">
-            {isDataProcessing ? (
+            {(isLoading && !projectsData?.length) ? (
                 <LoadingFallback />
             ) : (
-                <DataTable
-                    columns={columns}
-                    data={processedProjects || []} // Ensure data is always an array
-                    // Add features like filtering, search, pagination to DataTable if implemented
-                    // E.g., showSearch="project_name"
-                    loading={isDataProcessing}
-                    onExport={handleExport}
+                <DataTable<Projects>
+                    table={table}
+                    columns={tableColumns}
+                    isLoading={isLoading} // Overall loading state
+                    error={error as Error | null}
+                    totalCount={totalCount}
+                    searchFieldOptions={PROJECT_REPORTS_SEARCHABLE_FIELDS}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    dateFilterColumns={PROJECT_REPORTS_DATE_COLUMNS}
+                    showExportButton={true}
+                    onExport={handleCustomExport} // Use the custom export handler
+                    exportFileName={exportFileName} // Still useful for the handler
+                    showRowSelection={false}
                 />
             )}
         </div>

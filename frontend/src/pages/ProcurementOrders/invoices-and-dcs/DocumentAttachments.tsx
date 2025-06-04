@@ -62,8 +62,6 @@ export const DocumentAttachments = <T extends DocumentType>({
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
     const [invoiceDialogData, setInvoiceDialogData] = useState<SrInvoiceDialogData>(initialSrInvoiceDialogData);
 
-    console.log("invoiceDialogData", invoiceDialogData)
-
     const [isGeneratingInvNo, setIsGeneratingInvNo] = useState(false);
 
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()

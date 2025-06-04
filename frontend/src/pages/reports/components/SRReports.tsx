@@ -1,21 +1,20 @@
 import { useMemo, useCallback } from "react";
-import { DataTable } from "@/components/data-table/new-data-table";
-import { POReportRowData, usePOReportsData } from "../hooks/usePOReportsData";
-import { getPOReportColumns } from "./columns/poColumns";
+import { DataTable } from "@/components/data-table/new-data-table"; // Use new-data-table
+import { SRReportRowData, useSRReportsData } from "../hooks/useSRReportsData"; // Your existing data hook
+import { srColumns } from "./columns/srColumns"; // Column definitions
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { POReportOption, useReportStore } from "../store/useReportStore";
+import { SROption, useReportStore } from "../store/useReportStore";
 import { parseNumber } from "@/utils/parseNumber";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
-import { differenceInDays, parseISO, startOfToday } from 'date-fns';
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import {
-    PO_REPORTS_SEARCHABLE_FIELDS,
-    PO_REPORTS_DATE_COLUMNS
-} from "../config/poReportsTable.config";
+    SR_REPORTS_SEARCHABLE_FIELDS,
+    SR_REPORTS_DATE_COLUMNS
+} from "../config/srReportsTable.config";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
@@ -24,115 +23,99 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 interface SelectOption { label: string; value: string; }
 
-export default function POReports() {
-    // 1. Fetch the superset of data. `usePOReportsData` should return POReportRowData[]
-    // which already contains calculated totalAmount, invoiceAmount, amountPaid, and originalDoc.
+export default function SRReports() {
+    // 1. Fetch the superset of SR data.
+    // `useSRReportsData` should return SRReportRowData[] with pre-calculated fields.
     const {
-        reportData: allPOsForReports, // This is POReportRowData[] | null
+        reportData: allSRsForReports,
         isLoading: isLoadingInitialData,
         error: initialDataError,
-    } = usePOReportsData();
+    } = useSRReportsData();
 
-    const selectedReportType = useReportStore((state) => state.selectedReportType as POReportOption | null);
-
-    // 2. Dynamically determine columns based on selectedReportType
-    const tableColumnsToDisplay = useMemo(() => getPOReportColumns(selectedReportType), [selectedReportType]);
+    const selectedReportType = useReportStore((state) => state.selectedReportType as SROption | null);
+    const tableColumnsToDisplay = useMemo(() => srColumns, []); // srColumns are static for now
     const delta = 100;
 
-    // 3. Perform the report-specific dynamic filtering on the client side.
-    // This `currentDisplayData` is what will be shown in the table.
+    // 2. Perform report-specific dynamic filtering on the client side.
     const currentDisplayData = useMemo(() => {
-        if (!allPOsForReports) {
-            // console.log("POReports: No initial data (allPOsForReports is null/undefined)");
-            return [];
-        }
-        if (!selectedReportType || !['Pending Invoices', 'PO with Excess Payments', 'Dispatched for 3 days'].includes(selectedReportType)) {
-            // console.log(`POReports: Invalid or non-PO report type selected: ${selectedReportType}`);
+        if (!allSRsForReports) return [];
+        if (!selectedReportType || !['Pending Invoices', 'PO with Excess Payments'].includes(selectedReportType)) {
+            // If not a valid SR report type, show no data.
             return [];
         }
 
-        // console.log(`POReports: Filtering for report type: ${selectedReportType} with ${allPOsForReports.length} initial items.`);
-        const today = startOfToday();
-        let filtered: POReportRowData[];
-
+        let filtered: SRReportRowData[];
         switch (selectedReportType) {
             case 'Pending Invoices':
-                filtered = allPOsForReports.filter(row => {
-                    const poDoc = row.originalDoc;
-                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
+                filtered = allSRsForReports.filter(row => {
+                    const srDoc = row.originalDoc; // SRReportRowData.originalDoc is ServiceRequests
+                    // Assuming 'Approved' SRs are candidates for invoicing.
+                    if (srDoc.status === 'Approved') {
+                        // Using pre-calculated fields from SRReportRowData
                         return parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - delta;
                     }
                     return false;
                 });
                 break;
-            case 'PO with Excess Payments':
-                filtered = allPOsForReports.filter(row => {
-                    const poDoc = row.originalDoc;
-                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
+            case 'PO with Excess Payments': // This value represents "Excess Payments for SRs"
+                filtered = allSRsForReports.filter(row => {
+                    const srDoc = row.originalDoc;
+                    if (srDoc.status === 'Approved') {
+                        // Using pre-calculated fields from SRReportRowData
                         return parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + delta;
                     }
                     return false;
                 });
                 break;
-            case 'Dispatched for 3 days':
-                filtered = allPOsForReports.filter(row => {
-                    const poDoc = row.originalDoc;
-                    if (poDoc.status === 'Dispatched' && poDoc.dispatch_date) {
-                        try {
-                            return differenceInDays(today, parseISO(poDoc.dispatch_date)) > 3;
-                        } catch { return false; }
-                    }
-                    return false;
-                });
-                break;
             default:
-                filtered = []; // Should not reach here due to initial check
+                filtered = [];
         }
-        // console.log(`POReports: Filtered data count: ${filtered.length}`);
         return filtered;
-    }, [allPOsForReports, selectedReportType, delta]);
+    }, [allSRsForReports, selectedReportType, delta]);
 
-    // 4. Initialize useServerDataTable in clientData mode
+    // 3. Initialize useServerDataTable in clientData mode
     const {
         table,
         isLoading: isTableHookLoading,
         error: tableHookError,
-        totalCount, // This will be currentDisplayData.length
+        totalCount,
         searchTerm, setSearchTerm,
         selectedSearchField, setSelectedSearchField,
-    } = useServerDataTable<POReportRowData>({
-        doctype: `POReportsClientFilteredVirtual_${selectedReportType || 'none'}`, // Unique virtual doctype per report
+    } = useServerDataTable<SRReportRowData>({ // Generic is SRReportRowData
+        doctype: `SRReportsClientFilteredVirtual_${selectedReportType || 'none'}`, // Virtual name
         columns: tableColumnsToDisplay,
-        fetchFields: [], // Not used in clientData mode
-        searchableFields: PO_REPORTS_SEARCHABLE_FIELDS,
+        fetchFields: [], // Not used
+        searchableFields: SR_REPORTS_SEARCHABLE_FIELDS,
         clientData: currentDisplayData,
         clientTotalCount: currentDisplayData.length,
-        urlSyncKey: `po_reports_table_client_${selectedReportType?.toString().replace(/\s+/g, '_') || 'all'}`,
-        defaultSort: selectedReportType === 'Dispatched for 3 days' ? 'originalDoc.dispatch_date asc' : 'creation desc',
+        urlSyncKey: `sr_reports_table_client_${selectedReportType?.toString().replace(/\s+/g, '_') || 'all'}`,
+        defaultSort: 'creation desc',
         enableRowSelection: false,
-        // No `meta` needed here as POReportRowData contains all display fields,
-        // and poColumns directly accesses them.
+        // No `meta` needed as SRReportRowData has all display fields.
     });
 
-    // Supporting data for faceted filters (Projects & Vendors)
+    // Supporting data for faceted filters
     const projectsFetchOptions = getProjectListOptions();
     const { data: projects, isLoading: projectsUiLoading, error: projectsUiError } = useFrappeGetDocList<Projects>(
         "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, queryKeys.projects.list(projectsFetchOptions)
     );
     const { data: vendors, isLoading: vendorsUiLoading, error: vendorsUiError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
 
-    // Ensure `value` in facet options matches the data in POReportRowData's `projectName` and `vendorName`
     const projectFacetOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.project_name })) || [], [projects]);
     const vendorFacetOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.vendor_name })) || [], [vendors]);
 
     const facetOptionsConfig = useMemo(() => ({
-        project_name: { title: "Project", options: projectFacetOptions },
+        project: { title: "Project", options: projectFacetOptions },
         vendor_name: { title: "Vendor", options: vendorFacetOptions }
     }), [projectFacetOptions, vendorFacetOptions]);
 
     const exportFileName = useMemo(() => {
-        const prefix = "po_report";
-        return `${prefix}${selectedReportType ? `_${selectedReportType.replace(/\s+/g, '_')}` : ''}`;
+        let reportTypeString = String(selectedReportType);
+        if (reportTypeString === 'PO with Excess Payments') {
+            reportTypeString = 'SR_Excess_Payments';
+        }
+        const prefix = "sr_report";
+        return `${prefix}${reportTypeString ? `_${reportTypeString.replace(/\s+/g, '_')}` : ''}`;
     }, [selectedReportType]);
 
     const handleCustomExport = useCallback(() => {
@@ -141,39 +124,35 @@ export default function POReports() {
             return;
         }
         const dataToExport = currentDisplayData.map(row => ({
-            po_id: row.name,
+            sr_id: row.name,
             creation: formatDate(row.creation),
             project_name: row.projectName || row.project,
             vendor_name: row.vendorName || row.vendor,
-            total_po_amt: formatToRoundedIndianRupee(row.totalAmount),
+            total_sr_amt: formatToRoundedIndianRupee(row.totalAmount),
             total_invoice_amt: formatToRoundedIndianRupee(row.invoiceAmount),
             amt_paid: formatToRoundedIndianRupee(row.amountPaid),
-            dispatch_date: row.originalDoc.dispatch_date ? formatDate(row.originalDoc.dispatch_date) : "N/A",
             status: row.originalDoc.status,
         }));
 
         const exportColumnsConfig: ColumnDef<any, any>[] = [
-            { header: "#PO", accessorKey: "po_id" },
+            { header: "#SR", accessorKey: "sr_id" },
             { header: "Date Created", accessorKey: "creation" },
             { header: "Project", accessorKey: "project_name" },
             { header: "Vendor", accessorKey: "vendor_name" },
-            { header: "Total PO Amt", accessorKey: "total_po_amt" }, // Matches export data key
+            { header: "Total SR Amt", accessorKey: "total_sr_amt" },
             { header: "Total Invoice Amt", accessorKey: "total_invoice_amt" },
             { header: "Amt Paid", accessorKey: "amt_paid" },
-            { header: "PO Status", accessorKey: "status" }, // Moved before conditional dispatch date
+            { header: "SR Status", accessorKey: "status" },
         ];
-        if (selectedReportType === 'Dispatched for 3 days') {
-            exportColumnsConfig.push({ header: "Dispatched Date", accessorKey: "dispatch_date" });
-        }
 
         try {
             exportToCsv(exportFileName, dataToExport, exportColumnsConfig);
             toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success" });
         } catch (e) {
-            console.error("Export failed:", e);
+            console.error("SR Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [currentDisplayData, exportFileName, selectedReportType]);
+    }, [currentDisplayData, exportFileName]);
 
     const isLoadingOverall = isLoadingInitialData || projectsUiLoading || vendorsUiLoading || isTableHookLoading;
     const overallError = initialDataError || projectsUiError || vendorsUiError || tableHookError;
@@ -184,22 +163,22 @@ export default function POReports() {
 
     return (
         <div className="space-y-4">
-            {isLoadingInitialData && !allPOsForReports ? (
+            {isLoadingInitialData && !allSRsForReports ? (
                 <LoadingFallback />
             ) : (
-                <DataTable<POReportRowData>
+                <DataTable<SRReportRowData>
                     table={table}
                     columns={tableColumnsToDisplay}
                     isLoading={isLoadingOverall}
                     error={overallError as Error | null}
-                    totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length
-                    searchFieldOptions={PO_REPORTS_SEARCHABLE_FIELDS}
+                    totalCount={totalCount} // From useServerDataTable, reflects currentDisplayData.length
+                    searchFieldOptions={SR_REPORTS_SEARCHABLE_FIELDS}
                     selectedSearchField={selectedSearchField}
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
                     facetFilterOptions={facetOptionsConfig}
-                    dateFilterColumns={PO_REPORTS_DATE_COLUMNS}
+                    dateFilterColumns={SR_REPORTS_DATE_COLUMNS}
                     showExportButton={true}
                     onExport={handleCustomExport}
                     exportFileName={exportFileName}
