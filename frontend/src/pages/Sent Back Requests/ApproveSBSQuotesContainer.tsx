@@ -3,7 +3,6 @@ import React, { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button'; // Adjust path
 import { ApproveSBSQuotesView } from './ApproveSBSQuotesView';
-import { useSentBackCategoryDoc } from './hooks/useSentBackCategoryDoc'; // Use SB hook
 
 // import { useNirmaanComments } from '@/hooks/useNirmaanComments'; // Reuse/Adapt
 import { useApproveSBSLogic } from './hooks/useApproveSBSLogic'; // Use SB logic hook
@@ -15,6 +14,7 @@ import { ProcurementItem } from '@/types/NirmaanStack/ProcurementRequests';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { useUsersList } from '../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { toast } from '@/components/ui/use-toast';
+import { useSentBackCategory } from "@/hooks/useSentBackCategory";
 
 export const ApproveSBSQuotesContainer: React.FC = () => {
     const { id: sbId } = useParams<{ id: string }>(); // Use sbId
@@ -27,7 +27,7 @@ export const ApproveSBSQuotesContainer: React.FC = () => {
 
     // --- Data Fetching ---
     // Use the specific hook for Sent Back Category
-    const { data: sbData, isLoading: sbLoading, error: sbError, mutate: sbMutate } = useSentBackCategoryDoc(sbId);
+    const { data: sbData, isLoading: sbLoading, error: sbError, mutate: sbMutate } = useSentBackCategory(sbId);
 
     useFrappeDocumentEventListener("Sent Back Category", sbId, (event) => {
           console.log("Sent Back Category document updated (real-time):", event);
@@ -38,7 +38,7 @@ export const ApproveSBSQuotesContainer: React.FC = () => {
           sbMutate(); // Re-fetch this specific document
         },
         true // emitOpenCloseEventsOnMount (default)
-        )
+    )
 
     const { data: vendorList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList();
     const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();

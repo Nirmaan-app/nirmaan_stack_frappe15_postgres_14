@@ -1,5 +1,4 @@
 import { ProcurementHeaderCard } from "@/components/helpers/ProcurementHeaderCard";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -10,172 +9,32 @@ import {
     DialogTitle,
     DialogTrigger
 } from "@/components/ui/dialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { toast } from "@/components/ui/use-toast";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
 import { useUserData } from '@/hooks/useUserData';
-import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
-import { ConfigProvider, Table, TableColumnsType } from "antd";
 import TextArea from 'antd/es/input/TextArea';
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, Undo2 } from "lucide-react";
+import { ArrowBigUpDash, CheckCheck, ListChecks, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { v4 as uuidv4 } from "uuid";
-import { CategoryData, CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useSentBackCategory } from "@/hooks/useSentBackCategory";
+import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 
-export const COLUMN_WIDTHS = {
-    category: "auto",
-    totalAmount: "auto",
-    item: "20%",
-    unit: "5%",
-    quantity: "7%",
-    rate: "10%",
-    vendor: "15%",
-    amount: "12%",
-    lowestQuotedAmount: "10%",
-    threeMonthsLowestAmount: "10%",
-};
-
-export const columns: TableColumnsType<CategoryData> = [
-    {
-        title: "Category",
-        dataIndex: "category",
-        key: "category",
-        width: COLUMN_WIDTHS.category,
-        render: (text) => <strong className="text-primary">{text}</strong>,
-    },
-    {
-        title: "Total Amount",
-        dataIndex: "totalAmount",
-        key: "amount",
-        width: COLUMN_WIDTHS.totalAmount,
-        render: (text) => <Badge>{formatToIndianRupee(text)}</Badge>,
-    },
-];
-
-export const innerColumns: TableColumnsType<DataItem> = [
-    {
-        title: "Item Name",
-        dataIndex: "item",
-        key: "item",
-        width: COLUMN_WIDTHS.item,
-        render: (text, record) => (
-            <div className="flex flex-col gap-1">
-                <div className="inline items-baseline">
-                    <span>{text}</span>
-                    {record?.comment && (
-                        <HoverCard>
-                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                <div className="relative pb-4">
-                                    <span className="block">{record.comment}</span>
-                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
-                                </div>
-                            </HoverCardContent>
-                        </HoverCard>
-                    )}
-                </div>
-                {record?.make && (
-                    <span className="text-xs">Selected make : <b>{record.make}</b></span>
-                )}
-            </div>
-        )
-    },
-    {
-        title: "Unit",
-        dataIndex: "unit",
-        key: "unit",
-        width: COLUMN_WIDTHS.unit,
-    },
-    {
-        title: "Quantity",
-        dataIndex: "quantity",
-        key: "quantity",
-        width: COLUMN_WIDTHS.quantity,
-    },
-    {
-        title: "Rate",
-        dataIndex: "quote",
-        key: "quote",
-        width: COLUMN_WIDTHS.rate,
-        render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
-    },
-    {
-        title: "Vendor",
-        dataIndex: "vendor_name",
-        key: "vendor",
-        width: COLUMN_WIDTHS.vendor,
-        render: (text) => <span className="italic">{text}</span>,
-    },
-    {
-        title: "Amount",
-        dataIndex: "amount",
-        key: "amount",
-        width: COLUMN_WIDTHS.amount,
-        render: (text, record) => {
-            const amount = text;
-            const lowest3 = record?.threeMonthsLowestAmount;
-
-            if (!lowest3 || !amount) {
-                return <i>{formatToIndianRupee(amount)}</i>;
-            }
-
-            const percentageDifference = ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
-            const isLessThan = amount < lowest3;
-            const isEqual = amount === lowest3;
-            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-            const Icon = isLessThan ? MoveDown : MoveUp;
-
-            return (
-                <div className="flex items-center gap-1">
-                    <i>{formatToIndianRupee(amount)}</i>
-                    {!isEqual && (
-                        <div className={`${colorClass} flex items-center`}>
-                            <span className="text-sm">({`${percentageDifference}%`})</span>
-                            <Icon className="w-4 h-4" />
-                        </div>
-                    )}
-                </div>
-            );
-        },
-    },
-    {
-        title: "Lowest Quoted Amount",
-        dataIndex: "lowestQuotedAmount",
-        key: "lowestQuotedAmount",
-        width: COLUMN_WIDTHS.lowestQuotedAmount,
-        render: (text) => <span className="italic">{text ? formatToIndianRupee(text) : "--"}</span>,
-    },
-    {
-        title: "Target Amount",
-        dataIndex: "threeMonthsLowestAmount",
-        key: "threeMonthsLowestAmount",
-        width: COLUMN_WIDTHS.threeMonthsLowestAmount,
-        render: (text, record) => {
-            const amount = record.amount;
-            const lowest3 = text;
-
-            if (!lowest3) {
-                return <i>--</i>;
-            }
-            const isLessThan = amount < lowest3;
-            const isEqual = amount === lowest3;
-            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-
-            return <i className={`${!isEqual && colorClass}`}>{formatToIndianRupee(lowest3)}</i>;
-        },
-    },
-];
-
+interface DisplayItem extends ProcurementRequestItemDetail {
+  amount?: number; // Calculated amount based on quote
+  vendor_name?: string; // Added by getVendorName
+  lowestQuotedAmount?: number; // From getLowest
+  threeMonthsLowestAmount?: number; // From getItemEstimate (if used)
+  potentialLoss?: number;
+}
 
 export const SBQuotesSelectionReview: React.FC = () => {
 
@@ -195,12 +54,7 @@ export const SBQuotesSelectionReview: React.FC = () => {
 
     const [orderData, setOrderData] = useState<SentBackCategory | undefined>();
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading, mutate: sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category", {
-        fields: ["*"],
-        filters: [["name", "=", sbId]]
-    },
-        sbId ? `Sent Back Category:${sbId}` : null
-    );
+    const { data: sent_back, isLoading: sent_back_loading, mutate: sent_back_mutate } = useSentBackCategory(sbId)
 
     useFrappeDocumentEventListener("Sent Back Category", sbId, (event) => {
               console.log("Sent Back document updated (real-time):", event);
@@ -208,24 +62,19 @@ export const SBQuotesSelectionReview: React.FC = () => {
                   title: "Document Updated",
                   description: `Sent Back ${event.name} has been modified.`,
               });
-              sent_back_list_mutate(); // Re-fetch this specific document
+              sent_back_mutate(); // Re-fetch this specific document
             },
             true // emitOpenCloseEventsOnMount (default)
             )
 
-    const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
-        {
-            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type', 'vendor_state', 'vendor_city'],
-            filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
-            limit: 10000
-        });
+
+    const { data: vendor_list, isLoading: vendor_list_loading } = useVendorsList({vendorTypes: ["Material", "Material & Service"]})
 
     useEffect(() => {
-        if (sent_back_list) {
-            const request = sent_back_list[0]
-            setOrderData(request)
+        if (sent_back) {
+            setOrderData(sent_back)
         }
-    }, [sent_back_list])
+    }, [sent_back])
 
     // const getCategoryTotals = useMemo(() => {
     //   const totals : {[category: string]: number} = {}
@@ -329,21 +178,21 @@ export const SBQuotesSelectionReview: React.FC = () => {
     };
 
     interface VendorWiseApprovalItems {
-        [vendor: string]: {
-            items: (ProcurementItem & { potentialLoss?: number })[];
-            total: number;
-        }
-    }
+        [vendor: string]: { // vendor here is vendor_id (DocName)
+          items: DisplayItem[]; // Use DisplayItem or add properties to ProcurementRequestItemDetail
+          total: number;
+        };
+      }
 
     const generateActionSummary = useCallback(() => {
         let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
         let approvalOverallTotal: number = 0;
 
-        orderData?.item_list?.list.forEach((item) => {
+        orderData?.order_list.forEach((item) => {
             const vendor = item?.vendor || "";
             // Approval items segregated by vendor
-            const targetRate = getItemEstimate(item?.name)?.averageRate
-            const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)
+            const targetRate = getItemEstimate(item?.item_id)?.averageRate
+            const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.item_id)
             const itemTotal = parseNumber(item.quantity * parseNumber(item.quote));
             if (!vendorWiseApprovalItems[vendor]) {
                 vendorWiseApprovalItems[vendor] = {
@@ -369,10 +218,10 @@ export const SBQuotesSelectionReview: React.FC = () => {
     const {
         vendorWiseApprovalItems,
         approvalOverallTotal,
-    } = generateActionSummary();
+    } = useMemo(() => generateActionSummary(), [generateActionSummary]);
 
 
-    if (sent_back_list_loading || vendor_list_loading) return <LoadingFallback />
+    if (sent_back_loading || vendor_list_loading) return <LoadingFallback />
 
     return (
         <>
@@ -382,51 +231,6 @@ export const SBQuotesSelectionReview: React.FC = () => {
                         <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} sentBack />
-                    {/* <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200 mt-4"> */}
-                    {/* <h2 className="text-lg font-bold mb-3 flex items-center">
-                            <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
-                            Approval Products
-                        </h2> */}
-                    {/* <div className="p-6"> */}
-                    {/* Approval Items Summary */}
-                    {/* {Object.keys(vendorWiseApprovalItems).length > 0 && (
-                                <div className="p-6 rounded-lg bg-green-100 opacity-70">
-                                    <div className="flex items-center mb-2">
-                                        <ListChecks className="h-5 w-5 mr-2 text-green-600" />
-                                        <h3 className="font-medium">Approval Items</h3>
-                                    </div>
-                                    <p className="text-sm">
-                                        These items will be sent to the project lead for approval.
-                                    </p>
-                                    <ul className="list-[number] text-red-700 pl-5 space-y-2">
-                                    {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
-                                        <li key={vendor} className="mt-2 space-y-2">
-                                            <h4 className="text-sm font-medium">
-                                                {getVendorName(vendor)}:
-                                            </h4>
-                                            <ul className="list-disc pl-5 text-black space-y-2">
-                                                {items.map((item) => (
-                                                    <li key={item.name} className="text-xs md:text-sm">
-                                                        {item.item} - {item.quantity} {item.unit} -
-                                                        {formatToIndianRupee(item.quantity * (item.quote || 0))}
-                                                        {item?.potentialLoss && (
-                                                            <span className="ml-2 text-red-700">
-                                                            (You are potentially losing {formatToIndianRupee(item.potentialLoss)} on this product)                                                                                                                </span>
-                                                        )}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                            <p className="text-sm text-black font-medium -ml-5 mt-2">
-                                                Vendor Total: <span className="font-semibold">{formatToIndianRupee(total)}</span>
-                                            </p>
-                                        </li>
-                                    ))}
-                                  </ul>
-                                    <p className="mt-2 font-medium text-end">
-                                    <span className="text-red-700">Overall Total:</span> {formatToIndianRupee(approvalOverallTotal)}
-                                    </p>
-                                </div>
-                            )} */}
                     <div className="flex flex-col gap-4">
                         {/* Approval Items Summary */}
                         {Object.keys(vendorWiseApprovalItems).length > 0 && (
@@ -448,8 +252,8 @@ export const SBQuotesSelectionReview: React.FC = () => {
                                             <dd className="mt-1 pl-5"> {/* Indent item details */}
                                                 <ul className="list-disc space-y-1 text-gray-800"> {/* Changed text color, list style */}
                                                     {items.map((item) => (
-                                                        <li key={item.item} className="text-sm"> {/* Standardized text size */}
-                                                            {item.item}
+                                                        <li key={item.name} className="text-sm"> {/* Standardized text size */}
+                                                            {item.item_name}
                                                             {/* --- Make Name Added Here --- */}
                                                             {item.make && (
                                                                 <span className="text-gray-500 italic ml-1">({item.make})</span>
@@ -482,50 +286,6 @@ export const SBQuotesSelectionReview: React.FC = () => {
                             </div>
                         )}
                     </div>
-                    {/* </div> */}
-                    {/* </div> */}
-                    {/* <div className='mt-6 overflow-x-auto'>
-              {getFinalVendorQuotesData?.length > 0 ? (
-        <div className="overflow-x-auto">
-          <ConfigProvider
-          
-          >
-            <Table
-              dataSource={getFinalVendorQuotesData
-                ?.sort((a, b) =>
-                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
-                )
-                ?.map((key) => ({
-                  key: Object.values(key)[0]?.key,
-                  totalAmount: Object.values(key)[0]?.totalAmount,
-                  category: Object.keys(key)[0],
-                  items: Object.values(key)[0]?.items,
-                }))}
-              rowClassName={(record) => !record?.totalAmount ? "bg-red-100" : ""}
-              columns={columns}
-              pagination={false}
-              expandable={{
-                defaultExpandAllRows : true,
-                expandedRowRender: (record) => (
-                  <Table
-                    rowClassName={(record) => !record?.amount ? "bg-red-50" : ""}
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.name || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-              </div> */}
                     <div className="flex flex-col justify-end items-end mr-2 my-4">
                         <Dialog>
                             <DialogTrigger asChild>
