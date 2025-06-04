@@ -999,6 +999,7 @@ export const PurchaseOrder = ({
                     {/* Button Section */}
                     <div className="flex justify-end space-x-4 mt-6">
                       <Button
+                        data-cy="po-details-preview-button"
                         className="flex items-center gap-1"
                         onClick={togglePoPdfSheet}
                         variant={"outline"}
@@ -1081,7 +1082,7 @@ export const PurchaseOrder = ({
         <AccordionItem key="transac&payments" value="transac&payments">
           {/* {tab === "Delivered PO" && ( */}
           <AccordionTrigger>
-            <p className="font-semibold text-lg text-red-600 pl-6">
+            <p className="font-semibold text-lg text-red-600 pl-6" data-cy="po-details-payment-details-button">
               Payment Details
             </p>
           </AccordionTrigger>
