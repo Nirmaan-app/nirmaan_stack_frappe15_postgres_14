@@ -8,7 +8,7 @@ from frappe.utils import flt, get_datetime, add_months, now_datetime
 from datetime import datetime
 from functools import lru_cache
 import math # Though not used in the final version 3 logic, kept if needed later
-from ...api.approve_vendor_quotes import generate_pos_from_selection
+# from ...api.approve_vendor_quotes import generate_pos_from_selection
 
 # Import only necessary components from typing (TypedDict is not built-in)
 # 'Any' might still be useful for generic dictionary values if strict typing isn't needed there.
@@ -356,29 +356,30 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
         return False
 
     # --- Parse Procurement List ---
-    procurement_list_data = doc.get("procurement_list") # Use different variable name
-    items = []
-    data = None # Initialize data
+    # procurement_list_data = doc.get("procurement_list") # Use different variable name
+    # data = doc.get("order_list")
+    items = doc.get("order_list", [])
+    # data = None # Initialize data
 
     # *** FIX APPLIED HERE ***
-    if isinstance(procurement_list_data, str):
-        try:
-            data = json.loads(procurement_list_data)
-        except json.JSONDecodeError:
-            frappe.msgprint(f"Error parsing procurement list JSON for {doc.name}", indicator="red", title="Validation Error")
-            return False
-    elif isinstance(procurement_list_data, dict):
-        data = procurement_list_data # Already a dictionary
-    elif procurement_list_data is None:
-         frappe.msgprint(f"Procurement list is missing for PR {doc.name} in state '{required_state}'.", indicator="red", title="Validation Failed")
-         return False
-    else:
-        frappe.msgprint(f"Unexpected data type for procurement list in {doc.name}", indicator="red", title="Validation Error")
-        return False
+    # if isinstance(procurement_list_data, str):
+    #     try:
+    #         data = json.loads(procurement_list_data)
+    #     except json.JSONDecodeError:
+    #         frappe.msgprint(f"Error parsing procurement list JSON for {doc.name}", indicator="red", title="Validation Error")
+    #         return False
+    # elif isinstance(procurement_list_data, dict):
+    #     data = procurement_list_data # Already a dictionary
+    # elif procurement_list_data is None:
+    #      frappe.msgprint(f"Procurement list is missing for PR {doc.name} in state '{required_state}'.", indicator="red", title="Validation Failed")
+    #      return False
+    # else:
+    #     frappe.msgprint(f"Unexpected data type for procurement list in {doc.name}", indicator="red", title="Validation Error")
+    #     return False
 
     # Get items list safely
-    if data and isinstance(data.get("list"), list):
-        items = data.get("list")
+    # if data and isinstance(data.get("list"), list):
+    #     items = data.get("list")
     # *** END OF FIX ***
 
     if not items:
@@ -387,7 +388,7 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
 
     # --- Calculate Actual and Estimated Amounts ---
     total_actual_amount = 0.0
-    total_estimated_amount = 0.0
+    # total_estimated_amount = 0.0
 
     items_processed_count = 0 # Count items used for calculation
     # get_historical_average_quote_cached.cache_clear() # Clear cache before calculations
@@ -400,8 +401,8 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
             # Skip items that are not "Pending"
             continue
         items_processed_count += 1 # Increment count for valid items
-        item_id = item.get("name")
-        item_display_name = item.get('item') or item_id or 'Unknown Item'
+        item_id = item.get("item_id")
+        item_display_name = item.get('item_name') or item_id or 'Unknown Item'
         quantity_str = item.get("quantity")
         # *** IMPORTANT: Assumes 'quote' field exists in the item dict ***
         actual_quote_str = item.get("quote")

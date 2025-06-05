@@ -18,7 +18,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
 // --- Types ---
-import { ProcurementRequest, ProcurementItem, Category } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest, Category, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
@@ -26,6 +26,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { DEFAULT_PR_FIELDS_TO_FETCH, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "../config/prTable.config";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
@@ -50,9 +51,9 @@ export const ApproveSelectVendor: React.FC = () => {
     // --- Memoized Calculations & Options ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
 
-    const getTotal = useMemo(() => memoize((procurementList: { list: ProcurementItem[] } | undefined | null): number => {
+    const getTotal = useMemo(() => memoize((order_list: ProcurementRequestItemDetail[]): number => {
         let total = 0;
-        const items = Array.isArray(procurementList?.list) ? procurementList.list : [];
+        const items = Array.isArray(order_list) ? order_list : [];
         const pendingItems = items.filter((item) => item.status === "Pending"); // Calculation based on pending items
         pendingItems.forEach((item) => {
             total += parseNumber((item.quote || 0) * item.quantity); // Use quote or rate if available
@@ -72,26 +73,19 @@ export const ApproveSelectVendor: React.FC = () => {
         ["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]
     ], []);
 
-    const prSearchableFields: SearchFieldOption[] = useMemo(() => [
-        { value: "name", label: "PR ID", placeholder: "Search by PR ID...", default: true },
-        { value: "project", label: "Project ID", placeholder: "Search by Project ID..." }, // Search by Project Link ID
+    const prSearchableFields: SearchFieldOption[] = useMemo(() => PR_SEARCHABLE_FIELDS.concat([
         { value: "owner", label: "Created By", placeholder: "Search by Created By..." },
         // { value: "project_name", label: "Project", placeholder: "Search by Project..." },
         // { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },   // Search by Vendor Link ID
         // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." },
         { value: "work_package", label: "Work Package", placeholder: "Search by Work Package..." },
         { value: "status", label: "Status", placeholder: "Search by Status..." },
-        { value: "procurement_list", label: "Item in PR", placeholder: "Search by Item in PR...", is_json: true },
-    ], [])
+    ]), [])
 
     // --- Fields to Fetch ---
-    const fieldsToFetch: (keyof ProcurementRequest | 'name')[] = useMemo(() => [
-        "name", "creation", "modified", "owner", "project",
-        "work_package", "procurement_list", "category_list", "workflow_state" // Fetch workflow_state if needed for display/logic
-    ], []);
-
-    // --- Date Filter Columns ---
-    const dateColumns = useMemo(() => ["creation", "modified"], []);
+    const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat([
+        "creation", "modified", "procurement_list", "category_list" // Fetch workflow_state if needed for display/logic
+    ]), []);
 
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ProcurementRequest>[]>(() => [
@@ -194,13 +188,13 @@ export const ApproveSelectVendor: React.FC = () => {
         {
             id: "estimated_total", header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value" />,
             cell: ({ row }) => {
-                const total = getTotal(row.original.procurement_list);
+                const total = getTotal(row.original.order_list);
                 return <p className="font-medium pr-2">{total === 0 ? "N/A" : formatToRoundedIndianRupee(total)}</p>;
             }, size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Est. Value",
                 exportValue: (row) => {
-                    const total = getTotal(row.procurement_list);
+                    const total = getTotal(row.order_list);
                     return total === 0 ? "N/A" : formatToRoundedIndianRupee(total);
                 }
             }
@@ -217,13 +211,12 @@ export const ApproveSelectVendor: React.FC = () => {
 
     // --- Use the Server Data Table Hook ---
     const {
-        table, data, totalCount, isLoading: listIsLoading, error: listError,
+        table, totalCount, isLoading: listIsLoading, error: listError,
         // globalFilter, setGlobalFilter,
         // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Use item search state
         selectedSearchField, setSelectedSearchField,
         searchTerm, setSearchTerm,
         isRowSelectionActive,
-        refetch,
     } = useServerDataTable<ProcurementRequest>({
         doctype: DOCTYPE,
         columns: columns,
@@ -279,7 +272,7 @@ export const ApproveSelectVendor: React.FC = () => {
                     //     label: "Item Search"
                     // }}
                     facetFilterOptions={facetFilterOptions}
-                    dateFilterColumns={dateColumns} // Enable date filters for creation/modified
+                    dateFilterColumns={PR_DATE_COLUMNS} // Enable date filters for creation/modified
                     showExportButton={true} // Disable export if not needed
                     onExport={'default'}
                     showRowSelection={isRowSelectionActive}

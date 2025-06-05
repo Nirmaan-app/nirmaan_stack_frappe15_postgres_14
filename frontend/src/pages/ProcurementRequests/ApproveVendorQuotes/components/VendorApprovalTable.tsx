@@ -44,7 +44,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
         if (isChecked === true) {
             // Calculate the set of all item IDs for this vendor
-            const allItemIds = new Set(allItemsForVendor.map(item => item.name));
+            const allItemIds = new Set(allItemsForVendor.map(item => item.item_id));
             // Set this vendor's selection to all items
             newSelection.set(vendorId, allItemIds);
 

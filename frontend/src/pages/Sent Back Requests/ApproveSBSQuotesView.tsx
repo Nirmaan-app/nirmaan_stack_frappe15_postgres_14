@@ -1,4 +1,3 @@
-// src/features/procurement/approve-sb-quotes/ApproveSBSQuotesView.tsx
 import React from 'react';
 import { Button } from "@/components/ui/button"; // Adjust path
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard"; // Adjust path

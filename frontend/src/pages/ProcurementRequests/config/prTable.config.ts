@@ -3,7 +3,7 @@ import { ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
 
 // Fields to fetch by default for most PR tables
 export const DEFAULT_PR_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] =  [
-    "name", "project", "owner", "workflow_state", "work_package"
+    "name", "project", "owner", "workflow_state", "work_package", "order_list"
 ];
 
 // Searchable fields Base configuration for PR tables

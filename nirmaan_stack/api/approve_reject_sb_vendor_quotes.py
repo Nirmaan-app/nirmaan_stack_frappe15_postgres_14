@@ -105,7 +105,8 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         if not sb_doc:
             raise frappe.ValidationError(f"Sent Back Category {sb_id} not found.")
 
-        item_list = frappe.parse_json(sb_doc.item_list).get("list", [])
+        # item_list = frappe.parse_json(sb_doc.item_list).get("list", [])
+        item_list = sb_doc.get("order_list", [])
         rfq_data = frappe.parse_json(sb_doc.rfq_data) if sb_doc.rfq_data else {}
         selected_vendors = rfq_data.get("selectedVendors", [])
         rfq_details = rfq_data.get("details", {})
@@ -115,26 +116,28 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         new_categories = []
         new_rfq_details = {}
 
+        parent_work_package = frappe.get_value("Procurement Requests", sb_doc.procurement_request, "work_package")
+
         for item_name in selected_items:
-            item = next((i for i in item_list if i["name"] == item_name), None)
+            item = next((i for i in item_list if i.get("item_id") == item_name), None)
             if item:
                 sent_back_items_details.append({
-                    "name": item["name"],
-                    "item": item["item"],
-                    "quantity": item["quantity"],
+                    "item_name": item.get("item_name"),
+                    "item_id": item.get("item_id"),
+                    "quantity": item.get("quantity"),
                     "quote": item.get("quote"),
-                    "unit": item["unit"],
+                    "unit": item.get("unit"),
                     "tax": item.get("tax"),
                     "status": "Pending",
-                    "category": item["category"],
-                    "work_package": item.get("work_package"),
+                    "category": item.get("category"),
+                    "procurement_package": item.get("procurement_package") or parent_work_package,
                     "comment": item.get("comment"),
                     "make": item.get("make"),
                     "vendor": item.get("vendor"),
                 })
 
-                if not any(cat["name"] == item["category"] for cat in new_categories):
-                    category_info = next((cat for cat in category_list if cat["name"] == item["category"]), None)
+                if not any(cat["name"] == item.get("category") for cat in new_categories):
+                    category_info = next((cat for cat in category_list if cat["name"] == item.get("category")), None)
                     makes = category_info.get("makes", []) if category_info else []
                     new_categories.append({"name": item["category"], "makes": makes})
 
@@ -147,9 +150,14 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
             new_sent_back_doc.procurement_request = sb_doc.procurement_request
             new_sent_back_doc.project = sb_doc.project
             new_sent_back_doc.category_list = {"list": new_categories}
-            new_sent_back_doc.item_list = {"list": sent_back_items_details}
+            # new_sent_back_doc.item_list = {"list": sent_back_items_details}
             new_sent_back_doc.type = "Rejected"
             new_sent_back_doc.rfq_data = {"selectedVendors": selected_vendors, "details": new_rfq_details}  # Add rfq_data
+
+
+            for sb_item in sent_back_items_details:
+                new_sent_back_doc.append("order_list", sb_item)
+
             new_sent_back_doc.insert()
 
             if comment:
@@ -162,12 +170,13 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                 comment_doc.comment_by = frappe.session.user
                 comment_doc.insert()
 
-        updated_item_list = []
+        # updated_item_list = []
         for item in item_list:
-            if item['name'] in selected_items:
-                updated_item_list.append({**item, "status": "Sent Back"})
-            else:
-                updated_item_list.append(item)
+            if item.get('item_id') in selected_items:
+            #     updated_item_list.append({**item, "status": "Sent Back"})
+            # else:
+            #     updated_item_list.append(item)
+                item.status = "Sent Back"
 
         total_items = len(item_list)
         sent_back_items_count = len(sent_back_items_details)
@@ -183,7 +192,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         else:
             sb_doc.workflow_state = "Partially Approved"
 
-        sb_doc.item_list = {"list": updated_item_list}
+        # sb_doc.item_list = {"list": updated_item_list}
         sb_doc.save()
 
         return {"message": f"New Rejected Type Sent Back: {new_sent_back_doc.name} created successfully.", "status": 200}
