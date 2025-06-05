@@ -280,6 +280,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                   className="w-full"
                 />
                 <Button
+                  data-cy="delivery-notes-update-button"
                   onClick={() => setProceedDialog(true)}
                   disabled={!hasChanges}
                   className="gap-1"

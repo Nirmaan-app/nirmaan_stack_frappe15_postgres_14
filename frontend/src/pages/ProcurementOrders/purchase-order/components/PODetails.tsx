@@ -308,6 +308,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                 <Tooltip>
                   <TooltipTrigger>
                     <Button
+                      data-cy="po-details-request-payment-button"
                       disabled={!isValid}
                       variant="outline"
                       className="text-primary border-primary text-xs px-2"
@@ -329,6 +330,7 @@ export const PODetails: React.FC<PODetailsProps> = (
 
               {po?.status !== "PO Approved" && (
                 <Button
+                  data-cy="po-details-dd-invoice-button"
                   variant="outline"
                   className="text-primary border-primary text-xs px-2"
                   onClick={toggleNewInvoiceDialog}
@@ -351,6 +353,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                 po?.status === "Dispatched" &&
                 !((poPayments || [])?.length > 0) && (
                   <Button
+                    data-cy="po-details-revert-button"
                     variant="outline"
                     onClick={toggleRevertDialog}
                     className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
@@ -363,6 +366,7 @@ export const PODetails: React.FC<PODetailsProps> = (
               {
                 ["Dispatched", "Partially Delivered"].includes(po?.status) && (
                   <Button
+                    data-cy="po-details-update-dn-button"
                     onClick={toggleDeliveryNoteSheet}
                     variant="outline"
                     className="text-xs flex items-center gap-1 border border-red-500 rounded-md p-1 h-8"
@@ -380,6 +384,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                         Update/View Delivery Note
                       </p>
                       <Button
+                        data-cy="po-details-preview-button"
                         onClick={handlePrint}
                         variant="default"
                         className="px-2"
@@ -476,6 +481,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                   <Tooltip>
                     <TooltipTrigger>
                       <Button
+                        data-cy="po-details-dispatch-po-button"
                         disabled={!isValid}
                         onClick={isValid ? toggleDispatchPODialog : undefined}
                         className="flex items-center gap-1 text-xs p-1 h-8 px-2"
@@ -742,6 +748,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button
+                              data-cy="po-details-mark-as-dispatched-button"
                               variant="default"
                               className="bg-yellow-500 hover:bg-yellow-600"
                             >
@@ -770,6 +777,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                                     </span>
                                   </Label>
                                   <Input
+                                    data-cy="mark-as-dispatched-person-name-input"
                                     id="personName"
                                     type="text"
                                     value={contactPerson.name}
@@ -794,6 +802,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                                     </span>
                                   </Label>
                                   <Input
+                                    data-cy="mark-as-dispatched-contact-number-input"
                                     id="contactNumber"
                                     type="tel"
                                     value={contactPerson.number}
@@ -820,6 +829,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                               <DialogFooter>
                                 <DialogClose asChild>
                                   <Button
+                                    data-cy="mark-as-dispatched-cancel-button"
                                     variant="outline"
                                     className="flex items-center gap-1"
                                   >
@@ -828,6 +838,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                                   </Button>
                                 </DialogClose>
                                 <Button
+                                  data-cy="mark-as-dispatched-confirm-button"
                                   onClick={handleDispatchPO}
                                   className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1"
                                 >
