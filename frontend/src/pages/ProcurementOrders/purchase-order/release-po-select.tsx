@@ -130,7 +130,7 @@ export const ReleasePOSelect: React.FC = () => {
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
-        limit: 100000
+        limit: 0
     })
 
     const { data: poData } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {

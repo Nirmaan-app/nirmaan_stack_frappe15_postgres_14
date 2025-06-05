@@ -27,7 +27,7 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 
 // --- Types ---
-import { SentBackCategory, SentBackItem } from "@/types/NirmaanStack/SentBackCategory";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
@@ -37,6 +37,7 @@ import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_SB_FIELDS_TO_FETCH, getSentBackStaticFilters, SB_DATE_COLUMNS, SB_SEARCHABLE_FIELDS } from "./config/sentBackCategoryTables.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Badge } from "@/components/ui/badge";
+import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -125,9 +126,9 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     // --- Memoized Calculations & Options ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
 
-    const getTotal = useMemo(() => memoize((itemList: { list: SentBackItem[] } | undefined | null): number => {
+    const getTotal = useMemo(() => memoize((order_list: ProcurementRequestItemDetail[]): number => {
         let total = 0;
-        const items = Array.isArray(itemList?.list) ? itemList.list : [];
+        const items = Array.isArray(order_list) ? order_list : [];
         items.forEach((item) => {
             total += parseNumber((item.quote || 0) * item.quantity);
         });
@@ -256,11 +257,11 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         },
         {
             id: "sent_back_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Estd. Value" />,
-            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.item_list))}</p>),
+            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.order_list))}</p>),
             size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Estd. Value",
-                exportValue: (row) => formatToRoundedIndianRupee(getTotal(row.item_list)),
+                exportValue: (row) => formatToRoundedIndianRupee(getTotal(row.order_list)),
             }
         },
 

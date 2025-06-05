@@ -159,8 +159,10 @@ export const useApproveRejectLogic = ({
         if (initialPrData) {
             let processedPrData = { ...initialPrData };
 
+            const pendingItems = processedPrData.order_list?.filter(item => item.status === 'Pending') || [];
+
             // Ensure order_list is an array
-            processedPrData.order_list = Array.isArray(initialPrData.order_list) ? initialPrData.order_list : [];
+            processedPrData.order_list = Array.isArray(pendingItems) ? pendingItems : [];
             
             // Parse RFQData if it's a string
             if (typeof initialPrData.rfq_data === 'string') {

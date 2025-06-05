@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import flt
 
 import json # Ensure json is imported if not already
 # Import necessary functions from the hooks file
@@ -63,8 +64,8 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                 delayed_items_details.append({
                     "item_id": item.item_id,
                     "item_name": item.item_name,
-                    "quantity": item.get("quantity"),
-                    "tax": item.get("tax"),
+                    "quantity": flt(item.get("quantity")),
+                    "tax": flt(item.get("tax")),
                     "unit": item.get("unit"),
                     "category": item.get("category"),
                     "status": "Pending", # Status in Sent Back should be Pending

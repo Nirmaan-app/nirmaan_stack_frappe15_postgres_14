@@ -2,7 +2,7 @@ import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 
 export const DEFAULT_SB_FIELDS_TO_FETCH: (keyof SentBackCategory | 'name')[] =  [
-    "name", "project", "owner", 'type', 'workflow_state'
+    "name", "project", "owner", 'type', 'workflow_state', "order_list"
 ];
 
 export const SB_SEARCHABLE_FIELDS: SearchFieldOption[] = [
