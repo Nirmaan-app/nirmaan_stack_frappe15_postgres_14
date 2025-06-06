@@ -21,7 +21,7 @@ export default function Dashboard() {
     const { role, has_project } = useUserData()
     const { logout } = useContext(UserContext)
 
-
+console.log("Role",role,has_project)
     return (
         <>
 
