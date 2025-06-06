@@ -22,8 +22,12 @@
   "project_gst",
   "order_list",
   "category_list",
+  "items",
   "payment_terms_section",
   "advance",
+  "amount",
+  "tax_amount",
+  "total_amount",
   "loading_charges",
   "freight_charges",
   "notes",
@@ -203,12 +207,39 @@
    "fieldname": "dispatch_date",
    "fieldtype": "Datetime",
    "label": "Dispatch Date"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Purchase Order Item"
+  },
+  {
+   "default": "0",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "default": "0",
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tax Amount"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount (inc. Tax)"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-06-02 15:41:21.923580",
+ "modified": "2025-06-05 16:38:24.148073",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

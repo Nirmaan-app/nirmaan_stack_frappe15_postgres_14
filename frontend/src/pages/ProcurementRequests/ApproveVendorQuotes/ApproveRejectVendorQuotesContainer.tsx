@@ -1,9 +1,6 @@
-// src/features/procurement/approve-reject-quotes/ApproveRejectVendorQuotesContainer.tsx
 import React, { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button'; // Adjust path
-import { useApproveRejectPRDoc } from './hooks/useApproveRejectPRDoc';
-import { useApprovedQuotationsList } from './hooks/useApprovedQuotationsList';
 // Import useNirmaanComments hook (assuming it exists and is adapted)
 // import { useNirmaanComments } from '@/hooks/useNirmaanComments';
 import { useApproveRejectLogic } from './hooks/useApproveRejectLogic';
@@ -15,6 +12,7 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { ProcurementItem } from '@/types/NirmaanStack/ProcurementRequests';
 import { useUsersList } from '../ApproveNewPR/hooks/useUsersList';
 import { toast } from '@/components/ui/use-toast';
+import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 
 export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     const { id: prId } = useParams<{ id: string }>();
@@ -26,7 +24,8 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     }
 
     // --- Data Fetching ---
-    const { data: prData, isLoading: prLoading, error: prError, mutate: prMutate } = useApproveRejectPRDoc(prId);
+
+    const { data: prData, isLoading: prLoading, error: prError, mutate: prMutate } = useProcurementRequest(prId);
 
     useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
             console.log("Procurement Requests document updated (real-time):", event);
@@ -41,7 +40,6 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
 
     const { data: vendorList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList();
     const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
-    const { data: quotesData, isLoading: quotesLoading, error: quotesError } = useApprovedQuotationsList();
 
     const prEditableLogic = useMemo(() => {
       const stateCheck = ["Vendor Selected", "Partially Approved"].includes(prData?.workflow_state || "")
@@ -53,7 +51,7 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     // const { data: commentsData, isLoading: commentsLoading, error: commentsError } = useNirmaanComments({ docname: prId, doctype: 'Procurement Requests', /* other filters */ });
 
     const { data: universalComment, isLoading: universalCommentLoading, error: universalCommentError } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
-            fields: ["*"],
+            fields: ["name", "comment_by", "content", "creation", "reference_name", "subject"],
             filters: [["reference_name", "=", prId], ["subject", "in", prData?.work_package ? ["pr vendors selected"] : ["new custom pr", "resolved custom pr"]]]
         },
         prData ? undefined : null
@@ -66,15 +64,15 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
         prId,
         initialPrData: prData,
         vendorList,
-        quotesData,
+        // quotesData,
         usersList,
         prMutate, // Pass the specific mutate function
         // Pass commentsData if fetched separately
     });
 
     // --- Loading and Error States ---
-    const isLoading = prLoading || vendorsLoading || usersLoading || quotesLoading || universalCommentLoading /* || commentsLoading */;
-    const error = prError || vendorsError || usersError || quotesError || universalCommentError /* || commentsError */;
+    const isLoading = prLoading || vendorsLoading || usersLoading || universalCommentLoading /* || commentsLoading */;
+    const error = prError || vendorsError || usersError || universalCommentError /* || commentsError */;
 
     // --- Render Logic ---
     if (isLoading) { // Initial PR load check

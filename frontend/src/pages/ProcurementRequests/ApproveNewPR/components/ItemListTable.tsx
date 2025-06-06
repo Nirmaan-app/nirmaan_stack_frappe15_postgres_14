@@ -2,7 +2,7 @@ import React from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Pencil, MessageCircleMore } from 'lucide-react';
-import { PRItem } from '../types';
+import { PRItemUIData as PRItem } from '../types';
 
 interface ItemListTableProps {
     category: string;
@@ -30,9 +30,9 @@ export const ItemListTable: React.FC<ItemListTableProps> = ({ items, onEdit, cat
             </TableHeader>
             <TableBody>
                 {items.map((item) => (
-                    <TableRow key={item.name} className="hover:bg-gray-50">
+                    <TableRow key={item.item_id} className="hover:bg-gray-50">
                         <TableCell className="text-sm py-2 align-top"> {/* Adjust padding */}
-                            {item.item}
+                            {item.item_name}
                             {/* Conditionally display Make with specific styling */}
                             {item.make && (
                                 <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>

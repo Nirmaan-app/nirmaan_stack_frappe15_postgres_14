@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { Undo } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -19,11 +19,11 @@ import { PRCommentsSection } from './components/PRCommentsSection';
 
 
 // Import types
-import { Category, Project } from './types';
+import { MasterCategory, Project } from './types';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic'; // Get hook's return type
 import { parseNumber } from '@/utils/parseNumber';
 import { CategoryMakesMap } from '../NewPR/types';
-import { extractMakesForWP } from '../NewPR/NewProcurementRequestPage';
+import { extractMakesFromChildTableForWP } from '../NewPR/NewProcurementRequestPage';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 // import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
 
@@ -31,7 +31,7 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
     // Add any additional props needed specifically for rendering that are NOT in the logic hook
     projectDoc?: Project; // Pass project details if needed
-    categoryList?: Category[]; // Pass category list if needed
+    categoryList?: MasterCategory[]; // Pass category list if needed
 }
 
 export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
@@ -55,9 +55,9 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         categoryList, // Need categoryList for NewItemDialog options
         addedItems,
         requestedItems,
-        addedCategories,
-        requestedCategories,
-        currentOrderDataCategoryList,
+        addedCategoriesForDisplay,
+        requestedCategoriesForDisplay,
+        displayedCategoriesWithMakes,
 
         // Dialog Visibility States
         isNewItemDialogOpen,
@@ -125,7 +125,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     // Derive the initial makes map for *this PR's work package*
     const initialCategoryMakes = useMemo<CategoryMakesMap>(() => {
         if (!orderData?.work_package || !projectDoc) return {}; // Need WP name and project doc
-        return extractMakesForWP(projectDoc, orderData.work_package);
+        return extractMakesFromChildTableForWP(projectDoc, orderData.work_package);
     }, [projectDoc, orderData?.work_package]); // Recalculate if project or WP changes
 
 
@@ -213,7 +213,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                     {/* Requested Items Section */}
                     {requestedItems.length > 0 && (
                         <RequestedItemsSection
-                            categories={requestedCategories}
+                            categories={requestedCategoriesForDisplay}
                             items={requestedItems}
                             onAction={handleOpenRequestItemDialog} // Opens the request dialog
                             onDelete={handleDeleteItem} // Direct delete/reject for requested item
@@ -244,7 +244,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                     <ItemListSection
                         canCreateItem={["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role ?? '')}
                         toggleNewItemsCard={toggleNewItemsCard}
-                        categories={addedCategories}
+                        categories={addedCategoriesForDisplay}
                         items={addedItems}
                         onEdit={handleOpenEditDialog}
                         categoryMakesMap={categoryMakesMap} // Pass makes
@@ -278,7 +278,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 // --- Pass Make Props ---
                 allMakeOptions={allMakeOptions || []}
                 initialCategoryMakes={initialCategoryMakes || {}}
-                orderDataCategoryList={currentOrderDataCategoryList} // Pass the derived current list
+                orderDataCategoryList={displayedCategoriesWithMakes} // Pass the derived current list
                 updateCategoryMakesInStore={handleLocalCategoryMakesUpdate} // Pass the specific handler
                 makeList={makeList}
                 makeListMutate={makeListMutate}

@@ -1,7 +1,5 @@
-// src/features/procurement/approve-reject-quotes/hooks/useQuoteApprovalApi.ts
 import { useFrappePostCall, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useCallback } from "react";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"; // Adjust path
 import { useUserData } from "@/hooks/useUserData"; // Adjust path
 
 export interface ApprovePayload {

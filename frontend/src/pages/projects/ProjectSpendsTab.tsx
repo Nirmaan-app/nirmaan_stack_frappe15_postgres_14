@@ -27,7 +27,7 @@ interface ProjectSpendsTabProps {
   };
   workPackageTotalAmounts: { [key: string]: any }
   totalServiceOrdersAmt: number;
-  projectId?: string
+  projectId: string
 }
 
 export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, categorizedData, po_data, getTotalAmountPaid, workPackageTotalAmounts, totalServiceOrdersAmt, projectId }) => {
@@ -58,20 +58,20 @@ export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, cat
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
   const { data: project_estimates, isLoading: project_estimates_loading } = useFrappeGetDocList<ProjectEstimates>("Project Estimates", {
-    fields: ["*"],
+    fields: ["quantity_estimate", "rate_estimate", "category", "name", "work_package", "item", "item_name"],
     filters: [["project", "=", projectId]],
-    limit: 10000,
+    limit: 0,
   },
     projectId ? undefined : null
   );
 
   const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-    fields: ["*"],
+    fields: ["service_order_list", "name"],
     filters: [
       ["status", "=", "Approved"],
       ["project", "=", projectId],
     ],
-    limit: 1000,
+    limit: 0,
   },
     projectId ? undefined : null
   );

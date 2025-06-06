@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ItemListTable } from './ItemListTable'; // The actual table component
-import { PRCategory, PRItem } from '../types';
+import { PRCategory, PRItemUIData as PRItem } from '../types';
 import { CirclePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 

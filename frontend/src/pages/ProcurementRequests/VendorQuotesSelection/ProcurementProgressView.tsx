@@ -7,21 +7,21 @@ import { ModeSwitcher } from './components/ModeSwitcher';
 import GenerateRFQDialog from './components/GenerateRFQDialog';
 
 import { TailSpin } from 'react-loader-spinner';
-import { UseProcurementProgressLogicReturn } from './hooks/useProcurementProgressLogic';
 import { ProcurementHeaderCard } from '@/components/helpers/ProcurementHeaderCard';
 import { Button } from '@/components/ui/button';
 import { CirclePlus, Info, Undo2 } from 'lucide-react';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { ProcurementProgressLogicReturn } from './types';
 
 // Props are the entire return type of the logic hook
-type ProcurementProgressViewProps = UseProcurementProgressLogicReturn;
+type ProcurementProgressViewProps = ProcurementProgressLogicReturn;
 
 export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = ({
     mode,
     currentDocument,
-    formData,
-    setFormData, // Pass down to SelectVendorQuotesTable
-    selectedVendorQuotes,
+    rfqFormData,
+    setRfqFormData, // Pass down to SelectVendorQuotesTable
+    finalSelectedQuotes,
     isLoading, // This is now the isLoading from useProcurementActions
     isUpdatingDocument, // Can combine this with isLoading if desired
     isRedirecting,
@@ -41,13 +41,13 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     handleDeleteVendorFromRFQ,
     handleQuoteChange,
     handleMakeChange,
-    handleVendorQuoteSelectionForItem,
+    handleFinalVendorSelectionForItem,
     handleProceedToReview,
-    handleRevertPRChanges,
+    handleRevertSelections,
     toggleAddVendorsDialog,
     toggleRevertDialog,
     toggleVendorSheet,
-    updateCurrentDocumentItemList, // For SelectVendorQuotesTable
+    updateCurrentDocumentStateItemList, // For SelectVendorQuotesTable
 }) => {
 
 
@@ -123,7 +123,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                         // && !isEffectivelyReadOnly 
                         && (
                             <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary">
-                                <CirclePlus className="mr-2 h-4 w-4" /> Add {formData.selectedVendors.length > 0 ? "More" : ""} Vendors
+                                <CirclePlus className="mr-2 h-4 w-4" /> Add {rfqFormData.selectedVendors.length > 0 ? "More" : ""} Vendors
                             </Button>
                         )}
                         <GenerateRFQDialog orderData={currentDocument} /> {/* Assuming GenerateRFQDialog can handle PR or SBC */}
@@ -132,18 +132,18 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
 
                 <SelectVendorQuotesTable
                     currentDocument={currentDocument}
-                    formData={formData}
-                    setFormData={setFormData} // Pass down for MakesSelection
-                    selectedVendorQuotes={selectedVendorQuotes}
+                    formData={rfqFormData}
+                    setFormData={setRfqFormData} // Pass down for MakesSelection
+                    selectedVendorQuotes={finalSelectedQuotes}
                     // setSelectedVendorQuotes={setSelectedVendorQuotes} // Pass down
                     mode={mode}
                     targetRatesData={targetRatesDataMap}
                     onQuoteChange={handleQuoteChange}
                     onMakeChange={handleMakeChange}
-                    onVendorSelectForItem={handleVendorQuoteSelectionForItem}
+                    onVendorSelectForItem={handleFinalVendorSelectionForItem}
                     onDeleteVendorFromRFQ={handleDeleteVendorFromRFQ}
                     // isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
-                    updateCurrentDocumentItemList={updateCurrentDocumentItemList} // Pass the updater
+                    updateCurrentDocumentItemList={updateCurrentDocumentStateItemList} // Pass the updater
                 />
 
                 <div className="flex justify-between items-end mt-6 pt-4 border-t">
@@ -172,7 +172,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
             <RevertPRDialog
                 isOpen={isRevertDialogOpen}
                 onClose={toggleRevertDialog}
-                onConfirm={handleRevertPRChanges}
+                onConfirm={handleRevertSelections}
                 isLoading={isUpdatingDocument || isRedirecting === "revert"}
             />
             <VendorSheet isOpen={isVendorSheetOpen} onClose={toggleVendorSheet} />

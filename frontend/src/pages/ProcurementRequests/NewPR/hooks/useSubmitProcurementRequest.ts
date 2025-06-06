@@ -5,7 +5,7 @@ import { useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from 'frappe-rea
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
-import { CategorySelection, ProcurementRequestItem } from '../types';
+import { BackendPRItemDetail, CategorySelection, ProcurementRequestItem } from '../types';
 
 interface UseSubmitProcurementRequestResult {
     submitNewPR: (finalCommentFromDialog: string) => Promise<void>;
@@ -13,6 +13,25 @@ interface UseSubmitProcurementRequestResult {
     cancelDraftPR: () => Promise<void>;
     isSubmitting: boolean;
 }
+
+// Helper to transform frontend items to backend child table format
+const transformToBackendOrderList = (frontendProcList: ProcurementRequestItem[]): Omit<BackendPRItemDetail, 'name' | 'creation' | 'modified' | 'parent' | 'parentfield' | 'parenttype'>[] => {
+    return frontendProcList.map(feItem => ({
+        //uniqueId is client-side, Frappe assigns 'name' to child row on save
+        item_id: feItem.name,       // Frontend 'name' is Item DocName
+        item_name: feItem.item,     // Frontend 'item' is display name
+        unit: feItem.unit,
+        quantity: feItem.quantity,
+        category: feItem.category,
+        procurement_package: feItem.work_package, // map work_package
+        make: feItem.make,
+        status: feItem.status,
+        tax: feItem.tax, // Ensure this matches backend expectation (optional or required)
+        comment: feItem.comment,
+        // Frappe handles parent, parentfield, parenttype, name, creation, modified for child table items
+    }));
+};
+
 
 export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult => {
     const navigate = useNavigate();
@@ -111,12 +130,14 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         }
 
         try {
+            const backendOrderList = transformToBackendOrderList(procList);
             // Ensure procList and selectedCategories are structured correctly for the API
             const payload = {
                 project: projectId,
                 work_package: selectedWP,
                 category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
-                procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+                // procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+                order_list: backendOrderList
                 // Add other necessary fields
             };
              // console.log("Creating PR with payload:", payload); // Debug log
@@ -139,10 +160,13 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             return;
         }
 
+        const backendOrderList = transformToBackendOrderList(procList);
+
         const updateData: any = {
             // Ensure lists are structured correctly for the API
             category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
-            procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+            // procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+            order_list: backendOrderList, // NEW: Pass the transformed array
             workflow_state: "Pending"
             // Add other necessary fields
         };

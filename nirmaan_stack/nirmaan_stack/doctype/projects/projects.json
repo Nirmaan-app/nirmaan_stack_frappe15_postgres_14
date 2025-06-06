@@ -30,7 +30,8 @@
   "project_work_packages",
   "project_scopes",
   "subdivisions",
-  "subdivision_list"
+  "subdivision_list",
+  "project_wp_category_makes"
  ],
  "fields": [
   {
@@ -174,11 +175,18 @@
    "fieldname": "project_value",
    "fieldtype": "Data",
    "label": "Project Value"
+  },
+  {
+   "fieldname": "project_wp_category_makes",
+   "fieldtype": "Table",
+   "label": "Project WP Category Makes",
+   "options": "Project Work Package Category Make"
   }
  ],
+ "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-03-21 12:19:12.405049",
+ "modified": "2025-06-02 17:03:25.988954",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
@@ -251,6 +259,7 @@
    "share": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

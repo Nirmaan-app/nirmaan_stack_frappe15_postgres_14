@@ -4,13 +4,13 @@ export interface PurchaseOrderItem {
 	unit: string;
 	quantity: number;
 	received?: number;
-	category: string;
-	work_package?: string;
-	quote: number;
-	make?: string;
-	status: string;
-	tax: number;
-	comment?: string;
+  category: string;
+	procurement_package?: string;
+  quote: number;
+  make?: string;
+  status: string;
+  tax: number;
+  comment?: string;
 	po?: string;
 	makes: {
 		list: {

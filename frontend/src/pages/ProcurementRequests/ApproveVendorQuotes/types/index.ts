@@ -1,123 +1,100 @@
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
-import { ProcurementItemWithVendor } from "@/types/NirmaanStack/ProcurementRequests";
+import { 
+    ProcurementRequest as GlobalProcurementRequest,
+    ProcurementRequestItemDetail, // This is the child table item structure
+    RFQData // Assuming RFQData is still relevant and its keys match item_id
+} from "@/types/NirmaanStack/ProcurementRequests";
+import { ApprovedQuotations as GlobalApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations"; // For historical data
 
-export interface VendorItemDetails extends ProcurementItemWithVendor { // Extend ProcurementItem
-    vendor_name: string; // Always expect vendor name here
-    amount: number;
-    threeMonthsLowestAmount?: number;
-    lowestQuotedAmount: number;
+// --- Main Document Type for this flow ---
+// Ensure this uses order_list
+export interface ApproveQuotesPRDoc extends Omit<GlobalProcurementRequest, 'procurement_list'> {
+    order_list: ProcurementRequestItemDetail[]; // Key change: items are here
+    // rfq_data can remain as is if it's still a JSON field keyed by item_id
+    rfq_data: RFQData; // Handle potential string from backend
+}
+
+// --- Item Detail for Display in VendorApprovalTable ---
+// This extends the backend child table item with UI-specific calculated fields
+export interface VendorItemDetailsToDisplay extends ProcurementRequestItemDetail {
+    vendor_name?: string; // Populated from Vendors master
+    amount: number;       // Calculated: quantity * quote
+    
+    // Fields related to target rates & comparisons
     targetRate?: number;
-    targetAmount?: number; // Add if available for display
-    // Calculated fields:
-    savingLoss?: number // Optional saving/loss per item
-    // Add other fields displayed in the table if needed
-    contributingQuotes?: ApprovedQuotations[]; // Optional contributing quotes
+    targetAmount?: number;
+    lowestQuotedAmountForItem?: number; // Lowest quote for this item across all vendors in current RFQ
+    historicalLowestRate?: number; // e.g., 3 months lowest (if you implement this)
+    savingLoss?: number;
+    contributingHistoricalQuotes?: GlobalApprovedQuotations[]; // For hover card
 }
 
-export interface VendorGroup {
-    totalAmount: number;
-    key: string; // Unique key for the vendor group
-    items: VendorItemDetails[];
-    potentialSavingLoss?: number;
-}
-
-// Interface for the final transformed data structure
-// Key is the vendor ID (string)
-export interface VendorWiseData {
-    [vendorId: string]: VendorGroup;
-}
-
-// Type for the sorted array used by the data source
-export interface VendorDataSourceItem {
-    key: string; // Unique key for the vendor group
+// --- Data structure for VendorApprovalTable's dataSource ---
+export interface VendorGroupForTable {
     vendorId: string;
     vendorName: string;
-    totalAmount: number;
-    items: VendorItemDetails[];
-    potentialSavingLoss?: number; // Optional total saving/loss for the vendor
+    totalAmount: number; // Sum of 'amount' for items selected from this vendor in RFQ
+    items: VendorItemDetailsToDisplay[]; // Items quoted by this vendor
+    potentialSavingLossForVendor?: number; // Sum of savingLoss for items from this vendor
+    key: string; // Unique key for React list
 }
 
-// Type for the selection state Map
+// --- Selection State ---
 // Key: vendorId (string)
-// Value: Set<string> containing the unique identifiers (e.g., item.name) of selected items for that vendor
+// Value: Set<string> containing item_id of selected items for that vendor
 export type SelectionState = Map<string, Set<string>>;
 
-// Re-confirm or add these interfaces (e.g., in a shared types file)
 
-// Interface for the child items returned by the API
-export interface ApiSelectedQuotation {
+// --- API Response types for Target Rates (re-iterating from your types) ---
+export interface ApiSelectedQuotation { 
     name: string;
-    item_id?: string | null;
-    item_name?: string | null;
-    vendor_name?: string | null; // Important for mapping if needed
-    vendor?: string | null; // Often the vendor *name* (ID) in Frappe
-    procurement_order?: string | null;
-    unit?: string | null;
-    quantity?: string | null;
-    quote?: string | null; // The quoted price in this historical record
-    city?: string | null;
-    state?: string | null;
-    category?: string | null;
-    procurement_package?: string | null;
-    make?: string | null;
+    item_id?: string;
+    item_name?: string;
+    vendor_name?: string; // Important for mapping if needed
+    vendor?: string; // Often the vendor *name* (ID) in Frappe
+    procurement_order?: string;
+    unit?: string;
+    quantity?: string;
+    quote?: string; // The quoted price in this historical record
+    city?: string;
+    state?: string;
+    category?: string;
+    procurement_package?: string;
+    make?: string;
     idx: number;
-    dispatch_date?: string | null; // Added field
-    creation?: string | null; // Added field
+    creation?: string; // Added field
     docstatus?: number; // Added field
+    dispatch_date?: string; 
 }
 
-// Interface for the parent Target Rate object returned by the API
-export interface TargetRateDetailFromAPI {
+export interface TargetRateDetailFromAPI { 
     name: string;
-    item_name?: string | null;
-    unit?: string | null;
-    rate?: string | null; // The calculated target rate
-    item_id?: string | null; // Key for matching
+    item_name?: string;
+    unit?: string;
+    rate?: string; // The calculated target rate
+    item_id?: string; // Key for matching
     creation?: string;
     modified?: string;
-    selected_quotations_items: ApiSelectedQuotation[]; // Array of child items
-}
+    selected_quotations_items: ApiSelectedQuotation[]; 
+    }
+export interface FrappeTargetRateApiResponse { message: TargetRateDetailFromAPI[]; }
 
-// Interface for the standard Frappe API response wrapper
-export interface FrappeTargetRateApiResponse {
-    message: TargetRateDetailFromAPI[];
-}
+// --- Type for HistoricalQuotesHoverCard (re-iterating) ---
+// This should align with what HistoricalQuotesHoverCard.tsx expects
+export type { GlobalApprovedQuotations as ApprovedQuotationForHoverCard };
 
-// Interface expected by HistoricalQuotesHoverCard (ensure this matches the component's needs)
-// This might already exist in @/types/NirmaanStack/ApprovedQuotations.ts - ensure it includes dispatch_date
-export interface ApprovedQuotations {
-    name: string;
-    item_id?: string | null;
-    item_name?: string | null;
-    vendor_name?: string | null; // If used by hover card
-    vendor?: string | null;      // If used by hover card (often vendor name/ID)
-    procurement_order?: string | null;
-    quote?: string | null;       // The rate in that historical quote
-    rate?: string | null;        // Add if hover card expects 'rate' instead of 'quote'
-    quantity?: string | null;
-    unit?: string | null;
-    dispatch_date?: string | null; // Added field
-    // Add any other fields the hover card displays
-    make?: string | null;
-    city?: string | null;
-    state?: string | null;
-    category?: string | null;
-    procurement_package?: string | null;
-    idx?: number;
-}
-
-// Helper function for mapping (place this in a utils file or within the hook/component)
-export const mapApiQuotesToApprovedQuotations = (apiQuotes: ApiSelectedQuotation[]): ApprovedQuotations[] => {
+// Helper for mapping (re-iterating)
+export const mapApiQuotesToApprovedQuotations = (apiQuotes: ApiSelectedQuotation[]): Partial<GlobalApprovedQuotations>[] => {
+    // ... your existing mapping logic ...
+    // Ensure this correctly maps to ApprovedQuotationForHoverCard fields, especially item_id, item_name
     return apiQuotes.map(cq => ({
-        // Explicit mapping: Adjust field names as necessary!
         name: cq.name,
         item_id: cq.item_id,
         item_name: cq.item_name,
-        vendor_name: cq.vendor_name, // Pass along if hover card uses it
-        vendor: cq.vendor,          // Or map cq.vendor_name to cq.vendor if needed
+        vendor_name: cq.vendor_name,
+        vendor: cq.vendor, 
         procurement_order: cq.procurement_order,
         quote: cq.quote,
-        rate: cq.quote, // Assuming hover card might expect 'rate' for the price
+        rate: cq.quote, 
         quantity: cq.quantity,
         unit: cq.unit,
         dispatch_date: cq.dispatch_date,
