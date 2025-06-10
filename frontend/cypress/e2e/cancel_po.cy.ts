@@ -26,8 +26,6 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
         cy.contains('Modules').should('be.visible');
     });
 
-    // It's good practice to initialize env variables used across 'it' blocks if they might not always be set.
-    // However, your logic to throw an error if not set is also a valid approach.
     // beforeEach(() => {
     //     Cypress.env('cancelled_sent_back_id', null);
     //     Cypress.env('poDeleted', false);
@@ -61,7 +59,7 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
         const poLinkSelectorInRow = 'a[href*="/purchase-orders/"]';
 
         cy.get(tableBodySelector, { timeout: 10000 })
-            .should('be.visible') // Ensure tbody is visible before trying to find rows
+            .should('be.visible')
             .then(($tbody) => {
                 const $rows = $tbody.find('tr');
 
@@ -84,9 +82,7 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
                     
                     cy.log('Clicked on the first PO Link.');
 
-                    // --- IMPORTANT: Wait for PO Details Page to load ---
-                    // Replace '[data-cy="po-details-page-identifier"]' with a selector
-                    // for a stable element that only appears on the PO details page.
+                    // --- IMPORTANT: Waiting for PO Details Page to load ---
                     cy.get('[data-cy="po-details-page-identifier"]', { timeout: 15000 }).should('be.visible');
                     cy.log('PO details page loaded.');
 
@@ -95,15 +91,16 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
                     const deleteButtonSelector = '[data-cy="delete-po-button"]';
                     const poDetailPageContainer = 'body';
 
+                    // Adding intercept for cancel API
                     cy.intercept('POST', '**/api/method/nirmaan_stack.api.handle_cancel_po.handle_cancel_po').as('cancelPoApiRequest');
-                    // Add intercept for delete API if it's different and you need to wait for it too
-
-                    cy.get(poDetailPageContainer, { timeout: 5000 }) // Ensure the container context is ready
+                    
+                    cy.get(poDetailPageContainer, { timeout: 5000 })
                         .then(($detailPageBody) => {
-                        // --- CORRECTED CONDITIONAL LOGIC ---
+
+                        // --- CONDITIONAL LOGIC ---
                         if ($detailPageBody.find(cancelButtonSelector).filter(':visible').length > 0) {
                             cy.log('Cancel PO button found. Clicking it.');
-                            cy.get(cancelButtonSelector) // Use cy.get() for interaction
+                            cy.get(cancelButtonSelector)
                                 .should('be.visible')
                                 .and('not.be.disabled')
                                 .click();
@@ -115,7 +112,7 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
                                 .should('exist').and('be.visible').and('not.be.disabled').clear()
                                 .type('This PO is Cancelled as a Result of " Cancel PO " end-to-end test flow...');
                             
-                            // cy.get('[data-cy="cancel-po-dialog-cancel-button"]')... // If testing cancel of dialog
+                            // cy.get('[data-cy="cancel-po-dialog-cancel-button"]')
 
                             cy.pause();
 
@@ -123,7 +120,8 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
                                 .should('exist').and('be.visible').and('not.be.disabled')
                                 .click(); // This click triggers the API
 
-                            Cypress.env('poDeleted', false); // Set flag
+                             // Setting flag for controling the execution of 2nd it block
+                            Cypress.env('poDeleted', false);
 
                             cy.wait('@cancelPoApiRequest', { timeout: 16000 }).then((interception) => {
                                 expect(interception.response?.statusCode).to.eq(200);
@@ -144,16 +142,16 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
 
                         } else if ($detailPageBody.find(deleteButtonSelector).filter(':visible').length > 0) {
                             cy.log('Cancel PO button not found. Delete button found. Clicking it.');
-                            cy.get(deleteButtonSelector) // Use cy.get() for interaction
+                            cy.get(deleteButtonSelector)
                                 .should('be.visible')
                                 .and('not.be.disabled')
                                 .click();
 
-                            cy.get('h2', {timeout: 5000}) // Wait for dialog header
+                            cy.get('h2', {timeout: 5000})
                                 .contains('Are you sure?')
                                 .should('exist').and('be.visible');
                             
-                            // cy.get('[data-cy="delete-po-dialog-cancel-button"]')... // If testing cancel of dialog
+                            // cy.get('[data-cy="delete-po-dialog-cancel-button"]')
 
                             cy.pause();
 
@@ -161,43 +159,44 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
                                 .should('exist').and('be.visible').and('not.be.disabled')
                                 .click();
                             
-                            // Add API intercept and wait for delete if necessary
-                            // e.g., cy.wait('@deletePoApiRequest')...
-
                             Cypress.env('poDeleted', true);
                             Cypress.env('cancelled_sent_back_id', null);
                             cy.log('Delete PO action initiated/completed.');
 
                         } else {
+
                             cy.screenshot('no_cancel_or_delete_button_on_details_page');
                             const errorMessage = 'Neither "Cancel PO" nor "Delete" button was found on the PO details page.';
                             cy.log(errorMessage);
                             throw new Error(errorMessage);
+
                         }
                     });
 
                 } else {
+                    
                     const errorMessage = 'No PO present in the table for PO Canceling Process.';
                     cy.log(errorMessage);
                     Cypress.env('poDeleted', true);
                     Cypress.env('cancelled_sent_back_id', null);
                     throw new Error(errorMessage);
+
                 }
             });
     });
 
 
     it('Navigates to Procurement Requests, Rejected PO tab and validates the Presence of Sent Back Id', () => {
-        // This 'it' block will run regardless of errors in the previous one unless Cypress is stopped.
-        // The poDeleted flag helps control its internal logic.
+
+        // The poDeleted flag controlling its internal logic.
 
         const poWasDeleted = Cypress.env('poDeleted');
         cy.log(`Value of poDeleted from env: ${poWasDeleted}`);
 
-        if (poWasDeleted === true) { // Explicitly check for true
+        if (poWasDeleted === true) { 
             cy.log('PO was marked as deleted in the previous step, or no POs were found. Skipping Rejected PO check.');
-            // this.skip(); // Use this to actually skip the test if Cypress.env('poDeleted') is true
-            return; // Or just return to prevent further execution in this block
+            // this.skip();
+            return;
         }
       
         const targetSbId = Cypress.env('cancelled_sent_back_id');
@@ -205,8 +204,6 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
 
         if (!targetSbId) {
             cy.log('Cancelled Sent Back ID not found in env. This might be expected if PO was deleted or an error occurred earlier.');
-            // Depending on your test design, you might throw an error here or just log and let the test pass if this is an acceptable state.
-            // For now, let's assume if poWasDeleted is false, targetSbId MUST exist.
             throw new Error('Cancelled Sent Back ID (cancelled_sent_back_id) was not found in Cypress.env, but PO was not marked as deleted.');
         }
 
@@ -223,7 +220,7 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
             .should('be.visible')
             .within(() => {
                 cy.get('thead').should('exist');
-                // cy.get('tbody tr').should('have.length.at.least', 1); // This can be flaky if table is empty
+                // cy.get('tbody tr').should('have.length.at.least', 1);
                 cy.contains('th', 'SB ID').should('be.visible');
                 cy.contains('th', 'Date Created').should('be.visible');
             });
@@ -233,20 +230,20 @@ describe('Cancels a Purchase Order and Checks for it in the Rejected Po tab --- 
         cy.pause();
 
         cy.get(tableSelector, { timeout: 15000 })
-            .contains('td', targetSbId, { timeout: 20000 }) // Find cell containing the ID
+            // Finding cell containing the ID
+            .contains('td', targetSbId, { timeout: 20000 })
             .should('be.visible')
             .then(($cellContainingId) => {
                 cy.log(`Found cell containing Sent Back ID: ${targetSbId}`);
                 cy.wrap($cellContainingId).parent('tr').should('exist').as('targetRow');
                 cy.log(`Found row for Sent Back ID: ${targetSbId}`);
 
-                // Assuming the link is the SB ID itself or is in the same cell.
-                // If link is different, adjust find() selector.
                 cy.get('@targetRow')
-                    .find(`a:contains("${targetSbId}")`) // Find link in the row containing the ID
+                    .find(`a:contains("${targetSbId}")`) // Finding link in the row containing the ID
                     .should('be.visible')
                     .click();
                 cy.log(`Clicked on the link for Sent Back ID: ${targetSbId}.`);
+                
             });
     });
 });
