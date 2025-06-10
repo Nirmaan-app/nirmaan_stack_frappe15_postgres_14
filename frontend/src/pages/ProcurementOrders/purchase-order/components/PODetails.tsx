@@ -274,7 +274,7 @@ export const PODetails: React.FC<PODetailsProps> = (
         <CardHeader>
           <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
             <div>
-              <h2>{po?.custom === "true" && "Custom"} PO Details
+              <h2 data-cy="po-details-page-identifier">{po?.custom === "true" && "Custom"} PO Details
                 {!isValid && (
                   <Tooltip>
                     <TooltipTrigger>
@@ -437,6 +437,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                 po?.status === "PO Approved" &&
                 !((poPayments || [])?.length > 0) && (
                   <Button
+                    data-cy="delete-po-button" 
                     onClick={toggleDeleteDialog}
                     className="text-xs flex items-center gap-1 rounded-md p-1 px-2 h-8"
                   >
@@ -459,12 +460,12 @@ export const PODetails: React.FC<PODetailsProps> = (
                     ) : (
                       <>
                         <DialogClose asChild>
-                          <Button variant={"outline"}>
+                          <Button data-cy="delete-po-dialog-cancel-button" variant={"outline"}>
                             <CircleX className="h-4 w-4 mr-1" />
                             Cancel
                           </Button>
                         </DialogClose>
-                        <Button onClick={handleDeleteCustomPO}>
+                        <Button data-cy="delete-po-dialog-confirm-button" onClick={handleDeleteCustomPO}>
                           <CheckCheck className="h-4 w-4 mr-1" />
                           Confirm
                         </Button>

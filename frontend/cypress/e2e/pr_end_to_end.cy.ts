@@ -9,6 +9,8 @@
 
 const login_pr_end_email = Cypress.env('login_Email');
 const login_pr_end_password = Cypress.env('login_Password');
+// const project_name = Cypress.env('project_Name');
+const project_name = Cypress.env('project_Name') || "Wakefit GT Road";
 
 describe('Add a procurement request to approve it --- End-to-End test flow', () => {
 
@@ -47,17 +49,51 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
 
 
         cy.contains('Add New PR').should('be.visible').click();
-        cy.get('.css-art2ul-ValueContainer2').click();
-        // cy.get('.css-1nmdiq5-menu').should('be.visible');
-        cy.get('.css-1nmdiq5-menu')
-        .find('[role="option"]')
-        .then( $options => {
-            const randomIndex = Math.floor( Math.random() * $options.length);
-            const selectedOption = $options[randomIndex].textContent;
-            cy.log(`Randomly Selected Option: ${selectedOption}`);
-            cy.wrap($options[randomIndex]).click();
-        });
+        // // opening the dropdoen
+        // cy.get('.css-art2ul-ValueContainer2').click();
+        // // cy.get('.css-1nmdiq5-menu').should('be.visible');
+        // cy.get('.css-1nmdiq5-menu')
+        // .find('[role="option"]')
+        // .then( $options => {
+        //     const randomIndex = Math.floor( Math.random() * $options.length);
+        //     const selectedOption = $options[randomIndex].textContent;
+        //     cy.log(`Randomly Selected Option: ${selectedOption}`);
+        //     cy.wrap($options[randomIndex]).click();
+        // });
 
+
+        // cy.pause()
+        // Updated Logic for Creating PR for Particular Project
+        // Opening the dropdown
+        // cy.get('.css-art2ul-ValueContainer2').click();
+        cy.get('input').type(project_name).type('{enter}')
+
+        // cy.pause()
+
+        // // Wait for the menu container to be visible
+        // cy.get('.css-1nmdiq5-menu')
+        //     .should('be.visible')
+        //     .as('projectDropdownMenu');
+
+        // cy.get('@projectDropdownMenu')
+        //     .find('[role="option"]')
+        //     .should('have.length.gte', 1)
+        //     .and('be.visible');
+
+        // // Now that we know options are present, proceed to filter
+        // cy.get('@projectDropdownMenu')
+        //     .find('[role="option"]')
+        //     .filter((index, el) => {
+        //         const optionText = el.textContent.trim();
+        //         cy.log(`Filtering option: "${optionText}" against project: "${project_name}"`); // Debug log
+        //         return optionText === project_name;
+        //     })
+        //     .should('have.length', 1)
+        //     .click();
+        // cy.log(`Selected project with exact match: ${project_name}`);
+        
+
+        // creating the PR According to the Project Name
         cy.get('[data-cy="add-new-pr-normal-custom-button"]').should('be.visible').click();
         cy.get('[data-cy="add-new-pr-normal"]').should('exist').click();
 
@@ -180,6 +216,9 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .should('contain', 'Confirm')
             .and('be.visible')
             .click();
+
+        
+        cy.pause();
 
         // 1. Waiting for the toast container to exist in DOM
         cy.get('ol.fixed', { timeout: 15000})

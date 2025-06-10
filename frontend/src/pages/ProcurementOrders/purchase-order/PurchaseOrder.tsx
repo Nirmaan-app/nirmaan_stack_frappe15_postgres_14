@@ -1712,6 +1712,7 @@ export const PurchaseOrder = ({
           {/* Cancel PO */}
           {CANCELPOVALIDATION && (
             <Button
+              data-cy="cancel-po-button"
               onClick={toggleCancelPODialog}
               variant={"outline"}
               className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
@@ -1761,6 +1762,7 @@ export const PurchaseOrder = ({
                   Continue?
                   <div className="flex flex-col gap-2 mt-2">
                     <Textarea
+                      data-cy="cancel-po-comments-input"
                       placeholder="input the reason for cancelling..."
                       value={comment}
                       onChange={(e) => setComment(e.target.value)}
@@ -1772,11 +1774,12 @@ export const PurchaseOrder = ({
                     </div>
                   ) : (
                     <div className="flex gap-2 items-center justify-center pt-2">
-                      <AlertDialogCancel className="flex items-center gap-1">
+                      <AlertDialogCancel data-cy="cancel-po-dialog-cancel-button"  className="flex items-center gap-1">
                         <CircleX className="h-4 w-4" />
                         Cancel
                       </AlertDialogCancel>
                       <Button
+                        data-cy="cancel-po-dialog-confirm-button"
                         onClick={handleCancelPo}
                         className="flex items-center gap-1"
                       >
