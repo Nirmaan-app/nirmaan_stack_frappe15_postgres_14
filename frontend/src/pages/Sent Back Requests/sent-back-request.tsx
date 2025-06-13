@@ -55,55 +55,55 @@ const SBDataTableWrapper: React.FC<{
     staticFilters: any[];
     facetFilterOptions: any;
     dateColumns: any;
-}> = ({ 
-    tab, 
-    columns, 
+}> = ({
+    tab,
+    columns,
     fieldsToFetch,
     sbSearchableFields,
     staticFilters,
     facetFilterOptions,
     dateColumns
 }) => {
-    // Generate urlSyncKey inside the wrapper
-    const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
+        // Generate urlSyncKey inside the wrapper
+        const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
 
-    // --- useServerDataTable Hook Instantiation ---
-    const {
-        table, totalCount, isLoading: listIsLoading, error: listError,
-        selectedSearchField, setSelectedSearchField,
-        searchTerm, setSearchTerm,
-    } = useServerDataTable<SentBackCategory>({
-        doctype: DOCTYPE,
-        columns: columns,
-        fetchFields: fieldsToFetch,
-        searchableFields: sbSearchableFields,
+        // --- useServerDataTable Hook Instantiation ---
+        const {
+            table, totalCount, isLoading: listIsLoading, error: listError,
+            selectedSearchField, setSelectedSearchField,
+            searchTerm, setSearchTerm,
+        } = useServerDataTable<SentBackCategory>({
+            doctype: DOCTYPE,
+            columns: columns,
+            fetchFields: fieldsToFetch,
+            searchableFields: sbSearchableFields,
 
-        urlSyncKey: dynamicUrlSyncKey, // Dynamic URL key based on tab/type
-        defaultSort: 'modified desc',
-        enableRowSelection: false, // For delete action
-        additionalFilters: staticFilters,
-        requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
-    });
+            urlSyncKey: dynamicUrlSyncKey, // Dynamic URL key based on tab/type
+            defaultSort: 'modified desc',
+            enableRowSelection: false, // For delete action
+            additionalFilters: staticFilters,
+            requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
+        });
 
-    return (
-        <DataTable<SentBackCategory>
-            table={table}
-            columns={columns}
-            isLoading={listIsLoading}
-            error={listError}
-            totalCount={totalCount}
-            searchFieldOptions={sbSearchableFields}
-            selectedSearchField={selectedSearchField}
-            onSelectedSearchFieldChange={setSelectedSearchField}
-            searchTerm={searchTerm}
-            onSearchTermChange={setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            dateFilterColumns={dateColumns}
-            showExportButton={true} // Optional
-            onExport={'default'}
-        />
-    );
-};
+        return (
+            <DataTable<SentBackCategory>
+                table={table}
+                columns={columns}
+                isLoading={listIsLoading}
+                error={listError}
+                totalCount={totalCount}
+                searchFieldOptions={sbSearchableFields}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                dateFilterColumns={dateColumns}
+                showExportButton={true} // Optional
+                onExport={'default'}
+            />
+        );
+    };
 
 // --- Component ---
 export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
@@ -189,16 +189,21 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                         {isNew && tab !== "All SBs" && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
                         {tab !== "All SBs" ? (
                             <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/sent-back-requests/${sbId.replaceAll("/", "&=")}?tab=${tab}`} >
-                            {sbId?.slice(-5)}
-                        </Link>
+                                {sbId?.slice(-5)}
+                            </Link>
                         ) : (
                             <>
-                            <p>{sbId?.slice(-5)}</p>
-                            {data.type && <Badge variant="secondary" className="text-xs">{data.type}</Badge>}
+                                <p>{sbId?.slice(-5)}</p>
+                                {data.type && <Badge variant="secondary" className="text-xs">{data.type}</Badge>}
                             </>
                         )}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
+                            <ItemsHoverCard
+                                parentDocId={sbId}
+                                parentDoctype={DOCTYPE} // 'Sent Back Requests'
+                                childTableName={"order_list"} // Or "procurement_list" - check your DocType
+                                isSB={true} // Pass relevant flags
+                            />
                         </div>
                     </div>
                 );
@@ -276,9 +281,9 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                         <Badge variant={variant} className="text-xs">{status}</Badge>
                     );
                 },
-            size: 180,
-            enableColumnFilter: true
-         } as ColumnDef<SentBackCategory>
+                size: 180,
+                enableColumnFilter: true
+            } as ColumnDef<SentBackCategory>
         ] : []),
         ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) && tab !== "All SBs" ? [{ // Assuming Admins/Leads can delete sent-back items
             id: "actions", header: "Actions",
@@ -302,8 +307,8 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
 
     const statusOptions = useMemo(() => [
         { label: "Pending", value: "Pending" },
-        {label: "Vendor Selected", value: "Vendor Selected"},
-        {label: "Partially Approved", value: "Partially Approved"},
+        { label: "Vendor Selected", value: "Vendor Selected" },
+        { label: "Partially Approved", value: "Partially Approved" },
         { label: "Approved", value: "Approved" },
         { label: "Sent Back", value: "Sent Back" },
     ], []);

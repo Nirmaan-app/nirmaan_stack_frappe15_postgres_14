@@ -105,7 +105,12 @@ export const ApproveSelectVendor: React.FC = () => {
                         </Link>
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity"> {/* Show hover card on group hover */}
-                            <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                            <ItemsHoverCard
+                                parentDocId={prId}
+                                parentDoctype={DOCTYPE} // 'Procurement Requests'
+                                childTableName={"order_list"} // Or "procurement_list" - check your DocType
+                                isPR={true} // Pass relevant flags
+                            />
                         </div>
                     </div>
                 );

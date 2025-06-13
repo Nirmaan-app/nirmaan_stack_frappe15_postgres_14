@@ -135,7 +135,7 @@ export const ProcurementOrder: React.FC = () => {
 
   if (isLoading) return <LoadingFallback />
 
-  if(combinedError) return <AlertDestructive error={combinedError} />
+  if (combinedError) return <AlertDestructive error={combinedError} />
 
   if (procurement_request?.workflow_state !== "Approved") {
     return (
@@ -205,7 +205,7 @@ export const ProcurementOrder: React.FC = () => {
                     if (item.category === category) {
                       // const minQuote = getItemEstimate(item.name)?.averageRate
                       // --- Get Target Rate Info ---
-                      const targetRateDetail = targetRatesDataMap.get(item.name); // item.name is the item_id
+                      const targetRateDetail = targetRatesDataMap.get(item.item_id); // item.name is the item_id
                       let targetRateValue: number = -1;
                       let contributingQuotes: ApiSelectedQuotation[] = [];
                       if (targetRateDetail && targetRateDetail.rate) {

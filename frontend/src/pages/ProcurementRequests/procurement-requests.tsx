@@ -57,9 +57,9 @@ const PRDataTableWrapper: React.FC<{
     facetFilterOptions: any;
     dateColumns: any;
     notifications: NotificationType[];
-}> = ({ 
-    tab, 
-    columns, 
+}> = ({
+    tab,
+    columns,
     fieldsToFetch,
     prSearchableFields,
     staticFilters,
@@ -67,11 +67,11 @@ const PRDataTableWrapper: React.FC<{
     dateColumns,
     notifications
 }) => {
-    // Generate urlSyncKey inside the wrapper
-    const dynamicUrlSyncKey = `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
-    const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
+        // Generate urlSyncKey inside the wrapper
+        const dynamicUrlSyncKey = `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
+        const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
 
-    const serverDataTable = useServerDataTable<ProcurementRequest>({
+        const serverDataTable = useServerDataTable<ProcurementRequest>({
             doctype: DOCTYPE,
             columns,
             fetchFields: fieldsToFetch,
@@ -80,28 +80,28 @@ const PRDataTableWrapper: React.FC<{
             defaultSort: 'modified desc',
             enableRowSelection: false, // Enable selection for delete
             additionalFilters: staticFilters,
-    });
+        });
 
-    return (
-        <DataTable<ProcurementRequest>
-            table={serverDataTable.table}
-            columns={columns}
-            isLoading={serverDataTable.isLoading}
-            error={serverDataTable.error}
-            totalCount={serverDataTable.totalCount}
-            searchFieldOptions={prSearchableFields}
-            selectedSearchField={serverDataTable.selectedSearchField}
-            onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
-            searchTerm={serverDataTable.searchTerm}
-            onSearchTermChange={serverDataTable.setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            dateFilterColumns={dateColumns}
-            showExportButton={true}
-            onExport={'default'}
-            isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
-        />
-    );
-};
+        return (
+            <DataTable<ProcurementRequest>
+                table={serverDataTable.table}
+                columns={columns}
+                isLoading={serverDataTable.isLoading}
+                error={serverDataTable.error}
+                totalCount={serverDataTable.totalCount}
+                searchFieldOptions={prSearchableFields}
+                selectedSearchField={serverDataTable.selectedSearchField}
+                onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
+                searchTerm={serverDataTable.searchTerm}
+                onSearchTermChange={serverDataTable.setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                dateFilterColumns={dateColumns}
+                showExportButton={true}
+                onExport={'default'}
+                isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
+            />
+        );
+    };
 
 
 // --- Component ---
@@ -173,12 +173,12 @@ export const ProcurementRequests: React.FC = () => {
         { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
     ] : []), [role, counts]);
 
-    const allTabs = useMemo(() => 
+    const allTabs = useMemo(() =>
         [
             { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{counts.pr.all}</span></div>), value: "All PRs" },
-            //  { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
+            { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
         ]
-    ,[counts, role])
+        , [counts, role])
 
 
     // --- Notification Handling ---
@@ -209,9 +209,9 @@ export const ProcurementRequests: React.FC = () => {
     const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'procurement_list', 'category_list']), [])
 
     const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Created By", placeholder: "Search by Created By..." },
-         ...(tab === "All PRs" ? [
-            { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
-        ] : []),
+    ...(tab === "All PRs" ? [
+        { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
+    ] : []),
 
     ]), []);
     // --- Date Filter Columns ---
@@ -229,15 +229,20 @@ export const ProcurementRequests: React.FC = () => {
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 group">
                         {tab !== "All PRs" ? (
-                        <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/procurement-requests/${prId}?tab=${tab}`}>
-                            {prId?.slice(-4)}
-                        </Link>
+                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/procurement-requests/${prId}?tab=${tab}`}>
+                                {prId?.slice(-4)}
+                            </Link>
                         ) : (
                             <p>{prId?.slice(-4)}</p>
                         )}
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                            <ItemsHoverCard
+                                parentDocId={prId}
+                                parentDoctype={DOCTYPE} // 'Procurement Requests'
+                                childTableName={"order_list"} // Or "procurement_list" - check your DocType
+                                isPR={true} // Pass relevant flags
+                            />
                         </div>
                     </div>
                 );
@@ -316,14 +321,14 @@ export const ProcurementRequests: React.FC = () => {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
                 cell: ({ row }) => {
                     const status = row.getValue<string>("workflow_state");
-                    const variant = status === "Approved" ? "gray" : status === "In Progress" ? "yellow" : status === "Pending" ? "blue" : ["Sent Back", "Delayed" ,"Rejected"].includes(status) ? "destructive" : "green";
+                    const variant = status === "Approved" ? "gray" : status === "In Progress" ? "yellow" : status === "Pending" ? "blue" : ["Sent Back", "Delayed", "Rejected"].includes(status) ? "destructive" : "green";
                     return (
                         <Badge variant={variant} className="text-xs">{status}</Badge>
                     );
                 },
-            size: 180,
-            enableColumnFilter: true
-         } as ColumnDef<ProcurementRequest>
+                size: 180,
+                enableColumnFilter: true
+            } as ColumnDef<ProcurementRequest>
         ] : []),
         // Conditional Delete Column
         ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{
