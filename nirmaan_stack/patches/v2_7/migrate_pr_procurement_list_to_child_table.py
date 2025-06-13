@@ -113,7 +113,7 @@ def execute():
                 items_were_appended = True
             
             if items_were_appended: # Only save if we actually appended items
-                doc.save(ignore_permissions=True, ignore_version=True) # ignore_version if you don't want this to create a new doc version
+                doc.save(ignore_permissions=True, ignore_version=True, update_modified = False) # ignore_version if you don't want this to create a new doc version
                 # frappe.db.set_value(doctype_name, pr_name, "pr_items_migrated_to_table", 1, update_modified=False)
                 migrated_pr_count += 1
 
