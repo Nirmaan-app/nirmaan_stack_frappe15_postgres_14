@@ -59,7 +59,7 @@ const ItemCustomMenuList = (props: MenuListProps<ItemOption, false>) => {
                         className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
                         onClick={onAddItemClick}
                         onTouchStart={onAddItemClick}
-                        // disabled={isNewItemsDisabled} // Disable button based on prop
+                    // disabled={isNewItemsDisabled} // Disable button based on prop
                     >
                         <CirclePlus className="mr-2 h-4 w-4" />
                         Create/Request New Item
@@ -166,13 +166,13 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         // 2. ADD makes from Session/procList (selectedCategories)
         // Ensure makes used in items or explicitly added this session (via Manage Makes)
         // are *always* included in the available options.
-        const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
-        if (derivedCategoryDetails?.makes && Array.isArray(derivedCategoryDetails.makes)) {
-            console.log(`ISC useMemo: Adding makes from selectedCategories:`, derivedCategoryDetails.makes);
-            derivedCategoryDetails.makes.forEach(makeValue => applicableMakeValues.add(makeValue));
-        } else {
-            console.log(`ISC useMemo: No additional makes found in selectedCategories.`);
-        }
+        // const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
+        // if (derivedCategoryDetails?.makes && Array.isArray(derivedCategoryDetails.makes)) {
+        //     console.log(`ISC useMemo: Adding makes from selectedCategories:`, derivedCategoryDetails.makes);
+        //     derivedCategoryDetails.makes.forEach(makeValue => applicableMakeValues.add(makeValue));
+        // } else {
+        //     console.log(`ISC useMemo: No additional makes found in selectedCategories.`);
+        // }
 
         console.log(`ISC useMemo: Final applicable make values set:`, Array.from(applicableMakeValues));
 
@@ -292,7 +292,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
             {/* --- Item Selector --- */}
             <div>
                 <Label htmlFor="item-select" className="block text-sm font-medium text-gray-700 mb-1">Item <sup className="text-red-500">*</sup></Label>
-                 <FuzzySearchSelect
+                <FuzzySearchSelect
                     inputId='item-select'
                     placeholder={"Select or Create/Request Item..."}
                     value={curItem}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
 
@@ -33,7 +33,7 @@ type PageState = 'loading' | 'wp-selection' | 'item-selection' | 'error';
 
 // Helper function to safely parse JSON and extract makes map
 export const extractMakesFromChildTableForWP = (project: Projects | undefined, selectedWorkPackageName: string): CategoryMakesMap => {
-    
+
     const makesMap: CategoryMakesMap = {};
     if (!project?.project_wp_category_makes || !selectedWorkPackageName) {
         return makesMap;
@@ -51,7 +51,7 @@ export const extractMakesFromChildTableForWP = (project: Projects | undefined, s
             }
         }
     });
-     // Sort makes within each category for consistency
+    // Sort makes within each category for consistency
     for (const category in makesMap) {
         makesMap[category].sort();
     }
@@ -94,8 +94,8 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
     //     navigate(`/prs&milestones/procurement-requests/${existingPRData?.name}`)
     // }
 
-    const {emitDocOpen} =  useFrappeDocumentEventListener("Procurment Requests", prId!, (event) => {
-        if(prId) {
+    const { emitDocOpen } = useFrappeDocumentEventListener("Procurment Requests", prId!, (event) => {
+        if (prId) {
             existingPRDataMutate();
             console.log("Procurement Request document updated (real-time):", event);
             toast({
@@ -103,7 +103,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
                 description: `Procurement Request ${event.name} has been modified.`,
             });
         }
-        },
+    },
         false
     )
 
@@ -133,57 +133,57 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
             return;
         }
 
-        let initialDataForStore: { 
-            workPackage: string, 
+        let initialDataForStore: {
+            workPackage: string,
             procList: ProcurementRequestItem[], // Frontend item structure
             categories: CategorySelection[] // Your existing type for selectedCategories
         } | undefined = undefined;
-     let initialWpMakesMap: CategoryMakesMap = {};
+        let initialWpMakesMap: CategoryMakesMap = {};
 
-     if ((mode === 'edit' || mode === 'resolve') && existingPRData) {
-         const transformedProcList: ProcurementRequestItem[] = (existingPRData.order_list || []).map(
-             (backendItem: BackendPRItemDetail): ProcurementRequestItem => ({
-                 uniqueId: backendItem.name, // Use Frappe's child row name as uniqueId
-                 name: backendItem.item_id,       // Map backend item_id to frontend name
-                 item: backendItem.item_name,     // Map backend item_name to frontend item
-                 unit: backendItem.unit,
-                 quantity: backendItem.quantity,
-                 category: backendItem.category,
-                 work_package: backendItem.procurement_package!, // Map backend procurement_package
-                 make: backendItem.make || undefined, // Ensure undefined if null/empty
-                 status: backendItem.status as ProcurementRequestItem['status'], // Ensure type assertion
-                 tax: backendItem.tax ?? 0, // Default tax to 0 if undefined; your frontend type expects number
-                 comment: backendItem.comment || undefined,
-             })
-         );
+        if ((mode === 'edit' || mode === 'resolve') && existingPRData) {
+            const transformedProcList: ProcurementRequestItem[] = (existingPRData.order_list || []).map(
+                (backendItem: BackendPRItemDetail): ProcurementRequestItem => ({
+                    uniqueId: backendItem.name, // Use Frappe's child row name as uniqueId
+                    name: backendItem.item_id,       // Map backend item_id to frontend name
+                    item: backendItem.item_name,     // Map backend item_name to frontend item
+                    unit: backendItem.unit,
+                    quantity: backendItem.quantity,
+                    category: backendItem.category,
+                    work_package: backendItem.procurement_package!, // Map backend procurement_package
+                    make: backendItem.make || undefined, // Ensure undefined if null/empty
+                    status: backendItem.status as ProcurementRequestItem['status'], // Ensure type assertion
+                    tax: backendItem.tax ?? 0, // Default tax to 0 if undefined; your frontend type expects number
+                    comment: backendItem.comment || undefined,
+                })
+            );
 
-         // For 'categories', the existingPRData.category_list (JSON) would still be used
-         // as we haven't migrated that one yet.
-        //  let parsedCatList: Category[] = [];
-        //  try {
-        //      const catListRaw = existingPRData.category_list;
-        //      parsedCatList = (typeof catListRaw === "string" ? JSON.parse(catListRaw || '{"list":[]}') : catListRaw)?.list || [];
-        //  } catch (e) {
-        //      console.error("Failed to parse existing PR category_list data:", e);
-        //  }
-         // Note: The store's selectedCategories are derived, so initialPrData.categories is less critical here
-         // The main thing is having the procList to derive from.
+            // For 'categories', the existingPRData.category_list (JSON) would still be used
+            // as we haven't migrated that one yet.
+            //  let parsedCatList: Category[] = [];
+            //  try {
+            //      const catListRaw = existingPRData.category_list;
+            //      parsedCatList = (typeof catListRaw === "string" ? JSON.parse(catListRaw || '{"list":[]}') : catListRaw)?.list || [];
+            //  } catch (e) {
+            //      console.error("Failed to parse existing PR category_list data:", e);
+            //  }
+            // Note: The store's selectedCategories are derived, so initialPrData.categories is less critical here
+            // The main thing is having the procList to derive from.
 
-         initialDataForStore = {
-             workPackage: existingPRData.work_package || '',
-             procList: transformedProcList,
-             categories: [], // selectedCategories will be derived by the store from procList and makes
-         };
+            initialDataForStore = {
+                workPackage: existingPRData.work_package || '',
+                procList: transformedProcList,
+                categories: [], // selectedCategories will be derived by the store from procList and makes
+            };
 
-         if (initialDataForStore.workPackage && project) {
-             initialWpMakesMap = extractMakesFromChildTableForWP(project, initialDataForStore.workPackage);
-         }
-     }
-     const projId = mode === "create" ? projectId : existingPRData?.project
-     
-     initializeStore(mode, projId, prId, initialWpMakesMap, initialDataForStore);
+            if (initialDataForStore.workPackage && project) {
+                initialWpMakesMap = extractMakesFromChildTableForWP(project, initialDataForStore.workPackage);
+            }
+        }
+        const projId = mode === "create" ? projectId : existingPRData?.project
 
-}, [mode, projectId, prId, initializeStore, existingPRData, existingPRLoading, project]);
+        initializeStore(mode, projId, prId, initialWpMakesMap, initialDataForStore);
+
+    }, [mode, projectId, prId, initializeStore, existingPRData, existingPRLoading, project]);
 
 
     // --- Hooks ---
@@ -222,35 +222,62 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         }
     }, [isStoreInitialized, dataLoading, wpFromStore, dataError]);
 
+    const uniqueProcurementPackageDisplayNames = useMemo(() => {
+        // Ensure project exists and project.project_wp_category_makes is an array
+        if (!project || !Array.isArray(project.project_wp_category_makes)) {
+            return [];
+        }
+
+        // The wpNameMap was initialized but not used to map display names.
+        // If item.procurement_package IS the display name, the map isn't needed here.
+        // If there's another field for display name, this map would need to be populated.
+        // const wpNameMap = new Map<string, string>(); 
+
+        const uniqueWPDocNames = new Set<string>();
+        project.project_wp_category_makes.forEach(item => {
+            // Add a check for item integrity as well, if items can be malformed
+            if (item && typeof item === 'object' && item.procurement_package) {
+                uniqueWPDocNames.add(item.procurement_package);
+            }
+        });
+
+        uniqueWPDocNames.add("Tool & Equipments"); // Ensure "Tool & Equipments" is always included
+
+        return Array.from(uniqueWPDocNames)
+        // .map(docName => wpNameMap.get(docName) || docName) // This part effectively did nothing as wpNameMap was empty
+
+
+    }, [project]);
+
 
     // --- Handler for WP Selection (to derive makes) ---
     const handleWorkPackageSelect = useCallback((wpName: string) => {
-    if (!project && wpName) { // Check wpName too, if clearing WP, project might not be needed
-        console.error("Project data not loaded, cannot select WP makes");
-        // If wpName is empty (clearing selection), we might not need project here.
-        // But to get makes for a *new* WP, project is needed.
-        if (wpName) {
-         toast({ title: "Error", description: "Project data not available to fetch makes.", variant: "destructive" });
-         return;
+        if (!project && wpName) { // Check wpName too, if clearing WP, project might not be needed
+            console.error("Project data not loaded, cannot select WP makes");
+            // If wpName is empty (clearing selection), we might not need project here.
+            // But to get makes for a *new* WP, project is needed.
+            if (wpName) {
+                toast({ title: "Error", description: "Project data not available to fetch makes.", variant: "destructive" });
+                return;
+            }
         }
-    }
-    
-    let wpMakesForStore: CategoryMakesMap = {};
-    if (wpName && project) { // Only extract makes if a WP is selected and project data exists
-        wpMakesForStore = extractMakesFromChildTableForWP(project, wpName);
-    }
-    
-    // selectWorkPackage (from useProcurementRequestForm) expects (wpName, wpSpecificMakes)
-    selectWorkPackage(wpName, wpMakesForStore); 
-    
-    // Page state might change based on wpName (if it's set or cleared)
-    if (!wpName) {
-        setPage('wp-selection'); // Go back to WP selection if cleared
-    } else {
-        setPage('item-selection'); // Proceed if a WP is selected
-    }
 
-}, [project, selectWorkPackage, setPage, toast]); // Added toast and setPage
+        let wpMakesForStore: CategoryMakesMap = {};
+        if (wpName && project) { // Only extract makes if a WP is selected and project data exists
+            wpMakesForStore = extractMakesFromChildTableForWP(project, wpName);
+        }
+
+        // selectWorkPackage (from useProcurementRequestForm) expects (wpName, wpSpecificMakes)
+        selectWorkPackage(wpName, wpMakesForStore);
+
+        // Page state might change based on wpName (if it's set or cleared)
+        if (!wpName) {
+            setPage('wp-selection'); // Go back to WP selection if cleared
+        } else {
+            setPage('item-selection'); // Proceed if a WP is selected
+        }
+
+    }, [project, selectWorkPackage, setPage, toast]); // Added toast and setPage
 
     // --- Render Logic ---
     if (page === 'loading') {
@@ -273,23 +300,13 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         }
     }
 
+
+
     return (
         <div className="flex-1 space-y-4 px-4 py-4">
             {page === 'wp-selection' && (
                 <WorkPackageSelector
-                    // Filter WP list based on project data (ensure project is loaded)
-                    wpList={wpList?.filter(item => {
-                        if (!project?.project_work_packages) return item.work_package_name === "Tool & Equipments"; // Default fallback if project data missing
-                        let wp_arr = [];
-                        try {
-                            if (typeof project.project_work_packages === 'string') {
-                                wp_arr = JSON.parse(project.project_work_packages || '[]')?.work_packages?.map((item: any) => item.work_package_name) || [];
-                            } else if (typeof project.project_work_packages === 'object' && project.project_work_packages?.work_packages) {
-                                wp_arr = project.project_work_packages.work_packages.map((item: any) => item.work_package_name) || [];
-                            }
-                        } catch (e) { console.error("Error parsing project_work_packages in filter") }
-                        return item.work_package_name === "Tool & Equipments" || wp_arr.includes(item.work_package_name);
-                    })}
+                    wpList={wpList?.filter((item) => uniqueProcurementPackageDisplayNames.includes(item.work_package_name || ''))} // Use the unique names
                     onSelectWP={handleWorkPackageSelect} // <<< Use the new handler
                 />
             )}
