@@ -128,8 +128,8 @@ def create_project_with_address(values: dict):
 
             # Frappe typically expects "YYYY-MM-DD" for Date fields or "YYYY-MM-DD HH:MM:SS" for Datetime
             # If your Frappe fields are Date, format to "YYYY-MM-DD"
-            formatted_start_date = datetime.strptime(start_date_str, "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%Y-%m-%d")
-            formatted_end_date = datetime.strptime(end_date_str, "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%Y-%m-%d")
+            formatted_start_date = datetime.strptime(start_date_str, "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%Y-%m-%d %H:%M:%S")
+            formatted_end_date = datetime.strptime(end_date_str, "%Y-%m-%dT%H:%M:%S.%fZ").strftime("%Y-%m-%d %H:%M:%S")
         except (ValueError, TypeError) as e:
             frappe.log(f"Date parsing error: {e}. Start: {start_date_str}, End: {end_date_str}")
             raise frappe.ValidationError(f"Invalid date format for project start/end dates.")
