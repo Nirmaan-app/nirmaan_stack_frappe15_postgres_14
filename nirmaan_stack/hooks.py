@@ -335,6 +335,7 @@ fixtures = [
     "Milestones",
     {"dt": "Role", "filters": [["role_name", "like", "Nirmaan %"]]},
     {"dt": "Role Profile", "filters": [["role_profile", "like", "Nirmaan %"]]},
+    {"dt": "Items", "filters": [["category", "=", "Additional Charges"]]},
     "Workflow",
     "Workflow State",
     "Workflow Action Master",
