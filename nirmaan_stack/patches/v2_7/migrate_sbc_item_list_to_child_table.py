@@ -99,7 +99,7 @@ def execute():
 
                 sbc_doc.append(new_child_table_field_name, child_row_data)
             
-            sbc_doc.save(ignore_permissions=True)
+            sbc_doc.save(ignore_permissions=True, update_modified=False) # Save the document with new child table data
             migrated_count += 1
             if migrated_count > 0 and migrated_count % 20 == 0:
                 frappe.db.commit()

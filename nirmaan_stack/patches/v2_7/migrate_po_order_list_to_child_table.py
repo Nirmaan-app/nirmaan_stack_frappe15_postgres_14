@@ -128,7 +128,7 @@ def execute():
             po_doc.amount = flt(total_amount_excl_tax)
             po_doc.tax_amount = flt(total_tax_amount)
             po_doc.total_amount = flt(total_amount)
-            po_doc.save(ignore_permissions=True)
+            po_doc.save(ignore_permissions=True, update_modified=False) # Save the document with new child table data
             migrated_count += 1
             if migrated_count % 20 == 0:
                 frappe.db.commit()
