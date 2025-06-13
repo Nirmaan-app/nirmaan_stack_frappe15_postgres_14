@@ -19,7 +19,7 @@ export interface ProcurementRequestItem {
 export interface CategorySelection {
   name: string;   // Category DocName (key)
   status: string; // Status of items within this category in the list
-  makes: string[]; // List of applicable Make DocNames for this category
+  // makes: string[]; // List of applicable Make DocNames for this category
   // Add makes if you decide to store/derive them here later
 }
 
@@ -40,7 +40,7 @@ export interface ItemOption extends SelectOption<string> {
   tax: number;
 }
 
-export interface MakeOption extends SelectOption<string> {}
+export interface MakeOption extends SelectOption<string> { }
 
 export type CategoryMakesMap = Record<string, string[]>; // Map of category names to applicable makes
 
