@@ -1381,6 +1381,7 @@ export const PurchaseOrder = ({
         <div className="flex gap-2 items-center justify-end">
           {AMENDPOVALIDATION && (
             <Button
+              data-cy="amend-po-button"
               onClick={toggleAmendPOSheet}
               variant={"outline"}
               className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
@@ -1484,7 +1485,7 @@ export const PurchaseOrder = ({
                               {item.quantity}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
-                              <div className="flex items-center justify-center">
+                              <div data-cy="amend-po-edit-button" className="flex items-center justify-center">
                                 <Pencil
                                   onClick={() => {
                                     const options =
@@ -1530,6 +1531,7 @@ export const PurchaseOrder = ({
                     <HoverCard>
                       <HoverCardTrigger>
                         <Button
+                          data-cy="amend-po-confirm-button"
                           variant="outline"
                           disabled
                           className="border-primary flex items-center gap-1"
@@ -1570,6 +1572,7 @@ export const PurchaseOrder = ({
                             approval. Continue?
                             <div className="flex flex-col gap-2 mt-2">
                               <Textarea
+                                data-cy="confirm-dialog-textarea"
                                 placeholder="input the reason for amending this PO..."
                                 value={comment}
                                 onChange={(e) => setComment(e.target.value)}
@@ -1582,6 +1585,7 @@ export const PurchaseOrder = ({
                             ) : (
                               <div className="flex gap-2 items-center justify-center pt-2">
                                 <Button
+                                  data-cy="confirm-dialog-confirm-button"
                                   onClick={handleAmendPo}
                                   className="flex items-center gap-1"
                                 >
@@ -1643,6 +1647,7 @@ export const PurchaseOrder = ({
                               Qty
                             </h5>
                             <Input
+                              data-cy="amend-po-dialog-quantity-input"
                               type="number"
                               value={quantity || ""}
                               onChange={(e) =>
@@ -1673,12 +1678,13 @@ export const PurchaseOrder = ({
                     <DialogDescription className="flex justify-end">
                       <div className="flex gap-2">
                         {orderData?.list?.length === 1 ? (
-                          <Button className="flex items-center gap-1" disabled>
+                          <Button data-cy="amend-po-dialog-delete-button"  className="flex items-center gap-1" disabled>
                             <Trash2 className="h-4 w-4" />
                             Delete
                           </Button>
                         ) : (
                           <Button
+                            data-cy="amend-po-dialog-delete-button" 
                             onClick={() => handleDelete(amendEditItem.item)}
                             className="flex gap-1 items-center bg-gray-100 text-black hover:text-white"
                           >
@@ -1697,6 +1703,7 @@ export const PurchaseOrder = ({
                           }
                           variant={"outline"}
                           className="flex gap-1 items-center"
+                          data-cy="amend-po-dialog-save-button"
                         >
                           <ListChecks className="h-4 w-4" />
                           Save

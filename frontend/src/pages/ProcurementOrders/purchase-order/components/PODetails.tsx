@@ -860,7 +860,7 @@ export const PODetails: React.FC<PODetailsProps> = (
             <Dialog open={revertDialog} onOpenChange={toggleRevertDialog}>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Are you sure?</DialogTitle>
+                  <DialogTitle data-cy="revert-po-dialog-text">Are you sure?</DialogTitle>
                 </DialogHeader>
 
                 <DialogDescription>
@@ -874,12 +874,12 @@ export const PODetails: React.FC<PODetailsProps> = (
                   ) : (
                     <>
                       <DialogClose asChild>
-                        <Button variant={"outline"}>
+                        <Button data-cy="revert-po-dialog-cancel-button" variant={"outline"}>
                           <CircleX className="h-4 w-4 mr-1" />
                           Cancel
                         </Button>
                       </DialogClose>
-                      <Button onClick={handleRevertPO}>
+                      <Button data-cy="revert-po-dialog-confirm-button" onClick={handleRevertPO}>
                         <CheckCheck className="h-4 w-4 mr-1" />
                         Confirm
                       </Button>
@@ -908,7 +908,7 @@ export const PODetails: React.FC<PODetailsProps> = (
               <Label className=" text-red-700">Date Created</Label>
               <span>{formatDate(po?.creation || "")}</span>
             </div>
-            <div className="flex flex-col gap-2 max-sm:items-end">
+            <div data-cy="total-amount-excl-gst" className="flex flex-col gap-2 max-sm:items-end">
               <Label className=" text-red-700">Total (Excl. GST)</Label>
               <span>{formatToRoundedIndianRupee(getTotal?.total)}</span>
             </div>
@@ -916,7 +916,7 @@ export const PODetails: React.FC<PODetailsProps> = (
               <Label className=" text-red-700">Total Amount Paid</Label>
               <span>{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
             </div>
-            <div className="flex flex-col gap-2 items-end">
+            <div data-cy="total-amount-incl-gst" className="flex flex-col gap-2 items-end">
               <Label className=" text-red-700">Total (Incl. GST)</Label>
               <span>
                 {formatToRoundedIndianRupee(getTotal?.totalAmt)}

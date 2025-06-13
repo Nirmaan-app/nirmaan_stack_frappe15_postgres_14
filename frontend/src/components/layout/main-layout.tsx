@@ -171,6 +171,7 @@ export const MainLayout: React.FC = () => {
               {location.pathname !== "/" && (
                 <>
                   <button
+                    data-cy="go-back-button"
                     onClick={() => navigate(-1)}
                     className="p-1 rounded hover:bg-accent" // Make it a button for semantics
                     aria-label="Go back"
