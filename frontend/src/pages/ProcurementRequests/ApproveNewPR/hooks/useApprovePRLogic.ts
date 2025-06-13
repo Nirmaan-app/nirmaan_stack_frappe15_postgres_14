@@ -204,10 +204,10 @@ export const useApprovePRLogic = ({
     // Let's create a single derived state for displayable categories.
     const displayedCategoriesWithMakes = useMemo((): DisplayCategory[] => {
         if (!orderData?.order_list || !categoryList) return []; // allCategories is the master list of categories
-        
+
         const categoryMap = new Map<string, { displayName: string; items: PRItemUIData[], statusSet: Set<string> }>();
-        const initialMakesForPRWP = projectDoc && orderData.work_package 
-            ? extractMakesFromChildTableForWP(projectDoc, orderData.work_package) 
+        const initialMakesForPRWP = projectDoc && orderData.work_package
+            ? extractMakesFromChildTableForWP(projectDoc, orderData.work_package)
             : {};
 
         orderData.order_list.forEach(item => {
@@ -228,7 +228,7 @@ export const useApprovePRLogic = ({
         return Array.from(categoryMap.entries()).map(([catDocName, data]) => {
             // Determine overall status for this category in the PR (e.g., if any item is "Request", mark category as "Request")
             const primaryStatus = data.statusSet.has('Request') ? 'Request' : (data.statusSet.has('Pending') ? 'Pending' : (Array.from(data.statusSet)[0] || 'Pending'));
-            
+
             // Consolidate makes from items in this category AND from project's configuration for this category/WP
             const makesFromItems = new Set(data.items.map(i => i.make).filter(Boolean) as string[]);
             const makesFromProjectConfig = new Set(initialMakesForPRWP[catDocName] || []);
@@ -244,13 +244,13 @@ export const useApprovePRLogic = ({
     }, [orderData?.order_list, orderData?.work_package, projectDoc, categoryList]); // allCategories is needed
 
     // Replace old category derivations with ones based on displayedCategoriesWithMakes
-    const addedCategoriesForDisplay = useMemo(() => 
+    const addedCategoriesForDisplay = useMemo(() =>
         displayedCategoriesWithMakes.filter(c => c.status !== 'Request' && (addedItems.some(item => item.category === c.name)))
-    , [displayedCategoriesWithMakes, addedItems]);
-    
-    const requestedCategoriesForDisplay = useMemo(() => 
+        , [displayedCategoriesWithMakes, addedItems]);
+
+    const requestedCategoriesForDisplay = useMemo(() =>
         displayedCategoriesWithMakes.filter(c => c.status === 'Request' && (requestedItems.some(item => item.category === c.name)))
-    , [displayedCategoriesWithMakes, requestedItems]);
+        , [displayedCategoriesWithMakes, requestedItems]);
 
     // const currentOrderDataCategoryList = useMemo((): PRCategory[] => {
     //     return orderData?.category_list?.list ?? [];
@@ -265,7 +265,7 @@ export const useApprovePRLogic = ({
         if (!orderData && prDoc) { // Only initialize once
             // Transform prDoc.order_list if any field names differ from PRItemUIData,
             // but since PRItemUIData is aliased to ProcurementRequestItemDetail, direct assignment is okay.
-            const initialOrderList: PRItemUIData[] = prDoc.order_list 
+            const initialOrderList: PRItemUIData[] = prDoc.order_list
                 ? prDoc.order_list.map(item => ({ ...item })) // Shallow copy to avoid direct mutation
                 : [];
 
@@ -528,7 +528,7 @@ export const useApprovePRLogic = ({
             return {
                 ...prev,
                 order_list: [...prev.order_list, newItemForOrderList as PRItemUIData], // Cast if necessary
-            ...(categoryNeedsUpdate ? { category_list: { list: updatedCategoryList } } : {})
+                ...(categoryNeedsUpdate ? { category_list: { list: updatedCategoryList } } : {})
             }
         });
 
@@ -615,7 +615,7 @@ export const useApprovePRLogic = ({
         );
 
 
-        setOrderData(prev => prev ? { ...prev, order_list:  updatedList } : null);
+        setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
         setIsEditItemDialogOpen(false);
         setEditItem(null); // Reset edit state
         toast({ title: "Item Updated", description: `"${editItem.item_name}" updated successfully.`, variant: "success" });
@@ -635,7 +635,7 @@ export const useApprovePRLogic = ({
             }
 
             const updatedList = orderData.order_list.filter(i => i.item_id !== itemToDelete.item_id);
-            setOrderData(prev => prev ? { ...prev, order_list : updatedList } : null);
+            setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
 
             toast({ title: "Item Removed", description: `"${item.item_name}" removed.`, variant: "default" }); // Use default variant for removal
         }
@@ -810,7 +810,7 @@ export const useApprovePRLogic = ({
                     return {
                         ...listItem, // Keep potentially existing fields like comments
                         item_name: createdItemDoc.item_name,
-                        name_id: createdItemDoc.name, // IMPORTANT: Update to the NEW item's docname
+                        item_id: createdItemDoc.name, // IMPORTANT: Update to the NEW item's docname
                         unit: createdItemDoc.unit_name,
                         procurement_package: workPackage,
                         category: createdItemDoc.category,
@@ -941,7 +941,7 @@ export const useApprovePRLogic = ({
         updatedList.push(itemToAdd as PRItemUIData);
 
 
-        setOrderData(prev => prev ? { ...prev, order_list:updatedList } : null);
+        setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
 
         toast({
             title: "Success",
