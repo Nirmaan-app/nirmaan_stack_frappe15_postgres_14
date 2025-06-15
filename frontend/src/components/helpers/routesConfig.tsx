@@ -49,6 +49,8 @@ import Profile from "@/pages/users/user-profile";
 import Users from "@/pages/users/users";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import Vendors from "@/pages/vendors/VendorsPage";
+//---New Vendors-AQ2 Page
+import VendorsAQ2  from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
@@ -57,6 +59,7 @@ import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/New
 import ReportsContainer from "@/pages/reports/ReportsContainer";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
+import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -261,6 +264,15 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <ReportsContainer /> },
             ],
           },
+           // --- Project Invoices Section ---
+
+          {
+            path: "project-invoices",
+            children: [
+              { index: true, element: <AllProjectInvocies /> },
+            ],
+          },
+          
           // --- Project Payments ---
           {
             path: "project-payments",
@@ -312,6 +324,22 @@ export const appRoutes: RouteObject[] = [
               },
             ],
           },
+            // --- Vendors AQ2 Section ---
+          {
+            path: "vendors-aq2",
+            children: [
+              { index: true, element: <VendorsAQ2 /> },
+              // { path: "new-vendor", element: <NewVendor /> },
+              // {
+              //   path: ":vendorId",
+              //   children: [
+              //     { index: true, lazy: () => import("@/pages/vendors/vendor") },
+              //     { path: ":poId", lazy: () => import("@/components/POSummary") },
+              //   ],
+              // },
+            ],
+          },
+
 
           // --- Customers Section ---
           {
