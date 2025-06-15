@@ -139,7 +139,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            <div className="flex items-center max-sm:items-start gap-4 max-sm:flex-col">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 {adminTabs && (
                     <Radio.Group
                         options={adminTabs}

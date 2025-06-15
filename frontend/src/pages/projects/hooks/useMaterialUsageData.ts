@@ -74,8 +74,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     if (amountPaid >= totalAmount) return "Fully Paid";
     return "Partially Paid";
   }, [getAmountPaidForPO, getTotalAmount]);
-
-  // Process and combine data
+   
   const allMaterialUsageItems = useMemo((): MaterialUsageDisplayItem[] => {
     if (!po_item_data?.message || !projectEstimates) {
       return [];
@@ -95,8 +94,17 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
     const usageByItemKey = new Map<string, MaterialUsageDisplayItem>();
 
+    console.log("All PO Items", allPoItems)
     allPoItems.forEach((poItem, index) => {
             if (!poItem.item_id || !poItem.category) return;
+                    // ====================== THE LOGIC STARTS HERE ======================
+        // 1. Calculate the base price and total amount for THIS specific PO item
+        const basePrice = safeParseFloat(poItem.quantity) * safeParseFloat(poItem.quote);
+        const gstAmount = basePrice * (`0.${poItem?.tax}`|| 0.18); // 18% GST
+        const amountWithGst = basePrice + gstAmount;
+        // =================================================================
+
+
 
             const itemKey = `${poItem.category}_${poItem.item_id}`;
             let currentItemUsage = usageByItemKey.get(itemKey);
@@ -130,6 +138,10 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
                     orderedQuantity: safeParseFloat(poItem.quantity), // Initialize with first PO item
                     deliveredQuantity: safeParseFloat(poItem.received), // Initialize
                     estimatedQuantity: safeParseFloat(estimate?.quantity_estimate),
+                      // ================== ADD THIS LINE (Step 2a) ==================
+                totalAmount: amountWithGst, // Initialize with the amount from this PO item
+                // ============================================================
+
                     poNumbers: individualPOsForItem, // Initialize with current PO details
                     deliveryStatus: deliveryStatusInfo.deliveryStatusText,
                     overallPOPaymentStatus: poPaymentStatusInfo,
@@ -138,6 +150,11 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
                 // Aggregate quantities and update statuses
                 currentItemUsage.orderedQuantity = currentOrdered;
                 currentItemUsage.deliveredQuantity = currentDelivered;
+                            // ================== ADD THIS LINE (Step 2b) ==================
+            // Add the new amount to the existing total for this item
+            currentItemUsage.totalAmount = (currentItemUsage.totalAmount || 0) + amountWithGst;
+            // ============================================================
+
                 currentItemUsage.poNumbers = individualPOsForItem; // Update with potentially new PO
                 currentItemUsage.deliveryStatus = deliveryStatusInfo.deliveryStatusText;
                 currentItemUsage.overallPOPaymentStatus = poPaymentStatusInfo;
@@ -156,6 +173,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
     return flatList;
   }, [po_item_data, projectEstimates, getIndividualPOStatus]);
+
 
 
   // --- Generate Filter Options ---
