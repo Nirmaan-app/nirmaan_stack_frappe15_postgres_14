@@ -417,7 +417,7 @@ export const ProcurementRequests: React.FC = () => {
     return (
         <>
             <div className="flex-1 space-y-4">
-                <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                     <Radio.Group options={adminTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
                     <Radio.Group options={userPRExecTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
                     <Radio.Group options={sentBackTabsConfig} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
