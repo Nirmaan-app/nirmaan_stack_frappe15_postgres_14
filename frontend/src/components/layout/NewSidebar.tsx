@@ -20,7 +20,7 @@ import {
   CircleDollarSign,
   ClipboardMinus,
   HandCoins,
-  ReceiptText
+  ReceiptText,FileUp
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -209,6 +209,7 @@ export function NewSidebar() {
               { key: "/customers", label: "Customers" },
               { key: "/product-packages", label: "Product Packages" },
               { key: "/approved-quotes", label: "Approved Quotations" },
+              //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
             ],
           },
         ]
@@ -380,6 +381,15 @@ export function NewSidebar() {
             },
         ]
         : []),
+        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+        ? [
+            {
+                key: '/project-invoices',
+                icon: FileUp,
+                label: 'Project Invoices',
+            },
+        ]
+        : []),
         ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
         ? [
             {
@@ -389,6 +399,7 @@ export function NewSidebar() {
             },
         ]
         : [])
+        
   ], [user_id, role]);
 
   const allKeys = useMemo(() => new Set([
@@ -399,6 +410,7 @@ export function NewSidebar() {
     "customers",
     "product-packages",
     "approved-quotes",
+    // 'vendors-aq2', new tab ui-fix
     "prs&milestones",
     // "approve-new-pr",
     // "approve-po",
@@ -418,7 +430,9 @@ export function NewSidebar() {
     "project-payments",
     "in-flow-payments",
     'invoice-reconciliation',
+     'project-invoices',
     'reports',
+   
   ]), [])
 
   const selectedKeys = useMemo(() => {
@@ -429,6 +443,7 @@ export function NewSidebar() {
 
   const groupMappings = useMemo(() => ({
     "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes"],
+    // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
     //   "approve-amended-po", "approve-payments"
@@ -440,6 +455,8 @@ export function NewSidebar() {
     "/project-payments": ["project-payments"],
     "/in-flow-payments": ["in-flow-payments"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
+    "/project-invoices": ["project-invoices"],
+
     "/reports": ["reports"]
   }), []);
 
@@ -508,7 +525,7 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${
                         ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
