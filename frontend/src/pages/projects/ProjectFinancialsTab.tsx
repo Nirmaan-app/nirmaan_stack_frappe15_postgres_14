@@ -19,6 +19,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from "reac
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
+const ProjectInvoices = React.lazy(() => import("../ProjectInvoices/ProjectInvoices"));
 
 interface ProjectFinancialsTabProps {
   projectData?: Projects
@@ -119,8 +120,12 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
         value: "All Orders"
       },
       {
-        label: "All Invoices",
-        value: "All Invoices"
+        label: "All PO Invoices",
+        value: "All PO Invoices"
+      },
+      {
+        label: "Project Invoices",
+        value: "Project Invoices"
       },
     ], [])
 
@@ -170,7 +175,7 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
                   ) : tab === "All Orders" ? (
                   
                     <ProjectPaymentsList projectId={projectData?.name} />
-                  ) : <ProjectWiseInvoices projectId={projectData?.name} />}
+                  ) :tab==="All PO Invoices"?(<ProjectWiseInvoices projectId={projectData?.name} />):<ProjectInvoices projectId={projectData?.name} />}
                 </Suspense>
 
                       <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>
