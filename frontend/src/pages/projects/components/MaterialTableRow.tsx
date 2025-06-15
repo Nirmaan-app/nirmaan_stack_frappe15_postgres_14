@@ -7,6 +7,7 @@ import { Info, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MaterialUsageDisplayItem } from './ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 interface MaterialTableRowProps {
   item: MaterialUsageDisplayItem;
@@ -57,6 +58,13 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item }) => {
         )}
       </TableCell>
       <TableCell className="text-right font-mono py-2 px-3">{item.deliveredQuantity.toFixed(2)}</TableCell>
+            {/* ============== ADD THIS NEW TABLE CELL ============== */}
+      <TableCell className="text-right font-mono py-2 px-3">
+        {formatToIndianRupee(item.totalAmount || 0)}
+      </TableCell>
+      {/* =================================================== */}
+
+
       <TableCell className="text-center py-2 px-3">
         <Badge
           variant={
@@ -102,6 +110,7 @@ function renderPONumbers(poNumbers?: { po: string, status: string }[]) {
   }
 
   if (poNumbers.length === 1) {
+
     return (
       <Link to={`po/${poNumbers[0].po.replaceAll("/", "&=")}`} relative="path" className="text-blue-600 hover:underline text-xs font-mono">
         {poNumbers[0].po}

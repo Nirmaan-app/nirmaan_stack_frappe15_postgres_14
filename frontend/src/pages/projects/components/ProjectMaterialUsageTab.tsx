@@ -38,6 +38,7 @@ export interface MaterialUsageDisplayItem {
 
   deliveryStatus: DeliveryStatus
   overallPOPaymentStatus: OverallItemPOStatus
+  totalAmount?: number;
 }
 
 export interface ProjectMaterialUsageTabProps {
