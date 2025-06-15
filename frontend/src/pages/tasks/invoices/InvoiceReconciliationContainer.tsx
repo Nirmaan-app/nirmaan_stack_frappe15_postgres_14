@@ -68,8 +68,9 @@ export default function InvoiceReconciliationContainer() {
                   </div>
               ),
               value: INVOICE_TASK_TABS.HISTORY,
-          },
+          }
         ], [role])
+         
 
     const onClick = useCallback(
             (value : string) => {
@@ -92,6 +93,7 @@ export default function InvoiceReconciliationContainer() {
                         onChange={(e) => onClick(e.target.value)}
                     />
                 )}
+                
 
                 <Suspense fallback={
                     <LoadingFallback />
