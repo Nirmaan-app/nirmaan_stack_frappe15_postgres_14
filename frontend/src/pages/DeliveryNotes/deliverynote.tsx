@@ -1,4 +1,4 @@
-// import { Badge } from '@/components/ui/badge';
+// import { Badge } from '@/components/ui/badge';  
 // import { Button } from "@/components/ui/button";
 // import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 // import { useFrappeGetDoc } from 'frappe-react-sdk';
@@ -21,12 +21,12 @@
 //   const { dnId: id } = useParams<{ dnId: string }>();
 
 //   if(!id) return <div className="flex items-center justify-center h-[90vh]">Error: DN ID is missing.</div>
-  
+
 //   const deliveryNoteId = id.replaceAll("&=", "/");
 //   const poId = deliveryNoteId?.replace("DN", "PO")
 
 //   const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
-  
+
 //   const navigate = useNavigate();
 
 //   const componentRef = useRef<HTMLDivElement>(null);
@@ -312,7 +312,7 @@
 
 
 // src/pages/DeliveryNote.tsx (or wherever your component resides)
-import React, { useRef, useMemo, useCallback } from 'react';
+import React, { useRef, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useReactToPrint } from 'react-to-print';
 import { Printer } from 'lucide-react';
@@ -333,13 +333,13 @@ import { DeliveryNotePrintLayout } from './components/DeliveryNotePrintLayout'; 
 import { useDeliveryNoteData } from './hooks/useDeliveryNoteData'; // Adjust path
 import { DeliveryDataType, ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import {
-    ROUTE_PATHS,
-    STATUS_BADGE_VARIANT,
-    DOCUMENT_PREFIX,
-    encodeFrappeId,
-    formatDisplayId,
-    safeJsonParse,
-    deriveDnIdFromPoId
+  ROUTE_PATHS,
+  STATUS_BADGE_VARIANT,
+  DOCUMENT_PREFIX,
+  encodeFrappeId,
+  formatDisplayId,
+  safeJsonParse,
+  deriveDnIdFromPoId
 } from './constants'; // Adjust path
 
 // --- Helper Components (can be moved to separate files if they grow) ---
@@ -356,96 +356,96 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, children }) => (
 );
 
 interface LinkRowProps extends DetailRowProps {
-    onClick: () => void;
-    value: string | undefined;
+  onClick: () => void;
+  value: string | undefined;
 }
 const LinkRow: React.FC<LinkRowProps> = ({ label, onClick, value }) => (
-    <DetailRow label={label}>
-        {value ? (
-             <span className="underline cursor-pointer text-blue-600 hover:text-blue-800" onClick={onClick}>
-                {value}
-            </span>
-        ) : (
-            <span className="text-xs text-gray-500">N/A</span>
-        )}
-    </DetailRow>
+  <DetailRow label={label}>
+    {value ? (
+      <span className="underline cursor-pointer text-blue-600 hover:text-blue-800" onClick={onClick}>
+        {value}
+      </span>
+    ) : (
+      <span className="text-xs text-gray-500">N/A</span>
+    )}
+  </DetailRow>
 );
 
 interface DeliveryPersonDetailsProps {
-    deliveryContact: string | undefined;
+  deliveryContact: string | undefined;
 }
 const DeliveryPersonDetails: React.FC<DeliveryPersonDetailsProps> = ({ deliveryContact }) => {
-    const { name, mobile } = useMemo(() => {
-        if (!deliveryContact || !deliveryContact.includes(':')) {
-            return { name: null, mobile: null };
-        }
-        const parts = deliveryContact.split(':');
-        return { name: parts[0]?.trim() || null, mobile: parts[1]?.trim() || null };
-    }, [deliveryContact]);
+  const { name, mobile } = useMemo(() => {
+    if (!deliveryContact || !deliveryContact.includes(':')) {
+      return { name: null, mobile: null };
+    }
+    const parts = deliveryContact.split(':');
+    return { name: parts[0]?.trim() || null, mobile: parts[1]?.trim() || null };
+  }, [deliveryContact]);
 
-    return (
-        <Card>
-            <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-semibold text-gray-700">Delivery Person</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-2">
-                <DetailRow label="Name">
-                    {name || <span className="text-xs text-gray-500">Not Provided</span>}
-                </DetailRow>
-                <DetailRow label="Mobile">
-                    {mobile || <span className="text-xs text-gray-500">Not Provided</span>}
-                </DetailRow>
-            </CardContent>
-        </Card>
-    );
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg font-semibold text-gray-700">Delivery Person</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-2">
+        <DetailRow label="Name">
+          {name || <span className="text-xs text-gray-500">Not Provided</span>}
+        </DetailRow>
+        <DetailRow label="Mobile">
+          {mobile || <span className="text-xs text-gray-500">Not Provided</span>}
+        </DetailRow>
+      </CardContent>
+    </Card>
+  );
 };
 
 
 interface OrderDetailsCardProps {
-    data: ProcurementOrder;
+  data: ProcurementOrder;
 }
 const OrderDetailsCard: React.FC<OrderDetailsCardProps> = ({ data }) => {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
 
-    const handleNavigate = useCallback((path: string | null) => {
-        if (path) {
-            navigate(path);
-        }
-        // Optional: handle case where navigation is not possible (-1 behaviour?)
-        // else { navigate(-1); } // Be cautious with -1, explicit paths are safer
-    }, [navigate]);
+  const handleNavigate = useCallback((path: string | null) => {
+    if (path) {
+      navigate(path);
+    }
+    // Optional: handle case where navigation is not possible (-1 behaviour?)
+    // else { navigate(-1); } // Be cautious with -1, explicit paths are safer
+  }, [navigate]);
 
-    const prPath = data.procurement_request
-        ? ROUTE_PATHS.PROCUREMENT_REQUEST_DETAILS(data.procurement_request)
-        : null;
+  const prPath = data.procurement_request
+    ? ROUTE_PATHS.PROCUREMENT_REQUEST_DETAILS(data.procurement_request)
+    : null;
 
-    const poPath = data.procurement_request && data.name
-        ? ROUTE_PATHS.PROCUREMENT_ORDER_DETAILS(data.procurement_request, encodeFrappeId(data.name))
-        : null;
+  const poPath = data.procurement_request && data.name
+    ? ROUTE_PATHS.PROCUREMENT_ORDER_DETAILS(data.procurement_request, encodeFrappeId(data.name))
+    : null;
 
-     const badgeVariant = STATUS_BADGE_VARIANT[data.status] || STATUS_BADGE_VARIANT['default'];
+  const badgeVariant = STATUS_BADGE_VARIANT[data.status] || STATUS_BADGE_VARIANT['default'];
 
-    return (
-         <Card>
-            <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                    <CardTitle className="text-lg font-semibold text-gray-700">
-                        Order Details
-                    </CardTitle>
-                     <Badge variant={badgeVariant}>
-                        {data.status || 'Unknown Status'}
-                    </Badge>
-                </div>
-            </CardHeader>
-            <CardContent className="pt-2">
-                <DetailRow label="Address">
-                    <AddressView id={data.project_address} className="text-sm" />
-                </DetailRow>
-                 <LinkRow label="@PR" onClick={() => handleNavigate(prPath)} value={data.procurement_request} />
-                 <LinkRow label="@PO" onClick={() => handleNavigate(poPath)} value={data.name} />
-            </CardContent>
-        </Card>
-    );
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-lg font-semibold text-gray-700">
+            Order Details
+          </CardTitle>
+          <Badge variant={badgeVariant}>
+            {data.status || 'Unknown Status'}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-2">
+        <DetailRow label="Address">
+          <AddressView id={data.project_address} className="text-sm" />
+        </DetailRow>
+        <LinkRow label="@PR" onClick={() => handleNavigate(prPath)} value={data.procurement_request} />
+        <LinkRow label="@PO" onClick={() => handleNavigate(poPath)} value={data.name} />
+      </CardContent>
+    </Card>
+  );
 };
 
 // --- Main Component ---
@@ -460,7 +460,13 @@ export default function DeliveryNote() {
     mutate: refetchDeliveryNoteData // Renamed mutate for clarity
   } = useDeliveryNoteData();
 
+  // --- STATE FOR DYNAMIC PRINTING ---
+  const [historyEntryToPrint, setHistoryEntryToPrint] = useState<DeliveryDataType[string] | null>(null);
+  const historyPrintComponentRef = useRef<HTMLDivElement>(null);
+  ///
+
   const printComponentRef = useRef<HTMLDivElement>(null);
+
   const handlePrint = useReactToPrint({
     content: () => printComponentRef.current,
     documentTitle: deliveryNoteData
@@ -469,6 +475,30 @@ export default function DeliveryNote() {
     // Optional: Add page styles if needed
     // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
   });
+
+  // --- NEW PRINT HOOK FOR HISTORY ---
+  // This hook is configured but not called directly by a button.
+  const handlePrintHistoryEntry = useReactToPrint({
+    content: () => historyPrintComponentRef.current,
+    documentTitle: `DN_History_${new Date(historyEntryToPrint?.timestamp || Date.now()).toISOString().split('T')[0]}`,
+  });
+
+  // --- FUNCTION TO TRIGGER THE HISTORY PRINT ---
+  // This is the function we will pass down to the history table.
+  const triggerHistoryPrint = useCallback((historyData: DeliveryDataType[string]) => {
+    // 1. Set the data for the printable component
+    setHistoryEntryToPrint(historyData);
+
+    // 2. Trigger the print dialog
+    // We use a short timeout to ensure React has updated the state and rendered
+    // the new data into the hidden component before the print dialog opens.
+    setTimeout(() => {
+      handlePrintHistoryEntry();
+    }, 50); // A 50ms delay is usually sufficient
+
+  }, [handlePrintHistoryEntry]);
+
+
 
   // Loading State
   if (isLoading) {
@@ -490,9 +520,9 @@ export default function DeliveryNote() {
     );
   }
 
-   // Data Not Found State (Query succeeded but returned no data)
-   if (!deliveryNoteData) {
-     return (
+  // Data Not Found State (Query succeeded but returned no data)
+  if (!deliveryNoteData) {
+    return (
       <div className="flex items-center justify-center h-[80vh] text-orange-600">
         Delivery Note details not found for ID: {deliveryNoteId} (PO: {poId}).
       </div>
@@ -500,7 +530,7 @@ export default function DeliveryNote() {
   }
 
   // Parse delivery history data safely
-  const deliveryHistory = safeJsonParse<{data: DeliveryDataType}>(deliveryNoteData.delivery_data, { data: {} });
+  const deliveryHistory = safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData.delivery_data, { data: {} });
 
   const displayDnId = formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE);
 
@@ -520,26 +550,37 @@ export default function DeliveryNote() {
 
       {/* Main Content Grid/Flex */}
       <div className="grid grid-cols-1 gap-6">
-          {/* Left Column (Details) */}
-             <OrderDetailsCard data={deliveryNoteData} />
-             <DeliveryPersonDetails deliveryContact={deliveryNoteData.delivery_contact} />
+        {/* Left Column (Details) */}
+        <OrderDetailsCard data={deliveryNoteData} />
+        <DeliveryPersonDetails deliveryContact={deliveryNoteData.delivery_contact} />
 
-          {/* Right Column (Items & History) */}
-            <DeliveryNoteItemsDisplay
-                // Pass only necessary, parsed data if possible
-                data={deliveryNoteData}
-                poMutate={refetchDeliveryNoteData} // Pass refetch function
-            />
+        {/* Right Column (Items & History) */}
+        <DeliveryNoteItemsDisplay
+          // Pass only necessary, parsed data if possible
+          data={deliveryNoteData}
+          poMutate={refetchDeliveryNoteData} // Pass refetch function
+        />
 
-            {/* Delivery History */}
-              <DeliveryHistoryTable deliveryData={deliveryHistory.data} />
+        {/* Delivery History */}
+        <DeliveryHistoryTable deliveryData={deliveryHistory.data} onPrintHistory={triggerHistoryPrint} />
       </div>
 
 
       {/* Hidden Printable Component */}
       {/* Keep this outside the main layout flow */}
       <div className="hidden print:block"> {/* Use print:block utility */}
-         <DeliveryNotePrintLayout ref={printComponentRef} data={deliveryNoteData} />
+        <DeliveryNotePrintLayout ref={printComponentRef} data={deliveryNoteData} />
+      </div>
+      {/* 2. For printing specific history entries */}
+
+      <div className="hidden">
+        {historyEntryToPrint && (
+          <DeliveryNotePrintLayout
+            ref={historyPrintComponentRef}
+            // Pass the current main PO data but override items with historical data
+            data={{ ...deliveryNoteData, delivery_list: { list: historyEntryToPrint.items } }}
+          />
+        )}
       </div>
     </div>
   );
