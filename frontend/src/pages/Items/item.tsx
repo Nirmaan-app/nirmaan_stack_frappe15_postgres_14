@@ -13,6 +13,10 @@ import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, u
 import { FilePenLine, ListChecks } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useParams } from "react-router-dom"
+import React, { Suspense } from "react";
+import { TailSpin } from "react-loader-spinner";
+
+const ApprovedQuotationsTable = React.lazy(()=>import("../ApprovedQuotationsFlow/ApprovedQuotationsTable"));
 
 const Item = () => {
     const { productId } = useParams<{ productId: string }>()
@@ -53,6 +57,7 @@ const ItemView = ({ productId }: { productId: string }) => {
         orderBy: { field: 'work_package', order: 'asc' },
         limit: 1000
     })
+// console.log("category",data)
 
     interface SelectOption {
         label: string;
@@ -79,6 +84,7 @@ const ItemView = ({ productId }: { productId: string }) => {
             setUnit(data?.unit_name)
         }
     }, [data])
+    
 
     const handleEditItem = () => {
         updateDoc('Items', productId, {
@@ -189,7 +195,12 @@ const ItemView = ({ productId }: { productId: string }) => {
                     </Card>
                 </div>
             )}
-
+             <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
+                        
+                          <ApprovedQuotationsTable productId={productId} item_name={curItem} />
+                         
+                      </Suspense>
+            
         </div>
     )
 }

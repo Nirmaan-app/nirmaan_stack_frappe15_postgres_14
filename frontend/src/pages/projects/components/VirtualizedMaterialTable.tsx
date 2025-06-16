@@ -68,6 +68,13 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
             <TableHead className="text-right min-w-[100px]">Est. Qty</TableHead>
             <TableHead className="text-right min-w-[100px]">Ordered Qty</TableHead>
             <TableHead className="text-right min-w-[120px]">Delivered Qty</TableHead>
+            {/* <TableHead
+             className="text-right min-w-[120px]">Total Amount</TableHead> */}
+                 {/* =============== ADD THIS NEW TABLE HEAD ================ */}
+            <TableHead className="text-right min-w-[120px]">Total Amount</TableHead>
+            {/* ====================================================== */}
+            
+
             <TableHead className="text-center min-w-[150px] flex items-center gap-1">
               <SimpleFacetedFilter
                 title="Delivery Status"
@@ -94,8 +101,13 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
             </TableRow>
           )}
 
-          {virtualRows.length === 0 && (
+          {/* {virtualRows.length === 0 && (
             <TableRow><TableCell colSpan={9} className="h-24 text-center">No results found.</TableCell></TableRow>
+          )} */}
+           {virtualRows.length === 0 && (
+            // ============ UPDATE THE COLSPAN HERE ============
+            <TableRow><TableCell colSpan={10} className="h-24 text-center">No results found.</TableCell></TableRow>
+            // ===============================================
           )}
 
           {virtualRows.map(virtualRow => {
@@ -107,6 +119,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
               />
             );
           })}
+         
 
           {paddingBottom > 0 && (
             <TableRow>

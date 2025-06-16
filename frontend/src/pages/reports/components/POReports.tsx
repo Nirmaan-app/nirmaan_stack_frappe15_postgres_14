@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { POReportRowData, usePOReportsData } from "../hooks/usePOReportsData";
 import { getPOReportColumns } from "./columns/poColumns";
@@ -77,12 +77,29 @@ export default function POReports() {
             case 'Dispatched for 3 days':
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
-                    if (poDoc.status === 'Dispatched' && poDoc.dispatch_date) {
-                        try {
-                            return differenceInDays(today, parseISO(poDoc.dispatch_date)) > 3;
-                        } catch { return false; }
+
+                    // 1. Guard against missing or invalid data
+                    if (poDoc.status !== 'Dispatched' || !poDoc.dispatch_date) {
+                        return false;
                     }
-                    return false;
+
+                    try {
+                        const dispatchDate = parseISO(poDoc.dispatch_date);
+
+                        // This check prevents errors if parseISO results in an invalid date
+                        if (isNaN(dispatchDate.getTime())) {
+                            return false;
+                        }
+
+                        // 2. The corrected logic using ">="
+                        const dayDifference = differenceInDays(today, dispatchDate);
+                        return dayDifference >= 3;
+
+                    } catch (e) {
+                        // This will catch any unexpected errors during date parsing
+                        console.error(`Could not parse dispatch_date: ${poDoc.dispatch_date}`, e);
+                        return false;
+                    }
                 });
                 break;
             default:
@@ -113,7 +130,21 @@ export default function POReports() {
         // No `meta` needed here as POReportRowData contains all display fields,
         // and poColumns directly accesses them.
     });
+    const filteredRowCount = table.getFilteredRowModel().rows.length;
+    // This effect synchronizes the table's pageCount with the client-side filtered data.
+    useEffect(() => {
+        const { pageSize } = table.getState().pagination;
+        const newPageCount = pageSize > 0 ? Math.ceil(filteredRowCount / pageSize) : 1;
 
+        // Prevent infinite loops by only setting options if the page count has changed.
+        if (table.getPageCount() !== newPageCount) {
+            table.setOptions(prev => ({
+                ...prev,
+                pageCount: newPageCount,
+            }));
+        }
+    }, [table, filteredRowCount]); // Rerun when the table instance or filtered data count changes
+    // =================================================================================
     // Supporting data for faceted filters (Projects & Vendors)
     const projectsFetchOptions = getProjectListOptions();
     const { data: projects, isLoading: projectsUiLoading, error: projectsUiError } = useFrappeGetDocList<Projects>(
@@ -192,7 +223,8 @@ export default function POReports() {
                     columns={tableColumnsToDisplay}
                     isLoading={isLoadingOverall}
                     error={overallError as Error | null}
-                    totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length
+                    // totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length
+                    totalCount={filteredRowCount}
                     searchFieldOptions={PO_REPORTS_SEARCHABLE_FIELDS}
                     selectedSearchField={selectedSearchField}
                     onSelectedSearchFieldChange={setSelectedSearchField}

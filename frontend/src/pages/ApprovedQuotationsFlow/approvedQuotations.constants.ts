@@ -13,16 +13,17 @@ export const CATEGORY_DOCTYPE = 'Category';
 export const AQ_LIST_FIELDS_TO_FETCH: (keyof ApprovedQuotationsType | 'name')[] = [
     'name', // Quote ID
     'creation',
-    'item_id', // Link to Items
+    'item_id', // Link to Items 
     'item_name',
     'unit',
-    'quantity',
+    'quantity',  
     'quote', // Assuming this is the quoted amount
     'tax',
     'make',
     'vendor', // Link to Vendors
     'procurement_order', // Link to PO
     'category', // Link to Category
+    //"procurement_package"//Link to Procurement Package
     // 'city', 'state' - these seem to be on the Approved Quotation itself, confirm if they should be fetched
 ];
 
@@ -51,3 +52,12 @@ export const VENDOR_LOOKUP_FIELDS: (keyof VendorsType | 'name')[] = ['name', 've
 export const ITEM_LOOKUP_FIELDS: (keyof ItemsType | 'name')[] = ['name', 'item_name'];
 // Fields to fetch from Category for select options / display
 export const CATEGORY_LOOKUP_FIELDS: (keyof CategoryType | 'name')[] = ['name'];
+
+// Function to get static filters based on props like customerId
+export const getItemStaticFilters = (item_name?: string): Array<[string, string, any]> => {
+    const filters: Array<[string, string, any]> = [];
+    if (item_name) {
+        filters.push(["item_id", "=", item_name]);
+    }
+    return filters;
+};
