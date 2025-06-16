@@ -175,7 +175,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
     <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          <p className="text-xl max-sm:text-lg text-red-600">
+          <p data-cy="transaction=details-card-heading" className="text-xl max-sm:text-lg text-red-600">
             Transaction Details
           </p>
           {!accountsPage && !estimatesViewing && !summaryPage && (
@@ -315,7 +315,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
         </CardTitle>
       </CardHeader>
       <CardContent className="overflow-auto">
-        <Table>
+        <Table data-cy="transactions-details-table">
           <TableHeader className="bg-red-100">
             <TableRow>
               <TableHead className="text-black font-bold">Amount</TableHead>
@@ -357,6 +357,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
                       <Button
+                          data-cy="rejecte-payments-button"
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"

@@ -91,8 +91,9 @@ export const DeletePaymentDialog: React.FC<DeletePaymentDialogProps> = ({
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isMutating}>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel data-cy="delete-payment-cancel-button" disabled={isMutating}>Cancel</AlertDialogCancel>
                     <Button
+                        data-cy="delete-payment-confirm-delete-button"
                         variant="destructive"
                         onClick={handleConfirmDelete}
                         disabled={isMutating}

@@ -156,7 +156,7 @@ export const PendingTasksTable: React.FC = () => {
                 confirmText={confirmationState.action === "Approved" ? "Approve" : "Reject"}
                 confirmVariant={confirmationState.action === "Approved" ? "default" : "destructive"}
             >
-                <p className='text-sm text-muted-foreground text-center pt-2'>
+                <p data-cy="confirmation-dialog-text" className='text-sm text-muted-foreground text-center pt-2'>
                     Are you sure you want to{' '}
                     <strong className={confirmationState.action === "Rejected" ? "text-destructive" : "text-primary"}>
                         {confirmationState.action === "Approved" ? "Approve" : "Reject"}

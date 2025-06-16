@@ -5,8 +5,8 @@ export default defineConfig({
     baseUrl: 'http://localhost:8080',
     pageLoadTimeout: 30000,
     
-    viewportHeight: 1080,
-    viewportWidth: 1920,
+    // viewportHeight: 1080,
+    // viewportWidth: 1920,
     
     video:false,
     videoCompression: 32,

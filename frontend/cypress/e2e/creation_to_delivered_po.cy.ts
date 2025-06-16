@@ -47,9 +47,6 @@
     //  - Click "Update DN" again
     //  - Perform complete delivery (input full original ordered quantities, save)
 
-    // --- PART 8: VERIFY PO IN DELIVERED LIST (Final Check) ---
-    //  - Navigate to "Delivered PO" tab
-    //  - Find generatedPoNumber in the table.
 
 const login_pr_end_email = Cypress.env('login_Email');
 const login_pr_end_password = Cypress.env('login_Password');
