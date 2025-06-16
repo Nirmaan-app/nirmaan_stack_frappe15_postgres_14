@@ -14,12 +14,15 @@ import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
+import { Printer } from 'lucide-react';
+import { Button } from "@/components/ui/button";
 
 const TRANSITION_DURATION = 300;
 const MAX_HEIGHT = 1000;
 
 interface DeliveryHistoryTableProps {
   deliveryData: DeliveryDataType | null;
+  onPrintHistory: (historyEntryData: DeliveryDataType[string]) => void; // <-- ADD THIS PROP
 }
 
 interface ExpandableRowProps {
@@ -28,9 +31,10 @@ interface ExpandableRowProps {
   data: DeliveryDataType[string];
   isExpanded: boolean;
   onToggle: (date: string) => void;
+  onPrint: (historyEntryData: DeliveryDataType[string]) => void;
 }
 
-const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpanded, onToggle }) => {
+const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpanded, onToggle, onPrint }) => {
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -38,15 +42,15 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
     }
   }, [date, onToggle]);
 
-  const {data : usersList} = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+  const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
     fields: ["name", "full_name"],
     limit: 1000,
   }, `Nirmaan Users`);
 
-  const getUserName = useMemo(() => memoize((id : string | undefined) => {
-    if(id === "Administrator") return "Administrator"
+  const getUserName = useMemo(() => memoize((id: string | undefined) => {
+    if (id === "Administrator") return "Administrator"
     return usersList?.find((user) => user.name === id)?.full_name || ""
-  }, (id : string | undefined) => id), [usersList]);
+  }, (id: string | undefined) => id), [usersList]);
 
   return (
     <>
@@ -75,7 +79,25 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
         </TableCell>
         <TableCell>{data.items.length}</TableCell>
         <TableCell className={`${index === 0 ? "font-bold" : ""}`}>{index === 0 ? "Create" : "Update"}</TableCell>
-        <TableCell>{getUserName(data.updated_by)}</TableCell>
+        <TableCell>
+          {getUserName(data.updated_by)}
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded bg-red-400 hover:bg-red-100 group"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPrint(data);
+              }}
+              aria-label={`Print delivery note for ${date}`}
+            >
+              <Printer className="h-4 w-4 text-gray-700 group-hover:text-red-600" />
+            </Button>
+          </div>
+        </TableCell>
       </TableRow>
       <TableRow aria-hidden={!isExpanded}>
         <TableCell colSpan={3} className="p-0">
@@ -88,6 +110,13 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
             }}
           >
             <Table className="bg-gray-50">
+              <TableHeader className="bg-red-100">
+                <TableRow>
+                  <TableHead className="w-[50%] pl-8 font-semibold text-gray-700">Item Name</TableHead>
+                  <TableHead className="w-[25%] font-semibold text-gray-700">Unit</TableHead>
+                  <TableHead className="font-semibold text-gray-700">Qty</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {data.items.map((item, index) => (
                   <TableRow key={`${date}-${index}`}>
@@ -112,7 +141,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
 };
 
 
-const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryData }) => {
+const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryData, onPrintHistory }) => {
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
 
   const handleToggle = useCallback((date: string) => {
@@ -121,6 +150,7 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
       : [...prev, date]
     );
   }, []);
+  const hasHistory = deliveryData && Object.keys(deliveryData).length > 0;
 
   return (
     <Card>
@@ -131,40 +161,50 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
       </CardHeader>
       <CardContent>
         <div className="overflow-auto">
-        <Table>
-          <TableHeader className="bg-gray-100">
-            <TableRow>
-              <TableHead className="font-bold w-[50%] min-w-[200px]">Date</TableHead>
-              <TableHead className="font-bold w-[25%] min-w-[100px]">No. of Items</TableHead>
-              <TableHead className="font-bold w-[25%] min-w-[100px]">Change Type</TableHead>
-              <TableHead className="font-bold">Updated By</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {deliveryData ? (
-              Object.entries(deliveryData).map(([date, data], index) => (
-                <ExpandableRow
-                  index={index}
-                  key={date}
-                  date={date}
-                  data={data}
-                  isExpanded={expandedRows.includes(date)}
-                  onToggle={handleToggle}
-                />
-              ))
-            ) : (
+          <Table>
+            <TableHeader className="bg-gray-100">
               <TableRow>
-                <TableCell
-                  colSpan={3}
-                  className="text-center py-4 text-gray-500"
-                >
-                  No delivery history available
-                </TableCell>
+                <TableHead className="font-bold w-[50%] min-w-[200px]">Date</TableHead>
+                <TableHead className="font-bold w-[25%] min-w-[100px]">No. of Items</TableHead>
+                <TableHead className="font-bold w-[25%] min-w-[100px]">Change Type</TableHead>
+                <TableHead className="font-bold">Updated By</TableHead>
+                <TableHead className="font-bold">Print</TableHead>
+
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {/* === NEW MESSAGE FOR UPDATES === */}
+              {/* {!hasHistory && (
+          <div className="m-4 rounded-md border border-blue-200 bg-blue-50 p-4 text-center text-sm text-blue-800">
+            <p>Update and save the delivery quantities to generate the first delivery note.</p>
+          </div>
+        )} */}
+
+              {hasHistory ? (
+                Object.entries(deliveryData).map(([date, data], index) => (
+                  <ExpandableRow
+                    index={index}
+                    key={date}
+                    date={date}
+                    data={data}
+                    isExpanded={expandedRows.includes(date)}
+                    onToggle={handleToggle}
+                    onPrint={onPrintHistory} // <-- PASS THE HANDLER DOWN
+                  />
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={3}
+                    className="text-center py-4 text-gray-500"
+                  >
+                    No delivery history available
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );
