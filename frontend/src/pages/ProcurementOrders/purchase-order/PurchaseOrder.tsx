@@ -801,6 +801,7 @@ export const PurchaseOrder = ({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
+                          data-cy="merge-po-button"
                           aria-label={isValid ? "Merge PO(s)" : "Merge unavailable"}
                           className="flex items-center gap-1" color="primary">
                           <Merge className="w-4 h-4" />
@@ -820,7 +821,7 @@ export const PurchaseOrder = ({
                 </SheetTrigger>
                 <SheetContent className="overflow-y-auto">
                   <div className="md:p-6">
-                    <h2 className="text-2xl font-bold mb-4">
+                    <h2 data-cy="merge-po-dialog-text" className="text-2xl font-bold mb-4">
                       Merge Purchase Orders
                     </h2>
 
@@ -892,6 +893,7 @@ export const PurchaseOrder = ({
                               </TableCell>
                               <TableCell>
                                 <Button
+                                  data-cy="po-split-button"
                                   className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
                                   variant={"ghost"}
                                   disabled
@@ -950,6 +952,7 @@ export const PurchaseOrder = ({
                                         <HoverCard>
                                           <HoverCardTrigger>
                                             <Button
+                                              data-cy="dialog-box-po-merger-button"
                                               className="flex items-center gap-1"
                                               disabled
                                             >
@@ -968,6 +971,7 @@ export const PurchaseOrder = ({
                                         </HoverCard>
                                       ) : (
                                         <Button
+                                          data-cy="dialog-box-po-merger-button"
                                           className="flex items-center gap-1"
                                           onClick={() => handleMerge(po)}
                                         >
@@ -1013,6 +1017,7 @@ export const PurchaseOrder = ({
                       >
                         <AlertDialogTrigger asChild>
                           <Button
+                            data-cy="dialog-box-po-merge-confirm-button"
                             className="flex items-center gap-1"
                             disabled={!mergedItems.length}
                           >
@@ -1022,7 +1027,7 @@ export const PurchaseOrder = ({
                         </AlertDialogTrigger>
                         <AlertDialogContent className="overflow-auto">
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure!</AlertDialogTitle>
+                            <AlertDialogTitle data-cy="merger-confirm-dialog-text">Are you sure!</AlertDialogTitle>
                           </AlertDialogHeader>
                           <AlertDialogDescription>
                             Below are the subsequent actions executed on
@@ -1049,11 +1054,12 @@ export const PurchaseOrder = ({
                             </div>
                           ) : (
                             <AlertDialogDescription className="flex gap-2 items-center justify-center">
-                              <AlertDialogCancel className="flex items-center gap-1">
+                              <AlertDialogCancel data-cy="merge-po-cancel-button" className="flex items-center gap-1">
                                 <CircleX className="h-4 w-4" />
                                 Cancel
                               </AlertDialogCancel>
                               <Button
+                                data-cy="merge-po-confirm-button"
                                 onClick={handleMergePOs}
                                 className="flex gap-1 items-center"
                               >

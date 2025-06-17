@@ -118,7 +118,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/in-flow-payments") {
     return (
-      <Button onClick={toggleNewInflowDialog} className="sm:mr-4 mr-2">
+      <Button data-cy="add-new-inflow-button" onClick={toggleNewInflowDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Inflow</span>
       </Button>

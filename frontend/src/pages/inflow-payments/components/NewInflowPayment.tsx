@@ -229,8 +229,8 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2">
                     <div className="grid grid-cols-3 items-center gap-4">
-                        <Label data-cy="add-new-inflow-dropdown" htmlFor="project" className="text-right">Project <sup className="text-destructive">*</sup></Label>
-                        <div className="col-span-2">
+                        <Label htmlFor="project" className="text-right">Project <sup className="text-destructive">*</sup></Label>
+                        <div data-cy="add-new-inflow-dropdown" className="col-span-2">
                             <ProjectSelect
                                 all={true} // Assuming this means fetch all projects
                                 // value={formState.project ? { value: formState.project, label: formState.project_name || formState.project } : null}
@@ -264,13 +264,13 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
 
                     <div className="grid grid-cols-3 items-center gap-4">
                         <Label htmlFor="utr" className="text-right">Payment Ref (UTR) <sup className="text-destructive">*</sup></Label>
-                        <Input id="utr" name="utr" type="text" placeholder="Enter UTR/Ref No." value={formState.utr} onChange={handleInputChange} disabled={!isProjectValidForPayment} className="col-span-2 h-9" />
+                        <Input data-cy="add-new-inflow-payment-ref-input" id="utr" name="utr" type="text" placeholder="Enter UTR/Ref No." value={formState.utr} onChange={handleInputChange} disabled={!isProjectValidForPayment} className="col-span-2 h-9" />
                          {formErrors.utr && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.utr}</p>}
                     </div>
 
                     <div className="grid grid-cols-3 items-center gap-4">
                         <Label htmlFor="payment_date" className="text-right">Payment Date <sup className="text-destructive">*</sup></Label>
-                        <Input data-cy="add-new-inflow-payment-ref-input" id="payment_date" name="payment_date" type="date" value={formState.payment_date} onChange={handleInputChange} disabled={!isProjectValidForPayment} max={formatDate(new Date(), "yyyy-MM-dd")} className="col-span-2 h-9" />
+                        <Input id="payment_date" name="payment_date" type="date" value={formState.payment_date} onChange={handleInputChange} disabled={!isProjectValidForPayment} max={formatDate(new Date(), "yyyy-MM-dd")} className="col-span-2 h-9" />
                         {formErrors.payment_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
                     </div>
 
@@ -287,8 +287,8 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                         <div className="flex justify-center w-full"><TailSpin color="#ef4444" height={28} width={28} /></div>
                     ) : (
                         <>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <Button onClick={handleSubmitPayment} disabled={isSubmitDisabled}>Add Payment</Button>
+                            <AlertDialogCancel data-cy="new-inflow-cancel-button">Cancel</AlertDialogCancel>
+                            <Button data-cy="new-inflow-add-payment-button" onClick={handleSubmitPayment} disabled={isSubmitDisabled}>Add Payment</Button>
                         </>
                     )}
                 </AlertDialogFooter>

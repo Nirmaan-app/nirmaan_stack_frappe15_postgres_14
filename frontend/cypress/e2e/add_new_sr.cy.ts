@@ -20,47 +20,6 @@ describe('Adding a New Service Request', () => {
         cy.contains('Modules').should('be.visible');
     });
 
-    it('Navigates to Service Requests page and adds a New Service Request', () => {
-
-        cy.get('[data-cy="service-requests-button"]').should('be.visible').click();
-        cy.url().should('include', 'service-requests');
-
-        cy.contains('Add New SR').should('be.visible').click();
-        cy.get('.css-art2ul-ValueContainer2').click();
-        cy.get('.css-1nmdiq5-menu')
-        .find('[role="option"]')
-            .then( $projects => {
-                const randomIndex = Math.floor(Math.random() * $projects.length);
-                const selectedProjectText = $projects[randomIndex].textContent;
-                cy.log(`Randomly Selected Projects for Service Request: ${selectedProjectText}`);
-                cy.wrap($projects[randomIndex]).click();
-            });
-
-        cy.get('button')
-            .contains('Add New SR')
-            .find('svg.lucide-circle-plus')
-            .should('exist')
-            .and('be.visible')
-            .and('not.have.attr', 'disabled');
-
-        cy.get('button')
-            .contains('Add New SR')
-            .click();
-
-        cy.get('.rounded-xl.bg-card').should('have.length.gt', 0)
-            .then(($cards) => {
-                const randomIndex = Math.floor(Math.random() * $cards.length);
-                const selectedCardText = $cards[randomIndex].textContent;
-                cy.log(`RandomlySelected Service Package: ${selectedCardText}`);
-                cy.wrap($cards[randomIndex]).click();
-            });
-
-        cy.get('#description')
-            .should('exist')
-            .and('be.visible')
-            .and('have.class', 'min-h-[80px]')
-            .and('have.class', 'rounded-md');
-
         const serviceDescriptions = {
             "Access Control ServicesComments": [
             "Installation of biometric access system for main office entrance.",
@@ -135,6 +94,47 @@ describe('Adding a New Service Request', () => {
             "POP partition wall construction."
         ]
     };
+
+    it('Navigates to Service Requests page and adds a New Service Request', () => {
+
+        cy.get('[data-cy="service-requests-button"]').should('be.visible').click();
+        cy.url().should('include', 'service-requests');
+
+        cy.contains('Add New SR').should('be.visible').click();
+        cy.get('.css-art2ul-ValueContainer2').click();
+        cy.get('.css-1nmdiq5-menu')
+        .find('[role="option"]')
+            .then( $projects => {
+                const randomIndex = Math.floor(Math.random() * $projects.length);
+                const selectedProjectText = $projects[randomIndex].textContent;
+                cy.log(`Randomly Selected Projects for Service Request: ${selectedProjectText}`);
+                cy.wrap($projects[randomIndex]).click();
+            });
+
+        cy.get('button')
+            .contains('Add New SR')
+            .find('svg.lucide-circle-plus')
+            .should('exist')
+            .and('be.visible')
+            .and('not.have.attr', 'disabled');
+
+        cy.get('button')
+            .contains('Add New SR')
+            .click();
+
+        cy.get('.rounded-xl.bg-card').should('have.length.gt', 0)
+            .then(($cards) => {
+                const randomIndex = Math.floor(Math.random() * $cards.length);
+                const selectedCardText = $cards[randomIndex].textContent;
+                cy.log(`RandomlySelected Service Package: ${selectedCardText}`);
+                cy.wrap($cards[randomIndex]).click();
+            });
+
+        cy.get('#description')
+            .should('exist')
+            .and('be.visible')
+            .and('have.class', 'min-h-[80px]')
+            .and('have.class', 'rounded-md');
 
     // Get the selected category name from the header
     cy.get('main h3.font-bold').invoke('text')
@@ -243,81 +243,6 @@ describe('Adding a New Service Request', () => {
             .and('be.visible')
             .and('have.class', 'min-h-[80px]')
             .and('have.class', 'rounded-md');
-
-        const serviceDescriptions = {
-            "Access Control ServicesComments": [
-            "Installation of biometric access system for main office entrance.",
-            "RFID card access system for all employee doors.",
-            "Facial recognition system upgrade for building security.",
-            "Emergency door release mechanism installation."
-        ],
-        "Carpentry ServicesComments": [
-            "Custom wooden shelving for executive offices.",
-            "Repair of damaged conference room doors.",
-            "Installation of hardwood flooring in reception area.",
-            "Built-in cabinet construction for storage rooms."
-        ],
-        "CCTV ServicesComments": [
-            "16-channel CCTV system installation for warehouse.",
-            "High-resolution cameras for parking lot surveillance.",
-            "Night vision cameras for perimeter security.",
-            "PTZ camera installation at main entrance."
-        ],
-        "Data & Networking ServicesComments": [
-            "Cat6 cabling for new office wing.",
-            "Network switch upgrade to support 1Gbps throughput.",
-            "Wi-Fi access point installation in common areas.",
-            "Server room cable management reorganization."
-        ],
-        "Electrical ServicesComments": [
-            "LED lighting retrofit for entire 3rd floor.",
-            "Emergency power backup system maintenance.",
-            "Electrical panel upgrade to support new equipment.",
-            "Outlet installation for new workstations."
-        ],
-        "FA ServicesComments": [
-            "Annual fire alarm system inspection and testing.",
-            "Smoke detector installation in storage areas.",
-            "Emergency voice evacuation system upgrade.",
-            "Fire alarm control panel replacement."
-        ],
-        "Fire Fighting ServicesComments": [
-            "Fire extinguisher refilling and maintenance.",
-            "Sprinkler system installation in server room.",
-            "Fire hydrant flow testing and certification.",
-            "Emergency exit signage illumination upgrade."
-        ],
-        "HVAC ServicesComments": [
-            "AC duct cleaning for entire building.",
-            "Chiller unit preventive maintenance.",
-            "Thermostat upgrade to smart controls.",
-            "Ventilation system inspection and repair."
-        ],
-        "Miscellaneous ServicesComments": [
-            "Office furniture assembly and installation.",
-            "Window blind installation for new meeting rooms.",
-            "Pest control treatment for cafeteria area.",
-            "Moving and relocation services for department shift."
-        ],
-        "Painting ServicesComments": [
-            "Interior repainting of all common areas.",
-            "Exterior weatherproof coating application.",
-            "Specialty epoxy flooring for laboratory.",
-            "Brand color accent wall in reception."
-        ],
-        "PA ServicesComments": [
-            "Background music system installation in lobby.",
-            "Emergency announcement system testing.",
-            "Conference room speaker system upgrade.",
-            "Outdoor paging horn installation."
-        ],
-        "POP ServicesComments": [
-            "False ceiling installation in executive offices.",
-            "Decorative wall paneling for meeting rooms.",
-            "Ceiling cornice work in main lobby.",
-            "POP partition wall construction."
-        ]
-    };
 
     // Get the selected category name from the header
     cy.get('main h3.font-bold').invoke('text')
