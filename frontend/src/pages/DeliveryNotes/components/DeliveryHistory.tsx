@@ -17,6 +17,8 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Printer } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 
+
+
 const TRANSITION_DURATION = 300;
 const MAX_HEIGHT = 1000;
 
@@ -150,7 +152,8 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
       : [...prev, date]
     );
   }, []);
-  const hasHistory = deliveryData && Object.keys(deliveryData).length > 0;
+  const hasHistory = deliveryData && Object.keys(deliveryData).length > 0;''
+   
 
   return (
     <Card>

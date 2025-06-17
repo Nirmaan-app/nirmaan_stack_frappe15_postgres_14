@@ -44,7 +44,7 @@ const deriveCategoriesWithMakes = (
     initialMakesMap: CategoryMakesMap, // Baseline makes for the WP
     sessionMakesMap: SessionAddedMakes // Explicitly added makes this session
 ): CategorySelection[] => {
-    console.log("Deriving categories with:", { procList, initialMakesMap, sessionMakesMap });
+    // console.log("Deriving categories with:", { procList, initialMakesMap, sessionMakesMap });
     const categoriesMap = new Map<string, { status: string; makes: Set<string> }>(); // Map: categoryName -> {status, makesSet}
 
     // 1. Process items in the list to determine active categories and makes used
@@ -96,7 +96,7 @@ const deriveCategoriesWithMakes = (
     // 3. Sort final list
     finalCategories.sort((a, b) => a.name.localeCompare(b.name));
 
-    console.log("Derived Categories Result:", finalCategories);
+    // console.log("Derived Categories Result:", finalCategories);
     return finalCategories;
 };
 
