@@ -13,7 +13,9 @@
   "amended_from",
   "category_list",
   "comment",
+  "target_value",
   "order_list",
+  "estimated_value",
   "assignees_section",
   "project_lead",
   "procurement_executive"
@@ -88,12 +90,27 @@
    "fieldtype": "Table",
    "label": "Order List",
    "options": "Procurement Request Item Detail"
+  },
+  {
+   "fieldname": "estimated_value",
+   "fieldtype": "Currency",
+   "label": "Estimated Value",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "target_value",
+   "fieldtype": "Data",
+   "label": "Target Value",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-05-30 13:02:01.002435",
+ "modified": "2025-06-17 14:41:03.393975",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Requests",

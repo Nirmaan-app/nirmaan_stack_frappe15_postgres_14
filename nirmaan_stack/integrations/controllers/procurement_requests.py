@@ -312,6 +312,8 @@ def validate_procurement_request(doc: Document) -> bool:
     if pending_items_count == 0:
          frappe.msgprint(f"Procurement Request {doc.name} has no items with status 'Pending'.", indicator="orange", title="Validation Info")
          return True # Passes amount check (0 < 5000)
+    
+    doc.db_set("target_value", total_estimated_amount, update_modified=False)
 
 
     # --- Check 5: Total Estimated Amount < 5000 ---
