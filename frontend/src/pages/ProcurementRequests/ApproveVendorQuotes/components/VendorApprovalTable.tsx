@@ -44,7 +44,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
         if (isChecked === true) {
             // Calculate the set of all item IDs for this vendor
-            const allItemIds = new Set(allItemsForVendor.map(item => item.item_id));
+            const allItemIds = new Set(allItemsForVendor.map(item => item.item_id!));
             // Set this vendor's selection to all items
             newSelection.set(vendorId, allItemIds);
 
@@ -109,6 +109,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
     if (!dataSource || dataSource.length === 0) {
         return <div className="p-4 text-center text-muted-foreground">No vendor data to display.</div>;
     }
+
+    console.log("VendorApprovalTable dataSource", dataSource);
 
     return (
         <div className="space-y-3">
@@ -204,7 +206,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                             <Checkbox
                                                                 id={`item-${vendorId}-${item.name}`}
                                                                 checked={isItemSelected} // Use checked state from prop
-                                                                onCheckedChange={(checkedState) => handleItemCheckChange(vendorId, item.name, checkedState)}
+                                                                onCheckedChange={(checkedState) => handleItemCheckChange(vendorId, item.item_id!, checkedState)}
                                                                 aria-label={`Select item ${item.item_name}`}
                                                             />
                                                         </TableCell>

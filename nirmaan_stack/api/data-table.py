@@ -21,11 +21,32 @@ CACHE_EXPIRY = 300 # 5 minutes
 JSON_ITEM_SEARCH_DOCTYPE_MAP = {
     # Renamed item_path to item_path_parts for clarity
     "Procurement Orders": {"json_field": "order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
-    "Procurement Requests": {"json_field": "procurement_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
+    # "Procurement Requests": {"json_field": "procurement_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
     # --- NEW ENTRY ---
-    "Sent Back Category": {"json_field": "item_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
+    # "Sent Back Category": {"json_field": "item_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
     # -----------------
     "Service Requests": {"json_field": "service_order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "description"},
+}
+
+CHILD_TABLE_ITEM_SEARCH_MAP = {
+    "Procurement Requests": {
+        # 'order_list' is the `target_search_field_name` sent from the frontend.
+        # It's the field name on the parent Doctype that holds the child table.
+        "order_list": {
+            "child_doctype": "Procurement Request Item Detail",
+            "link_field_to_parent": "parent",
+            "searchable_child_fields": ["item_name", "item_id"], # Fields to search within the child table
+            "status_field": "status" # Field in child table representing item status
+        }
+    },
+    "Sent Back Category": {
+        "order_list": { # Key: fieldname on parent that holds child table
+            "child_doctype": "Procurement Request Item Detail", # *** UPDATE THIS TO YOUR ACTUAL CHILD DOCTYPE NAME for Sent Back Category ***
+            "link_field_to_parent": "parent",
+            "searchable_child_fields": ["item_name", "item_id"], # Or equivalent fields
+            "status_field": "status" # Or equivalent status field
+        }
+    }
 }
 
 # --- Helper Functions ---
@@ -272,26 +293,26 @@ def _parse_target_search_field(search_fields_input: str | None, doctype_for_log:
 
 
 
-def _build_standard_filters(
-    doctype: str, base_filters: list, search_term: str | None,
-    global_search_fields: list[str] | None,
-) -> tuple[list, list]:
-    print(f"\n--- DEBUG (_build_standard_filters for {doctype}) ---")
-    and_filters = list(base_filters)
-    or_filters = []
-    if search_term and global_search_fields:
-        search_term_sql = f"%{search_term}%"
-        effective_search_fields = set(global_search_fields)
-        if "name" not in effective_search_fields: effective_search_fields.add("name")
-        for field_name in effective_search_fields:
-            if isinstance(field_name, str) and field_name.strip():
-                # Ensure filter format is [doctype, field, op, value] for clarity with or_filters
-                or_filters.append([doctype, field_name, "like", search_term_sql])
-    elif search_term and not global_search_fields:
-         # Add as AND filter if no specific global fields provided
-         and_filters.append([doctype, "name", "like", f"%{search_term}%"])
-    print(f"DEBUG (StdFilterBuilder): Returning AND: {and_filters}, OR: {or_filters}")
-    return and_filters, or_filters
+# def _build_standard_filters(
+#     doctype: str, base_filters: list, search_term: str | None,
+#     global_search_fields: list[str] | None,
+# ) -> tuple[list, list]:
+#     print(f"\n--- DEBUG (_build_standard_filters for {doctype}) ---")
+#     and_filters = list(base_filters)
+#     or_filters = []
+#     if search_term and global_search_fields:
+#         search_term_sql = f"%{search_term}%"
+#         effective_search_fields = set(global_search_fields)
+#         if "name" not in effective_search_fields: effective_search_fields.add("name")
+#         for field_name in effective_search_fields:
+#             if isinstance(field_name, str) and field_name.strip():
+#                 # Ensure filter format is [doctype, field, op, value] for clarity with or_filters
+#                 or_filters.append([doctype, field_name, "like", search_term_sql])
+#     elif search_term and not global_search_fields:
+#          # Add as AND filter if no specific global fields provided
+#          and_filters.append([doctype, "name", "like", f"%{search_term}%"])
+#     print(f"DEBUG (StdFilterBuilder): Returning AND: {and_filters}, OR: {or_filters}")
+#     return and_filters, or_filters
 
 
 @frappe.whitelist(allow_guest=False)
@@ -417,141 +438,274 @@ def get_list_with_count_enhanced(
     data = []
     total_records = 0
 
-    try:
+    # final_and_filters are the parent DocType filters (facets, static, and potentially standard targeted search if not item search)
+    final_and_filters = list(processed_base_filters)
 
-        final_and_filters = list(processed_base_filters) # Start with base filters
-        # No OR filters needed for targeted search directly, DatabaseQuery handles that with single LIKE
-        # OR filters would only be used if target_search_field_name itself was a list for standard search (not our case now)
-        # --- Main Data Fetching Logic ---
-        if is_item_search_bool and search_term and target_search_field_name and doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP:
-            # ** CASE 1: JSON Item Search on the target_search_field_name **
-            # Ensure target_search_field_name matches the json_field in MAP
-            search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
-            if search_config["json_field"] == target_search_field_name:
-                print(f"--- Executing Item Search Workaround (on {target_search_field_name}) ---")
-                # (The Two-Step Item Search Logic - uses `processed_base_filters` for step 1)
-                # ... (Keep this logic exactly as it was working before) ...
+    try:
+        # --- Determine which search/filter strategy to use ---
+        
+        # Strategy 1: Child Table Item Search (search_term for item in child table)
+        # This is active if is_item_search_bool is true AND the target_search_field_name matches a child table link field
+        # in CHILD_TABLE_ITEM_SEARCH_MAP for the current doctype.
+        use_child_table_item_search = (
+            is_item_search_bool and
+            search_term and
+            target_search_field_name and
+            doctype in CHILD_TABLE_ITEM_SEARCH_MAP and
+            target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]
+        )
+
+        # Strategy 2: Child Table Pending Items Filter (no item search_term, but require_pending_items_bool is true)
+        # This is active if require_pending_items_bool is true AND the doctype is configured for child table status checks.
+        use_child_table_pending_filter = (
+            not use_child_table_item_search and # Only if not already doing item search
+            require_pending_items_bool and
+            doctype in CHILD_TABLE_ITEM_SEARCH_MAP and
+            # We need a default child table field (e.g., 'order_list') if target_search_field_name isn't it
+            # Let's assume the primary child table for status check is 'order_list' if not specified by target_search_field_name
+            (target_search_field_name if target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype] else "order_list")
+            in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]
+        )
+
+        # Strategy 3: JSON Field Item Search (fallback if not child table)
+        use_json_item_search = (
+            not use_child_table_item_search and # Only if not child table item search
+            not use_child_table_pending_filter and # And not child table pending filter
+            is_item_search_bool and
+            search_term and
+            target_search_field_name and
+            doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP and
+            JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]["json_field"] == target_search_field_name
+        )
+        
+        # Strategy 4: JSON Field Pending Items Filter (fallback, if applicable and not child table)
+        # This was the old logic for require_pending_items_bool for PRs.
+        # We want to replace this with child table logic for PR and SBC.
+        # Keep it for other doctypes if they still use JSON and need this flag.
+        use_json_pending_filter = (
+            not use_child_table_item_search and
+            not use_child_table_pending_filter and
+            not use_json_item_search and # Only if none of the above
+            require_pending_items_bool and
+            doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP # And configured for JSON
+        )
+
+
+        if use_child_table_item_search:
+            print(f"--- Executing Child Table Item Search for '{doctype}' on parent field '{target_search_field_name}' ---")
+            search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][target_search_field_name]
+            
+            # Apply standard targeted search on parent IF target_search_field_name is NOT the child table link itself
+            # but another parent field, AND search_term is also present.
+            # However, for item search, the search_term is for the child item.
+            # So, `final_and_filters` (which are processed_base_filters) are applied to parent first.
+            
+            parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
+            potential_parent_docs = reportview_execute(**parent_names_query_args)
+            potential_parent_names = [doc.get("name") for doc in potential_parent_docs if doc.get("name")]
+
+            if not potential_parent_names:
+                total_records, data = 0, []
+            else:
+                child_doctype_name = search_config["child_doctype"]
+                child_link_field = search_config["link_field_to_parent"]
+                searchable_child_fields = search_config["searchable_child_fields"]
+                child_status_field = search_config.get("status_field") # Get status field for optional pending check
+
+                search_term_like = f"%{search_term}%"
+                child_item_search_conditions_sql = " OR ".join([f"`tab{child_doctype_name}`.`{field}` LIKE %(search_term)s" for field in searchable_child_fields])
+                
+                sql_where_parts = [
+                    f"`tab{child_doctype_name}`.`{child_link_field}` IN %(names_tuple)s",
+                    f"`tab{child_doctype_name}`.`parenttype` = %(parent_doctype)s",
+                    f"({child_item_search_conditions_sql})"
+                ]
+
+                # If require_pending_items is ALSO true during an item search, add that filter
+                if require_pending_items_bool and child_status_field:
+                    sql_where_parts.append(f"`tab{child_doctype_name}`.`{child_status_field}` = 'Pending'")
+
+                sql_where_clause = " AND ".join(sql_where_parts)
+                sql = f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` FROM `tab{child_doctype_name}` WHERE {sql_where_clause}"
+                
+                sql_params = {"names_tuple": tuple(potential_parent_names), "parent_doctype": doctype, "search_term": search_term_like}
+                
+                final_matching_names_result = frappe.db.sql(sql, sql_params, as_list=True)
+                final_matching_names = [r[0] for r in final_matching_names_result if r and r[0]]
+                total_records = len(final_matching_names)
+
+                if total_records > 0:
+                    data_args = frappe._dict({
+                        "doctype": doctype, "fields": parsed_select_fields_str_list,
+                        "filters": [["name", "in", final_matching_names]],
+                        "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length,
+                    })
+                    data = reportview_execute(**data_args)
+                else: data = []
+            print(f"--- Finished Child Table Item Search ---")
+
+        elif use_child_table_pending_filter:
+            # This case is when require_pending_items_bool is true, but there's NO item search term
+            # OR if item search was on a non-child-table field, but we still need to filter by pending child items.
+            child_table_field_key = target_search_field_name if target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype] else "order_list"
+            search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][child_table_field_key]
+            child_status_field = search_config.get("status_field")
+
+            if not child_status_field:
+                print(f"WARNING: No status_field configured for child table pending check in {doctype} via {child_table_field_key}. Skipping pending filter.")
+                # Fall through to standard search logic without pending filter
+                use_child_table_pending_filter = False # Disable this path
+            else:
+                print(f"--- Executing Child Table Pending Item Filter for '{doctype}' (status field: {child_status_field}) ---")
+                # If there's a search term on a *parent* field (target_search_field_name is not the child table itself)
+                if search_term and target_search_field_name and target_search_field_name not in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]:
+                    final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
+                
+                parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
+                potential_parent_docs = reportview_execute(**parent_names_query_args)
+                potential_parent_names = [doc.get("name") for doc in potential_parent_docs if doc.get("name")]
+
+                if not potential_parent_names:
+                    total_records, data = 0, []
+                else:
+                    child_doctype_name = search_config["child_doctype"]
+                    child_link_field = search_config["link_field_to_parent"]
+                    
+                    sql = f"""
+                        SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}`
+                        FROM `tab{child_doctype_name}`
+                        WHERE `tab{child_doctype_name}`.`{child_link_field}` IN %(names_tuple)s
+                          AND `tab{child_doctype_name}`.`parenttype` = %(parent_doctype)s
+                          AND `tab{child_doctype_name}`.`{child_status_field}` = 'Pending'
+                    """
+                    sql_params = {"names_tuple": tuple(potential_parent_names), "parent_doctype": doctype}
+                    final_matching_names_result = frappe.db.sql(sql, sql_params, as_list=True)
+                    final_matching_names = [r[0] for r in final_matching_names_result if r and r[0]]
+                    total_records = len(final_matching_names)
+
+                    if total_records > 0:
+                        data_args = frappe._dict({
+                            "doctype": doctype, "fields": parsed_select_fields_str_list,
+                            "filters": [["name", "in", final_matching_names]],
+                            "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length,
+                        })
+                        data = reportview_execute(**data_args)
+                    else: data = []
+                print(f"--- Finished Child Table Pending Item Filter ---")
+        
+        # Fallbacks to JSON search or standard search if child table logic didn't run
+        if not use_child_table_item_search and not use_child_table_pending_filter:
+            if use_json_item_search:
+                print(f"--- Executing JSON Item Search (on {target_search_field_name}) ---")
+                search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
                 json_field_name = search_config["json_field"]
                 item_path_parts = search_config["item_path_parts"]
                 item_name_key_in_json = search_config.get("item_name_key_in_json", item_path_parts[-1] if item_path_parts else "item")
                 escaped_search_term_for_like = f"%{search_term}%"
 
-                parent_names_query_args = {"doctype": doctype, "filters": processed_base_filters, "fields": ["name"], "limit_page_length": 0}
+                parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
                 potential_parent_docs = reportview_execute(**parent_names_query_args)
                 potential_parent_names = [doc.get("name") for doc in potential_parent_docs if doc.get("name")]
-                if not potential_parent_names:
-                    total_records, data = 0, []
+
+                if not potential_parent_names: total_records, data = 0, []
                 else:
-                    if not item_path_parts or len(item_path_parts) < 2 or item_path_parts[-2] != "*": 
-                        frappe.throw(_(f"Invalid config for {target_search_field_name}: {item_path_parts}"))
+                    if not item_path_parts or len(item_path_parts) < 2 or item_path_parts[-2] != "*":
+                        frappe.throw(_(f"Invalid JSON search config for {target_search_field_name}: {item_path_parts}"))
                     json_array_key = item_path_parts[0]
-                    json_search_sql_where_part = f"""EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb))AS item_obj WHERE item_obj->>'{item_name_key_in_json}'ILIKE%(search_term)s)"""
-
+                    json_search_sql_where_part = f"""EXISTS(
+                        SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)) AS item_obj
+                        WHERE item_obj->>'{item_name_key_in_json}' ILIKE %(search_term)s
+                    )"""
                     sql_params = {"search_term": escaped_search_term_for_like, "names_tuple": tuple(potential_parent_names)}
-                    count_sql = f"""SELECT COUNT(DISTINCT name)FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_search_sql_where_part})"""
-
+                    count_sql = f"SELECT COUNT(DISTINCT name) FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_search_sql_where_part})"
                     count_result = frappe.db.sql(count_sql, sql_params)
                     total_records = count_result[0][0] if count_result and count_result[0] else 0
-
                     if total_records > 0:
-                        data_names_sql = f"""SELECT DISTINCT name FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_search_sql_where_part})"""
-                        final_matching_names_result = frappe.db.sql(data_names_sql, sql_params, as_list=True)
-                        final_matching_names = [r[0] for r in final_matching_names_result]
-
-                        if final_matching_names: 
-                            data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": [["name", "in", final_matching_names]], "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length, "ignore_permissions": False, "strict": False })
+                        data_names_sql = f"SELECT DISTINCT name FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_search_sql_where_part})"
+                        final_matching_names = [r[0] for r in frappe.db.sql(data_names_sql, sql_params, as_list=True) if r and r[0]]
+                        if final_matching_names:
+                            data_args = frappe._dict({
+                                "doctype": doctype, "fields": parsed_select_fields_str_list,
+                                "filters": [["name", "in", final_matching_names]],
+                                "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length,
+                            })
                             data = reportview_execute(**data_args)
-                        else: 
-                            data = []
-                    else: 
-                        data = []
-                print(f"--- Finished Item Search Workaround ---")
-            else:
-                print(f"WARNING: is_item_search=True but target_search_field '{target_search_field_name}' not configured for JSON search for {doctype}. Falling to standard search.")
-                is_item_search_bool = False # Fallback to standard search
-
-        # ** CASE 2: Pending Item Filter (if NOT item search) **
-        # This elif should only be entered if is_item_search_bool was false or became false.
-        if not is_item_search_bool and require_pending_items_bool and (doctype == "Procurement Requests" or doctype == "Sent Back Category"):
-            print("--- Executing Pending Item Filter (Two-Step) ---")
-            # Add standard targeted search condition to `current_and_filters` for Step 1
-            if search_term and target_search_field_name:
-                final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
+                        else: data = []
+                    else: data = []
+                print(f"--- Finished JSON Item Search ---")
             
-            parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
-            # ... (rest of the Pending Item logic, ensuring it uses `final_and_filters` in Step 1) ...
-            potential_parent_docs = reportview_execute(**parent_names_query_args)
-            potential_parent_names=[doc.get("name")for doc in potential_parent_docs if doc.get("name")]
-            if not potential_parent_names:
-                total_records,data=0,[]
-            else:
-                search_config=JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
-                json_field_name=search_config["json_field"]
-                item_path_parts=search_config["item_path_parts"]
-                item_status_key_in_json=search_config.get("item_status_key","status")
-                
-                if not item_path_parts or len(item_path_parts)<2 or item_path_parts[-2]!="*":
-                    frappe.throw(_(f"Invalid config:{item_path_parts}"))
-                json_array_key=item_path_parts[0]
+            elif use_json_pending_filter: # Old pending item filter for JSON fields
+                print(f"--- Executing JSON Pending Item Filter for '{doctype}' ---")
+                if search_term and target_search_field_name: # If standard search term is also present
+                    final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
 
-                json_pending_sql_where_part=f"""EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb))AS item_obj WHERE item_obj->>'{item_status_key_in_json}'='Pending')"""
+                parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
+                potential_parent_docs = reportview_execute(**parent_names_query_args)
+                potential_parent_names = [doc.get("name") for doc in potential_parent_docs if doc.get("name")]
 
-                sql_params={"names_tuple":tuple(potential_parent_names)}
-
-                count_sql=f"""SELECT COUNT(DISTINCT name)FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_pending_sql_where_part})""";count_result=frappe.db.sql(count_sql,sql_params)
-                total_records=count_result[0][0]if count_result and count_result[0]else 0
-
-                if total_records>0:
-                    data_names_sql=f"""SELECT DISTINCT name FROM`tab{doctype}`WHERE name IN%(names_tuple)s AND({json_pending_sql_where_part})"""
-                    final_matching_names=[r[0]for r in frappe.db.sql(data_names_sql,sql_params,as_list=True)]
-
-                    if final_matching_names:
-                        data_args=frappe._dict({"doctype":doctype,"fields":parsed_select_fields_str_list,"filters":[["name","in",final_matching_names]],"order_by":_formatted_order_by,"limit_start":start,"limit_page_length":page_length,"ignore_permissions":False,"strict":False})
-                        data=reportview_execute(**data_args)
-                    else:
-                        data=[]
+                if not potential_parent_names: total_records, data = 0, []
                 else:
-                    data=[]
-            print(f"--- Finished Pending Item Filter ---")
+                    search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
+                    json_field_name = search_config["json_field"]
+                    item_path_parts = search_config["item_path_parts"]
+                    item_status_key_in_json = search_config.get("item_status_key","status") # Assuming status key is 'status'
+                    if not item_path_parts or len(item_path_parts) < 2 or item_path_parts[-2] != "*":
+                        frappe.throw(_(f"Invalid JSON search config for pending items: {item_path_parts}"))
+                    json_array_key = item_path_parts[0]
+                    json_pending_sql_where_part = f"""EXISTS(
+                        SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)) AS item_obj
+                        WHERE item_obj->>'{item_status_key_in_json}' = 'Pending'
+                    )"""
+                    sql_params = {"names_tuple": tuple(potential_parent_names)}
+                    count_sql = f"SELECT COUNT(DISTINCT name) FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_pending_sql_where_part})"
+                    count_result = frappe.db.sql(count_sql, sql_params)
+                    total_records = count_result[0][0] if count_result and count_result[0] else 0
+                    if total_records > 0:
+                        data_names_sql = f"SELECT DISTINCT name FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_pending_sql_where_part})"
+                        final_matching_names = [r[0] for r in frappe.db.sql(data_names_sql, sql_params, as_list=True) if r and r[0]]
+                        if final_matching_names:
+                            data_args = frappe._dict({
+                                "doctype": doctype, "fields": parsed_select_fields_str_list,
+                                "filters": [["name", "in", final_matching_names]],
+                                "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length,
+                            })
+                            data = reportview_execute(**data_args)
+                        else: data = []
+                    else: data = []
+                print(f"--- Finished JSON Pending Item Filter ---")
 
-        # ** CASE 3: Standard Targeted Search (or No Search if no term/field) **
-        # This executes if not JSON item search and not PR pending item search.
-        if not is_item_search_bool and not (require_pending_items_bool and (doctype == "Procurement Requests" or doctype == "Sent Back Category")):
-            print("--- Executing Standard Targeted Search / Fetch ---")
-            if search_term and target_search_field_name:
-                # Add the single targeted search condition
-                final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
-                print(f"DEBUG: Added targeted search filter: {[doctype, target_search_field_name, 'like', f'%{search_term}%']}")
-            
-            # DatabaseQuery uses `filters` for AND conditions and `or_filters` for OR conditions.
-            # For a single targeted search, it's an AND condition.
-            data_args = frappe._dict({
-                "doctype": doctype, "fields": parsed_select_fields_str_list,
-                "filters": final_and_filters, # All conditions are ANDed
-                "order_by": _formatted_order_by, "limit_start": start,
-                "limit_page_length": page_length, "ignore_permissions": False, "strict": False,
-            })
-            count_args = {
-                "filters": final_and_filters,
-                "fields": [f"count(distinct `tab{doctype}`.`name`) as total_count"]
-            }
-            print(f"DEBUG (Standard/Targeted): Calling DatabaseQuery with data_args: {data_args}")
-            data = reportview_execute(**data_args)
-            count_result = DatabaseQuery(doctype).execute(**count_args)
-            total_records = count_result[0].get("total_count") if count_result else 0
-            print("--- Finished Standard Targeted Search / Fetch ---")
+            else: # Standard Targeted Search / No Search (Ultimate Fallback)
+                print(f"--- Executing Standard Targeted Search / Fetch (Ultimate Fallback) for '{doctype}' ---")
+                if search_term and target_search_field_name:
+                    final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
+                
+                data_args = frappe._dict({
+                    "doctype": doctype, "fields": parsed_select_fields_str_list,
+                    "filters": final_and_filters, "order_by": _formatted_order_by,
+                    "limit_start": start, "limit_page_length": page_length,
+                })
+                # For count, fetch all names matching the filters then count them
+                count_fetch_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
+                all_matching_docs_for_count = reportview_execute(**count_fetch_args)
+                total_records = len(all_matching_docs_for_count)
+                
+                if total_records > 0 : # Only fetch paginated data if there are records
+                    data = reportview_execute(**data_args)
+                else:
+                    data = [] # Ensure data is empty if no records
+                print(f"--- Finished Standard Targeted Search / Fetch (Ultimate Fallback) ---")
 
-        # --- Return Result ---
+
         final_result = {"data": data, "total_count": total_records}
         if to_cache:
             frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)
-        # frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)
-            print(f"DEBUG: Result stored in cache with key: {cache_key}")
+            # print(f"DEBUG: Result stored in cache with key: {cache_key}")
         return final_result
 
-    # ... (Exception Handling - KEEP AS IS) ...
-    except frappe.PermissionError: print("ERROR: PermissionError caught"); raise
+    except frappe.PermissionError:
+        # print("ERROR: PermissionError caught in API")
+        raise
     except Exception as e:
-        print(f"ERROR: Final Exception caught in API: {type(e).__name__} - {str(e)}")
-        print("--- FINAL TRACEBACK START (API) ---"); traceback.print_exc(); print("--- FINAL TRACEBACK END (API) ---")
-        frappe.throw(_("An error occurred while processing your request. Please check server logs or contact support."))
+        print(f"ERROR: Final Exception caught in API (get_list_with_count_enhanced): {type(e).__name__} - {str(e)}")
+        traceback.print_exc()
+        frappe.throw(_("An error occurred while fetching list data. Details: {0}").format(str(e)))
