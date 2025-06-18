@@ -9,7 +9,7 @@ import { useVendorsList } from '../VendorQuotesSelection/hooks/useVendorsList';
 import { ApproveRejectVendorQuotesView } from './ApproveRejectVendorQuotesView';
 import { useFrappeDocumentEventListener, useFrappeGetDocList } from 'frappe-react-sdk';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
-import { ProcurementItem } from '@/types/NirmaanStack/ProcurementRequests';
+import { ProcurementItem, ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import { useUsersList } from '../ApproveNewPR/hooks/useUsersList';
 import { toast } from '@/components/ui/use-toast';
 import { useProcurementRequest } from '@/hooks/useProcurementRequest';
@@ -28,34 +28,37 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     const { data: prData, isLoading: prLoading, error: prError, mutate: prMutate } = useProcurementRequest(prId);
 
     useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
-            console.log("Procurement Requests document updated (real-time):", event);
-            toast({
-                title: "Document Updated",
-                description: `Procurement Request ${event.name} has been modified.`,
-            });
-            prMutate(); // Re-fetch this specific document
-        },
+        console.log("Procurement Requests document updated (real-time):", event);
+        toast({
+            title: "Document Updated",
+            description: `Procurement Request ${event.name} has been modified.`,
+        });
+        prMutate(); // Re-fetch this specific document
+    },
         true // emitOpenCloseEventsOnMount (default)
-        )
+    )
 
     const { data: vendorList, isLoading: vendorsLoading, error: vendorsError } = useVendorsList();
     const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
 
     const prEditableLogic = useMemo(() => {
-      const stateCheck = ["Vendor Selected", "Partially Approved"].includes(prData?.workflow_state || "")
-      const pendingItemsCheck = (typeof prData?.procurement_list === "string" ? JSON.parse(prData?.procurement_list) : prData?.procurement_list)?.list?.some((i: ProcurementItem) => i?.status === "Pending")
+        const stateCheck = ["Vendor Selected", "Partially Approved"].includes(prData?.workflow_state || "")
+        // Corrected: Check pending items in the order_list (child table)
+        const pendingItemsCheck = prData?.order_list?.some(
+            (item: ProcurementRequestItemDetail) => item.status === "Pending"
+        );
 
-      return stateCheck && pendingItemsCheck
-    } ,[prData])
+        return stateCheck && pendingItemsCheck;
+    }, [prData?.workflow_state, prData?.order_list]); // Add prData?.order_list to dependencies
     // Add comments fetching hook call here if separated
     // const { data: commentsData, isLoading: commentsLoading, error: commentsError } = useNirmaanComments({ docname: prId, doctype: 'Procurement Requests', /* other filters */ });
 
     const { data: universalComment, isLoading: universalCommentLoading, error: universalCommentError } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
-            fields: ["name", "comment_by", "content", "creation", "reference_name", "subject"],
-            filters: [["reference_name", "=", prId], ["subject", "in", prData?.work_package ? ["pr vendors selected"] : ["new custom pr", "resolved custom pr"]]]
-        },
+        fields: ["name", "comment_by", "content", "creation", "reference_name", "subject"],
+        filters: [["reference_name", "=", prId], ["subject", "in", prData?.work_package ? ["pr vendors selected"] : ["new custom pr", "resolved custom pr"]]]
+    },
         prData ? undefined : null
-      )
+    )
 
     // console.log("prData", prData)
 
@@ -84,56 +87,56 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     if (error) {
         console.error("Error loading data for quote approval:", error);
         return (
-             <div className="p-4 flex flex-col items-center justify-center h-[90vh] text-red-600">
-                 <p className='mb-2'>Error loading details for approval. Please try again later.</p>
-                 <pre className='text-xs bg-red-100 p-2 rounded mb-4 w-full max-w-lg overflow-auto'>{JSON.stringify(error, null, 2)}</pre>
-                 <Button onClick={() => navigate("/purchase-orders?tab=Approve PO")} className="mt-4">Go Back</Button> {/* Adjust nav destination */}
-             </div>
-         );
+            <div className="p-4 flex flex-col items-center justify-center h-[90vh] text-red-600">
+                <p className='mb-2'>Error loading details for approval. Please try again later.</p>
+                <pre className='text-xs bg-red-100 p-2 rounded mb-4 w-full max-w-lg overflow-auto'>{JSON.stringify(error, null, 2)}</pre>
+                <Button onClick={() => navigate("/purchase-orders?tab=Approve PO")} className="mt-4">Go Back</Button> {/* Adjust nav destination */}
+            </div>
+        );
     }
 
-     if (!prData) {
-          // After loading finishes without error, but prData is still missing
-          return (
-              <div className="flex items-center justify-center h-[90vh]">
-                  Procurement Request <span className='font-mono mx-1'>{prId}</span> not found or is inaccessible.
-                  <Button onClick={() => navigate("/purchase-orders?tab=Approve PO")} className="ml-4">Go Back</Button> {/* Adjust nav destination */}
-              </div>
-          );
-      }
+    if (!prData) {
+        // After loading finishes without error, but prData is still missing
+        return (
+            <div className="flex items-center justify-center h-[90vh]">
+                Procurement Request <span className='font-mono mx-1'>{prId}</span> not found or is inaccessible.
+                <Button onClick={() => navigate("/purchase-orders?tab=Approve PO")} className="ml-4">Go Back</Button> {/* Adjust nav destination */}
+            </div>
+        );
+    }
 
     // --- Workflow State Check (performed within logic hook's `isPrEditable` state) ---
     // We rely on the logic hook to determine if actions are allowed.
     // The initial check in the old code can be removed or adapted if needed outside the main view.
 
     if (!prEditableLogic) return (
-      <div className="flex items-center justify-center h-[90vh]">
-          <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
-              <h2 className="text-2xl font-semibold text-gray-800">
-                  Heads Up!
-              </h2>
-              <p className="text-gray-600 text-lg">
-                  Hey there, the PR:{" "}
-                  <span className="font-medium text-gray-900">{prData?.name}</span>{" "}
-                  is no longer available for{" "}
-                  <span className="italic">Reviewing</span>. The current state is{" "}
-                  <span className="font-semibold text-blue-600">
-                      {prData?.workflow_state}
-                  </span>{" "}
-                  And the last modification was done by <span className="font-medium text-gray-900">
-                      {prData?.modified_by === "Administrator" ? prData?.modified_by : logicProps.getUserName(prData?.modified_by)}
-                  </span>
-                  !
-              </p>
-              <button
-                  className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                  onClick={() => navigate("/purchase-orders?tab=Approve PO")}
-              >
-                  Go Back
-              </button>
-          </div>
-      </div>
-  );
+        <div className="flex items-center justify-center h-[90vh]">
+            <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                    Heads Up!
+                </h2>
+                <p className="text-gray-600 text-lg">
+                    Hey there, the PR:{" "}
+                    <span className="font-medium text-gray-900">{prData?.name}</span>{" "}
+                    is no longer available for{" "}
+                    <span className="italic">Reviewing</span>. The current state is{" "}
+                    <span className="font-semibold text-blue-600">
+                        {prData?.workflow_state}
+                    </span>{" "}
+                    And the last modification was done by <span className="font-medium text-gray-900">
+                        {prData?.modified_by === "Administrator" ? prData?.modified_by : logicProps.getUserName(prData?.modified_by)}
+                    </span>
+                    !
+                </p>
+                <button
+                    className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                    onClick={() => navigate("/purchase-orders?tab=Approve PO")}
+                >
+                    Go Back
+                </button>
+            </div>
+        </div>
+    );
 
     // Render the View component
     return (
@@ -144,8 +147,8 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
             prComments={universalComment || []} // Replace with commentsData if fetched separately
             // getUserName={(id: string | undefined) => logicProps.getVendorName(id)} // Adjust if getUserName logic differs
             attachment={null} // Pass attachment data if fetched separately
-            handleAttachmentClick={() => {}} // Pass attachment click handler if needed
-            // Pass delayed items if calculated separately or handle within view/logic hook
+            handleAttachmentClick={() => { }} // Pass attachment click handler if needed
+        // Pass delayed items if calculated separately or handle within view/logic hook
         />
     );
 };

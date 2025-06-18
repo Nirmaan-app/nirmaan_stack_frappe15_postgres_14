@@ -3,14 +3,14 @@ import { useFrappePostCall } from "frappe-react-sdk";
 import { useCallback } from "react";
 
 // Define specific payload types for SB APIs
-interface ApproveSBPayload {
+export interface ApproveSBPayload {
     project_id: string; // Still likely needed for context
     sb_id: string; // ID of the Sent Back Category doc
     selected_items: string[]; // Array of SBItem names (child table row name)
     selected_vendors: { [itemName: string]: string }; // Map SBItem name to chosen vendorId
 }
 
-interface SendBackSBPayload {
+export interface SendBackSBPayload {
     sb_id: string; // ID of the Sent Back Category doc
     selected_items: string[]; // Array of SBItem names
     comment?: string; // Optional comment
@@ -28,7 +28,7 @@ interface ApiResponse {
 export const useSBQuoteApprovalApi = (sbId?: string) => {
     // Update API endpoint paths
     const { call: approveItemsCall, loading: approveLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_reject_sb_vendor_quotes.new_handle_approve");
-    
+
     const { call: sendBackItemsCall, loading: sendBackLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_reject_sb_vendor_quotes.new_handle_sent_back");
 
     const approveSelection = useCallback(async (payload: ApproveSBPayload) => {

@@ -12,7 +12,7 @@ import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment'; // A
 import { NirmaanComments } from '@/types/NirmaanStack/NirmaanComments'; // Adjust path
 import { ConfirmationDialog } from './components/ConfirmationDialog';
 import { DelayedItemsTable } from './components/DelayedItemsTable';
-import { ProcurementItem, ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
+import { ProcurementItem, ProcurementRequest, ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 
 // Define props based on the Logic Hook's return type + any extras from container
 interface ApproveRejectVendorQuotesViewProps extends UseApproveRejectLogicReturn {
@@ -55,9 +55,11 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
     // --- Delayed Items calculation ---
     // This could also be moved to the logic hook if complex
     const delayedItems = React.useMemo(() => {
-        const fullList = (typeof prData?.procurement_list === "string" ? JSON.parse(prData?.procurement_list) : prData?.procurement_list)?.list;
-        return fullList?.filter((item: ProcurementItem) => item.status === "Delayed") || [];
-    }, [prData]);
+        // const fullList = (typeof prData?.procurement_list === "string" ? JSON.parse(prData?.procurement_list) : prData?.procurement_list)?.list;
+        return prData?.order_list?.filter(
+            (item: ProcurementRequestItemDetail) => item.status === "Delayed"
+        ) || [];
+    }, [prData?.order_list]); // Depend on the full order_list from the initially fetched prData
 
     // console.log("prComments", prComments)
 
@@ -74,7 +76,7 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
                 selection={selectionMap}
-                // Pass initial selection if needed
+            // Pass initial selection if needed
             />
 
             {/* Footer Actions & Attachment */}
@@ -87,7 +89,7 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
                             variant="link"
                             className="p-0 h-auto text-blue-600 hover:text-blue-700 underline"
                             onClick={() => handleAttachmentClick(attachment.attachment)}
-                         >
+                        >
                             {attachment.attachment.split('/').pop()}
                         </Button>
                     </div>
@@ -128,56 +130,56 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
 
             {/* Delayed Items Section (Conditional) */}
             {orderData?.work_package && (
-                 <div className='space-y-2 pt-4'>
-                     <h2 className="text-base font-bold tracking-tight">Delayed Items</h2>
-                     <DelayedItemsTable items={delayedItems} /> {/* Use dedicated component */}
-                 </div>
-             )}
+                <div className='space-y-2 pt-4'>
+                    <h2 className="text-base font-bold tracking-tight">Delayed Items</h2>
+                    <DelayedItemsTable items={delayedItems} /> {/* Use dedicated component */}
+                </div>
+            )}
 
 
             {/* Dialogs */}
             <ConfirmationDialog
-                 isOpen={isSendBackDialogOpen}
-                 onClose={toggleSendBackDialog}
-                 onConfirm={handleSendBackConfirm}
-                 isLoading={isLoading}
-                 title={`Confirm ${sendBackActionText}?`}
-                 confirmText={`Confirm ${sendBackActionText}`}
-                 confirmVariant="destructive"
-                 cancelText="Cancel"
-             >
+                isOpen={isSendBackDialogOpen}
+                onClose={toggleSendBackDialog}
+                onConfirm={handleSendBackConfirm}
+                isLoading={isLoading}
+                title={`Confirm ${sendBackActionText}?`}
+                confirmText={`Confirm ${sendBackActionText}`}
+                confirmVariant="destructive"
+                cancelText="Cancel"
+            >
                 {/* Content specific to Send Back */}
-                 <div className='py-2 space-y-2'>
-                     <Label htmlFor="sendback-comment">Comment (Optional):</Label>
-                     <Textarea
-                         id="sendback-comment"
-                         value={comment}
-                         placeholder="Reason for sending back/rejecting..."
-                         onChange={handleCommentChange}
-                         rows={3}
-                     />
-                 </div>
-                 <p className='text-sm text-muted-foreground mt-2'>
-                     Selected items will be marked for reconsideration or the custom PR will be rejected.
-                 </p>
+                <div className='py-2 space-y-2'>
+                    <Label htmlFor="sendback-comment">Comment (Optional):</Label>
+                    <Textarea
+                        id="sendback-comment"
+                        value={comment}
+                        placeholder="Reason for sending back/rejecting..."
+                        onChange={handleCommentChange}
+                        rows={3}
+                    />
+                </div>
+                <p className='text-sm text-muted-foreground mt-2'>
+                    Selected items will be marked for reconsideration or the custom PR will be rejected.
+                </p>
             </ConfirmationDialog>
 
-             <ConfirmationDialog
-                 isOpen={isApproveDialogOpen}
-                 onClose={toggleApproveDialog}
-                 onConfirm={handleApproveConfirm}
-                 isLoading={isLoading}
-                 title="Confirm Approval?"
-                 confirmText="Confirm Approval"
-                 confirmVariant="default"
-                 cancelText="Cancel"
-             >
-                 {/* Content specific to Approve */}
-                 <p className='text-sm text-muted-foreground'>
-                     Approving the selected items will generate Purchase Orders for the chosen vendors. Please review selections carefully.
-                 </p>
-                 {/* Optional: Could display a summary of POs to be generated here */}
-             </ConfirmationDialog>
+            <ConfirmationDialog
+                isOpen={isApproveDialogOpen}
+                onClose={toggleApproveDialog}
+                onConfirm={handleApproveConfirm}
+                isLoading={isLoading}
+                title="Confirm Approval?"
+                confirmText="Confirm Approval"
+                confirmVariant="default"
+                cancelText="Cancel"
+            >
+                {/* Content specific to Approve */}
+                <p className='text-sm text-muted-foreground'>
+                    Approving the selected items will generate Purchase Orders for the chosen vendors. Please review selections carefully.
+                </p>
+                {/* Optional: Could display a summary of POs to be generated here */}
+            </ConfirmationDialog>
 
         </div>
     );
