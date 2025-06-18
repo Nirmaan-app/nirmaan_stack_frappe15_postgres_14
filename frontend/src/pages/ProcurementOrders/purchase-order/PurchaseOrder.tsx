@@ -100,6 +100,8 @@ import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/Reques
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
+
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -134,6 +136,10 @@ export const PurchaseOrder = ({
     fields: ["*"],
     filters: [["name", "=", poId]],
   });
+
+  // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
+  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(PO);
+
 
   useFrappeDocumentEventListener("Procurement Orders", poId, (event) => {
           console.log("Procurement Orders document updated (real-time):", event);
@@ -772,6 +778,9 @@ export const PurchaseOrder = ({
       </div>
     );
 
+    
+   
+    
   return (
     <div className="flex-1 space-y-4">
       {MERGEPOVALIDATIONS && (
@@ -1786,6 +1795,7 @@ export const PurchaseOrder = ({
       {["Delivered", "Partially Delivered"].includes(PO?.status) && (
         <DeliveryHistory
           deliveryData={PO?.delivery_data?.data || null}
+          onPrintHistory={triggerHistoryPrint}
         />
       )}
 
@@ -1804,7 +1814,7 @@ export const PurchaseOrder = ({
          vendor        ={PO?.vendor || "Unknown"}
          onSuccess     ={poPaymentsMutate}
       />
-
+{PrintableHistoryComponent}
     </div>
   );
 };

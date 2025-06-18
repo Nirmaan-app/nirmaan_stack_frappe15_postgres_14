@@ -308,7 +308,20 @@ export const ReleasePOSelect: React.FC = () => {
 
     const allTab = useMemo(() =>
         [
-            { label: (<div className="flex items-center"><span>All POs</span><span className="ml-2 text-xs font-bold">{counts.po.all}</span></div>), value: "All POs" },
+            // { label: (<div className="flex  items-center"><span>All POs</span><span className="ml-2 text-xs font-bold">{counts.po.all}</span></div>), value: "All POs" },
+           {
+            label: (
+                // Use a single container with text-center.
+                // The 'block' and 'md:inline' classes control the layout.
+                <div className="text-center">
+                    <span className="block md:inline">All POs</span>
+                    <span className="block text-xs font-bold md:inline md:ml-2">
+                        {counts.po.all}
+                    </span>
+                </div>
+            ),
+            value: "All POs"
+        },
         ]
         , [counts])
 
@@ -648,7 +661,9 @@ export const ReleasePOSelect: React.FC = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">
+            {/* <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">  */}
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+
                 {
                     adminTabs && (
                         <Radio.Group

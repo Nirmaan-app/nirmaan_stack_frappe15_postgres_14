@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
 import { memoize } from 'lodash';
 import { ProjectEstimates } from '@/types/NirmaanStack/ProjectEstimates';
@@ -8,8 +8,7 @@ import { useOrderTotals } from '@/hooks/useOrderTotals';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, POStatus } from '../components/ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
-
-// Helper to parse numbers safely
+import formatToIndianRupee from "@/utils/FormatPrice";
 const safeParseFloat = (value: string | number | undefined | null, defaultValue = 0): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -20,11 +19,10 @@ const safeParseFloat = (value: string | number | undefined | null, defaultValue 
 };
 
 export function useMaterialUsageData(projectId: string, projectPayments?: ProjectPayments[]) {
-  // Fetch PO Summary data
-  const { 
-    data: po_item_data, 
-    isLoading: po_item_loading, 
-    error: po_item_error 
+  const {
+    data: po_item_data,
+    isLoading: po_item_loading,
+    error: po_item_error
   } = useFrappeGetCall<{
     message: {
       po_items: po_item_data_item[],
@@ -35,7 +33,6 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     { project_id: projectId }
   );
 
-  // Fetch Project Estimates
   const {
     data: projectEstimates,
     isLoading: estimatesLoading,
@@ -47,8 +44,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
   }, `project_estimates_${projectId}`);
 
   const { getTotalAmount } = useOrderTotals();
-  
-  // Calculate amount paid for each PO
+
   const getAmountPaidForPO = useMemo(() => {
     if (!projectPayments) return () => 0;
     const paymentsMap = new Map<string, number>();
@@ -60,11 +56,10 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     return memoize((poName: string) => paymentsMap.get(poName) || 0);
   }, [projectPayments]);
 
-  // Determine PO payment status
   const getIndividualPOStatus = useCallback((poName: string): POStatus => {
     const amountPaid = getAmountPaidForPO(poName);
     const orderTotals = getTotalAmount(poName, 'Procurement Orders');
-    
+
     if (!orderTotals || orderTotals.totalWithTax === 0 && amountPaid === 0) {
       return "Unpaid";
     }
@@ -74,7 +69,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     if (amountPaid >= totalAmount) return "Fully Paid";
     return "Partially Paid";
   }, [getAmountPaidForPO, getTotalAmount]);
-   
+
   const allMaterialUsageItems = useMemo((): MaterialUsageDisplayItem[] => {
     if (!po_item_data?.message || !projectEstimates) {
       return [];
@@ -94,73 +89,69 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
     const usageByItemKey = new Map<string, MaterialUsageDisplayItem>();
 
-    console.log("All PO Items", allPoItems)
     allPoItems.forEach((poItem, index) => {
-            if (!poItem.item_id || !poItem.category) return;
-                    // ====================== THE LOGIC STARTS HERE ======================
-        // 1. Calculate the base price and total amount for THIS specific PO item
-        const basePrice = safeParseFloat(poItem.quantity) * safeParseFloat(poItem.quote);
-        const gstAmount = basePrice * (`0.${poItem?.tax}`|| 0.18); // 18% GST
-        const amountWithGst = basePrice + gstAmount;
-        // =================================================================
+      if (!poItem.item_id || !poItem.category) return;
 
+      // === ADDED: Calculate amount for this specific PO item ===
+      const basePrice = safeParseFloat(poItem.quantity) * safeParseFloat(poItem.quote);
+      const taxRate = safeParseFloat(poItem.tax) / 100;
+      const gstAmount = basePrice * (taxRate > 0 ? taxRate : 0.18); // Default to 18% if tax is invalid or 0
+      const amountWithGst = basePrice + gstAmount;
+      // =========================================================
 
+      const itemKey = `${poItem.category}_${poItem.item_id}`;
+      let currentItemUsage = usageByItemKey.get(itemKey);
+      
+      // === MODIFIED: The type for this array now includes `amount` ===
+      const individualPOsForItem: { po: string; status: POStatus; amount: number;poCalculatedAmount: string;
+       }[] = currentItemUsage?.poNumbers || [];
 
-            const itemKey = `${poItem.category}_${poItem.item_id}`;
-            let currentItemUsage = usageByItemKey.get(itemKey);
+      if (poItem.po_number) {
+        const existingPoEntry = individualPOsForItem.find(p => p.po === poItem.po_number);
+        if (!existingPoEntry) {
+          // === MODIFIED: Add the PO with its specific amount ===
+          individualPOsForItem.push({
+            po: poItem.po_number,
+            status: getIndividualPOStatus(poItem.po_number),
+            amount: amountWithGst,
+            poCalculatedAmount:`(${poItem.quantity} x ${formatToIndianRupee(poItem.quote)}) + ${formatToIndianRupee(gstAmount)}(Gst)`,
+          });
+        }
+      }
 
-            const individualPOsForItem: { po: string; status: POStatus }[] = currentItemUsage?.poNumbers || [];
+      const currentOrdered = (currentItemUsage?.orderedQuantity || 0) + safeParseFloat(poItem.quantity);
+      const currentDelivered = (currentItemUsage?.deliveredQuantity || 0) + safeParseFloat(poItem.received);
 
-            if (poItem.po_number) {
-                const existingPoEntry = individualPOsForItem.find(p => p.po === poItem.po_number);
-                if (!existingPoEntry) {
-                    individualPOsForItem.push({
-                        po: poItem.po_number,
-                        status: getIndividualPOStatus(poItem.po_number),
-                    });
-                }
-            }
+      const deliveryStatusInfo = determineDeliveryStatus(currentDelivered, currentOrdered);
+      const poPaymentStatusInfo = determineOverallItemPOStatus(individualPOsForItem);
 
-            const currentOrdered = (currentItemUsage?.orderedQuantity || 0) + safeParseFloat(poItem.quantity);
-            const currentDelivered = (currentItemUsage?.deliveredQuantity || 0) + safeParseFloat(poItem.received);
-            
-            const deliveryStatusInfo = determineDeliveryStatus(currentDelivered, currentOrdered);
-            const poPaymentStatusInfo = determineOverallItemPOStatus(individualPOsForItem);
-
-
-            if (!currentItemUsage) {
-                const estimate = estimatesMap.get(poItem.item_id);
-                currentItemUsage = {
-                    uniqueKey: itemKey + `_item_${index}`,
-                    categoryName: poItem.category,
-                    itemName: poItem.item_name || estimate?.item_name,
-                    unit: poItem.unit || estimate?.uom,
-                    orderedQuantity: safeParseFloat(poItem.quantity), // Initialize with first PO item
-                    deliveredQuantity: safeParseFloat(poItem.received), // Initialize
-                    estimatedQuantity: safeParseFloat(estimate?.quantity_estimate),
-                      // ================== ADD THIS LINE (Step 2a) ==================
-                totalAmount: amountWithGst, // Initialize with the amount from this PO item
-                // ============================================================
-
-                    poNumbers: individualPOsForItem, // Initialize with current PO details
-                    deliveryStatus: deliveryStatusInfo.deliveryStatusText,
-                    overallPOPaymentStatus: poPaymentStatusInfo,
-                };
-            } else {
-                // Aggregate quantities and update statuses
-                currentItemUsage.orderedQuantity = currentOrdered;
-                currentItemUsage.deliveredQuantity = currentDelivered;
-                            // ================== ADD THIS LINE (Step 2b) ==================
-            // Add the new amount to the existing total for this item
-            currentItemUsage.totalAmount = (currentItemUsage.totalAmount || 0) + amountWithGst;
-            // ============================================================
-
-                currentItemUsage.poNumbers = individualPOsForItem; // Update with potentially new PO
-                currentItemUsage.deliveryStatus = deliveryStatusInfo.deliveryStatusText;
-                currentItemUsage.overallPOPaymentStatus = poPaymentStatusInfo;
-            }
-            usageByItemKey.set(itemKey, currentItemUsage);
-        });
+      if (!currentItemUsage) {
+        const estimate = estimatesMap.get(poItem.item_id);
+        currentItemUsage = {
+          uniqueKey: itemKey + `_item_${index}`,
+          categoryName: poItem.category,
+          itemName: poItem.item_name || estimate?.item_name,
+          unit: poItem.unit || estimate?.uom,
+          orderedQuantity: safeParseFloat(poItem.quantity),
+          deliveredQuantity: safeParseFloat(poItem.received),
+          estimatedQuantity: safeParseFloat(estimate?.quantity_estimate),
+          // === ADDED: Initialize total amount ===
+          totalAmount: amountWithGst,
+          poNumbers: individualPOsForItem,
+          deliveryStatus: deliveryStatusInfo.deliveryStatusText,
+          overallPOPaymentStatus: poPaymentStatusInfo,
+        };
+      } else {
+        currentItemUsage.orderedQuantity = currentOrdered;
+        currentItemUsage.deliveredQuantity = currentDelivered;
+        // === ADDED: Add the new amount to the existing total ===
+        currentItemUsage.totalAmount = (currentItemUsage.totalAmount || 0) + amountWithGst;
+        currentItemUsage.poNumbers = individualPOsForItem;
+        currentItemUsage.deliveryStatus = deliveryStatusInfo.deliveryStatusText;
+        currentItemUsage.overallPOPaymentStatus = poPaymentStatusInfo;
+      }
+      usageByItemKey.set(itemKey, currentItemUsage);
+    });
 
     const flatList = Array.from(usageByItemKey.values());
 
@@ -174,29 +165,26 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     return flatList;
   }, [po_item_data, projectEstimates, getIndividualPOStatus]);
 
-
-
   // --- Generate Filter Options ---
-
   const categoryOptions = useMemo(() => {
-      if (!allMaterialUsageItems) return [];
-      const uniqueCategories = new Set(allMaterialUsageItems.map(item => item.categoryName));
-      return Array.from(uniqueCategories).sort().map(cat => ({ label: cat, value: cat }));
-    }, [allMaterialUsageItems]);
+    if (!allMaterialUsageItems) return [];
+    const uniqueCategories = new Set(allMaterialUsageItems.map(item => item.categoryName));
+    return Array.from(uniqueCategories).sort().map(cat => ({ label: cat, value: cat }));
+  }, [allMaterialUsageItems]);
 
-    const deliveryStatusOptions: { label: string; value: DeliveryStatus }[] = useMemo(() => [
-      { label: "Fully Delivered", value: "Fully Delivered" },
-      { label: "Partially Delivered", value: "Partially Delivered" },
-      { label: "Pending Delivery", value: "Pending Delivery" },
-      { label: "Not Ordered", value: "Not Ordered" },
-    ], []);
-  
-    const poStatusOptions: { label: string; value: OverallItemPOStatus }[] = useMemo(() => [
-      { label: "Fully Paid", value: "Fully Paid" },
-      { label: "Partially Paid", value: "Partially Paid" },
-      { label: "Unpaid", value: "Unpaid" },
-      { label: "N/A", value: "N/A" },
-    ], []);
+  const deliveryStatusOptions: { label: string; value: DeliveryStatus }[] = useMemo(() => [
+    { label: "Fully Delivered", value: "Fully Delivered" },
+    { label: "Partially Delivered", value: "Partially Delivered" },
+    { label: "Pending Delivery", value: "Pending Delivery" },
+    { label: "Not Ordered", value: "Not Ordered" },
+  ], []);
+
+  const poStatusOptions: { label: string; value: OverallItemPOStatus }[] = useMemo(() => [
+    { label: "Fully Paid", value: "Fully Paid" },
+    { label: "Partially Paid", value: "Partially Paid" },
+    { label: "Unpaid", value: "Unpaid" },
+    { label: "N/A", value: "N/A" },
+  ], []);
 
   return {
     allMaterialUsageItems,
