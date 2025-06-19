@@ -13,6 +13,9 @@
   "unit_name",
   "make_name",
   "image_url",
+  "billing_category",
+  "order_category",
+  "item_status",
   "item_links_section",
   "category"
  ],
@@ -72,12 +75,30 @@
    "fieldname": "image_url",
    "fieldtype": "Attach",
    "label": "Image Url"
+  },
+  {
+   "fieldname": "billing_category",
+   "fieldtype": "Data",
+   "label": "Billing Category",
+   "options": "Billable\nNon Billable"
+  },
+  {
+   "fieldname": "order_category",
+   "fieldtype": "Data",
+   "label": "Order Category",
+   "options": "Local\nCentral"
+  },
+  {
+   "fieldname": "item_status",
+   "fieldtype": "Data",
+   "label": "Item Status",
+   "options": "Active\nInactive"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-06 12:51:52.368680",
+ "modified": "2025-06-19 13:44:17.966266",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Items",
@@ -166,6 +187,7 @@
    "share": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
