@@ -1,6 +1,6 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { POReportRowData } from "../../hooks/usePOReportsData";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
 import { Info } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -62,7 +62,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
         header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Amt" />,
         cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.totalAmount)}</div>,
         meta: {
-            exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.totalAmount),
+            exportValue: (row: POReportRowData) => formatForReport(row.totalAmount),
             exportHeaderName: "Total PO Amt", isNumeric: true
         }
     },
@@ -71,7 +71,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
         header: ({ column }) => <DataTableColumnHeader column={column} title="Total Invoice Amt" />,
         cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.invoiceAmount)}</div>,
         meta: {
-            exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.invoiceAmount),
+            exportValue: (row: POReportRowData) => formatForReport(row.invoiceAmount),
             exportHeaderName: "Total Invoice Amt", isNumeric: true
         }
     },
@@ -80,7 +80,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
         header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
         cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.amountPaid)}</div>,
         meta: {
-            exportValue: (row: POReportRowData) => formatToRoundedIndianRupee(row.amountPaid),
+            exportValue: (row: POReportRowData) => formatForReport(row.amountPaid),
             exportHeaderName: "Amt Paid", isNumeric: true
         }
     },
