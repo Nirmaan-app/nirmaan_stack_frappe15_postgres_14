@@ -130,6 +130,9 @@ const OrderDetailsCard: React.FC<OrderDetailsCardProps> = ({ data }) => {
         </DetailRow>
         <LinkRow label="@PR" onClick={() => handleNavigate(prPath)} value={data.procurement_request} />
         <LinkRow label="@PO" onClick={() => handleNavigate(poPath)} value={data.name} />
+        <DetailRow label="Dispatch Date">
+          {data.dispatch_date ? new Date(data.dispatch_date).toLocaleDateString() : <span className="text-xs text-gray-500">Not Provided</span>}
+        </DetailRow>
       </CardContent>
     </Card>
   );

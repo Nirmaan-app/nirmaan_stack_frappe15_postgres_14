@@ -32,6 +32,7 @@ import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { DEFAULT_SR_FIELDS_TO_FETCH, SR_DATE_COLUMNS, SR_SEARCHABLE_FIELDS } from "../config/srTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { ExceptionMap } from "antd/es/result";
+import { useUserData } from "@/hooks/useUserData";
 
 // --- Constants ---
 const DOCTYPE = 'Service Requests';
@@ -48,6 +49,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     for_vendor = undefined,
     urlSyncKeySuffix = 'approved' // Default suffix
 }) => {
+    const { role } = useUserData();
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { getTotalAmount } = useOrderTotals()
@@ -138,10 +140,12 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewSRSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
                         {isNew && (<p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />)}
-                        <Link className="underline hover:underline-offset-2 whitespace-nowrap"
-                            to={for_vendor ? `/service-requests/${srId}?tab=approved-sr` : `/service-requests/${srId}?tab=approved-sr`} >
-                            {srId?.slice(-5)}
-                        </Link>
+                        {role === "Nirmaan Project Manager Profile" ? srId?.slice(-5) :
+                            (<Link className="underline hover:underline-offset-2 whitespace-nowrap"
+                                to={for_vendor ? `/service-requests/${srId}?tab=approved-sr` : `/service-requests/${srId}?tab=approved-sr`} >
+                                {srId?.slice(-5)}
+                            </Link>)
+                        }
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
                         </div>

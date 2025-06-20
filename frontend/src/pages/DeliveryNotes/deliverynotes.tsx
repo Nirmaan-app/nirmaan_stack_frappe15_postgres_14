@@ -8,12 +8,12 @@ import { useFrappeGetDocList } from "frappe-react-sdk"
 import { useContext, useMemo } from "react"
 import { Link } from "react-router-dom"
 
-const DeliveryNotes : React.FC = () => {
+const DeliveryNotes: React.FC = () => {
 
     const { data: procurementOrdersList } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment", "Cancelled", "Merged"]]],
-        orderBy: { field: "creation", order: "desc" },
+        orderBy: { field: "dispatch_date", order: "desc" },
         limit: 100000,
     })
 
@@ -104,13 +104,13 @@ const DeliveryNotes : React.FC = () => {
 
     const handleChange = (selectedItem: any) => {
         setSelectedProject(selectedItem ? selectedItem.value : null);
-        if(selectedItem) {
-          sessionStorage.setItem(
-            "selectedProject",
-            JSON.stringify(selectedItem.value)
-          );
+        if (selectedItem) {
+            sessionStorage.setItem(
+                "selectedProject",
+                JSON.stringify(selectedItem.value)
+            );
         } else {
-          sessionStorage.removeItem("selectedProject");
+            sessionStorage.removeItem("selectedProject");
         }
     };
 
@@ -126,7 +126,7 @@ const DeliveryNotes : React.FC = () => {
                             <TableRow>
                                 <TableHead className=" font-extrabold">Delivery Note</TableHead>
                                 <TableHead className="w-[30%] font-extrabold">PR No.</TableHead>
-                                <TableHead className="w-[20%] font-extrabold">Creation</TableHead>
+                                <TableHead className="w-[20%] font-extrabold">Dispatch Date</TableHead>
                                 <TableHead className="w-[20%] font-extrabold">Status</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -138,7 +138,7 @@ const DeliveryNotes : React.FC = () => {
                                             <Link className="underline text-blue-300 hover:text-blue-500" to={`${item.name.replaceAll("/", "&=")}`}>DN-{item.name.split('/')[1]}</Link>
                                         </TableCell>
                                         <TableCell>{item?.procurement_request}</TableCell>
-                                        <TableCell>{formatDate(item.creation)}</TableCell>
+                                        <TableCell>{formatDate(item?.dispatch_date)}</TableCell>
                                         <TableCell>
                                             <Badge variant={`${item?.status === "Dispatched" ? "orange" : "green"}`}>
                                                 {item?.status}
