@@ -150,7 +150,7 @@ const handleChange = (selectedItem: any) => {
                             <Label htmlFor="invoice_no" className="sm:text-left">
                                 Project Select<sup className="text-red-500 ml-1">* </sup>:
                             </Label>
-                            <div className="sm:col-span-2">
+                            <div data-cy="project-select-dropdown" className="sm:col-span-2">
                               <ProjectSelect onChange={handleChange} />
 
                             </div>
@@ -161,6 +161,7 @@ const handleChange = (selectedItem: any) => {
                                 Invoice No<sup className="text-red-500 ml-1">* </sup>:
                             </Label>
                             <Input
+                                data-cy="invoice-no-input"
                                 id="invoice_no"
                                 value={invoiceData.invoice_no}
                                 onChange={(e) => setInvoiceData((prev) => ({ ...prev, invoice_no: e.target.value }))}
@@ -175,6 +176,7 @@ const handleChange = (selectedItem: any) => {
                                 Date<sup className="text-red-500 ml-1">*</sup>:
                             </Label>
                             <Input
+                                data-cy="date-input"
                                 id="invoice_date"
                                 type="date"
                                 value={invoiceData.date}
@@ -191,6 +193,7 @@ const handleChange = (selectedItem: any) => {
                                 Amount<sup className="text-red-500 ml-1">*</sup>:
                             </Label>
                             <Input
+                                data-cy="amount-input"
                                 id="invoice_amount"
                                 type="text"
                                 inputMode="decimal"
@@ -226,9 +229,9 @@ const handleChange = (selectedItem: any) => {
                         ) : (
                             <>
                                 <AlertDialogCancel asChild>
-                                    <Button variant="outline" disabled={isLoading}>Cancel</Button>
+                                    <Button data-cy="add-invoice-cancel-button" variant="outline" disabled={isLoading}>Cancel</Button>
                                 </AlertDialogCancel>
-                                <Button type="submit" disabled={isFormInvalid || isLoading}>
+                                <Button data-cy="add-invoice-confirm-button" type="submit" disabled={isFormInvalid || isLoading}>
                                     Confirm
                                 </Button>
                             </>

@@ -125,7 +125,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/project-invoices") {
     return (
-      <Button onClick={toggleNewProjectInvoiceDialog} className="sm:mr-4 mr-2">
+      <Button data-cy="add-project-invoice-button" onClick={toggleNewProjectInvoiceDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">PROJECT INVOICE</span>
       </Button>

@@ -69,6 +69,7 @@ export default function Login() {
                                             type="text"
                                             placeholder="m@example.com"
                                             tabIndex={0}
+                                            data-cy="username-login-input-email"
                                         />
                                         {errors?.email && <small className="text-red-500">{errors?.email?.message}</small>}
 
@@ -92,11 +93,12 @@ export default function Login() {
                                             name="password"
                                             autoComplete="current-password"
                                             type="password"
-                                            placeholder="***********" />
+                                            placeholder="***********"
+                                            data-cy="username-login-input-password" />
                                         {/* <Input id="password" type="password" required /> */}
                                     </div>
                                     {errors?.password && <small className="text-red-500">{errors?.password?.message}</small>}
-                                    <Button type="submit" disabled={isSubmitting} className="w-full" onClick={handleSubmit(onSubmit)}>
+                                    <Button type="submit" disabled={isSubmitting} className="w-full" onClick={handleSubmit(onSubmit)} data-cy="login-button">
                                         Login
                                     </Button>
                                     {error && <h3 className="text-red-500">{error.message}</h3>}
