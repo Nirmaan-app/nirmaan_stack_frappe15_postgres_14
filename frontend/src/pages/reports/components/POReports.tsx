@@ -22,10 +22,12 @@ import { exportToCsv } from "@/utils/exportToCsv";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { format } from "path";
+import { useUserData } from "@/hooks/useUserData";
 
 interface SelectOption { label: string; value: string; }
 
 export default function POReports() {
+    const { role } = useUserData();
     // 1. Fetch the superset of data. `usePOReportsData` should return POReportRowData[]
     // which already contains calculated totalAmount, invoiceAmount, amountPaid, and originalDoc.
     const {
@@ -37,7 +39,7 @@ export default function POReports() {
     const selectedReportType = useReportStore((state) => state.selectedReportType as POReportOption | null);
 
     // 2. Dynamically determine columns based on selectedReportType
-    const tableColumnsToDisplay = useMemo(() => getPOReportColumns(selectedReportType), [selectedReportType]);
+    const tableColumnsToDisplay = useMemo(() => getPOReportColumns(selectedReportType, role), [selectedReportType]);
     const delta = 100;
 
     // 3. Perform the report-specific dynamic filtering on the client side.

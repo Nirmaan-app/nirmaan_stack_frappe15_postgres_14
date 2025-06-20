@@ -86,6 +86,82 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     },
 ];
 
+export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
+    {
+        accessorKey: "name",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="#PO" />,
+        cell: ({ row }) => {
+            const name = row.original.name;
+            return <div className="flex items-center">{name}
+                <Link to={`/prs&milestones/delivery-notes/${name.replaceAll("/", "&=")}`}>
+                    <Info className="text-blue-500 h-3 w-3 ml-1 mt-0.5" />
+                </Link>
+            </div>;
+        },
+        size: 200,
+        meta: { exportHeaderName: "#PO", exportValue: (row: POReportRowData) => row.name }
+    },
+    {
+        accessorKey: "creation",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date Created" />,
+        cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
+        meta: {
+            exportValue: (row: POReportRowData) => formatDate(row.creation),
+            exportHeaderName: "Date Created"
+        },
+        filterFn: dateFilterFn
+    },
+    {
+        id: "project", // Using id for faceted filter key
+        accessorFn: row => row.projectName || row.project, // For sorting/filtering if values are just IDs
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+        cell: ({ row }) => <div>{row.original.projectName || row.original.project}</div>, // Display name
+        meta: {
+            exportHeaderName: "Project",
+            exportValue: (row: POReportRowData) => row.projectName || row.project
+        },
+        filterFn: facetedFilterFn,
+    },
+    {
+        id: "vendor_name", // Using id for faceted filter key
+        accessorFn: row => row.vendorName || row.vendor, // For sorting/filtering if values are just IDs
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
+        cell: ({ row }) => <div>{row.original.vendorName || row.original.vendor}</div>, // Display name
+        meta: {
+            exportHeaderName: "Vendor",
+            exportValue: (row: POReportRowData) => row.vendorName || row.vendor
+        },
+        filterFn: facetedFilterFn
+    },
+    {
+        accessorKey: "totalAmount", // This is pre-calculated in POReportRowData
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Amt" />,
+        cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.totalAmount)}</div>,
+        meta: {
+            exportValue: (row: POReportRowData) => formatForReport(row.totalAmount),
+            exportHeaderName: "Total PO Amt", isNumeric: true
+        }
+    },
+    {
+        accessorKey: "invoiceAmount", // This is pre-calculated in POReportRowData
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Total Invoice Amt" />,
+        cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.invoiceAmount)}</div>,
+        meta: {
+            exportValue: (row: POReportRowData) => formatForReport(row.invoiceAmount),
+            exportHeaderName: "Total Invoice Amt", isNumeric: true
+        }
+    },
+    {
+        accessorKey: "amountPaid", // This is pre-calculated in POReportRowData
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
+        cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.amountPaid)}</div>,
+        meta: {
+            exportValue: (row: POReportRowData) => formatForReport(row.amountPaid),
+            exportHeaderName: "Amt Paid", isNumeric: true
+        }
+    },
+];
+
 // // Column specific to "Dispatched for 3 days" report
 // export const dispatchedDateColumn: ColumnDef<POReportRowData> = {
 //     // POReportRowData contains originalDoc. We access dispatch_date through it.
@@ -132,8 +208,8 @@ export const dispatchedDateColumn: ColumnDef<POReportRowData> = {
 
 
 // Function to get columns based on report type
-export const getPOReportColumns = (reportType?: ReportType): ColumnDef<POReportRowData>[] => {
-    let columnsToDisplay: ColumnDef<POReportRowData>[] = [...basePOColumns];
+export const getPOReportColumns = (reportType?: ReportType, role?: string): ColumnDef<POReportRowData>[] => {
+    let columnsToDisplay: ColumnDef<POReportRowData>[] = (role === "Nirmaan Project Manager Profile" ? [...basePOColumnsForPM] : [...basePOColumns]);
     console.log("reportType", reportType);
     if (reportType === 'Dispatched for 3 days') {
         columnsToDisplay.push(dispatchedDateColumn);

@@ -8,10 +8,10 @@ import { POReportOption, SROption, ProjectReportType, ReportType, useReportStore
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 
+// Lazy load report components
 const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
 const POReports = React.lazy(() => import('./components/POReports'));
-const SRReports = React.lazy(() => import('./components/SRReports')); // New SR component
-
+const SRReports = React.lazy(() => import('./components/SRReports'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -21,160 +21,209 @@ const projectReportOptions: { label: string; value: ProjectReportType }[] = [
 const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
     { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
-    { label: 'Dispatched for 3+ days', value: 'Dispatched for 3 days' }, // User-friendly label
+    { label: 'Dispatched for 3+ days', value: 'Dispatched for 3 days' },
 ];
 
-// Options for SR Reports
 const srReportOptions: { label: string; value: SROption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
-    // As requested, value is 'PO with Excess Payments', label can be more SR-specific
     { label: 'Excess Payments (SR)', value: 'PO with Excess Payments' },
 ];
 
 export default function ReportsContainer() {
+    const { role } = useUserData(); // Get current user's role
 
-    const { role } = useUserData();
-
+    // Determine initial active tab based on role and URL param
     const initialTab = useMemo(() => {
-        return getUrlStringParam("tab", REPORTS_TABS.PROJECTS);
-    }, []); // Calculate once
-
+        const urlTab = getUrlStringParam("tab", null);
+        if (role === "Nirmaan Project Manager Profile") {
+            // PM can only see PO and SR. If URL tab is something else or null, default to PO.
+            if (urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
+            return REPORTS_TABS.PO;
+        }
+        // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
+        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
+        return REPORTS_TABS.PROJECTS;
+    }, [role]);
 
     const [activeTab, setActiveTab] = useState<string>(initialTab);
 
-    // Effect to sync tab state TO URL
+    // Sync tab state TO URL
     useEffect(() => {
-        // Only update URL if the state `tab` is different from the URL's current 'tab' param
         if (urlStateManager.getParam("tab") !== activeTab) {
             urlStateManager.updateParam("tab", activeTab);
         }
     }, [activeTab]);
 
-    // Effect to sync URL state TO tab state (for popstate/direct URL load)
+    // Sync URL TO tab state (for popstate/direct URL load)
     useEffect(() => {
         const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
-            // Update state only if the new URL value is different from current state
-            const newTab = value || initialTab; // Fallback to initial if param removed
-            if (activeTab !== newTab) {
-                setActiveTab(newTab);
+            const newUrlTab = value || initialTab; // Fallback to initial if param removed
+            if (activeTab !== newUrlTab) {
+                setActiveTab(newUrlTab);
             }
         });
-        return unsubscribe; // Cleanup subscription
-    }, [initialTab]); // Depend on `tab` to avoid stale closures
+        return unsubscribe;
+    }, [initialTab, activeTab]);
 
 
-    // Get state and actions from Zustand store
     const selectedReportType = useReportStore((state) => state.selectedReportType);
     const setSelectedReportType = useReportStore((state) => state.setSelectedReportType);
     const setDefaultReportType = useReportStore((state) => state.setDefaultReportType);
 
-    // Update default report type when tab changes
+    // Set default report type when tab or role changes
     useEffect(() => {
-        setDefaultReportType(activeTab);
-    }, [activeTab, setDefaultReportType]);
+        // console.log(`Container: Tab changed to ${activeTab}, Role: ${role}. Setting default report type.`);
+        setDefaultReportType(activeTab, role);
+    }, [activeTab, role, setDefaultReportType]);
 
-    const tabs = useMemo(() => [
-        // ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>Projects</span>
-                </div>
-            ),
-            value: REPORTS_TABS.PROJECTS,
-        },
-        // ] : []),
-        {
-            label: (
-                <div className="flex items-center">
-                    <span>PO</span>
-                </div>
-            ),
-            value: REPORTS_TABS.PO,
-        },
-        { // New SR Tab
-            label: <div className="flex items-center"><span>SR</span></div>,
-            value: REPORTS_TABS.SR,
-        },
-    ], [role])
 
-    const onClick = useCallback(
-        (value: string) => {
-            if (activeTab === value) return; // Prevent redundant updates
+    // Define available tabs based on role
+    const tabs = useMemo(() => {
+        const availableTabs = [];
+        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            availableTabs.push({
+                label: <div className="flex items-center"><span>Projects</span></div>,
+                value: REPORTS_TABS.PROJECTS,
+            });
+        }
+        // All three roles (Admin, Accountant, PM) can see PO and SR tabs
+        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            availableTabs.push({
+                label: <div className="flex items-center"><span>PO</span></div>,
+                value: REPORTS_TABS.PO,
+            });
+        }
+        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            availableTabs.push({
+                label: <div className="flex items-center"><span>SR</span></div>,
+                value: REPORTS_TABS.SR,
+            });
+        }
+        return availableTabs;
+    }, [role]);
 
+    // If the current activeTab is not in the list of available tabs for the role,
+    // reset activeTab to the first available tab (or a sensible default).
+    useEffect(() => {
+        if (tabs.length > 0 && !tabs.find(t => t.value === activeTab)) {
+            setActiveTab(tabs[0].value);
+        } else if (tabs.length === 0 && activeTab !== '') { // No tabs available, clear activeTab
+            setActiveTab(''); // Or a placeholder value like 'no_access'
+        }
+    }, [tabs, activeTab]);
+
+
+    const handleTabClick = useCallback((value: string) => {
+        if (activeTab !== value) {
             setActiveTab(value);
-        }, [activeTab, setActiveTab]);
+        }
+    }, [activeTab]);
 
 
     const currentReportOptions = useMemo(() => {
         if (activeTab === REPORTS_TABS.PROJECTS) {
-            return projectReportOptions;
+            return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
+                ? projectReportOptions
+                : [];
         } else if (activeTab === REPORTS_TABS.PO) {
-            return poReportOptions;
+            return role === "Nirmaan Project Manager Profile"
+                ? poReportOptions.filter(option => option.value === 'Dispatched for 3 days')
+                : (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? poReportOptions : []);
         } else if (activeTab === REPORTS_TABS.SR) {
-            return srReportOptions; // Return SR options
+            return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+                ? srReportOptions
+                : [];
         }
         return [];
-    }, [activeTab]);
+    }, [activeTab, role]);
 
-    const handleReportTypeChange = (value: ReportType) => {
-        setSelectedReportType(value);
+
+    const handleReportTypeChange = (value: string) => {
+        const validReportType = currentReportOptions.find(opt => opt.value === value)?.value;
+        setSelectedReportType(validReportType ? validReportType as ReportType : null);
+    };
+
+    // Effect to auto-select/validate report type when options change
+    useEffect(() => {
+        // console.log("Current Report Options changed:", currentReportOptions);
+        // console.log("Current Selected Report Type:", selectedReportType);
+        if (currentReportOptions.length === 1) {
+            const onlyOptionValue = currentReportOptions[0].value;
+            if (selectedReportType !== onlyOptionValue) {
+                // console.log("Auto-selecting only available option:", onlyOptionValue);
+                setSelectedReportType(onlyOptionValue as ReportType);
+            }
+        } else if (selectedReportType && !currentReportOptions.some(opt => opt.value === selectedReportType)) {
+            // If current selection is no longer valid, reset to default for the current tab/role
+            // console.log("Current selection invalid, resetting to default for tab:", activeTab, "role:", role);
+            setDefaultReportType(activeTab, role);
+        } else if (!selectedReportType && currentReportOptions.length > 0) {
+            // If no report is selected but there are options, set to default
+            // This happens on initial load or if selection became null
+            // console.log("No report selected but options exist, setting to default for tab:", activeTab, "role:", role);
+            setDefaultReportType(activeTab, role);
+        }
+
+    }, [currentReportOptions, selectedReportType, setSelectedReportType, setDefaultReportType, activeTab, role]);
+
+
+    const renderRadioGroup = () => {
+        if (!tabs.length) {
+            return <div className="text-sm text-gray-600 p-4">No reports accessible for your current role.</div>;
+        }
+        return (
+            <Radio.Group
+                options={tabs}
+                optionType="button"
+                buttonStyle="solid"
+                value={activeTab} // Controlled by activeTab state
+                onChange={(e) => handleTabClick(e.target.value)}
+            />
+        );
+    };
+
+    const renderReportContent = () => {
+        if (!tabs.find(t => t.value === activeTab)) { // If activeTab is not valid for current role
+            return <div className="p-4 text-center text-gray-500">Please select an available report tab.</div>;
+        }
+        if (activeTab === REPORTS_TABS.PROJECTS) return <ProjectReports />;
+        if (activeTab === REPORTS_TABS.PO) return <POReports />;
+        if (activeTab === REPORTS_TABS.SR) return <SRReports />;
+        return <div className="p-4 text-center text-gray-500">Select a report tab to view details.</div>;
     };
 
 
     return (
-        <div
-            className="flex-1 space-y-4"
-        >
+        <div className="flex-1 space-y-4">
             <div className="flex justify-between items-center gap-4 flex-wrap">
-                {tabs && (
-                    <Radio.Group
-                        options={tabs}
-                        defaultValue="projects"
-                        optionType="button"
-                        buttonStyle="solid"
-                        value={activeTab}
-                        onChange={(e) => onClick(e.target.value)}
-                    />
+                {renderRadioGroup()}
+
+                {currentReportOptions.length > 0 && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">Report Type:</span>
+                        <Select
+                            value={selectedReportType ?? ""} // Ensure value is not null for Select
+                            onValueChange={handleReportTypeChange}
+                            disabled={currentReportOptions.length <= 1 && selectedReportType !== null} // Disable if only one option and it's selected
+                        >
+                            <SelectTrigger className="w-[250px] text-red-600 border-red-600">
+                                <SelectValue placeholder="Select type..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {currentReportOptions.map(option => (
+                                    <SelectItem className='text-red-600' key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
                 )}
-
-                {/* Report Type Selector */}
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">Report Type:</span>
-
-                    {/* --- OR --- Example using Shadcn UI Select */}
-                    <Select
-                        value={selectedReportType ?? ""} // Handle null value if needed
-                        onValueChange={(value: string) => handleReportTypeChange(value as ReportType)} // Cast necessary
-                        disabled={currentReportOptions.length === 0}
-                    >
-                        <SelectTrigger className="w-[250px] text-red-600 border-red-600">
-                            <SelectValue placeholder="Select type..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {currentReportOptions.map(option => (
-                                <SelectItem className='text-red-600' key={option.value} value={option.value}>
-                                    {option.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
             </div>
 
-            {/* Content Area */}
             <Suspense fallback={<LoadingFallback />}>
-                {activeTab === REPORTS_TABS.PROJECTS ? (
-                    <ProjectReports />
-                ) : activeTab === REPORTS_TABS.PO ? (
-                    <POReports />
-                ) : activeTab === REPORTS_TABS.SR ? ( // Render SRReports for SR tab
-                    <SRReports />
-                ) : (
-                    <div>Select a report tab.</div> // Fallback for invalid tab
-                )}
+                {renderReportContent()}
             </Suspense>
-
         </div>
     );
 }
