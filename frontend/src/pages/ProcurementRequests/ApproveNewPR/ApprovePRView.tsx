@@ -83,8 +83,10 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         handleOpenNewItemDialog,
         // handleNewItemChange,
         handleCreateAndAddItem,
+        handleSelectExistingItemFromNewDialog,
         handleOpenRequestItemDialog,
-        // handleRequestItemFormChange,
+        // handleRequestItemFormChange,'
+        handleRejectRequestItem,// Handle Actionrequired deletion
         handleApproveRequestedItemAsNew,
         handleAddMatchingItem,
         handlePrepareAction,
@@ -216,7 +218,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                             categories={requestedCategoriesForDisplay}
                             items={requestedItems}
                             onAction={handleOpenRequestItemDialog} // Opens the request dialog
-                            onDelete={handleDeleteItem} // Direct delete/reject for requested item
+                            onDelete={handleRejectRequestItem} // Direct delete/reject for requested item
                         />
                     )}
 
@@ -297,7 +299,9 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 categoryOptions={categoryList?.map(c => ({ label: c.category_name, value: c.name, tax: parseNumber(c.tax) })) ?? []}
                 fuzzyMatches={fuzzyMatches}
                 handleFuzzySearch={handleFuzzySearch}
-                onAddMatchingItem={setCurrentItemOption}
+                //onAddMatchingItem={setCurrentItemOption}
+                // Replace setCurrentItemOption with our new, more powerful handler
+    onAddMatchingItem={handleSelectExistingItemFromNewDialog}
                 currentCategory={currentCategoryForNewItem}
                 setCurrentCategory={setCurrentCategoryForNewItem}
                 onSubmit={handleCreateAndAddItem}
@@ -322,6 +326,8 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 categoryMakelist={categoryMakelist} // <<< Pass categoryMakelist
                 categoryMakeListMutate={categoryMakeListMutate}
             // --- End Make Props ---
+            totalItemsCount={orderData?.order_list?.length ?? 0}
+    // --- End of new prop ---
             />
 
             <RequestItemDialog

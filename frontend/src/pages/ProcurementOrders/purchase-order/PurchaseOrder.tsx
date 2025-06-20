@@ -317,9 +317,9 @@ export const PurchaseOrder = ({
   }, [PO]);
 
   const handleMerge = (po: ProcurementOrder) => {
-    let updatedOrderList = po.order_list.list;
+    let updatedOrderList = po.order_list?.list;
     if (po?.merged !== "true") {
-      updatedOrderList = po.order_list.list.map((item) => ({
+      updatedOrderList = po.order_list?.list.map((item) => ({
         ...item,
         po: po.name,
       }));
@@ -905,7 +905,7 @@ export const PurchaseOrder = ({
                             </TableRow>
                             {mergeablePOs.map((po) => {
                               // Helper function to check if merge should be disabled
-                              const isMergeDisabled = po.order_list.list.some(
+                              const isMergeDisabled = po.order_list?.list.some(
                                 (poItem) => {
                                   // Check if any item in orderData has the same name but different rate
                                   return orderData?.list?.some(
@@ -923,7 +923,7 @@ export const PurchaseOrder = ({
                                     {po?.procurement_request?.slice(9)}
                                   </TableCell>
                                   <TableCell>
-                                    {po.order_list.list.length}
+                                    {po.order_list?.list.length}
                                   </TableCell>
                                   <TableCell>
                                     <ul className="list-disc">

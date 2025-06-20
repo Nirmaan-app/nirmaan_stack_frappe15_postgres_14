@@ -33,7 +33,8 @@ interface NewItemDialogProps {
     isLoading: boolean;
     fuzzyMatches: FuzzyMatch[];
     handleFuzzySearch: (input: string) => void
-    onAddMatchingItem: React.Dispatch<React.SetStateAction<ItemOption | null>>
+      onAddMatchingItem: (itemOption: ItemOption) => void; // Update the function signature
+    //onAddMatchingItem: React.Dispatch<React.SetStateAction<ItemOption | null>>
 }
 
 export const NewItemDialog: React.FC<NewItemDialogProps> = ({
@@ -157,7 +158,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                                                                     category: match.category,
                                                                     tax: parseNumber(categoryOptions.find(c => c.value === match.category)?.tax ?? "0")
                                                                 })
-                                                                onClose()
+                                                                // onClose()
                                                               }}
                                                               disabled={isLoading}
                                                               className='h-7 border-blue-500 text-blue-600 hover:bg-blue-100'

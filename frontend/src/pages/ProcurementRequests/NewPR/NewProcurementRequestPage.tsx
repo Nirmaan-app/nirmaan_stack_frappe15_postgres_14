@@ -235,8 +235,9 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
 
         const uniqueWPDocNames = new Set<string>();
         project.project_wp_category_makes.forEach(item => {
+            // Skip empty procurement_package
             // Add a check for item integrity as well, if items can be malformed
-            if (item && typeof item === 'object' && item.procurement_package) {
+            if (item && typeof item === 'object' && item.procurement_package && item.procurement_package !== "Additional Charges") {
                 uniqueWPDocNames.add(item.procurement_package);
             }
         });

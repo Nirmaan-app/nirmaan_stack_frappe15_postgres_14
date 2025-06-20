@@ -1,170 +1,107 @@
-# Path: nirmaan_stack/api/approve_reject_sb_vendor_quotes.py (or similar)
 import frappe
-import json
 from frappe.utils import flt
 
 @frappe.whitelist()
-def new_handle_approve(sb_id: str, selected_items: list, project_id: str, selected_vendors: dict):
+def send_back_items(project_id: str, pr_name: str, selected_items: list, comments: str = None):
     """
-    Approves selected items from a Sent Back Category, creates Procurement Orders,
-    and updates the Sent Back Category document.
+    Sends back selected items for vendor quotes and updates the Procurement Request.
 
     Args:
-        sb_id (str): The name of the Sent Back Category document.
-        selected_items (list or str): List of selected item_ids from the SB doc's order_list.
-        project_id (str): Project ID. (Can also be derived from sb_doc.project)
-        selected_vendors (dict or str): A dictionary mapping item_id to vendor_id for the selected items.
-                                        (This implies vendor might be re-confirmed or changed at this stage)
+        project_id (str): The ID of the project.
+        pr_name (str): The name of the Procurement Request.
+        selected_items (list): A list of selected item names.
+        comments (str, optional): Comments for the sent back items. Defaults to None.
     """
     try:
-        sb_doc = frappe.get_doc("Sent Back Category", sb_id, for_update=True)
-        if not sb_doc:
-            raise frappe.ValidationError(f"Sent Back Category {sb_id} not found.")
+        pr_doc = frappe.get_doc("Procurement Requests", pr_name, for_update=True)
+        if not pr_doc:
+            raise frappe.ValidationError(f"Procurement Request {pr_name} not found.")
 
-        if isinstance(selected_items, str): selected_items = json.loads(selected_items)
-        if isinstance(selected_vendors, str): selected_vendors = json.loads(selected_vendors)
+        # procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])\
+        order_list = pr_doc.get("order_list", [])
+        rfq_data = frappe.parse_json(pr_doc.rfq_data) if pr_doc.rfq_data else {}
+        selected_vendors = rfq_data.get("selectedVendors", [])
+        rfq_details = rfq_data.get("details", {})
 
-        # --- Group selected SB child items by vendor ---
-        vendor_po_items_details = {} # vendor_id -> list of dicts for Purchase Order Item child table
-        processed_sb_child_item_names_for_status_update = set()
+        itemlist = []
+        new_categories = []
+        new_rfq_details = {}
 
-        selected_item_ids_set = set(selected_items)
+        for item_name in selected_items:
+            item = next((i for i in order_list if i.get("item_id") == item_name), None)
+            if item:
+                itemlist.append({
+                    "item_id": item.get("item_id"),
+                    "item_name": item.get("item_name"),
+                    "quantity": flt(item.get("quantity")),
+                    "tax": flt(item.get("tax")),
+                    "quote": flt(item.get("quote")),
+                    "unit": item.get("unit"),
+                    "category": item.get("category"),
+                    "procurement_package": item.get("procurement_package") or pr_doc.work_package,
+                    "status": "Pending",
+                    "comment": item.get("comment"),
+                    "make": item.get("make"),
+                    "vendor": item.get("vendor"),
+                })
 
-        project_doc = None
-        if sb_doc.project: # Use project from SB doc
-            project_doc = frappe.get_doc("Projects", sb_doc.project)
+                if not any(cat["name"] == item.get("category") for cat in new_categories):
+                    category_info = next((cat for cat in frappe.parse_json(pr_doc.category_list).get('list', []) if cat["name"] == item.get("category")), None)
+                    makes = category_info.get("makes", []) if category_info else []
+                    new_categories.append({"name": item.get("category"), "makes": makes})
 
-        # Iterate through the Sent Back Category's child table 'order_list'
-        for sb_child_item in sb_doc.order_list:
-            if sb_child_item.item_id in selected_item_ids_set:
-                # This item was selected from SB doc for PO.
-                # The vendor for this item should come from the selected_vendors payload.
-                vendor_id_for_item = selected_vendors.get(sb_child_item.item_id)
-                if not vendor_id_for_item:
-                    frappe.log_error(f"Vendor not found in payload for selected SB item {sb_child_item.item_id} from SB Doc {sb_id}", "new_handle_approve_sb")
-                    continue
+                # Add item details to new_rfq_details
+                if item_name in rfq_details:
+                    new_rfq_details[item_name] = rfq_details[item_name]
 
-                # The quote for this item comes from the sb_child_item itself.
-                if sb_child_item.quote is None:
-                    frappe.throw(f"Quote not found for selected item {sb_child_item.item_id} (child: {sb_child_item.name}) in SB Doc {sb_id}.")
+        if itemlist:
+            sent_back_doc = frappe.new_doc("Sent Back Category")
+            sent_back_doc.procurement_request = pr_name
+            sent_back_doc.project = project_id
+            sent_back_doc.category_list = {"list": new_categories}
+            # sent_back_doc.item_list = {"list": itemlist}
+            sent_back_doc.type = "Rejected"
+            sent_back_doc.rfq_data = {"selectedVendors": selected_vendors, "details": new_rfq_details}  # Add rfq_data
 
-                item_quote_rate = flt(sb_child_item.quote)
-                item_quantity = flt(sb_child_item.quantity)
-                item_tax_percentage = flt(sb_child_item.tax)
+            for sb_item in itemlist:
+                sent_back_doc.append("order_list", sb_item)
+            sent_back_doc.insert()
 
-                base_amount = item_quantity * item_quote_rate
-                calculated_tax_amount = base_amount * (item_tax_percentage / 100.0)
-                final_total_amount = base_amount + calculated_tax_amount
+            if comments:
+                comment_doc = frappe.new_doc("Nirmaan Comments")
+                comment_doc.comment_type = "Comment"
+                comment_doc.reference_doctype = "Sent Back Category"
+                comment_doc.reference_name = sent_back_doc.name
+                comment_doc.content = comments
+                comment_doc.subject = "creating sent-back"
+                comment_doc.comment_by = frappe.session.user
+                comment_doc.insert()
 
-                po_item_dict = {
-                    "item_id": sb_child_item.item_id,
-                    "item_name": sb_child_item.item_name,
-                    "unit": sb_child_item.unit,
-                    "quantity": item_quantity,
-                    "category": sb_child_item.category,
-                    "procurement_package": sb_child_item.procurement_package, # From SB item
-                    "quote": item_quote_rate,
-                    "amount": base_amount,
-                    "make": sb_child_item.make,
-                    "tax": item_tax_percentage,
-                    "tax_amount": calculated_tax_amount,
-                    "total_amount": final_total_amount,
-                    "comment": sb_child_item.comment,
-                    # For PO created from SB, link procurement_request_item to the SB child item?
-                    # Or should it trace back to the *original* PR child item if possible?
-                    # For now, let's assume we link to the SB item that triggered this PO.
-                    # "procurement_request_item": sb_child_item.name  // This would link to "Sent Back Item Detail"
-                    # If Sent Back Category stores original PR item name, use that.
-                    # If sb_child_item has a field like 'original_pr_item_name', use it:
-                    # "procurement_request_item": sb_child_item.get("original_pr_item_name") or sb_child_item.name
-                    # For simplicity, if not available, we might leave it blank or link to SB item.
-                    # Let's assume for now it's about the SB item.
-                    "procurement_request_item": sb_child_item.name, # This links to the SB child item
-                }
+        # updated_procurement_list = []
+        for item in order_list:
+            if item.item_id in selected_items:
+                item.status = "Sent Back"
+            # updated_procurement_list.append(item)
 
-                if vendor_id_for_item not in vendor_po_items_details:
-                    vendor_po_items_details[vendor_id_for_item] = []
-                vendor_po_items_details[vendor_id_for_item].append(po_item_dict)
-                processed_sb_child_item_names_for_status_update.add(sb_child_item.name)
+        total_items = len(order_list)
+        sent_back_items = len(selected_items)
+        all_items_sent_back = sent_back_items == total_items
 
+        no_approved_items = all(item.get("status") != "Approved" for item in order_list)
+        pending_items_count = sum(1 for item in order_list if item.get("status") == "Pending")
 
-        if not vendor_po_items_details:
-            if selected_items:
-                 frappe.msgprint(f"Warning: Selected items {selected_items} from SB {sb_id} could not be processed for PO.", indicator="orange", alert=True)
-            # No POs to create, proceed to update SB doc status
-        
-        latest_po_name = None
-        created_po_names = []
+        if all_items_sent_back:
+            pr_doc.workflow_state = "Sent Back"
+        elif no_approved_items and pending_items_count == 0:
+            pr_doc.workflow_state = "Sent Back"
+        else:
+            pr_doc.workflow_state = "Partially Approved"
 
-        # --- Create Procurement Orders ---
-        for vendor_id, po_items_list_for_vendor in vendor_po_items_details.items():
-            vendor_doc = frappe.get_doc("Vendors", vendor_id)
-            po_doc = frappe.new_doc("Procurement Orders")
-            
-            # PO should link to the original PR, not the SB doc, for traceability.
-            po_doc.procurement_request = sb_doc.procurement_request
-            po_doc.project = sb_doc.project # Project from SB doc
-            if project_doc:
-                po_doc.project_name = project_doc.project_name
-                po_doc.project_address = project_doc.project_address
-                # po_doc.project_gst = project_doc.gst_no
+        # pr_doc.procurement_list = {"list": updated_procurement_list}
+        pr_doc.save()
 
-            po_doc.vendor = vendor_id
-            po_doc.vendor_name = vendor_doc.vendor_name
-            po_doc.vendor_address = vendor_doc.vendor_address
-            po_doc.vendor_gst = vendor_doc.vendor_gst
-
-            # Determine if the PO derived from SB is "custom"
-            # This depends on the nature of the original PR.
-            original_pr_is_custom = not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package")
-            if original_pr_is_custom:
-                 po_doc.custom = "true"
-
-            for po_item_entry in po_items_list_for_vendor:
-                po_doc.append("items", po_item_entry)
-
-            po_header_amount = sum(item.get("amount", 0) for item in po_doc.items)
-            po_header_tax_amount = sum(item.get("tax_amount", 0) for item in po_doc.items)
-            po_doc.amount = po_header_amount
-            po_doc.tax_amount = po_header_tax_amount
-            po_doc.total_amount = po_header_amount + po_header_tax_amount
-            
-            po_doc.insert(ignore_permissions=True)
-            latest_po_name = po_doc.name
-            created_po_names.append(po_doc.name)
-
-        # --- Update Sent Back Category items and workflow state ---
-        sb_state_changed = False
-        if processed_sb_child_item_names_for_status_update:
-            for sb_child_item_doc_to_update in sb_doc.order_list:
-                if sb_child_item_doc_to_update.name in processed_sb_child_item_names_for_status_update:
-                    if sb_child_item_doc_to_update.status != "Approved":
-                        sb_child_item_doc_to_update.status = "Approved"
-                        sb_state_changed = True
-        
-        if sb_state_changed: # Only update workflow if item statuses actually changed
-            total_items_in_sb = len(sb_doc.order_list)
-            approved_items_in_sb = sum(1 for item in sb_doc.order_list if item.status == "Approved")
-
-            if approved_items_in_sb == total_items_in_sb:
-                sb_doc.workflow_state = "Approved"
-            elif approved_items_in_sb > 0 : # Some approved, but not all
-                sb_doc.workflow_state = "Partially Approved"
-            # If no items were approved from this SB doc in this run, its state might not change,
-            # or it might depend on whether other items are still 'Pending' or 'Sent Back' within it.
-            # For simplicity, if items were processed, it's either Approved or Partially Approved.
-            # If no items were processed (e.g. selection was empty), state doesn't change via this path.
-        
-        # Save SB doc if anything changed (item statuses or workflow state)
-        if sb_state_changed or (sb_doc.workflow_state != sb_doc.get_doc_before_save().workflow_state if sb_doc.get_doc_before_save() else False) :
-             sb_doc.save(ignore_permissions=True)
-        
-        message = f"Procurement Order(s): {', '.join(created_po_names)} created successfully from SB {sb_id}." if created_po_names else f"No Purchase Orders generated from SB {sb_id}."
-        if sb_state_changed:
-            message += f" Sent Back Category {sb_id} updated."
-
-        return {"message": message, "status": 200, "po": latest_po_name, "created_pos": created_po_names}
+        return {"message": f"New Rejected Type Sent Back {sent_back_doc.name} created successfully.", "status": 200}
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "new_handle_approve_sb")
+        frappe.log_error(frappe.get_traceback(), "send_back_items")
         return {"error": str(e), "status": 400}

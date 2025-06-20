@@ -79,6 +79,7 @@ export interface EditItemState extends Partial<PRItemUIData> {
 }
 
 export interface RequestItemState {
+     name: string;  // new request bug handle
     item_name: string; // Original requested item name
     item_id: string;      // Original requested item name/id (might be temporary)
     unit: string;
