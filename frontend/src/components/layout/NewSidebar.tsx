@@ -20,7 +20,7 @@ import {
   CircleDollarSign,
   ClipboardMinus,
   HandCoins,
-  ReceiptText,FileUp
+  ReceiptText, FileUp
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -63,10 +63,10 @@ export function NewSidebar() {
 
   // * inside component body */
   const _ = useCountsBridge(user_id);                //  <-- one hook, done
-  
+
   const [collapsedKey, setCollapsedKey] = useState<string | null>(null); // Tracks the currently open group
 
-  const handleGroupToggle = useCallback((key : string) => {
+  const handleGroupToggle = useCallback((key: string) => {
     setCollapsedKey((prevKey) => (prevKey === key ? null : key));
   }, [collapsedKey]);
 
@@ -131,19 +131,19 @@ export function NewSidebar() {
 
   const { mutate: globalSWRMutate } = useSWRConfig(); // SWR's global mutate
 
-    // --- Event Listeners to trigger SWR revalidation for counts ---
-    const revalidateCounts = useCallback(() => {
-        if (user_id) {
-            console.log("[NewSidebar] Revalidating sidebar counts via SWR mutate.");
-            globalSWRMutate([API_PATH, user_id]); // Use the same key as useSidebarCounts
-        }
-    }, [user_id, globalSWRMutate]);
+  // --- Event Listeners to trigger SWR revalidation for counts ---
+  const revalidateCounts = useCallback(() => {
+    if (user_id) {
+      console.log("[NewSidebar] Revalidating sidebar counts via SWR mutate.");
+      globalSWRMutate([API_PATH, user_id]); // Use the same key as useSidebarCounts
+    }
+  }, [user_id, globalSWRMutate]);
 
-    useFrappeDocTypeEventListener("Procurement Requests", revalidateCounts);
-    useFrappeDocTypeEventListener("Sent Back Category", revalidateCounts);
-    useFrappeDocTypeEventListener("Procurement Orders", revalidateCounts);
-    useFrappeDocTypeEventListener("Service Requests", revalidateCounts);
-    useFrappeDocTypeEventListener("Project Payments", revalidateCounts);
+  useFrappeDocTypeEventListener("Procurement Requests", revalidateCounts);
+  useFrappeDocTypeEventListener("Sent Back Category", revalidateCounts);
+  useFrappeDocTypeEventListener("Procurement Orders", revalidateCounts);
+  useFrappeDocTypeEventListener("Service Requests", revalidateCounts);
+  useFrappeDocTypeEventListener("Project Payments", revalidateCounts);
 
 
   useFrappeDocTypeEventListener("Nirmaan Notifications", () => {
@@ -197,32 +197,32 @@ export function NewSidebar() {
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
     ...(user_id == "Administrator" || role == "Nirmaan Admin Profile"
       ? [
-          {
-            key: "admin-actions",
-            icon: Shapes,
-            label: "Admin Options",
-            children: [
-              { key: "/projects", label: "Projects" },
-              { key: "/users", label: "Users" },
-              { key: "/products", label: "Products" },
-              { key: "/vendors", label: "Vendors" },
-              { key: "/customers", label: "Customers" },
-              { key: "/product-packages", label: "Product Packages" },
-              { key: "/approved-quotes", label: "Approved Quotations" },
-              //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
-            ],
-          },
-        ]
+        {
+          key: "admin-actions",
+          icon: Shapes,
+          label: "Admin Options",
+          children: [
+            { key: "/projects", label: "Projects" },
+            { key: "/users", label: "Users" },
+            { key: "/products", label: "Products" },
+            { key: "/vendors", label: "Vendors" },
+            { key: "/customers", label: "Customers" },
+            { key: "/product-packages", label: "Product Packages" },
+            { key: "/approved-quotes", label: "Approved Quotations" },
+            //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
+          ],
+        },
+      ]
       : []),
-      ...(role == "Nirmaan Project Lead Profile"
-        ? [
-            {
-              key: "/projects",
-              icon: BlendIcon,
-              label: "Projects",
-            },
-          ]
-        : []),
+    ...(role == "Nirmaan Project Lead Profile"
+      ? [
+        {
+          key: "/projects",
+          icon: BlendIcon,
+          label: "Projects",
+        },
+      ]
+      : []),
     // ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
     //   role
     // ) || user_id == "Administrator"
@@ -233,110 +233,110 @@ export function NewSidebar() {
     //         label: "Procurement Actions",
     //         children: [
     //           { key: "/prs&milestones", label: "PRs & Milestones" },
-              // {
-              //   key: "/approve-new-pr",
-              //   label: "Approve PR",
-              //   count:
-              //     role === "Nirmaan Admin Profile" ||
-              //     user_id === "Administrator"
-              //       ? adminPrCounts.pending
-              //       : prCounts.pending,
-              // },
-              // {
-              //   key: "/approve-po",
-              //   label: "Approve PO",
-              //   count:
-              //     role === "Nirmaan Admin Profile" ||
-              //     user_id === "Administrator"
-              //       ? adminPrCounts.approve
-              //       : prCounts.approve,
-              // },
-              // {
-              //   key: "/approve-amended-po",
-              //   label: "Approve Amended PO",
-              //   count:
-              //     role === "Nirmaan Admin Profile" ||
-              //     user_id === "Administrator"
-              //       ? adminAmendPOCount
-              //       : amendPOCount,
-              // },
-              // {
-              //   key: "/approve-sent-back",
-              //   label: "Approve Sent Back PO",
-              //   count:
-              //     role === "Nirmaan Admin Profile" ||
-              //     user_id === "Administrator"
-              //       ? adminNewApproveSBCount
-              //       : newSBApproveCount,
-              // },
-              // {
-              //   key: "/approve-service-request",
-              //   label: "Approve Service Order",
-              //   count:
-              //     role === "Nirmaan Admin Profile" ||
-              //     user_id === "Administrator"
-              //       ? adminSelectedSRCount
-              //       : selectedSRCount,
-              // },
-              // {
-              //   key: "/approve-amended-so",
-              //   label: "Approve Amended SO",
-              //   count:
-              //     role === "Nirmaan Admin Profile" ||
-              //     user_id === "Administrator"
-              //       ? adminAmendedSRCount
-              //       : amendedSRCount,
-              // },
-              // ...(role !== "Nirmaan Project Lead Profile" ? [
-              //   {
-              //     key: "/approve-payments",
-              //     label: "Approve Payments",
-              //     count:
-              //       role === "Nirmaan Admin Profile" ||
-              //       user_id === "Administrator"
-              //         ? adminPaymentsCount.requested
-              //         : paymentsCount.requested,
-              //   },
-              // ] : []),
-      //       ],
-      //     },
-      //   ]
-      // : []),
+    // {
+    //   key: "/approve-new-pr",
+    //   label: "Approve PR",
+    //   count:
+    //     role === "Nirmaan Admin Profile" ||
+    //     user_id === "Administrator"
+    //       ? adminPrCounts.pending
+    //       : prCounts.pending,
+    // },
+    // {
+    //   key: "/approve-po",
+    //   label: "Approve PO",
+    //   count:
+    //     role === "Nirmaan Admin Profile" ||
+    //     user_id === "Administrator"
+    //       ? adminPrCounts.approve
+    //       : prCounts.approve,
+    // },
+    // {
+    //   key: "/approve-amended-po",
+    //   label: "Approve Amended PO",
+    //   count:
+    //     role === "Nirmaan Admin Profile" ||
+    //     user_id === "Administrator"
+    //       ? adminAmendPOCount
+    //       : amendPOCount,
+    // },
+    // {
+    //   key: "/approve-sent-back",
+    //   label: "Approve Sent Back PO",
+    //   count:
+    //     role === "Nirmaan Admin Profile" ||
+    //     user_id === "Administrator"
+    //       ? adminNewApproveSBCount
+    //       : newSBApproveCount,
+    // },
+    // {
+    //   key: "/approve-service-request",
+    //   label: "Approve Service Order",
+    //   count:
+    //     role === "Nirmaan Admin Profile" ||
+    //     user_id === "Administrator"
+    //       ? adminSelectedSRCount
+    //       : selectedSRCount,
+    // },
+    // {
+    //   key: "/approve-amended-so",
+    //   label: "Approve Amended SO",
+    //   count:
+    //     role === "Nirmaan Admin Profile" ||
+    //     user_id === "Administrator"
+    //       ? adminAmendedSRCount
+    //       : amendedSRCount,
+    // },
+    // ...(role !== "Nirmaan Project Lead Profile" ? [
+    //   {
+    //     key: "/approve-payments",
+    //     label: "Approve Payments",
+    //     count:
+    //       role === "Nirmaan Admin Profile" ||
+    //       user_id === "Administrator"
+    //         ? adminPaymentsCount.requested
+    //         : paymentsCount.requested,
+    //   },
+    // ] : []),
+    //       ],
+    //     },
+    //   ]
+    // : []),
     ...([
       "Nirmaan Procurement Executive Profile",
       "Nirmaan Admin Profile",
       "Nirmaan Project Lead Profile"
     ].includes(role) || user_id == "Administrator"
       ? [
-          {
-            key: "/procurement-requests",
-            icon: List,
-            label: "Procurement Requests",
-            // count: role === "Nirmaan Admin Profile" ||
-            //         user_id === "Administrator"
-            //         ? adminPrCounts.approved
-            //         : prCounts.approved,
-          },
-          {
-            key: "/service-requests",
-            icon: SquareSquare,
-            label: "Service Requests",
-            // count: role === "Nirmaan Admin Profile" ||
-            //         user_id === "Administrator"
-            //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
-            //         : (pendingSRCount || 0) + (approvedSRCount || 0),
-          },
-          {
-            key: "/purchase-orders",
-            icon: ShoppingCart,
-            label: "Purchase Orders",
-            // count:
-            //      role === "Nirmaan Admin Profile" ||
-            //      user_id === "Administrator"
-            //        ? adminNewPOCount
-            //        : newPOCount,
-          },
-        ]
+        {
+          key: "/procurement-requests",
+          icon: List,
+          label: "Procurement Requests",
+          // count: role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //         ? adminPrCounts.approved
+          //         : prCounts.approved,
+        },
+        {
+          key: "/service-requests",
+          icon: SquareSquare,
+          label: "Service Requests",
+          // count: role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
+          //         : (pendingSRCount || 0) + (approvedSRCount || 0),
+        },
+        {
+          key: "/purchase-orders",
+          icon: ShoppingCart,
+          label: "Purchase Orders",
+          // count:
+          //      role === "Nirmaan Admin Profile" ||
+          //      user_id === "Administrator"
+          //        ? adminNewPOCount
+          //        : newPOCount,
+        },
+      ]
       : []),
     // ...(role == "Nirmaan Procurement Executive Profile" ||
     // user_id == "Administrator" ||
@@ -354,52 +354,52 @@ export function NewSidebar() {
     //       },
     //     ]
     //   : []),
-      ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile"].includes(role)
-        ? [
-            {
-                key: '/project-payments',
-                icon: CircleDollarSign,
-                label: 'Project Payments',
-            },
-        ]
-        : []),
-        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
-        ? [
-            {
-                key: '/in-flow-payments',
-                icon: HandCoins,
-                label: 'In-Flow Payments',
-            },
-        ]
-        : []),
-        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
-        ? [
-            {
-                key: '/invoice-reconciliation',
-                icon: ReceiptText,
-                label: 'Invoice Recon',
-            },
-        ]
-        : []),
-        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
-        ? [
-            {
-                key: '/project-invoices',
-                icon: FileUp,
-                label: 'Project Invoices',
-            },
-        ]
-        : []),
-        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
-        ? [
-            {
-                key: '/reports',
-                icon: ClipboardMinus,
-                label: 'Reports',
-            },
-        ]
-        : [])
-        
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile"].includes(role)
+      ? [
+        {
+          key: '/project-payments',
+          icon: CircleDollarSign,
+          label: 'Project Payments',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+      ? [
+        {
+          key: '/in-flow-payments',
+          icon: HandCoins,
+          label: 'In-Flow Payments',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+      ? [
+        {
+          key: '/invoice-reconciliation',
+          icon: ReceiptText,
+          label: 'Invoice Recon',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+      ? [
+        {
+          key: '/project-invoices',
+          icon: FileUp,
+          label: 'Project Invoices',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+      ? [
+        {
+          key: '/reports',
+          icon: ClipboardMinus,
+          label: 'Reports',
+        },
+      ]
+      : [])
+
   ], [user_id, role]);
 
   const allKeys = useMemo(() => new Set([
@@ -430,9 +430,9 @@ export function NewSidebar() {
     "project-payments",
     "in-flow-payments",
     'invoice-reconciliation',
-     'project-invoices',
+    'project-invoices',
     'reports',
-   
+
   ]), [])
 
   const selectedKeys = useMemo(() => {
@@ -470,7 +470,7 @@ export function NewSidebar() {
         : "admin-actions"
       : "";
   }, [selectedKeys, role, groupMappings]);
-  
+
 
   // const defaultOpenKeys = useMemo(() => {
   //   return new Set(["admin-actions"]);
@@ -483,7 +483,7 @@ export function NewSidebar() {
   }, [isMobile, toggleSidebar]);
 
   useEffect(() => {
-    if(["admin-actions"].includes(openKey)) {
+    if (["admin-actions"].includes(openKey)) {
       setCollapsedKey(openKey)
     }
   }, [])
@@ -527,11 +527,10 @@ export function NewSidebar() {
                 <SidebarMenuItem>
                   {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices"]).has(item?.label) ? (
                     <SidebarMenuButton
-                      className={`${
-                        ((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
-                          ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
-                          : ""
-                      } tracking-tight relative`}
+                      className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
+                        ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
+                        : ""
+                        } tracking-tight relative`}
                       onClick={() => {
                         if (isMobile) {
                           toggleSidebar();
@@ -544,23 +543,21 @@ export function NewSidebar() {
                       {item.icon && <item.icon />}
                       <span className="font-medium">{item.label}</span>
                       {item?.count !== 0 && state === "expanded" && (
-                            <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center">
-                              {item.count}
+                        <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center">
+                          {item.count}
                         </span>
                       )}
                     </SidebarMenuButton>
                   ) : (
                     <CollapsibleTrigger asChild>
                       <SidebarMenuButton
-                        className={`${
-                          openKey === item?.key
-                            ? `text-[#D03B45]  hover:text-[#D03B45] !important ${
-                                state === "collapsed" &&
-                                !isMobile &&
-                                "bg-[#FFD3CC]"
-                              }`
-                            : ""
-                        } tracking-tight`}
+                        className={`${openKey === item?.key
+                          ? `text-[#D03B45]  hover:text-[#D03B45] !important ${state === "collapsed" &&
+                          !isMobile &&
+                          "bg-[#FFD3CC]"
+                          }`
+                          : ""
+                          } tracking-tight`}
                         onClick={() => handleGroupToggle(item.key)}
                         selectedKeys={selectedKeys}
                         tooltip={item.children}
@@ -571,8 +568,8 @@ export function NewSidebar() {
                       </SidebarMenuButton>
                     </CollapsibleTrigger>
                   )}
-                  <CollapsibleContent 
-                  className={`${collapsedKey === item?.key ? "animate-collapse-down" : "animate-collapse-up"}`}
+                  <CollapsibleContent
+                    className={`${collapsedKey === item?.key ? "animate-collapse-down" : "animate-collapse-up"}`}
                   >
                     <SidebarMenuSub className="space-y-1">
                       {item?.children?.map((subitem) => (
@@ -582,11 +579,10 @@ export function NewSidebar() {
                         >
                           <SidebarMenuSubButton
                             onClick={handleCloseMobile}
-                            className={`${
-                              `/${selectedKeys}` === subitem.key
-                                ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
-                                : ""
-                            } rounded-md ${isMobile ? "w-60" : "w-52"}`}
+                            className={`${`/${selectedKeys}` === subitem.key
+                              ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
+                              : ""
+                              } rounded-md ${isMobile ? "w-60" : "w-52"}`}
                             asChild
                           >
                             <Link to={subitem.key}>
