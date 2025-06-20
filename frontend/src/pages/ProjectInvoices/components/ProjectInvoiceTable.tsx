@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback,useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Table,
   TableBody,
@@ -53,15 +53,15 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
 }) => {
   const { role } = useUserData();
   const isAdmin = role === "Nirmaan Admin Profile";
-const { data: projectdata, isLoading: projectloading, error: projecterror } = useFrappeGetDocList<Projects>("Projects", {
-        fields: ['name', 'project_name', 'customer', "status"],
-        limit: 1000,
-        orderBy: { field: 'creation', order: 'desc' },
-    });
+  const { data: projectdata, isLoading: projectloading, error: projecterror } = useFrappeGetDocList<Projects>("Projects", {
+    fields: ['name', 'project_name', 'customer', "status"],
+    limit: 1000,
+    orderBy: { field: 'creation', order: 'desc' },
+  });
 
-    const projectMap = useMemo(() => {
+  const projectMap = useMemo(() => {
     if (!projectdata) return {}; // Return empty object if data is not yet loaded
-    
+
     // Transform the array into an object like: { 'PROJ-001': 'Project Alpha', 'PROJ-002': 'Project Beta' }
     return projectdata.reduce((acc, project) => {
       acc[project.name] = project.project_name;
@@ -98,90 +98,90 @@ const { data: projectdata, isLoading: projectloading, error: projecterror } = us
   return (
     // Use a React Fragment to wrap the Table and the Dialog as siblings
     <>
-     <div className="relative max-h-[500px] overflow-y-auto border-none rounded-md">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="text-center text-gray-700 font-semibold">Invoice No.</TableHead>
-            <TableHead className="text-center text-gray-700 font-semibold">Amount</TableHead>
-            <TableHead className="text-center text-gray-700 font-semibold">Date</TableHead>
-            <TableHead className="text-center text-gray-700 font-semibold">Project</TableHead>
-            {isAdmin && <TableHead className="text-center text-gray-700 font-semibold">Actions</TableHead>}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {invoiceList.length > 0 ? (
-            invoiceList.map((item) => {
-
-              // const fullAttachmentUrl = item.attachment ? `${siteUrl}${item.attachment}` : null;
-              const fullAttachmentUrl = item.attachment 
-              // console.log(fullAttachmentUrl)
-               const projectName = item.project ? projectMap[item.project] : 'N/A';
-               console.log(projectName)
-              return (
-                <TableRow key={item.name}>
-                  <TableCell className="text-center">
-                    {fullAttachmentUrl ? (
-                      <HoverCard>
-                        <HoverCardTrigger asChild>
-                          <a
-                            href={fullAttachmentUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline cursor-pointer"
-                          >
-                            {item.invoice_no}
-                          </a>
-                        </HoverCardTrigger>
-                        <HoverCardContent className="w-auto p-0">
-                          <img
-                            src={fullAttachmentUrl}
-                            alt={`Invoice preview for ${item.invoice_no}`}
-                            className="max-w-xs max-h-64 rounded-md object-contain"
-                          />
-                        </HoverCardContent>
-                      </HoverCard>
-                    ) : (
-                      <span>{item.invoice_no}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {formatToRoundedIndianRupee(parseFloat(item.amount) || 0)}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {formatDate(new Date(item.creation), "dd-MM-yyyy")}
-                  </TableCell>
-                   <TableCell className="text-center">
-                   {projectName}
-                  </TableCell>
-                  {isAdmin && (
-                    <TableCell>
-                      <div className="flex items-center justify-center">
-                        <Button
-                          variant="ghost"
-                          size="none"
-                          className="h-5 w-5 p-0"
-                          onClick={() => openDeleteDialog(item.name)}
-                          aria-label={`Delete invoice entry ${item.invoice_no}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  )}
-                </TableRow>
-              );
-            })
-          ) : (
+      <div className="relative max-h-[500px] overflow-y-auto border-none rounded-md">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={isAdmin ? 4 : 3} className="text-center py-4 text-gray-500">
-                No Invoices Found
-              </TableCell>
+              <TableHead className="text-center text-gray-700 font-semibold">Invoice No.</TableHead>
+              <TableHead className="text-center text-gray-700 font-semibold">Amount(Incl. GST)</TableHead>
+              <TableHead className="text-center text-gray-700 font-semibold">Date</TableHead>
+              <TableHead className="text-center text-gray-700 font-semibold">Project</TableHead>
+              {isAdmin && <TableHead className="text-center text-gray-700 font-semibold">Actions</TableHead>}
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
-</div>
+          </TableHeader>
+          <TableBody>
+            {invoiceList.length > 0 ? (
+              invoiceList.map((item) => {
+
+                // const fullAttachmentUrl = item.attachment ? `${siteUrl}${item.attachment}` : null;
+                const fullAttachmentUrl = item.attachment
+                // console.log(fullAttachmentUrl)
+                const projectName = item.project ? projectMap[item.project] : 'N/A';
+                console.log(projectName)
+                return (
+                  <TableRow key={item.name}>
+                    <TableCell className="text-center">
+                      {fullAttachmentUrl ? (
+                        <HoverCard>
+                          <HoverCardTrigger asChild>
+                            <a
+                              href={fullAttachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline cursor-pointer"
+                            >
+                              {item.invoice_no}
+                            </a>
+                          </HoverCardTrigger>
+                          <HoverCardContent className="w-auto p-0">
+                            <img
+                              src={fullAttachmentUrl}
+                              alt={`Invoice preview for ${item.invoice_no}`}
+                              className="max-w-xs max-h-64 rounded-md object-contain"
+                            />
+                          </HoverCardContent>
+                        </HoverCard>
+                      ) : (
+                        <span>{item.invoice_no}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {formatToRoundedIndianRupee(parseFloat(item.amount) || 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {formatDate(new Date(item.creation), "dd-MM-yyyy")}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {projectName}
+                    </TableCell>
+                    {isAdmin && (
+                      <TableCell>
+                        <div className="flex items-center justify-center">
+                          <Button
+                            variant="ghost"
+                            size="none"
+                            className="h-5 w-5 p-0"
+                            onClick={() => openDeleteDialog(item.name)}
+                            aria-label={`Delete invoice entry ${item.invoice_no}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })
+            ) : (
+              <TableRow>
+                <TableCell colSpan={isAdmin ? 4 : 3} className="text-center py-4 text-gray-500">
+                  No Invoices Found
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
       {/* The AlertDialog is now a sibling to the Table, not a child */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>

@@ -50,12 +50,14 @@ def generateUserPermissions(project, method=None):
 def on_update(doc, method=None):
 	old_doc = doc.get_doc_before_save()
 	if doc and doc.customer and old_doc and old_doc.customer and doc.customer != old_doc.customer:
-		inflow_payments = frappe.db.get_all("Project Inflows", 
-																			 filters={"project": doc.name},
-																			 fields={"name", "customer"}
-																		 )
+		inflow_payments = frappe.db.get_all("Project Inflows", filters={"project": doc.name}, fields={"name", "customer"})
 		for inflow in inflow_payments:
 			inflow_doc = frappe.get_doc("Project Inflows", inflow.name)
+			inflow_doc.customer = doc.customer
+			inflow_doc.save(ignore_permissions=True)
+		project_invoices = frappe.db.get_all("Project Invoices", filters={"project": doc.name}, fields={"name", "customer"})
+		for inflow in project_invoices:
+			inflow_doc = frappe.get_doc("Project Invoices", inflow.name)
 			inflow_doc.customer = doc.customer
 			inflow_doc.save(ignore_permissions=True)
 
