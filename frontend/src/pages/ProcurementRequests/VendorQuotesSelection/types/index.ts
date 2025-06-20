@@ -124,11 +124,16 @@ export interface VendorOption {
 }
 
 // --- Helper Functions ---
-export const getItemListFromDocument = (doc?: ProgressDocument): ProgressItem[] => {
-    if (!doc || !doc.order_list) return [];
-    return doc.order_list; // Directly return the order_list array
-};
+// in types.ts or a helpers file
 
+// in types.ts or a similar utility file
+
+export function getItemListFromDocument(doc?: ProgressDocument): ProgressItem[] {
+    if (!doc) return [];
+
+    // Since both doctypes use `order_list`, we can unify the logic.
+    return doc.order_list || [];
+}
 // Assuming category_list is still JSON in both PR and SBC for now
 export const getCategoryListFromDocument = (doc?: ProgressDocument): PRCategoryType[] => {
     if (!doc || !doc.category_list) return [];
@@ -190,6 +195,7 @@ export interface ProcurementProgressLogicReturn {
     // Handlers
     handleModeChange: (newMode: 'edit' | 'view') => Promise<void>;
     handleConfirmAddVendorsToRFQ: () => void;
+    handleTaxChange:(itemId: string, vendorId: string, taxValue: string) => void;
     handleDeleteVendorFromRFQ: (vendorId: string) => void;
     handleQuoteChange: (itemId: string, vendorId: string, quote: string) => void;
     handleMakeChange: (itemId: string, vendorId: string, makeValue: string) => void;

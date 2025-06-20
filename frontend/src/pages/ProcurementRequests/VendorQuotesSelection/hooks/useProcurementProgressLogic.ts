@@ -241,38 +241,52 @@ export const useProcurementProgressLogic = ({
     //     }
     // }, [initialDocument]); // Only re-run if the fetched initialDocument changes
 
-    // useEffect to sync initialDocument to currentDocumentState and initialize RFQ form
+
+
+    //updated useffect for new change in item list
     useEffect(() => {
-        if (initialDocument) {
-            // Perform a deep copy or ensure initialDocument is treated as immutable if needed
-            let docToSet = JSON.parse(JSON.stringify(initialDocument)); 
+    // This effect runs whenever the initial document data from the server changes.
+    // Its job is to create a clean, reliable "draft" state for the UI to work with.
+    if (initialDocument) {
+        // 1. Create a deep copy to prevent mutating the original data from the server.
+        let docToSet = JSON.parse(JSON.stringify(initialDocument));
 
-            // Ensure order_list is an array (it should be from useProcurementDocument)
-            if (!Array.isArray(docToSet.order_list)) {
-                docToSet.order_list = [];
-            }
-            // Ensure category_list is parsed correctly
-            docToSet.category_list = { list: getCategoryListFromDocument(initialDocument) };
-            // Ensure rfq_data is an object
-            if (typeof docToSet.rfq_data === 'string') {
-                try {
-                    docToSet.rfq_data = JSON.parse(docToSet.rfq_data || '{}');
-                } catch (e) { docToSet.rfq_data = { selectedVendors: [], details: {} }; }
-            }
-            if (!docToSet.rfq_data) {
-                 docToSet.rfq_data = { selectedVendors: [], details: {} };
-            }
-
-
-            setCurrentDocumentState(docToSet);
-            // RFQFormManager's useEffect will handle initializing rfqFormData and finalSelectedQuotes
-            // based on this initialDocumentData.
+        // 2. Normalize the item list.
+        // Based on the provided data, BOTH "Procurement Requests" and "Sent Back Category"
+        // use the `order_list` property for their items. This simplifies the logic.
+        if (!Array.isArray(docToSet.order_list)) {
+            // If for any reason `order_list` is not an array (e.g., null, undefined),
+            // we default it to an empty array to prevent crashes downstream.
+            console.warn(`Normalizing Document ${docId}: 'order_list' was not an array. Defaulting to empty.`);
+            docToSet.order_list = [];
         }
-    }, [initialDocument]);
 
+        // 3. Normalize the RFQ data. This can be a stringified JSON from Frappe.
+        if (typeof docToSet.rfq_data === 'string') {
+            try {
+                // Handle empty strings gracefully before parsing.
+                docToSet.rfq_data = JSON.parse(docToSet.rfq_data || '{}');
+            } catch (e) {
+                console.error(`Failed to parse rfq_data JSON for ${docId}:`, e);
+                // On error, reset to a clean, empty state.
+                docToSet.rfq_data = { selectedVendors: [], details: {} };
+            }
+        }
+        
+        // Ensure rfq_data is a valid object if it was null, undefined, or an empty string after the above block.
+        if (!docToSet.rfq_data) {
+             docToSet.rfq_data = { selectedVendors: [], details: {} };
+        }
 
-
+        // 4. Set the fully normalized document as our component's working state.
+        // Any other hooks or components that depend on `currentDocumentState` will now receive
+        // clean, predictable data.
+        setCurrentDocumentState(docToSet);
+    }
+}, [initialDocument]); // This dependency is correct: only run when the server data changes.
     // Update otherEditors based on viewers
+
+
     useEffect(() => {
         if (docId && currentUser) {
             setOtherEditors(viewers.filter(user => user !== currentUser));
@@ -405,8 +419,29 @@ export const useProcurementProgressLogic = ({
         toast({ title: "Error", description: "No document data to save draft.", variant: "destructive" });
         return false;
     }, [currentDocumentState, rfqFormData, finalSelectedQuotes, actionSaveDraft]);
+  // tax Hander 
+  const handleTaxChange = useCallback((itemId: string, tax: string) => {
+    setCurrentDocumentState(prevDoc => {
+        if (!prevDoc) return prevDoc;
 
+        // Since both doctypes use `order_list`, we can access it directly.
+        const currentItems = prevDoc.order_list || [];
 
+        const updatedItems = currentItems.map(item => {
+            if (item.item_id === itemId) {
+                return { ...item, tax: Number(tax) };
+            }
+            return item;
+        });
+
+        // Return a new document object with the updated order_list.
+        // This works for both "Procurement Requests" and "Sent Back Category".
+        return {
+            ...prevDoc,
+            order_list: updatedItems,
+        };
+    });
+}, []);
     // Callback to update item list in currentDocumentState (e.g., if MakesSelection updates item.make)
     // This is tricky because currentDocumentState might be from SWR and should ideally be immutable.
     // Direct mutation is generally discouraged. A better pattern might be for MakesSelection
@@ -471,6 +506,7 @@ export const useProcurementProgressLogic = ({
         handleDeleteVendorFromRFQ, // from RFQManager
         handleQuoteChange,         // from RFQManager
         handleMakeChange,          // from RFQManager
+        handleTaxChange, //from RFQManager EXPORT THE NEW HANDLER
         handleFinalVendorSelectionForItem: handleVendorQuoteSelectionForItem, // from RFQManager
 
         // Actions

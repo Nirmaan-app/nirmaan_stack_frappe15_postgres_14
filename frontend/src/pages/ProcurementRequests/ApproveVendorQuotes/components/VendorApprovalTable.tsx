@@ -185,10 +185,12 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                 <TableHead className="w-[8%] text-center">Qty</TableHead>
                                                 <TableHead className="w-[8%] text-right">Rate</TableHead>
                                                 <TableHead className="w-[8%] text-right">Target Rate</TableHead>
+                                                <TableHead className="w-[8%] text-right">Tax</TableHead>
                                                 <TableHead className="w-[12%] text-right">Amount</TableHead>
                                                 <TableHead className="w-[12%] text-right">Lowest Quoted</TableHead>
                                                 <TableHead className="w-[12%] text-right">Target Amount</TableHead>
                                                 <TableHead className="w-[13%] text-right pr-4">Savings/Loss</TableHead>
+                                                <TableHead className="w-[13%] text-right pr-4">Total Amount(Incl. GST)</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -199,7 +201,13 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                 //                        ? parseNumber(item.lowestQuotedAmount || item.targetAmount) - item.amount
                                                 //                        : undefined;
                                                 const itemSavingLoss = item.savingLoss
+                                                const quote = parseNumber(item.quote);
+                                                const quantity = parseNumber(item.quantity);
+                                                const taxRate = parseNumber(item.tax) / 100; // e.g., 18 -> 0.18
 
+                                                const baseItemTotal = quantity * quote;
+                                                const itemTotalInclGst = baseItemTotal * (1 + taxRate);
+                                                
                                                 return (
                                                     <TableRow key={item.name}>
                                                         <TableCell className="px-4">
@@ -235,6 +243,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                             )}
                                                         </TableCell>
                                                         {/* <TableCell className="text-right">{formatToIndianRupee(item.targetRate)}</TableCell> */}
+                                                        <TableCell className="text-right">{item.tax}%</TableCell>
                                                         <TableCell className="text-right">{formatToIndianRupee(item.amount)}</TableCell>
                                                         <TableCell className="text-right">{formatToIndianRupee(item.lowestQuotedAmountForItem || "N/A")}</TableCell>
                                                         <TableCell className="text-right">{formatToIndianRupee((parseNumber(item?.targetAmount) * 0.98) || "N/A")}</TableCell>
@@ -248,6 +257,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                             {formatToIndianRupee(itemSavingLoss || "N/A")}
                                                             {itemSavingLoss !== undefined && itemSavingLoss > 0 ? ' (S)' : itemSavingLoss !== undefined && itemSavingLoss < 0 ? ' (L)' : ''}
                                                         </TableCell>
+                                                        <TableCell className="text-right">{formatToIndianRupee(itemTotalInclGst)}</TableCell>
                                                     </TableRow>
                                                 );
                                             })}

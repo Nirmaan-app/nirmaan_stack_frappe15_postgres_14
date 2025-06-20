@@ -27,15 +27,22 @@ import { useVendorsList } from "./hooks/useVendorsList";
 import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 import { useProcurementRequest } from "@/hooks/useProcurementRequest";
 
-// DataItem might not be strictly needed if we directly use ProcurementRequestItemDetail
-// and add transient properties like 'potentialLoss' directly when processing.
-// However, if it helps for clarity:
+// Interface for items with calculated properties for display
 interface DisplayItem extends ProcurementRequestItemDetail {
-  amount?: number; // Calculated amount based on quote
-  vendor_name?: string; // Added by getVendorName
-  lowestQuotedAmount?: number; // From getLowest
-  threeMonthsLowestAmount?: number; // From getItemEstimate (if used)
+  amount?: number; // Calculated amount including GST
+  vendor_name?: string;
+  lowestQuotedAmount?: number;
+  threeMonthsLowestAmount?: number;
   potentialLoss?: number;
+}
+
+// Interface for the vendor-wise summary object
+interface VendorWiseApprovalItems {
+    [vendor: string]: { // vendor here is vendor_id (DocName)
+      items: DisplayItem[];
+      total: number; // Total EXCLUDING GST
+      totalInclGst: number; // Total INCLUDING GST
+    };
 }
 
 export const VendorsSelectionSummary : React.FC = () => {
@@ -54,7 +61,6 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   const {getItemEstimate} = useItemEstimate()
 
-
   const { data: procurement_request, isLoading: procurement_request_loading, mutate: pr_mutate } = useProcurementRequest(prId);
 
   useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
@@ -65,7 +71,7 @@ export const VendorsSelectionSummary : React.FC = () => {
       });
       pr_mutate(); // Re-fetch this specific document
     },
-    true // emitOpenCloseEventsOnMount (default)
+    true
     )
 
   const {data: usersList, isLoading: usersListLoading} = useUsersList()
@@ -78,25 +84,19 @@ export const VendorsSelectionSummary : React.FC = () => {
 
   useEffect(() => {
     if (procurement_request) {
-      // Ensure order_list is an array (it should be if fetched correctly as child table)
       const items = procurement_request.order_list && Array.isArray(procurement_request.order_list) ? procurement_request.order_list : [];
       setOrderData({ ...procurement_request, order_list: items });
     } 
   }, [procurement_request]);
 
-
   const getVendorName = useMemo(() => (vendorId : string | undefined) : string => {
     return vendor_list?.find(v => v?.name === vendorId)?.vendor_name || ""
   }, [vendor_list])
 
-  // getLowestQuoteFilled needs to be adapted to work with orderData.order_list
-  // and the ProcurementRequestItemDetail structure.
   const getLowest = useMemo(() => memoize((itemId: string): number => {
-        // Pass orderData directly, ensure getLowestQuoteFilled handles the new structure
         return getLowestQuoteFilled(orderData, itemId); 
-    }, (itemId: string) => `${itemId}-${JSON.stringify(orderData?.order_list?.find(i => i.item_id === itemId)?.quote)}`), // Cache key depends on item and its quote
+    }, (itemId: string) => `${itemId}-${JSON.stringify(orderData?.order_list?.find(i => i.item_id === itemId)?.quote)}`),
   [orderData]);
-
 
   const handleSubmit = async () => {
     try {
@@ -133,50 +133,61 @@ export const VendorsSelectionSummary : React.FC = () => {
     }
   };
 
-
-interface VendorWiseApprovalItems {
-    [vendor: string]: { // vendor here is vendor_id (DocName)
-      items: DisplayItem[]; // Use DisplayItem or add properties to ProcurementRequestItemDetail
-      total: number;
-    };
-  }
-
-
   const generateActionSummary = useCallback(() => {
-    let allDelayedItems : DisplayItem[] = [];
-    let vendorWiseApprovalItems : VendorWiseApprovalItems  = {};
-    let approvalOverallTotal : number = 0;
+    let allDelayedItems: DisplayItem[] = [];
+    let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
+    
+    let approvalOverallTotalExclGst: number = 0;
+    let approvalOverallTotalInclGst: number = 0;
+    let delayedItemsTotalExclGst: number = 0;
+    let delayedItemsTotalInclGst: number = 0;
 
     orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
         const vendor = item?.vendor;
-        const targetRate = getItemEstimate(item?.item_id)?.averageRate
-        const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.item_id)
-        if (!vendor) {
-            // Delayed items
+        const quote = parseNumber(item.quote);
+        const quantity = parseNumber(item.quantity);
+        const taxRate = parseNumber(item.tax) / 100; // e.g., 18 -> 0.18
+
+        const baseItemTotal = quantity * quote;
+        const itemTotalInclGst = baseItemTotal * (1 + taxRate);
+        
+        if (!vendor || !quote) {
             allDelayedItems.push(item);
+            delayedItemsTotalExclGst += baseItemTotal;
+            delayedItemsTotalInclGst += itemTotalInclGst;
         } else {
-            // Approval items segregated by vendor
-            const itemTotal = parseNumber(item.quantity * parseNumber(item.quote));
+            const targetRate = getItemEstimate(item?.item_id)?.averageRate;
+            const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.item_id);
+            
             if (!vendorWiseApprovalItems[vendor]) {
                 vendorWiseApprovalItems[vendor] = {
                     items: [],
                     total: 0,
+                    totalInclGst: 0,
                 };
             }
-            if(lowestItemPrice && lowestItemPrice !== parseNumber(item.quote) && lowestItemPrice < parseNumber(item?.quote)) {
-              vendorWiseApprovalItems[vendor].items.push({...item, potentialLoss : itemTotal - (parseNumber(item.quantity) * lowestItemPrice)});
-            } else {
-              vendorWiseApprovalItems[vendor].items.push(item);
+            
+            const displayItem: DisplayItem = { ...item, amount: itemTotalInclGst };
+
+            if (lowestItemPrice && lowestItemPrice < quote) {
+                displayItem.potentialLoss = baseItemTotal - (quantity * lowestItemPrice);
             }
-            vendorWiseApprovalItems[vendor].total += itemTotal;
-            approvalOverallTotal += itemTotal;
+            
+            vendorWiseApprovalItems[vendor].items.push(displayItem);
+            vendorWiseApprovalItems[vendor].total += baseItemTotal;
+            vendorWiseApprovalItems[vendor].totalInclGst += itemTotalInclGst;
+            
+            approvalOverallTotalExclGst += baseItemTotal;
+            approvalOverallTotalInclGst += itemTotalInclGst;
         }
     });
 
     return {
         allDelayedItems,
         vendorWiseApprovalItems,
-        approvalOverallTotal,
+        approvalOverallTotal: approvalOverallTotalExclGst,
+        approvalOverallTotalInclGst,
+        delayedItemsTotalInclGst,
     };
 }, [orderData, getLowest, getItemEstimate]);
 
@@ -184,7 +195,9 @@ const {
     allDelayedItems,
     vendorWiseApprovalItems,
     approvalOverallTotal,
-  } = useMemo(() => generateActionSummary(), [generateActionSummary]); // Memoize the result
+    approvalOverallTotalInclGst,
+    delayedItemsTotalInclGst,
+  } = useMemo(() => generateActionSummary(), [generateActionSummary]);
 
 if (procurement_request_loading || vendor_list_loading || usersListLoading) return <LoadingFallback />
 
@@ -229,53 +242,56 @@ if (procurement_request_loading || vendor_list_loading || usersListLoading) retu
 <div className="flex flex-col gap-4">
     {/* Approval Items Summary */}
     {Object.keys(vendorWiseApprovalItems).length > 0 && (
-        <div className="p-6 rounded-lg bg-green-50 border border-green-200"> {/* Changed background, removed opacity, added border */}
+        <div className="p-6 rounded-lg bg-green-50 border border-green-200">
             <div className="flex items-center mb-2">
                 <ListChecks className="h-5 w-5 mr-2 text-green-600" />
-                <h3 className="text-lg font-semibold text-gray-800">Items for Approval</h3> {/* Slightly bolder heading */}
+                <h3 className="text-lg font-semibold text-gray-800">Items for Approval</h3>
             </div>
-            <p className="text-sm text-gray-600 mb-4"> {/* Adjusted text color and margin */}
+            <p className="text-sm text-gray-600 mb-4">
                 These items have been assigned to vendors and require project lead approval.
             </p>
-            {/* Using a definition list style for vendors for better structure */}
             <dl className="space-y-4">
-                {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
-                    <div key={vendor}> {/* Use div instead of li for dl structure */}
-                        <dt className="text-sm font-medium text-gray-700">
-                            Vendor: <span className="font-semibold text-gray-900">{getVendorName(vendor)}</span>
+                {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total, totalInclGst }]) => (
+                    <div key={vendor}>
+                        <dt className="text-sm border-b border-grey-200 font-medium text-red-500">
+                            Vendor: <span className="font-semibold text-red-600">{getVendorName(vendor)}</span>
                         </dt>
-                        <dd className="mt-1 pl-5"> {/* Indent item details */}
-                            <ul className="list-disc space-y-1 text-gray-800"> {/* Changed text color, list style */}
+                        <dd className="mt-1 pl-5">
+                            <ul className="list-disc space-y-1 text-gray-800">
                                 {items.map((item) => (
-                                    <li key={item.item_id} className="text-sm"> {/* Standardized text size */}
+                                    <li key={item.item_id} className="text-sm">
                                         {item.item_name}
-                                        {/* --- Make Name Added Here --- */}
                                         {item.make && (
                                             <span className="text-gray-500 italic ml-1">({item.make})</span>
                                         )}
-                                        {/* --- End Make Name --- */}
-                                        <span className="mx-1">-</span> {/* Added separator for clarity */}
-                                        {item.quantity} {item.unit}
-                                        <span className="mx-1">-</span> {/* Added separator */}
-                                        <span className="font-medium">{formatToIndianRupee(item.quantity * (item.quote || 0))}</span>
+                                        <span className="mx-1">-</span>
+                                        {item.quantity} x {formatToIndianRupee(item.quote)}
+                                        <span className="mx-1 text-gray-500">+</span>
+                                        {item.tax}% GST
+                                        <span className="mx-1">=</span>
+                                        <span className="font-medium">{formatToIndianRupee(item.amount)}</span>
                                         {item?.potentialLoss && (
-                                            <span className="block text-xs text-red-600 mt-0.5"> {/* Changed display and color slightly */}
+                                            <span className="block text-xs text-red-600 mt-0.5">
                                                 Potential Loss: {formatToIndianRupee(item.potentialLoss)}
                                             </span>
                                         )}
                                     </li>
                                 ))}
                             </ul>
-                            <p className="mt-2 text-sm text-right font-medium text-gray-800"> {/* Aligned right */}
-                                Subtotal for {getVendorName(vendor)}: <span className="font-semibold">{formatToIndianRupee(total)}</span>
-                            </p>
+                            <div className="mt-2 text-right text-sm font-medium text-gray-800">
+                                <p>Subtotal: <span className="font-semibold">{formatToIndianRupee(total)}</span></p>
+                                <p>Subtotal (inc. GST): <span className="font-semibold text-green-700">{formatToIndianRupee(totalInclGst)}</span></p>
+                            </div>
                         </dd>
                     </div>
                 ))}
             </dl>
-            <div className="mt-4 pt-4 border-t border-green-200 text-right"> {/* Added separator line */}
+            <div className="mt-4 pt-4 border-t border-green-200 text-right">
                 <p className="text-sm font-medium text-gray-800">
-                    Approval Overall Total: <span className="text-base font-semibold text-green-700">{formatToRoundedIndianRupee(approvalOverallTotal)}</span> {/* Made total stand out */}
+                    Approval Grand Total: <span className="font-semibold">{formatToRoundedIndianRupee(approvalOverallTotal)}</span>
+                </p>
+                <p className="text-sm font-medium text-gray-800">
+                    Approval Grand Total (inc. GST): <span className="text-base font-semibold text-green-700">{formatToRoundedIndianRupee(approvalOverallTotalInclGst)}</span>
                 </p>
             </div>
         </div>
@@ -283,28 +299,35 @@ if (procurement_request_loading || vendor_list_loading || usersListLoading) retu
 
     {/* Delayed Items Summary */}
     {allDelayedItems.length > 0 && (
-        <div className="p-6 rounded-lg bg-red-50 border border-red-200 space-y-2"> {/* Changed background, removed opacity, added border */}
+        <div className="p-6 rounded-lg bg-red-50 border border-red-200 space-y-2">
             <div className="flex items-center mb-2">
-                <SendToBack className="h-5 w-5 text-red-600 mr-2" /> {/* Adjusted icon color */}
-                <h3 className="text-lg font-semibold text-gray-800">Delayed Items</h3> {/* Slightly bolder heading */}
+                <SendToBack className="h-5 w-5 text-red-600 mr-2" />
+                <h3 className="text-lg font-semibold text-gray-800">Delayed Items</h3>
             </div>
-            <p className="text-sm text-gray-600"> {/* Adjusted text color */}
+            <p className="text-sm text-gray-600">
                 These items will be moved to a new 'Delayed Sent Back' list:
             </p>
-            <ul className="list-disc space-y-1 pl-5 text-gray-800"> {/* Adjusted text color, list style */}
+            <ul className="list-disc space-y-1 pl-5 text-gray-800">
                 {allDelayedItems.map((item) => (
-                    <li key={item.item_id} className="text-sm"> {/* Standardized text size */}
+                    <li key={item.item_id} className="text-sm">
                         {item.item_name}
-                         {/* --- Also added Make Name here for consistency --- */}
                          {item.make && (
                             <span className="text-gray-500 italic ml-1">({item.make})</span>
                         )}
-                        {/* --- End Make Name --- */}
-                        <span className="mx-1">-</span> {/* Added separator */}
-                        {item.quantity} {item.unit}
+                        <span className="mx-1">-</span>
+                        {item.quantity}  {item.unit}
                     </li>
                 ))}
             </ul>
+            {delayedItemsTotalInclGst > 0 && (
+                 <div className="mt-4 pt-4 border-t border-red-200 text-right">
+                    <p className="text-sm font-medium text-gray-800">
+                        Estimated Delayed Total (inc. GST): 
+                        <span className="text-base font-semibold text-red-700"> {formatToRoundedIndianRupee(delayedItemsTotalInclGst)}</span>
+                    </p>
+                    <p className="text-xs text-gray-500 italic">(Based on last entered quotes)</p>
+                </div>
+            )}
         </div>
     )}
 </div>

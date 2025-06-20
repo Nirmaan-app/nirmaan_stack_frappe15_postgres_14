@@ -41,6 +41,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     handleDeleteVendorFromRFQ,
     handleQuoteChange,
     handleMakeChange,
+      handleTaxChange, // MODIFIED: Destructure the new handler
     handleFinalVendorSelectionForItem,
     handleProceedToReview,
     handleRevertSelections,
@@ -121,10 +122,15 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                     <div className="flex gap-2 items-center">
                         {mode === "edit" 
                         // && !isEffectivelyReadOnly 
-                        && (
-                            <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary">
+                        && (<>
+                        {/* <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary">
+                                <CirclePlus className="mr-2 h-4 w-4" /> Add Charges
+                            </Button> */}
+                             <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary">
                                 <CirclePlus className="mr-2 h-4 w-4" /> Add {rfqFormData.selectedVendors.length > 0 ? "More" : ""} Vendors
                             </Button>
+                        </>
+                           
                         )}
                         <GenerateRFQDialog orderData={currentDocument} /> {/* Assuming GenerateRFQDialog can handle PR or SBC */}
                     </div>
@@ -140,6 +146,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                     targetRatesData={targetRatesDataMap}
                     onQuoteChange={handleQuoteChange}
                     onMakeChange={handleMakeChange}
+                                  onTaxChange={handleTaxChange} // MODIFIED: Pass the handler down
                     onVendorSelectForItem={handleFinalVendorSelectionForItem}
                     onDeleteVendorFromRFQ={handleDeleteVendorFromRFQ}
                     // isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
