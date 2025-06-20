@@ -43,13 +43,13 @@ interface ColumnGeneratorOptions {
 export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
-    
+
     const { isAdmin, getProjectName, onDelete } = options;
 
     const columns: ColumnDef<ProjectInvoice>[] = [
         {
             accessorKey: "invoice_no",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice No" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice No." />,
             cell: ({ row }) => (
                 <Link to={row.original.attachment || '#'} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
                     {row.original.invoice_no || row.original.name}
@@ -69,14 +69,14 @@ export const getProjectInvoiceColumns = (
                 );
             },
             filterFn: facetedFilterFn,
-            meta: { 
+            meta: {
                 exportHeaderName: "Project",
-                exportValue: (row: ProjectInvoice) => getProjectName(row.original.project)
+                exportValue: (row: ProjectInvoice) => getProjectName(row.project)
             }
         },
         {
             accessorKey: "amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount(Incl. GST)" />,
             cell: ({ row }) => <div className="tabular-nums">{formatToIndianRupee(row.original.amount)}</div>,
             meta: { exportHeaderName: "Amount", exportValue: (row: ProjectInvoice) => row.amount, isNumeric: true }
         },
@@ -85,7 +85,7 @@ export const getProjectInvoiceColumns = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
             cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
             filterFn: dateFilterFn,
-            meta: { exportHeaderName: "Date", exportValue: (row: ProjectInvoice) => formatDate(row.original.creation) },
+            meta: { exportHeaderName: "Date", exportValue: (row: ProjectInvoice) => formatDate(row.creation) },
         },
         {
             accessorKey: "owner",
@@ -99,30 +99,30 @@ export const getProjectInvoiceColumns = (
         // or an empty array. The spread syntax `...` then safely unpacks it.
         ...(isAdmin
             ? [
-                  {
-                      id: "actions",
-                      header: ({ column }) => <DataTableColumnHeader column={column} title="Actions" />,
-                      cell: ({ row }) => {
-                          const invoice = row.original;
-                          return (
-                              <div className="flex items-center justify-center">
-                                  <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => onDelete(invoice)}
-                                      aria-label={`Delete invoice ${invoice.invoice_no}`}
-                                  >
-                                      <Trash2 className="h-4 w-4 text-destructive" />
-                                  </Button>
-                              </div>
-                          );
-                      },
-                      size: 80,
-                      enableSorting: false,
-                      enableHiding: false,
-                  } as ColumnDef<ProjectInvoice>, // Type assertion is on the object inside the array
-              ]
+                {
+                    id: "actions",
+                    header: ({ column }) => <DataTableColumnHeader column={column} title="Actions" />,
+                    cell: ({ row }) => {
+                        const invoice = row.original;
+                        return (
+                            <div className="flex items-center justify-center">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => onDelete(invoice)}
+                                    aria-label={`Delete invoice ${invoice.invoice_no}`}
+                                >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                            </div>
+                        );
+                    },
+                    size: 80,
+                    enableSorting: false,
+                    enableHiding: false,
+                } as ColumnDef<ProjectInvoice>, // Type assertion is on the object inside the array
+            ]
             : [])
     ];
 

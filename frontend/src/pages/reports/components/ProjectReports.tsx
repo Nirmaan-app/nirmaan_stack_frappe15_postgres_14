@@ -87,6 +87,7 @@ export default function ProjectReports() {
                 project_value_lakhs: formatValueToLakhsString(project.project_value),
                 // Add calculated fields, formatted for export
                 totalInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalInvoiced) : 'N/A',
+                totalProjectInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalProjectInvoiced) : 'N/A',
                 totalInflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalInflow) : 'N/A',
                 totalOutflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalOutflow) : 'N/A',
                 totalCredit_lakhs: credit !== undefined ? formatValueToLakhsString(credit) : 'N/A',
@@ -99,6 +100,7 @@ export default function ProjectReports() {
             { header: "Creation Date", accessorKey: "creation" },
             { header: "Value (excl. GST)", accessorKey: "project_value_lakhs" },
             { header: "Total PO+SR (incl. GST)", accessorKey: "totalInvoiced_lakhs" },
+            { header: "Total Project Invoiced (incl. GST)", accessorKey: "totalProjectInvoiced_lakhs" },
             { header: "Inflow", accessorKey: "totalInflow_lakhs" },
             { header: "Outflow", accessorKey: "totalOutflow_lakhs" },
             { header: "Credit Outstanding", accessorKey: "totalCredit_lakhs" },

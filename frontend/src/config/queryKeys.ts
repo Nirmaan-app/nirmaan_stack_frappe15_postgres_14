@@ -1,6 +1,7 @@
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -40,6 +41,7 @@ interface POListParams extends ListParams { }
 interface SRListParams extends ListParams { }
 interface PaymentListParams extends ListParams { }
 interface InflowListParams extends ListParams { }
+interface ProjectInvoiceParams extends ListParams { }
 interface CustomerListParams extends ListParams { }
 
 
@@ -49,6 +51,7 @@ const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'proje
 const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'service_order_list', 'gst', 'invoice_data', 'status', 'modified'];
 const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status']; // Added 'project'
 const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date']; // Add fields as needed
+const PROJECT_INVOICE_REPORT_FIELDS: (keyof ProjectInvoice)[] = ['name', 'project', 'amount']; // Add fields as needed
 const PROJECT_MINIMAL_FIELDS: (keyof Projects)[] = ['name', 'project_name'];
 const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name']; // Assuming this type/field exists
 
@@ -138,6 +141,11 @@ export const queryKeys = {
     list: (params?: InflowListParams) => ['Project Inflows', 'list', params ?? {}] as const,
     // Add doc if needed later
   },
+  // For Project Inflows
+  projectInvoices: {
+    list: (params?: ProjectInvoiceParams) => ['Project Invoices', 'list', params ?? {}] as const,
+    // Add doc if needed later
+  },
   doc: (doctype: string, docId: string) => [doctype, 'get', docId] as const,
   docList: (doctype: string) => [doctype, 'list'] as const,
 
@@ -208,6 +216,12 @@ export const getSRForProjectInvoiceOptions = (): SRListParams => ({
 
 export const getInflowReportListOptions = (): InflowListParams => ({
   fields: INFLOW_REPORT_FIELDS,
+  // No project filter here, fetch all and group in the hook
+  limit: 100000,
+});
+
+export const getProjectInvoiceReportListOptions = (): InflowListParams => ({
+  fields: PROJECT_INVOICE_REPORT_FIELDS,
   // No project filter here, fetch all and group in the hook
   limit: 100000,
 });
