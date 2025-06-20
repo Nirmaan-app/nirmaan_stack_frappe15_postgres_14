@@ -320,7 +320,7 @@ export const ApproveServiceRequest : React.FC = () => {
             <div className="flex justify-end gap-2 mr-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                        <Button data-cy="reject-sr-button" variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
                             <ListX className="h-4 w-4" />
                             Reject
                         </Button>
@@ -342,11 +342,11 @@ export const ApproveServiceRequest : React.FC = () => {
                         </AlertDialogHeader>
                         {isLoading === "rejectSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                             <AlertDialogFooter className="flex flex-row justify-center gap-2 items-center">
-                                <AlertDialogCancel className="flex items-center gap-1">
+                                <AlertDialogCancel data-cy="reject-sr-cancel-button" className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
                                 </AlertDialogCancel>
-                                <Button onClick={handleReject} className="flex items-center gap-1">
+                                <Button data-cy="reject-sr-confirm-button" onClick={handleReject} className="flex items-center gap-1">
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                 </Button>
@@ -356,7 +356,7 @@ export const ApproveServiceRequest : React.FC = () => {
                 </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                        <Button data-cy="approve-sr-button" variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
                             <ListChecks className="h-4 w-4" />
                             Approve
                         </Button>
@@ -370,11 +370,11 @@ export const ApproveServiceRequest : React.FC = () => {
                         </AlertDialogHeader>
                         {isLoading === "approveSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                             <AlertDialogFooter className="flex flex-row justify-center gap-2 items-center">
-                                <AlertDialogCancel className="flex items-center gap-1">
+                                <AlertDialogCancel data-cy="approve-sr-cancel-button" className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
                                 </AlertDialogCancel>
-                                <Button onClick={handleApprove} className="flex items-center gap-1">
+                                <Button data-cy="approve-sr-confirm-button" onClick={handleApprove} className="flex items-center gap-1">
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                 </Button>

@@ -100,6 +100,8 @@ import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/Reques
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
+
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -134,6 +136,10 @@ export const PurchaseOrder = ({
     fields: ["*"],
     filters: [["name", "=", poId]],
   });
+
+  // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
+  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(PO);
+
 
   useFrappeDocumentEventListener("Procurement Orders", poId, (event) => {
           console.log("Procurement Orders document updated (real-time):", event);
@@ -772,6 +778,9 @@ export const PurchaseOrder = ({
       </div>
     );
 
+    
+   
+    
   return (
     <div className="flex-1 space-y-4">
       {MERGEPOVALIDATIONS && (
@@ -792,6 +801,7 @@ export const PurchaseOrder = ({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
+                          data-cy="merge-po-button"
                           aria-label={isValid ? "Merge PO(s)" : "Merge unavailable"}
                           className="flex items-center gap-1" color="primary">
                           <Merge className="w-4 h-4" />
@@ -811,7 +821,7 @@ export const PurchaseOrder = ({
                 </SheetTrigger>
                 <SheetContent className="overflow-y-auto">
                   <div className="md:p-6">
-                    <h2 className="text-2xl font-bold mb-4">
+                    <h2 data-cy="merge-po-dialog-text" className="text-2xl font-bold mb-4">
                       Merge Purchase Orders
                     </h2>
 
@@ -883,6 +893,7 @@ export const PurchaseOrder = ({
                               </TableCell>
                               <TableCell>
                                 <Button
+                                  data-cy="po-split-button"
                                   className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
                                   variant={"ghost"}
                                   disabled
@@ -941,6 +952,7 @@ export const PurchaseOrder = ({
                                         <HoverCard>
                                           <HoverCardTrigger>
                                             <Button
+                                              data-cy="dialog-box-po-merger-button"
                                               className="flex items-center gap-1"
                                               disabled
                                             >
@@ -959,6 +971,7 @@ export const PurchaseOrder = ({
                                         </HoverCard>
                                       ) : (
                                         <Button
+                                          data-cy="dialog-box-po-merger-button"
                                           className="flex items-center gap-1"
                                           onClick={() => handleMerge(po)}
                                         >
@@ -990,6 +1003,7 @@ export const PurchaseOrder = ({
                     {/* Button Section */}
                     <div className="flex justify-end space-x-4 mt-6">
                       <Button
+                        data-cy="po-details-preview-button"
                         className="flex items-center gap-1"
                         onClick={togglePoPdfSheet}
                         variant={"outline"}
@@ -1003,6 +1017,7 @@ export const PurchaseOrder = ({
                       >
                         <AlertDialogTrigger asChild>
                           <Button
+                            data-cy="dialog-box-po-merge-confirm-button"
                             className="flex items-center gap-1"
                             disabled={!mergedItems.length}
                           >
@@ -1012,7 +1027,7 @@ export const PurchaseOrder = ({
                         </AlertDialogTrigger>
                         <AlertDialogContent className="overflow-auto">
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure!</AlertDialogTitle>
+                            <AlertDialogTitle data-cy="merger-confirm-dialog-text">Are you sure!</AlertDialogTitle>
                           </AlertDialogHeader>
                           <AlertDialogDescription>
                             Below are the subsequent actions executed on
@@ -1039,11 +1054,12 @@ export const PurchaseOrder = ({
                             </div>
                           ) : (
                             <AlertDialogDescription className="flex gap-2 items-center justify-center">
-                              <AlertDialogCancel className="flex items-center gap-1">
+                              <AlertDialogCancel data-cy="merge-po-cancel-button" className="flex items-center gap-1">
                                 <CircleX className="h-4 w-4" />
                                 Cancel
                               </AlertDialogCancel>
                               <Button
+                                data-cy="merge-po-confirm-button"
                                 onClick={handleMergePOs}
                                 className="flex gap-1 items-center"
                               >
@@ -1072,7 +1088,7 @@ export const PurchaseOrder = ({
         <AccordionItem key="transac&payments" value="transac&payments">
           {/* {tab === "Delivered PO" && ( */}
           <AccordionTrigger>
-            <p className="font-semibold text-lg text-red-600 pl-6">
+            <p className="font-semibold text-lg text-red-600 pl-6" data-cy="po-details-payment-details-button">
               Payment Details
             </p>
           </AccordionTrigger>
@@ -1371,6 +1387,7 @@ export const PurchaseOrder = ({
         <div className="flex gap-2 items-center justify-end">
           {AMENDPOVALIDATION && (
             <Button
+              data-cy="amend-po-button"
               onClick={toggleAmendPOSheet}
               variant={"outline"}
               className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
@@ -1474,7 +1491,7 @@ export const PurchaseOrder = ({
                               {item.quantity}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
-                              <div className="flex items-center justify-center">
+                              <div data-cy="amend-po-edit-button" className="flex items-center justify-center">
                                 <Pencil
                                   onClick={() => {
                                     const options =
@@ -1520,6 +1537,7 @@ export const PurchaseOrder = ({
                     <HoverCard>
                       <HoverCardTrigger>
                         <Button
+                          data-cy="amend-po-confirm-button"
                           variant="outline"
                           disabled
                           className="border-primary flex items-center gap-1"
@@ -1560,6 +1578,7 @@ export const PurchaseOrder = ({
                             approval. Continue?
                             <div className="flex flex-col gap-2 mt-2">
                               <Textarea
+                                data-cy="confirm-dialog-textarea"
                                 placeholder="input the reason for amending this PO..."
                                 value={comment}
                                 onChange={(e) => setComment(e.target.value)}
@@ -1572,6 +1591,7 @@ export const PurchaseOrder = ({
                             ) : (
                               <div className="flex gap-2 items-center justify-center pt-2">
                                 <Button
+                                  data-cy="confirm-dialog-confirm-button"
                                   onClick={handleAmendPo}
                                   className="flex items-center gap-1"
                                 >
@@ -1633,6 +1653,7 @@ export const PurchaseOrder = ({
                               Qty
                             </h5>
                             <Input
+                              data-cy="amend-po-dialog-quantity-input"
                               type="number"
                               value={quantity || ""}
                               onChange={(e) =>
@@ -1663,12 +1684,13 @@ export const PurchaseOrder = ({
                     <DialogDescription className="flex justify-end">
                       <div className="flex gap-2">
                         {orderData?.list?.length === 1 ? (
-                          <Button className="flex items-center gap-1" disabled>
+                          <Button data-cy="amend-po-dialog-delete-button"  className="flex items-center gap-1" disabled>
                             <Trash2 className="h-4 w-4" />
                             Delete
                           </Button>
                         ) : (
                           <Button
+                            data-cy="amend-po-dialog-delete-button" 
                             onClick={() => handleDelete(amendEditItem.item)}
                             className="flex gap-1 items-center bg-gray-100 text-black hover:text-white"
                           >
@@ -1687,6 +1709,7 @@ export const PurchaseOrder = ({
                           }
                           variant={"outline"}
                           className="flex gap-1 items-center"
+                          data-cy="amend-po-dialog-save-button"
                         >
                           <ListChecks className="h-4 w-4" />
                           Save
@@ -1702,6 +1725,7 @@ export const PurchaseOrder = ({
           {/* Cancel PO */}
           {CANCELPOVALIDATION && (
             <Button
+              data-cy="cancel-po-button"
               onClick={toggleCancelPODialog}
               variant={"outline"}
               className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
@@ -1751,6 +1775,7 @@ export const PurchaseOrder = ({
                   Continue?
                   <div className="flex flex-col gap-2 mt-2">
                     <Textarea
+                      data-cy="cancel-po-comments-input"
                       placeholder="input the reason for cancelling..."
                       value={comment}
                       onChange={(e) => setComment(e.target.value)}
@@ -1762,11 +1787,12 @@ export const PurchaseOrder = ({
                     </div>
                   ) : (
                     <div className="flex gap-2 items-center justify-center pt-2">
-                      <AlertDialogCancel className="flex items-center gap-1">
+                      <AlertDialogCancel data-cy="cancel-po-dialog-cancel-button"  className="flex items-center gap-1">
                         <CircleX className="h-4 w-4" />
                         Cancel
                       </AlertDialogCancel>
                       <Button
+                        data-cy="cancel-po-dialog-confirm-button"
                         onClick={handleCancelPo}
                         className="flex items-center gap-1"
                       >
@@ -1786,6 +1812,7 @@ export const PurchaseOrder = ({
       {["Delivered", "Partially Delivered"].includes(PO?.status) && (
         <DeliveryHistory
           deliveryData={PO?.delivery_data?.data || null}
+          onPrintHistory={triggerHistoryPrint}
         />
       )}
 
@@ -1804,7 +1831,7 @@ export const PurchaseOrder = ({
          vendor        ={PO?.vendor || "Unknown"}
          onSuccess     ={poPaymentsMutate}
       />
-
+{PrintableHistoryComponent}
     </div>
   );
 };

@@ -224,13 +224,13 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
         <AlertDialog open={newInflowDialog} onOpenChange={closeDialogAndReset}>
             <AlertDialogContent className="max-w-lg">
                 <AlertDialogHeader>
-                    <AlertDialogTitle className="text-center text-xl">Record New Inflow Payment</AlertDialogTitle>
+                    <AlertDialogTitle data-cy="add-new-inflow-dialog-text" className="text-center text-xl">Record New Inflow Payment</AlertDialogTitle>
                     <Separator className="my-4" />
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2">
                     <div className="grid grid-cols-3 items-center gap-4">
                         <Label htmlFor="project" className="text-right">Project <sup className="text-destructive">*</sup></Label>
-                        <div className="col-span-2">
+                        <div data-cy="add-new-inflow-dropdown" className="col-span-2">
                             <ProjectSelect
                                 all={true} // Assuming this means fetch all projects
                                 // value={formState.project ? { value: formState.project, label: formState.project_name || formState.project } : null}
@@ -246,25 +246,25 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
 
                     <div className="grid grid-cols-3 items-center gap-4">
                         <Label htmlFor="customer" className="text-right">Customer</Label>
-                        <Input id="customer" value={formState.customer_name || (formState.project && !isProjectValidForPayment ? "No Customer Linked" : "--")} disabled className="col-span-2 h-9 bg-muted/50" />
+                        <Input data-cy="add-new-inflow-customer-input" id="customer" value={formState.customer_name || (formState.project && !isProjectValidForPayment ? "No Customer Linked" : "--")} disabled className="col-span-2 h-9 bg-muted/50" />
                     </div>
 
                     <div className="grid grid-cols-3 items-center gap-4">
                         <Label htmlFor="totalReceived" className="text-right">Total Received (Project)</Label>
-                        <Input id="totalReceived" value={formState.project ? formatToRoundedIndianRupee(getAmountReceivedForProject(formState.project)) : "--"} disabled className="col_span-2 h-9 bg-muted/50" />
+                        <Input data-cy="add-new-inflow-total-received-input" id="totalReceived" value={formState.project ? formatToRoundedIndianRupee(getAmountReceivedForProject(formState.project)) : "--"} disabled className="col_span-2 h-9 bg-muted/50" />
                     </div>
 
                     <Separator className="my-4" />
 
                     <div className="grid grid-cols-3 items-center gap-4">
                         <Label htmlFor="amount" className="text-right">Amount <sup className="text-destructive">*</sup></Label>
-                        <Input id="amount" name="amount" type="number" placeholder="Enter Amount" value={formState.amount} onChange={handleInputChange} disabled={!isProjectValidForPayment} className="col-span-2 h-9" />
+                        <Input data-cy="add-new-inflow-amount-input" id="amount" name="amount" type="number" placeholder="Enter Amount" value={formState.amount} onChange={handleInputChange} disabled={!isProjectValidForPayment} className="col-span-2 h-9" />
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                     </div>
 
                     <div className="grid grid-cols-3 items-center gap-4">
                         <Label htmlFor="utr" className="text-right">Payment Ref (UTR) <sup className="text-destructive">*</sup></Label>
-                        <Input id="utr" name="utr" type="text" placeholder="Enter UTR/Ref No." value={formState.utr} onChange={handleInputChange} disabled={!isProjectValidForPayment} className="col-span-2 h-9" />
+                        <Input data-cy="add-new-inflow-payment-ref-input" id="utr" name="utr" type="text" placeholder="Enter UTR/Ref No." value={formState.utr} onChange={handleInputChange} disabled={!isProjectValidForPayment} className="col-span-2 h-9" />
                          {formErrors.utr && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.utr}</p>}
                     </div>
 
@@ -287,8 +287,8 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                         <div className="flex justify-center w-full"><TailSpin color="#ef4444" height={28} width={28} /></div>
                     ) : (
                         <>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <Button onClick={handleSubmitPayment} disabled={isSubmitDisabled}>Add Payment</Button>
+                            <AlertDialogCancel data-cy="new-inflow-cancel-button">Cancel</AlertDialogCancel>
+                            <Button data-cy="new-inflow-add-payment-button" onClick={handleSubmitPayment} disabled={isSubmitDisabled}>Add Payment</Button>
                         </>
                     )}
                 </AlertDialogFooter>

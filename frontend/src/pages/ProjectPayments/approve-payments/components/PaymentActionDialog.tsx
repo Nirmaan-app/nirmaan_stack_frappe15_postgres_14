@@ -135,8 +135,9 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         </div>
                     ) : (
                         <>
-                            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel data-cy="payment-action-dialog-cancel-button" disabled={isLoading}>Cancel</AlertDialogCancel>
                             <Button
+                                data-cy="payment-action-dialog-confrim-button"
                                 disabled={isLoading || (type === DIALOG_ACTION_TYPES.EDIT && !amountInput)}
                                 onClick={handleConfirm}
                             >

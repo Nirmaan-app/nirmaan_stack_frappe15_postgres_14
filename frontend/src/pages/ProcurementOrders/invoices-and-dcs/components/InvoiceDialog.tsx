@@ -356,6 +356,7 @@ export function InvoiceDialog<T extends DocumentType>({
           <div className="grid grid-cols-3 items-center gap-4">
             <Label htmlFor="invoice_no" className="text-right col-span-1">Invoice No.<sup className="text-red-500">*</sup></Label>
             <Input
+              data-cy="add-invoice-invoice-number-input"
               id="invoice_no"
               type="text"
               placeholder="Enter Invoice no."
@@ -369,6 +370,7 @@ export function InvoiceDialog<T extends DocumentType>({
           <div className="grid grid-cols-3 items-center gap-4">
             <Label htmlFor="invoice_date" className="text-right col-span-1">Date<sup className="text-red-500">*</sup></Label>
             <Input
+              data-cy="add-invoice-date-input"
               id="invoice_date"
               type="date"
               value={invoiceData.date}
@@ -382,6 +384,7 @@ export function InvoiceDialog<T extends DocumentType>({
           <div className="grid grid-cols-3 items-center gap-4">
             <Label htmlFor="invoice_amount" className="text-right col-span-1">Amount<sup className="text-red-500">*</sup></Label>
             <Input
+              data-cy="add-invoice-amount-input"
               id="invoice_amount"
               type="text" // Use text to allow better validation/parsing if needed
               inputMode="decimal" // Hint for mobile keyboards
@@ -415,9 +418,10 @@ export function InvoiceDialog<T extends DocumentType>({
              ) : (
             <>
               <AlertDialogCancel asChild>
-                <Button variant={"outline"} disabled={isLoading}>Cancel</Button>
+                <Button data-cy="add-invoice-cancel-button" variant={"outline"} disabled={isLoading}>Cancel</Button>
               </AlertDialogCancel>
               <Button
+                data-cy="add-invoice-confirm-button"
                 onClick={handleUpdateInvoiceData}
                 // Enable button only when required fields are filled
                 disabled={!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || isLoading || !selectedAttachment}

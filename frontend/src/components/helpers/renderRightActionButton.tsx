@@ -54,7 +54,7 @@ export const RenderRightActionButton = ({
   const navigate = useNavigate();
   const {role, user_id} = useUserData()
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];
@@ -118,12 +118,19 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/in-flow-payments") {
     return (
-      <Button onClick={toggleNewInflowDialog} className="sm:mr-4 mr-2">
+      <Button data-cy="add-new-inflow-button" onClick={toggleNewInflowDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Inflow</span>
       </Button>
     );
-  } else if (
+  } else if (locationPath === "/project-invoices") {
+    return (
+      <Button data-cy="add-project-invoice-button" onClick={toggleNewProjectInvoiceDialog} className="sm:mr-4 mr-2">
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">PROJECT INVOICE</span>
+      </Button>
+    );
+  }else if (
     locationPath === "/" &&
     ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role)
   ) {

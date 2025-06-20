@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+
+import { useMemo, useEffect } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList } from "frappe-react-sdk";
@@ -15,15 +16,22 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"; // Assuming yo
 
 import {
     APPROVED_QUOTATION_DOCTYPE, AQ_LIST_FIELDS_TO_FETCH, AQ_SEARCHABLE_FIELDS, AQ_DATE_COLUMNS,
-    ITEM_DOCTYPE, ITEM_LOOKUP_FIELDS,
+    ITEM_DOCTYPE, ITEM_LOOKUP_FIELDS, getItemStaticFilters
 } from "./approvedQuotations.constants";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { UnitOptions } from "@/components/helpers/SelectUnit";
+interface ApprovedQuotationsTableProps {
+    productId?: string;
+    item_name?: string; // Make the prop optional for reusability
+}
+// --- Helper Functions and Components ---
 
-export default function ApprovedQuotationsPage() {
+
+// Change component name and accept props
+export default function ApprovedQuotationsTable({ productId, item_name }: ApprovedQuotationsTableProps) {
 
 
-    const {data: vendorsList, vendorOptionsForSelect, isLoading: vendorsLoading} = useVendorsList({vendorTypes: ['Service', 'Material & Service', 'Material']});
+    const { data: vendorsList, vendorOptionsForSelect, isLoading: vendorsLoading } = useVendorsList({ vendorTypes: ['Service', 'Material & Service', 'Material'] });
 
     // Fetch Items if you need to display item-specific info not on AQ or for linking
     const { data: itemsList, isLoading: itemsLoading } = useFrappeGetDocList<ItemsType>(
@@ -198,6 +206,17 @@ export default function ApprovedQuotationsPage() {
         // },
     ], [vendorMap, itemMap]); // itemMap included if used
 
+    //      const getProjectStaticFilters = (item_Name?: string): Array<[string, string, any]> => {
+    //         const itemsList: Array<[string, string, any]> = [];
+    //         if (item_Name) {
+    //             itemsList.push(["item_name", "=", item_Name]);
+    //         }
+    //         return itemsList;
+    //     };
+
+    const staticFilters = useMemo(() => getItemStaticFilters(productId), [productId]);
+
+
     const {
         table, totalCount, isLoading: aqTableLoading, error: aqTableError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
@@ -211,6 +230,8 @@ export default function ApprovedQuotationsPage() {
         urlSyncKey: 'approved_quotations_list',
         enableRowSelection: false,
         shouldCache: true,
+        additionalFilters: staticFilters,
+
     });
 
     // Deriving item options from the actual approved quotes or from a full Items list
@@ -228,9 +249,20 @@ export default function ApprovedQuotationsPage() {
     // [categoryList]);
 
 
+    // useEffect(() => {
+    //     if (productId,item_Name) {
+    //         // Set the search dropdown to 'Item Name'
+    //         setSelectedSearchField('item_name');
+    //         // Set the search input value to the item name from the prop
+    //         setSearchTerm(item_Name);
+
+    //     }
+    // }, [productId,item_Name, setSelectedSearchField, setSearchTerm]); // This effect runs when the prop changes
+
+
     const facetFilterOptions = useMemo(() => ({
         vendor: { title: "Vendor", options: vendorOptionsForSelect },
-        item_name: { title: "Item Name", options: itemFacetOptions }, 
+        item_name: { title: "Item Name", options: itemFacetOptions },
         unit: { title: "Unit", options: UnitOptions },
     }), [vendorOptionsForSelect, itemFacetOptions, UnitOptions]);
 
@@ -239,9 +271,10 @@ export default function ApprovedQuotationsPage() {
 
     return (
         <div className="flex-1 space-y-4">
-            {/* <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Approved Quotations</h1>
-            </div> */}
+            {productId && (<div className="flex items-center justify-between">
+                <h1 className="text-2xl font-semibold">Approved Quotations for {item_name && item_name}</h1>
+            </div>)}
+
 
             {/* No summary card for now, add if needed */}
 

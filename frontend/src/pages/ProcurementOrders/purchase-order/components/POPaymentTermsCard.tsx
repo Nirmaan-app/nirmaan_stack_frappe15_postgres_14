@@ -202,6 +202,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                         >
                           <DialogTrigger>
                             <Button
+                              data-cy="payment-terms-edit-button"
                               variant={"outline"}
                               className="flex items-center gap-1"
                             >
@@ -211,7 +212,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                           </DialogTrigger>
                           <DialogContent>
                             <DialogHeader className="text-start">
-                              <DialogTitle className="text-center">
+                              <DialogTitle className="text-center" data-cy="edit-payment-terms-card-heading">
                                 Edit Terms and Charges
                               </DialogTitle>
     
@@ -230,6 +231,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                                       ?.length > 0 && (
                                       <>
                                         <Select
+                                          data-cy="edit-payment-terms-dropdown"
                                           value={selectedGST?.gst}
                                           defaultValue={PO?.project_gst}
                                           onValueChange={(selectedOption) => {
@@ -484,6 +486,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                                       name="notes"
                                       render={({ field }) => (
                                         <Textarea
+                                          data-cy="payment-terms-notes-input"
                                           {...field}
                                           onChange={(e) => {
                                             const value = e.target.value;
@@ -504,6 +507,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                                     <>
                                       <DialogClose asChild>
                                         <Button
+                                          data-cy="payment-terms-cancel-button"
                                           variant={"outline"}
                                           className="flex items-center gap-1"
                                         >
@@ -512,6 +516,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                                         </Button>
                                       </DialogClose>
                                       <Button
+                                        data-cy="payment-terms-save-button"
                                         type="submit"
                                         className="flex items-center gap-1"
                                         disabled={checkPrintDisabled}

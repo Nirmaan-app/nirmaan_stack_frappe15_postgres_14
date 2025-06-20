@@ -12,6 +12,7 @@ import { messaging } from "./firebase/firebaseConfig";
 import { UserProvider } from "./utils/auth/UserProvider";
 import { SocketInitializer } from "./config/SocketInitializer";
 
+
 // --- Router Creation ---
 const router = createBrowserRouter(
   appRoutes,

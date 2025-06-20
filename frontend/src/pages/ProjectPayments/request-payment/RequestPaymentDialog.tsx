@@ -79,24 +79,24 @@ export default function RequestPaymentDialog(p:Props){
   return (
   <AlertDialog open={open} onOpenChange={toggle}>
     <AlertDialogContent className="max-w-md">
-      <AlertDialogHeader><AlertDialogTitle className="text-center">
+      <AlertDialogHeader><AlertDialogTitle data-cy="add-payments-dialog-title" className="text-center">
          Request Payment
       </AlertDialogTitle></AlertDialogHeader>
 
       <RadioGroup value={mode} onValueChange={v=>setMode(v as any)} className="space-y-3">
 
         <div className="flex items-center gap-2">
-          <RadioGroupItem value="custom" id="custom"/>
+          <RadioGroupItem data-cy="custom-amount-check" value="custom" id="custom"/>
           <Label htmlFor="custom" className="w-24">Custom</Label>
-          <Input type="number" className="w-32 h-8"
+          <Input data-cy="custom-amount-input" type="number" className="w-32 h-8"
                  disabled={mode!=="custom"} value={custom}
                  onChange={e=>setCustom(e.target.value)} />
         </div>
 
         {p.paid===0 && p.pending===0 && <>
           <div className="flex items-center gap-2">
-            <RadioGroupItem value="percentage" id="pct"/>
-            <Input type="number" className="w-16 h-8"
+            <RadioGroupItem data-cy="percentage-amount-check" value="percentage" id="pct"/>
+            <Input data-cy="percentage-amount-input" type="number" className="w-16 h-8"
                    disabled={mode!=="percentage"} value={perc}
                    onChange={e=>setPerc(e.target.value)} />
             <Label htmlFor="pct">% of Amount</Label>
@@ -104,12 +104,12 @@ export default function RequestPaymentDialog(p:Props){
 
           {p.gst &&
             <div className="flex items-center gap-2">
-              <RadioGroupItem value="exGST" id="exgst"/>
+              <RadioGroupItem data-cy="total-amount-excl-gst-check" value="exGST" id="exgst"/>
               <Label htmlFor="exgst">Total (ex-GST)</Label>
             </div>}
 
           <div className="flex items-center gap-2">
-            <RadioGroupItem value="full" id="full"/>
+            <RadioGroupItem data-cy="full-amount-check" value="full" id="full"/>
             <Label htmlFor="full">Full Amount</Label>
           </div>
         </>}
@@ -121,18 +121,19 @@ export default function RequestPaymentDialog(p:Props){
           </div>}
       </RadioGroup>
 
-      {warn && <p className="text-xs text-red-600 mt-1">{warn}</p>}
+      {warn && <p data-cy="amount-warning" className="text-xs text-red-600 mt-1">{warn}</p>}
 
       <p className="mt-2 text-center font-semibold">
-        Requesting: <span className="text-primary">{formatToIndianRupee(amount)}</span>
+        Requesting: <span data-cy="requesting-amount" className="text-primary">{formatToIndianRupee(amount)}</span>
       </p>
 
       <div className="mt-3 flex gap-2 justify-center">
         {isMutating
           ? <TailSpin color="red" height={40} width={40}/>
           : <>
-              <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
-              <Button className="flex-1"
+              <AlertDialogCancel data-cy="request-payment-dialog-cancel-button" className="flex-1">Cancel</AlertDialogCancel>
+              <Button data-cy="request-payment-dialog-confirm-button"
+                      className="flex-1"
                       disabled={amount<=0 || !!warn}
                       onClick={submit}>Confirm</Button>
             </>}

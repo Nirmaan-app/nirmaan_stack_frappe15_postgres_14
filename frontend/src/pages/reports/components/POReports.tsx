@@ -1,135 +1,241 @@
-import { DataTable } from "@/components/data-table/data-table";
+import { useMemo, useCallback, useEffect } from "react";
+import { DataTable } from "@/components/data-table/new-data-table";
 import { POReportRowData, usePOReportsData } from "../hooks/usePOReportsData";
-import React, { useMemo } from "react";
-import { poColumns } from "./columns/poColumns";
+import { getPOReportColumns } from "./columns/poColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { ReportType, useReportStore } from "../store/useReportStore";
+import { POReportOption, useReportStore } from "../store/useReportStore";
 import { parseNumber } from "@/utils/parseNumber";
-import { toast } from "@/components/ui/use-toast";
-import { exportToCsv } from "@/utils/exportToCsv";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
+import { differenceInDays, parseISO, startOfToday } from 'date-fns';
+import { useServerDataTable } from "@/hooks/useServerDataTable";
+import {
+    PO_REPORTS_SEARCHABLE_FIELDS,
+    PO_REPORTS_DATE_COLUMNS
+} from "../config/poReportsTable.config";
+import { ColumnDef } from "@tanstack/react-table";
+import { toast } from "@/components/ui/use-toast";
+import { exportToCsv } from "@/utils/exportToCsv";
+import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 interface SelectOption { label: string; value: string; }
 
 export default function POReports() {
+    // 1. Fetch the superset of data. `usePOReportsData` should return POReportRowData[]
+    // which already contains calculated totalAmount, invoiceAmount, amountPaid, and originalDoc.
+    const {
+        reportData: allPOsForReports, // This is POReportRowData[] | null
+        isLoading: isLoadingInitialData,
+        error: initialDataError,
+    } = usePOReportsData();
 
-    const { reportData, isLoading, error } = usePOReportsData();
+    const selectedReportType = useReportStore((state) => state.selectedReportType as POReportOption | null);
 
-    const selectedReportType = useReportStore((state) => state.selectedReportType);
+    // 2. Dynamically determine columns based on selectedReportType
+    const tableColumnsToDisplay = useMemo(() => getPOReportColumns(selectedReportType), [selectedReportType]);
+    const delta = 100;
 
-    const columns = React.useMemo(() => poColumns, []);
-
-    const delta = 100; // Small tolerance for floating point comparison
-
-    // --- Supporting Data Fetches (Keep these for lookups/calculations) ---
-    const projectsFetchOptions = getProjectListOptions();
-
-    // --- Generate Query Keys ---
-    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
-
-    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
-        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
-    );
-    const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
-
-    const projectOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
-    
-    const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
-
-    const getPOExportData = (
-        reportType: ReportType,
-        allData: POReportRowData[]
-    ): POReportRowData[] => {
-        if (!allData) return [];
-
-        switch (reportType) {
-            case 'Pending Invoices':
-                // Total Invoice Amount is less than Total PO/SR Amount (use small tolerance for floating point)
-                return allData.filter(row => parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - delta);
-            case 'PO with Excess Payments':
-                // Amount Paid is greater than Total PO/SR Amount (use small tolerance)
-                return allData.filter(row => parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + delta);
-            default:
-                // Should not happen if selection is restricted, but return all as fallback
-                return allData;
+    // 3. Perform the report-specific dynamic filtering on the client side.
+    // This `currentDisplayData` is what will be shown in the table.
+    const currentDisplayData = useMemo(() => {
+        if (!allPOsForReports) {
+            // console.log("POReports: No initial data (allPOsForReports is null/undefined)");
+            return [];
         }
-    };
+        if (!selectedReportType || !['Pending Invoices', 'PO with Excess Payments', 'Dispatched for 3 days'].includes(selectedReportType)) {
+            // console.log(`POReports: Invalid or non-PO report type selected: ${selectedReportType}`);
+            return [];
+        }
 
-    const filteredReportData = useMemo(() => getPOExportData(selectedReportType, reportData || []), [reportData, selectedReportType]);
+        // console.log(`POReports: Filtering for report type: ${selectedReportType} with ${allPOsForReports.length} initial items.`);
+        const today = startOfToday();
+        let filtered: POReportRowData[];
 
-    const exportFileNamePrefix = `po_report`; // Base prefix
+        switch (selectedReportType) {
+            case 'Pending Invoices':
+                filtered = allPOsForReports.filter(row => {
+                    const poDoc = row.originalDoc;
+                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
+                        return parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - delta;
+                    }
+                    return false;
+                });
+                break;
+            case 'PO with Excess Payments':
+                filtered = allPOsForReports.filter(row => {
+                    const poDoc = row.originalDoc;
+                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
+                        return parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + delta;
+                    }
+                    return false;
+                });
+                break;
+            case 'Dispatched for 3 days':
+                filtered = allPOsForReports.filter(row => {
+                    const poDoc = row.originalDoc;
 
-        // --- New Export Handler ---
-    const handleExport = () => {
-        if (isLoading || reportData?.length === 0) {
-             toast({ title: "Export", description: "No data available to export or still loading.", variant: "default" });
+                    // 1. Guard against missing or invalid data
+                    if (poDoc.status !== 'Dispatched' || !poDoc.dispatch_date) {
+                        return false;
+                    }
+
+                    try {
+                        const dispatchDate = parseISO(poDoc.dispatch_date);
+
+                        // This check prevents errors if parseISO results in an invalid date
+                        if (isNaN(dispatchDate.getTime())) {
+                            return false;
+                        }
+
+                        // 2. The corrected logic using ">="
+                        const dayDifference = differenceInDays(today, dispatchDate);
+                        return dayDifference >= 3;
+
+                    } catch (e) {
+                        // This will catch any unexpected errors during date parsing
+                        console.error(`Could not parse dispatch_date: ${poDoc.dispatch_date}`, e);
+                        return false;
+                    }
+                });
+                break;
+            default:
+                filtered = []; // Should not reach here due to initial check
+        }
+        // console.log(`POReports: Filtered data count: ${filtered.length}`);
+        return filtered;
+    }, [allPOsForReports, selectedReportType, delta]);
+
+    // 4. Initialize useServerDataTable in clientData mode
+    const {
+        table,
+        isLoading: isTableHookLoading,
+        error: tableHookError,
+        totalCount, // This will be currentDisplayData.length
+        searchTerm, setSearchTerm,
+        selectedSearchField, setSelectedSearchField,
+    } = useServerDataTable<POReportRowData>({
+        doctype: `POReportsClientFilteredVirtual_${selectedReportType || 'none'}`, // Unique virtual doctype per report
+        columns: tableColumnsToDisplay,
+        fetchFields: [], // Not used in clientData mode
+        searchableFields: PO_REPORTS_SEARCHABLE_FIELDS,
+        clientData: currentDisplayData,
+        clientTotalCount: currentDisplayData.length,
+        urlSyncKey: `po_reports_table_client_${selectedReportType?.toString().replace(/\s+/g, '_') || 'all'}`,
+        defaultSort: selectedReportType === 'Dispatched for 3 days' ? 'originalDoc.dispatch_date asc' : 'creation desc',
+        enableRowSelection: false,
+        // No `meta` needed here as POReportRowData contains all display fields,
+        // and poColumns directly accesses them.
+    });
+    const filteredRowCount = table.getFilteredRowModel().rows.length;
+    // This effect synchronizes the table's pageCount with the client-side filtered data.
+    useEffect(() => {
+        const { pageSize } = table.getState().pagination;
+        const newPageCount = pageSize > 0 ? Math.ceil(filteredRowCount / pageSize) : 1;
+
+        // Prevent infinite loops by only setting options if the page count has changed.
+        if (table.getPageCount() !== newPageCount) {
+            table.setOptions(prev => ({
+                ...prev,
+                pageCount: newPageCount,
+            }));
+        }
+    }, [table, filteredRowCount]); // Rerun when the table instance or filtered data count changes
+    // =================================================================================
+    // Supporting data for faceted filters (Projects & Vendors)
+    const projectsFetchOptions = getProjectListOptions();
+    const { data: projects, isLoading: projectsUiLoading, error: projectsUiError } = useFrappeGetDocList<Projects>(
+        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, queryKeys.projects.list(projectsFetchOptions)
+    );
+    const { data: vendors, isLoading: vendorsUiLoading, error: vendorsUiError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
+
+    // Ensure `value` in facet options matches the data in POReportRowData's `projectName` and `vendorName`
+    const projectFacetOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.project_name })) || [], [projects]);
+    const vendorFacetOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.vendor_name })) || [], [vendors]);
+
+    const facetOptionsConfig = useMemo(() => ({
+        project_name: { title: "Project", options: projectFacetOptions },
+        vendor_name: { title: "Vendor", options: vendorFacetOptions }
+    }), [projectFacetOptions, vendorFacetOptions]);
+
+    const exportFileName = useMemo(() => {
+        const prefix = "po_report";
+        return `${prefix}${selectedReportType ? `_${selectedReportType.replace(/\s+/g, '_')}` : ''}`;
+    }, [selectedReportType]);
+
+    const handleCustomExport = useCallback(() => {
+        if (!currentDisplayData || currentDisplayData.length === 0) {
+            toast({ title: "Export", description: "No data available to export for the selected report type.", variant: "default" });
             return;
         }
-    
-        try {
-            // 1. Get the data specifically prepared for this export type
-            //    We pass ALL original data (`data` prop) to the getter,
-            //    so it can apply report-type filtering before any table filtering.
-            const dataToExportRaw = getPOExportData(selectedReportType, reportData || []);
-    
-            // 2. OPTIONAL: Apply table's current filters (search, column filters) to the report-specific data
-            //    This is more complex as it requires replicating table filtering logic outside the table.
-            //    Easier approach: Export based on Report Type filter applied to the *full* dataset.
-            //    Let's stick to the easier approach for now: export data filtered *only* by the report type.
-            const dataToExport = dataToExportRaw;
-    
-             // OR, if you want to export exactly what's visible *after* table filters:
-             // const visibleFilteredData = getExportData(selectedReportType, allFilteredRows); // Apply report type filter to table-filtered data
-    
-            if (!dataToExport || dataToExport.length === 0) {
-                 toast({ title: "Export", description: `No data found matching report type: ${selectedReportType}`, variant: "default" });
-                 return;
-            }
-    
-            // 3. Determine filename based on prefix and maybe the report type
-             const finalFileName = `${exportFileNamePrefix}${selectedReportType ? `_${selectedReportType.replace(/\s+/g, '_')}` : ''}`;
-    
-    
-            // 4. Call the generic export utility
-            exportToCsv(finalFileName, dataToExport, columns);
-    
-            toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success"});
-    
-        } catch (error) {
-             console.error("Export failed:", error);
-             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive"});
+        const dataToExport = currentDisplayData.map(row => ({
+            po_id: row.name,
+            creation: formatDate(row.creation),
+            project_name: row.projectName || row.project,
+            vendor_name: row.vendorName || row.vendor,
+            total_po_amt: formatToRoundedIndianRupee(row.totalAmount),
+            total_invoice_amt: formatToRoundedIndianRupee(row.invoiceAmount),
+            amt_paid: formatToRoundedIndianRupee(row.amountPaid),
+            dispatch_date: row.originalDoc.dispatch_date ? formatDate(row.originalDoc.dispatch_date) : "N/A",
+            status: row.originalDoc.status,
+        }));
+
+        const exportColumnsConfig: ColumnDef<any, any>[] = [
+            { header: "#PO", accessorKey: "po_id" },
+            { header: "Date Created", accessorKey: "creation" },
+            { header: "Project", accessorKey: "project_name" },
+            { header: "Vendor", accessorKey: "vendor_name" },
+            { header: "Total PO Amt", accessorKey: "total_po_amt" }, // Matches export data key
+            { header: "Total Invoice Amt", accessorKey: "total_invoice_amt" },
+            { header: "Amt Paid", accessorKey: "amt_paid" },
+            { header: "PO Status", accessorKey: "status" }, // Moved before conditional dispatch date
+        ];
+        if (selectedReportType === 'Dispatched for 3 days') {
+            exportColumnsConfig.push({ header: "Dispatched Date", accessorKey: "dispatch_date" });
         }
-    };
 
-    const combinedError = projectsError || vendorsError || error;
-    const combinedLoading = projectsLoading || vendorsLoading || isLoading;
+        try {
+            exportToCsv(exportFileName, dataToExport, exportColumnsConfig);
+            toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success" });
+        } catch (e) {
+            console.error("Export failed:", e);
+            toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
+        }
+    }, [currentDisplayData, exportFileName, selectedReportType]);
 
-    if (combinedError) {
-        // console.error("Error fetching PO/SR reports data:", error);
-        return (
-            <AlertDestructive error={combinedError} />
-        )
+    const isLoadingOverall = isLoadingInitialData || projectsUiLoading || vendorsUiLoading || isTableHookLoading;
+    const overallError = initialDataError || projectsUiError || vendorsUiError || tableHookError;
+
+    if (overallError) {
+        return <AlertDestructive error={overallError as Error} />;
     }
 
     return (
         <div className="space-y-4">
-            {combinedLoading ? (
+            {isLoadingInitialData && !allPOsForReports ? (
                 <LoadingFallback />
             ) : (
-                <DataTable
-                    columns={columns}
-                    project_values={projectOptions}
-                    vendorOptions={vendorOptions}
-                    data={filteredReportData || []} // Ensure data is always an array
-                    // Add features like filtering, search, pagination if needed
-                    loading={isLoading}
-                    onExport={handleExport}
-                    // exportFileNamePrefix={exportFileNamePrefix}
-                    // getExportData={getPOExportData}
+                <DataTable<POReportRowData>
+                    table={table}
+                    columns={tableColumnsToDisplay}
+                    isLoading={isLoadingOverall}
+                    error={overallError as Error | null}
+                    // totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length
+                    totalCount={filteredRowCount}
+                    searchFieldOptions={PO_REPORTS_SEARCHABLE_FIELDS}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    facetFilterOptions={facetOptionsConfig}
+                    dateFilterColumns={PO_REPORTS_DATE_COLUMNS}
+                    showExportButton={true}
+                    onExport={handleCustomExport}
+                    exportFileName={exportFileName}
+                    showRowSelection={false}
                 />
             )}
         </div>

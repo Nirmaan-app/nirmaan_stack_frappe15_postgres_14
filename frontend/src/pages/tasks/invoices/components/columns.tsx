@@ -219,6 +219,7 @@ export const getPendingTaskColumns = (
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <Button
+                                                data-cy="approve-invoice-button"
                                                 variant="ghost" size="icon"
                                                 className="text-green-600 hover:bg-green-100 h-7 w-7"
                                                 onClick={() => openConfirmationDialog(task, "Approved")}
@@ -234,6 +235,7 @@ export const getPendingTaskColumns = (
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <Button
+                                                data-cy="reject-invoice-button"
                                                 variant="ghost" size="icon"
                                                 className="text-red-600 hover:bg-red-100 h-7 w-7"
                                                 onClick={() => openConfirmationDialog(task, "Rejected")}

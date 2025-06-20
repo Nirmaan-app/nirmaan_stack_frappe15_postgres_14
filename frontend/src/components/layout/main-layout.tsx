@@ -171,6 +171,7 @@ export const MainLayout: React.FC = () => {
               {location.pathname !== "/" && (
                 <>
                   <button
+                    data-cy="go-back-button"
                     onClick={() => navigate(-1)}
                     className="p-1 rounded hover:bg-accent" // Make it a button for semantics
                     aria-label="Go back"
@@ -187,6 +188,7 @@ export const MainLayout: React.FC = () => {
                 disabled={locationsPaths.length === 0} // Disable if no parent paths
               >
                 <div
+                  data-cy="po-number-from-purchase-orders"
                   className={`text-sm max-sm:text-xs font-medium truncate ${
                     locationsPaths.length > 0
                       ? 'hover:text-gray-600 cursor-pointer'

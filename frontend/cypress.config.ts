@@ -13,7 +13,8 @@ export default defineConfig({
   },
   env: {
     login_Email: "Administrator",
-    login_Password: "avisekkr"
+    login_Password: "avisekkr",
+    project_Name: "Wakefit GT Road",
   },
   defaultCommandTimeout: 20000,
 });

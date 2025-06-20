@@ -9,6 +9,7 @@
 
 const login_pr_end_email = Cypress.env('login_Email');
 const login_pr_end_password = Cypress.env('login_Password');
+const project_name = Cypress.env('project_Name') || "Wakefit GT Road";
 
 describe('Add a procurement request to approve it --- End-to-End test flow', () => {
 
@@ -36,6 +37,12 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
 
     it('Navigates to Procurement requests page and Creates a new and normal PR', () => {
 
+        // Setting Up Intercept Use to Fetch PR-Number
+        cy.intercept(
+            'POST', 
+            '**/api/resource/Procurement%20Requests'
+        ).as('prCreationRequest');
+
         cy.get('[data-cy="procurement-requests-button"]').should('be.visible').click();
         cy.get('[data-cy="procurement-requests-search-bar"]').should('be.visible');
         cy.get('[data-cy="procurement-requests-data-table"]').should('exist').within(() => {
@@ -47,22 +54,17 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
 
 
         cy.contains('Add New PR').should('be.visible').click();
-        cy.get('.css-art2ul-ValueContainer2').click();
-        // cy.get('.css-1nmdiq5-menu').should('be.visible');
-        cy.get('.css-1nmdiq5-menu')
-        .find('[role="option"]')
-        .then( $options => {
-            const randomIndex = Math.floor( Math.random() * $options.length);
-            const selectedOption = $options[randomIndex].textContent;
-            cy.log(`Randomly Selected Option: ${selectedOption}`);
-            cy.wrap($options[randomIndex]).click();
-        });
+        // cy.pause()
+       
+        cy.get('input').type(project_name).type('{enter}')
+        // cy.pause();
+        
 
+        // creating the PR According to the Project Name
         cy.get('[data-cy="add-new-pr-normal-custom-button"]').should('be.visible').click();
         cy.get('[data-cy="add-new-pr-normal"]').should('exist').click();
 
         cy.get('.rounded-xl.bg-card', { timeout: 10000 }) 
-        /**  .should('have.length.gt', 0) */ 
         .then(($cards) => {
             const randomIndex = Math.floor(Math.random() * $cards.length);
             const selectedCard = $cards[randomIndex].textContent;
@@ -181,56 +183,56 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .and('be.visible')
             .click();
 
-        // 1. Waiting for the toast container to exist in DOM
-        cy.get('ol.fixed', { timeout: 15000})
-            .should('exist')
-                .then(() => {
-                    // 2. Targeting the specific toast with green border (success toast)
-                    cy.get('ol.fixed li.border-green-500', { timeout: 10000 })
-                        .should('be.visible')
-                            .then(($toast) => {
-                                // 3. Debugging: Loging the entire toast content
-                                cy.log('Toast Content: ', $toast.text());
 
-                                // 4. Extracting text from the notification
-                                const toastText = $toast.text().trim();
+        // --- Extracting PR-Number Suffix ---
+        let extractedPrNumber;
 
-                                // 5. Trying multiple patterns to extract PR number
-                                const patterns = [
-                                    /PR[-_ ]?\d+-?(\d{3,})/,
-                                    /#(\d+)/,
-                                    /ID[: ]*(\d+)/i,
-                                    /(\d{5,})/
-                                ];
+        cy.wait('@prCreationRequest', { timeout: 16000})
+            .then((interception) => {
+                expect(interception.response?.statusCode).to.equal(200, 'Expected PR Creation to Succeed');
 
-                                for ( const pattern of patterns ) {
-                                    const match = toastText.match(pattern);
-                                    if(match) {
-                                        prNumber = (match[1] || match[0]).replace(/^0+/, '');
-                                        break;
-                                    }
-                                }
+                // 1. Check if response body and data field exist  
+                if (interception.response?.body && interception.response.body.data && interception.response.body.data.name) {
+                    const fullPrName = interception.response.body.data.name;
+                    cy.log(`Full PR Name from API response: ${fullPrName}`);
+                    // cy.pause();
 
-                                if(!prNumber) {
-                                    // 6. If no match, taking screenshot and failing with helpful message
-                                    cy.screenshot('toast-notification-error');
-                                    throw new Error(`Could not extract PR number from toast. Content: "${toastText}"`);
-                                }
+                    // 2. Split the name string by hyphens
+                    const parts = fullPrName.split('-');
 
-                                // 7. Storing the extracted PR number
-                                cy.wrap(prNumber).as('prNumber');
-                                cy.log(`Successfully extracted PR Number: ${prNumber}`);
-                            });
-                });
+                    // 3. Get the last part (the suffix)
+                    if (parts.length >= 3) {
+                        const suffixWithZeros = parts[parts.length - 1];
+                        
+                        // 4. Removing leading zeros by converting to number and back to string
+                        extractedPrNumber = parseInt(suffixWithZeros, 10).toString();
+                        
+                        cy.log(`Extracted PR Number : ---> ${extractedPrNumber}`);
+                        // cy.pause();
 
-                // storing prNumber to access across all It Blocks
-                Cypress.env('prNumber', prNumber);
+                        // Storing in Cypress.env for other tests
+                        Cypress.env('prNumber', extractedPrNumber);
 
-                // 8. Usage logic for later use in test
-                cy.get('@prNumber')
-                    .then((prNumber) => {
-                        cy.log(`Using extracted PR Number: ${prNumber}`);
-                    });
+                    } else {
+                        cy.log('Could not extract PR Suffix: "name" field format is unexpected after splitting.');
+                        throw new Error('Failed to parse PR Suffix: Unexpected format of "name" field.');
+                    }
+                } else {
+                    cy.log('Could not extract PR Suffix: API response structure is unexpected (body, data, or name field missing).');
+                    console.error('Unexpected API response structure for PR creation:', interception.response?.body);
+                    throw new Error('Failed to extract PR Suffix: Unexpected API response structure.');
+                }
+            });
+
+        cy.then(() => {
+            const prNumber = Cypress.env('prNumber');
+            if (prNumber) {
+                cy.log(`Using extracted PR Suffix for further actions: ${prNumber}`);
+                // cy.pause();
+            } else {
+                cy.log('Cannot proceed as PR Suffix was not extracted.');
+            }
+        });
 
     });
 
@@ -252,41 +254,15 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
         const baseUrl = Cypress.config('baseUrl');
 
         // PR Number
-        Cypress.env('prNumber');
+        const prNumber = Cypress.env('prNumber');
+        cy.log(`PR Number for the Processing PR : ---> ${prNumber}`);
+        // cy.pause();
 
         // Ensuring the table is visible before proceeding
         cy.get('[data-cy="procurement-requests-data-table"]').should('exist');
 
         cy.get('[data-cy="procurement-requests-data-table"] tbody tr').should('have.length.at.least', 1);
-
-        // Find the row that contains the PR number, then click its link
-        // cy.get('[data-cy="procurement-requests-data-table"] tbody tr')
-        //     .each(($row) => {
-        //         cy.wrap($row)
-        //             .within(() => {
-        //                 cy.get('a[href^="/procurement-requests/PR-"]')
-        //                     .then(($link) => {
-        //                         const linkText = $link.text().trim();
-
-        //                         if (linkText === prNumber){
-        //                             const href = $link.attr('href');
-        //                             const expectedUrl = `${baseUrl}${decodeURIComponent(href)}`;
-
-        //                             cy.wrap($link).click();
-
-        //                             // Verifying after navigation
-        //                             cy.url()
-        //                                 .then((currentUrl) => {
-        //                                     const decodedCurrentUrl = decodeURIComponent(currentUrl);
-        //                                     expect(decodedCurrentUrl).to.include(expectedUrl);
-        //                                 });
-
-        //                                 // Stopping Further Iterations
-        //                                 return false;
-        //                         }
-        //                     });
-        //             });
-        //     });
+        
 
         // Finding the link containing the PR number and click it
         cy.contains('[data-cy="procurement-requests-data-table"] a', prNumber)
@@ -346,14 +322,17 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .and('not.have.class', 'border-primary')
             .and('have.class', 'bg-primary')
             .click();
+
             cy.contains('button', 'Confirm Approval')
                 .should('exist')
                 .and('be.visible')
                 // .click()
+
             cy.contains('button', 'Cancel')
                 .should('exist')
                 .and('be.visible')
                 .click();
+
             // cy.contains('PR Approved')
             //     .should('exist')
             //     .and('be.visible')
@@ -377,48 +356,26 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             cy.get('button').contains('X').should('be.visible');
             cy.contains('label', 'Select Product').should('be.visible');
         
-            // 1. Focus and type in the search input
-            // cy.get('#react-select-3-input')
-            cy.get('.css-art2ul-ValueContainer2')
-                .first()
-                .click(/** { force: true } **/)
+
+            // Selecting Product Using Updated Logic
+            const allowedChars = 'abcdeghiklmnoprstvxw';
+            const randomChar = allowedChars[Math.floor(Math.random() * allowedChars.length)]
+            cy.get('input').first().type(randomChar).type('{enter}');
+            // cy.pause();
         
-            // 2. Wait for options to appear and select first product
-            cy.get('div', { timeout: 10000 })
-                .should('have.length.gt', 0)
-                .then(($products) => {
-                    const productCount = $products.length;
-                    const randomIndex = Math.floor(Math.random() * productCount);
-                    const randomProduct = $products[randomIndex];
-                    const randomProductText = $products[randomIndex].textContent;
 
-                    cy.wrap(randomProduct).click({ force: true });
-                    Cypress.env('selectedProduct', randomProductText);
-
-                });
-
-            // Check if the dropdown is disabled 
-            cy.get('.react-select__control').then(($control) => {
-                if($control.hasClass('react-select__control--is-disabled')){
-                    cy.log('Dropdown is disabled - enable it first');
-                }
-            });
-
-            // Interaction with the dropdown
-            cy.get('#add-item-make-select').click({force: true});
-
-            // Wait for options to appear and select the first one
-            cy.get('.react-select__menu')
-                .find('.react-select__option')
-                .first()
-                .click();
+            // Updated Logic for Selecting the Make
+            cy.get('input').eq(1).type('t').type('{enter}');
+            // cy.pause();
 
 
+            // Entering the Quantity
             const randomQty = Math.floor(Math.random() * 6) + 1;
             
             cy.get('input[type="number"]')
                 .should('be.visible')
                 .type(String(randomQty));
+            // cy.pause();
         
             // Verify dependent fields are now enabled
             cy.get('#add-item-make-select').should('not.be.disabled');
@@ -551,6 +508,8 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
                 cy.contains('PR Approved')
                     .should('exist')
                     .and('be.visible')
+                
+                // cy.pause()
 
             // Logging in the PR Number which is Approved
             cy.log(`Successfully Approved the PR with PR Number as: ${prNumber}`);
@@ -585,7 +544,7 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
         const baseUrl = Cypress.config('baseUrl');
 
         // Get the PR number from Cypress environment or define directly
-        Cypress.env('prNumber');
+        const prNumber = Cypress.env('prNumber');
 
         // Ensuring the table is loaded and has at least one row
         cy.get('[data-cy="procurement-requests-data-table"]').should('exist');
@@ -676,9 +635,7 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .click();
         });
 
-        // // Confirming that two vendors are selected
-        // cy.get('.css-art2ul-ValueContainer2 div')
-        //     .should('have.length', 2);
+        
         
         // Validating Vendor Selection Cancel Button
         cy.get('[data-cy="vendor-selection-cancel-button"]')
@@ -694,7 +651,7 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
 
 
         // Filling Vendor Quotes --->
-        // Get all item rows
+        // Getting/Fetching all item rows
         cy.get('tbody tr')
             .then(($rows) => {
                 const itemCount = $rows.length;
@@ -703,7 +660,7 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
                 Cypress._.times(itemCount, (rowIndex) => {
                     cy.get('tbody tr').eq(rowIndex)
                         .then(($row) => {
-                            // Get vendor card count for this row
+                            // Targetting vendor card count for this row
                             const vendorCardCount = $row.find('[data-cy="vendor-quote-rate"]').length;
                             cy.log(`Processing item ${rowIndex + 1} with ${vendorCardCount} vendors`);
 
@@ -749,7 +706,6 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .scrollIntoView()
             .should('exist')
             .and('be.visible');
-            // .should('have.class', 'bg-red-100');
 
         cy.get('[data-cy="vendor-quotes-view-button"]')
             .scrollIntoView()
@@ -760,38 +716,6 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .should('exist')
             .and('be.visible')
             .click();
-
-        // Selecting Minimum Rates Cards
-        // cy.get('tbody tr').each(($row) => {
-        //     cy.wrap($row).within(() => {
-        //       const vendorCards = [];
-              
-        //       // Updated selector to match your actual DOM structure
-        //       cy.get('[role="radio"]').each(($card) => {
-        //         cy.wrap($card).within(() => {
-        //           // More precise selector based on your HTML structure
-        //           cy.get('div.flex.flex-col.gap-1:has(label:contains("Rate"))').within(() => {
-        //             cy.get('p').invoke('text').then((rateText) => {
-        //               const rate = parseFloat(rateText.replace(/[^0-9.]/g, ''));
-        //               vendorCards.push({ element: $card, rate });
-        //             });
-        //           });
-        //         });
-        //       }).then(() => {
-        //         if (vendorCards.length > 0) {
-        //           const minRateCard = vendorCards.reduce((min, card) => 
-        //             card.rate < min.rate ? card : min, vendorCards[0]);
-                  
-        //           cy.wrap(minRateCard.element).click();
-                  
-        //           // Verify selection - adjust this based on your actual selected state indicator
-        //           cy.wrap(minRateCard.element)
-        //             .find('.lucide-circle-check')
-        //             .should('be.visible');
-        //         }
-        //       });
-        //     });
-        //   });
 
         // Updated Code for selecting Minimum Rates
         cy.get('tbody tr').each(($row) => {
@@ -911,7 +835,7 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
         .should('be.visible')
         .and('contain.text', 'Purchase Orders')
 
-        // Step 2: Click the button to go to the Purchase Orders page
+        // Step 2: Clicking the button to go to the Purchase Orders page
         cy.get('[data-cy="purchase-orders-button"]')
             .click();
 
@@ -950,8 +874,8 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
         // Base URL
         const baseUrl = Cypress.config('baseUrl');
 
-        // Get the PR number from Cypress environment or define directly
-        Cypress.env('prNumber');
+        // Get the PR number from Cypress environment
+        const prNumber = Cypress.env('prNumber');
 
         // Ensuring the table is loaded and has at least one row
         cy.get('[data-cy="procurement-requests-data-table"]').should('exist');
@@ -986,13 +910,13 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .first()
             .click( /** { force: true } */);
 
-        // Wait for the items table to be visible
+        // Waiting for the items table to be visible
         cy.get('[data-cy="items-name-table"] table tbody tr')
             .should('have.length.greaterThan', 0);
 
 
          // Check all unchecked checkboxes inside the table
-            // First get all vendor sections and expand them if closed
+            // First getting all vendor sections and expand them if closed
             cy.get('[data-cy="vendor-name-property"]').each(($vendor) => {
                 // Check if the vendor section is closed
                 cy.wrap($vendor).then(($el) => {
@@ -1019,6 +943,13 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
                 });
                 });
             });
+
+        // --- Set up the intercept for the POST request ---
+        cy.log('--- Setting up intercept for generated pos ---');
+        cy.intercept(
+            'POST',
+            '**/api/method/nirmaan_stack.api.approve_vendor_quotes.generate_pos_from_selection'
+        ).as('generatePOsRequest');
         
 
         // Validaying Reject Button
@@ -1052,18 +983,57 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .should('exist')
             .and('be.visible')
             .click();
+
+        let generatedPoNumber;
+
+        cy.wait('@generatePOsRequest', { timeout: 20000 })
+            .then((interception) => {
+                expect(interception.response?.statusCode).to.equal(200, 'Expected PO generation to succeed');
+        
+                // 1. Checking if the response body and the nested 'message' object and 'po' field exist
+                if (interception.response?.body &&
+                        interception.response.body.message &&
+                        interception.response.body.message.po) {
+                    
+                        generatedPoNumber = interception.response.body.message.po;
+                        cy.log(`Extracted Generated PO Number: ${generatedPoNumber}`);
+                        cy.pause();
+                
+                        //Storing in Cypress.env for other tests
+                        Cypress.env('latestGeneratedPoNumber', generatedPoNumber);
+        
+                    } else {
+                        cy.log('Could not extract PO Number: API response structure is unexpected (body, message object, or po field missing).');
+                        console.error('Unexpected API response structure for PO generation:', interception.response?.body);
+                        throw new Error('Failed to extract PO Number: Unexpected API response structure.');
+                    }
+                });
+        
+            cy.then(() => {
+                const poToVerify = Cypress.env('latestGeneratedPoNumber');
+                if (poToVerify) {
+                    cy.log(`Using extracted PO Number for further actions: ${poToVerify}`);
+                    cy.pause();
+                } else {
+                    cy.log('Cannot proceed as PO Number was not extracted.');
+                }
+            });
    
     });
 
 
     it('Navigates to Approved PO tab and check for the approved PR', () => {
 
-        // Step 1: Validate the Purchase Orders button exists and is visible
+        const poNumber = Cypress.env('latestGeneratedPoNumber');
+        cy.log(`PO Number to find in the Table : -> ${poNumber}`);
+        cy.pause();
+
+        // Step 1: Validating the Purchase Orders button exists and is visible
         cy.get('[data-cy="purchase-orders-button"]')
         .should('be.visible')
         .and('contain.text', 'Purchase Orders')
 
-        // Step 2: Click the button to go to the Purchase Orders page
+        // Step 2: Clicking the button to go to the Purchase Orders page
         cy.get('[data-cy="purchase-orders-button"]')
             .click();
 
@@ -1079,7 +1049,7 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
             .click();
 
         // Data Table Presence
-            cy.get('[data-cy="procurement-requests-data-table"]')
+            cy.get('[data-cy="procurement-requests-data-table"]', { timeout: 10000 })
             .should('exist')
             .within(() => {
                 cy.get('thead')
@@ -1092,12 +1062,20 @@ describe('Add a procurement request to approve it --- End-to-End test flow', () 
                     .should('be.visible');
             });
 
+        
+        // --- Searching for the extracted PO Number in the table ---
+        cy.log(`Searching for PO: ${poNumber} in the table.`);
+        cy.get('[data-cy="procurement-requests-data-table"] tbody', { timeout: 15000 })
+            .contains('tr td:first-child a.font-medium', poNumber, { matchCase: false })
+            .should('be.visible')
+            .then(($link) => {
+                cy.log(`Found PO: ${$link.text().trim()} in the Approved POs table.`);
+                // Clicking the PO
+                cy.wrap($link).click();
+            });
+        
+        cy.log(`PO "${poNumber}" successfully found in the Approved POs table.`);
 
-        // ----------------------------------------------------------- //
-
-        /** Unable to Match the Value with the PR number as PR number is not present in The Approved PO Table */
-
-        // ----------------------------------------------------------- //
         
     });
 

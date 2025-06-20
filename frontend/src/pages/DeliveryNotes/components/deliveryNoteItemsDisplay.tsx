@@ -280,6 +280,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                   className="w-full"
                 />
                 <Button
+                  data-cy="delivery-notes-update-button"
                   onClick={() => setProceedDialog(true)}
                   disabled={!hasChanges}
                   className="gap-1"
@@ -296,7 +297,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                 </Button>
               </div>
             ) : (
-              <Button onClick={() => setShowEdit(true)} className="gap-1">
+              <Button data-cy="update-dn-edit-button" onClick={() => setShowEdit(true)} className="gap-1">
                 <Pencil className="h-4 w-4" />
                 Edit
               </Button>
@@ -373,8 +374,9 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
           <AlertDialogFooter>
             {uploadLoading || DnUpdateCallLoading ? <TailSpin color="red" width={40} height={40} /> : (
               <>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel data-cy="update-dn-cancel-button">Cancel</AlertDialogCancel>
               <Button 
+                data-cy="update-dn-confirm-update-button"
                 onClick={handleUpdateDeliveryNote}
                 disabled={DnUpdateCallLoading || uploadLoading || !deliveryDate}
               >
