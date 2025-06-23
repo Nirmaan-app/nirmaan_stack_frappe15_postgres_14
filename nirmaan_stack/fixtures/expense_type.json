@@ -1,0 +1,128 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Advertising & Marketing",
+  "modified": "2025-06-23 20:42:30.347237",
+  "name": "Advertising & Marketing"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Bank Interest",
+  "modified": "2025-06-23 20:42:45.431102",
+  "name": "Bank Interest"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Office Maintenance",
+  "modified": "2025-06-23 20:42:55.970975",
+  "name": "Office Maintenance"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Postage & Courier",
+  "modified": "2025-06-23 20:43:23.612692",
+  "name": "Postage & Courier"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Travel Expenses (Flight)",
+  "modified": "2025-06-23 20:43:53.620935",
+  "name": "Travel Expenses (Flight)"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Electricity Expenses",
+  "modified": "2025-06-23 20:44:18.983952",
+  "name": "Electricity Expenses"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Repair & Maintenance",
+  "modified": "2025-06-23 20:44:34.711493",
+  "name": "Repair & Maintenance"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Internet & Mobile Charges",
+  "modified": "2025-06-23 20:44:48.584868",
+  "name": "Internet & Mobile Charges"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "GST Payment",
+  "modified": "2025-06-23 20:44:58.150142",
+  "name": "GST Payment"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "TDS Payment",
+  "modified": "2025-06-23 20:45:06.280801",
+  "name": "TDS Payment"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Printing & Stationery",
+  "modified": "2025-06-23 20:45:33.296985",
+  "name": "Printing & Stationery"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Pooja Expenses",
+  "modified": "2025-06-23 20:45:45.331787",
+  "name": "Pooja Expenses"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Audit Fee",
+  "modified": "2025-06-23 20:45:52.296115",
+  "name": "Audit Fee"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Statutory Expenses",
+  "modified": "2025-06-23 20:46:06.786873",
+  "name": "Statutory Expenses"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Rent Expenses",
+  "modified": "2025-06-23 20:46:15.638641",
+  "name": "Rent Expenses"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Salaries & Employee Wages",
+  "modified": "2025-06-23 20:46:32.120799",
+  "name": "Salaries & Employee Wages"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Bank Fees & Charges",
+  "modified": "2025-06-23 16:09:12.362624",
+  "name": "Bank Fees & Charges"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Software Chagres",
+  "modified": "2025-06-23 16:09:26.895699",
+  "name": "Software Chagres"
+ }
+]
