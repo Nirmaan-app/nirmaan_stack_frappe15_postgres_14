@@ -76,10 +76,10 @@ export default function ProjectReports() {
 
         const dataToExport = projectsData.map(project => {
             const calculated = getProjectCalculatedFields(project.name);
-            const credit = (calculated && calculated.totalInvoiced != null && calculated.totalInflow != null)
-                ? parseNumber(calculated.totalInvoiced) - parseNumber(calculated.totalInflow)
-                : undefined;
-
+            // const credit = (calculated && calculated.totalInvoiced != null && calculated.totalInflow != null)
+            //     ? parseNumber(calculated.totalInvoiced) - parseNumber(calculated.totalInflow)
+            //     : undefined;
+            const credit = undefined;
             return {
                 // Spread base project properties you want to export
                 project_name: project.project_name,

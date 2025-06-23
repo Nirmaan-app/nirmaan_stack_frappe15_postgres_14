@@ -13,6 +13,7 @@ def execute():
     items_to_update = []
     current_time = now_datetime()
     six_months_ago = current_time - relativedelta(months=6)
+    one_month_old = current_time - relativedelta(months=1)
 
     # Fetch all item names
     all_item_names = [item.name for item in frappe.get_all("Items", fields=["name"])]
@@ -31,7 +32,11 @@ def execute():
         num_approved_quotations = len(approved_quotations)
 
         if num_approved_quotations == 0:
-            new_status = "Inactive"
+            if get_datetime(item_doc.creation) > one_month_old:
+                # If no approved quotations and item was created within the last month, consider it "Active"
+                new_status = "Active"
+            else:
+                new_status = "Inactive"
         elif num_approved_quotations == 1:
             aq = approved_quotations[0]
             if aq.procurement_order:

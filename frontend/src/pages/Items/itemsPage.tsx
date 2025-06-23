@@ -116,6 +116,16 @@ export default function ItemsPage() {
             }
         },
         {
+            accessorKey: "item_status",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            cell: ({ row }) => <div className="font-medium">{row.getValue("item_status") || "--"}</div>,
+            size: 120,
+            meta: {
+                exportHeaderName: "Status",
+                exportValue: (row: ItemsType) => row.item_status || "--"
+            }
+        },
+        {
             accessorKey: "creation",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
