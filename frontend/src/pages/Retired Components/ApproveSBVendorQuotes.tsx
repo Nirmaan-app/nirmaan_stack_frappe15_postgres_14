@@ -1,5 +1,5 @@
-import { ActionSummary } from '@/components/helpers/ActionSummary';
-import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/helpers/ApproveVendorQuotesPRorSBAntDTable';
+import { ActionSummary } from '@/pages/Retired Components/helpers/ActionSummary';
+import { ApproveVendorQuotesPRorSBAntDTable } from '@/pages/Retired Components/helpers/ApproveVendorQuotesPRorSBAntDTable';
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from "@/components/ui/button";

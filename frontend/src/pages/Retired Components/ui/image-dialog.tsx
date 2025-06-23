@@ -1,14 +1,14 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import ReactDOM from 'react-dom'
 import Cropper from 'react-easy-crop'
-import { Slider } from '@/components/ui/slider'
+import { Slider } from '@/pages/Retired Components/ui/slider'
 import { Button } from '@/components/ui/button'
 // import Typography from '@material-ui/core/Typography'
 import { getOrientation } from 'get-orientation/browser'
 // import ImgDialog from './ImgDialog'
-import { getCroppedImg, getRotatedImage } from "@/components/image/canvas-utils"
+import { getCroppedImg, getRotatedImage } from "@/pages/Retired Components/image/canvas-utils"
 import { Dialog, DialogClose, DialogContent, DialogOverlay, DialogTrigger } from '@radix-ui/react-dialog'
-import { DialogHeader } from './dialog'
+import { DialogHeader } from '../../../components/ui/dialog'
 
 const ORIENTATION_TO_ANGLE = {
     '3': 180,

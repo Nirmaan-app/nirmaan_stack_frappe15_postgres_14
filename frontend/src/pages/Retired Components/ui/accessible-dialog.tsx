@@ -1,6 +1,6 @@
 // Create a reusable accessible Dialog component
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { Dialog, DialogContent, DialogTitle } from "./dialog";
+import { Dialog, DialogContent, DialogTitle } from "../../../components/ui/dialog";
 
 export const AccessibleDialog = ({
   title,

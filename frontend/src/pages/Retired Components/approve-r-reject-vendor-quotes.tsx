@@ -1,4 +1,4 @@
-import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/helpers/ApproveVendorQuotesPRorSBAntDTable';
+import { ApproveVendorQuotesPRorSBAntDTable } from '@/pages/Retired Components/helpers/ApproveVendorQuotesPRorSBAntDTable';
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from 'react-loader-spinner';
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { ActionSummary } from '../../components/helpers/ActionSummary';
+import { ActionSummary } from './helpers/ActionSummary';
 import { RenderPRorSBComments } from '../../components/helpers/RenderPRorSBComments';
 import { SelectionState, VendorDataSourceItem, VendorItemDetails, VendorWiseData } from '../ProcurementRequests/ApproveVendorQuotes/types';
 import { VendorApprovalTable } from '../ProcurementRequests/ApproveVendorQuotes/components/VendorApprovalTable';

@@ -1,4 +1,4 @@
-import ImageCrop from "@/components/ui/image-dialog";
+import ImageCrop from "@/pages/Retired Components/ui/image-dialog";
 import { Button } from "@/components/ui/button";
 import { useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { useState } from "react";

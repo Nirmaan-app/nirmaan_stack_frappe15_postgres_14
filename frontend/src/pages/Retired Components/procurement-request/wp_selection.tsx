@@ -1,6 +1,6 @@
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useNavigate, useParams } from "react-router-dom";
-import { Card, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
 import imageUrl from "@/assets/user-icon.jpeg"
 
 export const WPSelection = () => {
