@@ -101,6 +101,12 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
     meta: { exportHeaderName: "Total PO+SR (incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
   },
   {
+    id: "totalProjectInvoiced", // Use ID for columns not directly on `Projects`
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Project Invoiced (incl. GST)" />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalProjectInvoiced" formatter={formatDisplayValueToLakhs} />,
+    meta: { exportHeaderName: "Total Project Invoiced (incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
+  },
+  {
     id: "totalInflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Inflow" />,
     cell: (props) => <CalculatedCell {...props} accessor="totalInflow" formatter={formatDisplayValueToLakhs} />,

@@ -7,9 +7,10 @@ import SITEURL from "@/constants/siteURL"
 import { getUrlStringParam } from "@/hooks/useServerDataTable"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
+import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice"
 import { formatDate } from "@/utils/FormatDate"
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice"
-import { getTotalInflowAmount } from "@/utils/getAmounts"
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
+import { getTotalInflowAmount, getTotalProjectInvoiceAmount } from "@/utils/getAmounts"
 import { urlStateManager } from "@/utils/urlStateManager"
 import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
@@ -18,6 +19,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from "reac
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
+const ProjectInvoices = React.lazy(() => import("../ProjectInvoices/ProjectInvoices"));
 
 interface ProjectFinancialsTabProps {
   projectData?: any
@@ -27,11 +29,11 @@ interface ProjectFinancialsTabProps {
     poAmount: number;
     srAmount: number;
     totalAmount: number;
-    }
-  totalPOAmountWithGST : number;
+  }
+  totalPOAmountWithGST: number;
   getAllSRsTotalWithGST: number;
 }
-export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST}) => {
+export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST }) => {
 
   const initialTab = useMemo(() => {
     return getUrlStringParam("fTab", "All Payments");
@@ -39,9 +41,9 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
 
   const [tab, setTab] = useState<string>(initialTab)
   const [inflowPaymentsDialog, setInflowPaymentsDialog] = useState(false)
-  
+
   const toggleInflowPaymentsDialog = useCallback(() => {
-      setInflowPaymentsDialog((prevState) => !prevState);
+    setInflowPaymentsDialog((prevState) => !prevState);
   }, []);
 
   // Effect to sync tab state TO URL
@@ -65,13 +67,21 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
-  const {data : projectInflows, isLoading: projectInflowsLoading} = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
+  const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
     fields: ["*"],
     filters: [["project", "=", projectData?.name]],
     limit: 1000
   })
 
   const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
+
+  const { data: projectInvoiceData, isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>("Project Invoices", {
+    fields: ["*"],
+    filters: [["project", "=", projectData?.name]],
+    limit: 1000
+  })
+
+  const totalProjectInvoiceAmount = useMemo(() => getTotalProjectInvoiceAmount(projectInvoiceData || []), [projectInvoiceData])
 
   const amountsSummaryItems = useMemo(() => [
     {
@@ -105,27 +115,36 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
       value: projectData?.project_value,
       style: ""
     },
-  ], [totalInflowAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value])
+    {
+      label: "Total Invoiced Value",
+      value: totalProjectInvoiceAmount,
+      style: ""
+    },
+  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value])
 
 
   const tabs = useMemo(() => [
-      {
-        label: "All Payments",
-        value: "All Payments"
-      },
-      {
-        label: "All Orders",
-        value: "All Orders"
-      },
-      {
-        label: "All Invoices",
-        value: "All Invoices"
-      },
-    ], [])
+    {
+      label: "All Payments",
+      value: "All Payments"
+    },
+    {
+      label: "All Orders",
+      value: "All Orders"
+    },
+    {
+      label: "All PO Invoices",
+      value: "All PO Invoices"
+    },
+    {
+      label: "Project Invoices",
+      value: "Project Invoices"
+    },
+  ], [])
 
   const onClick = useCallback(
-    (value : string) => {
-      if (value !== tab){
+    (value: string) => {
+      if (value !== tab) {
         setTab(value);
         // updateURL({ fTab: value });
       }
@@ -133,100 +152,100 @@ export const ProjectFinancialsTab : React.FC<ProjectFinancialsTabProps> = ({proj
     , [tab]);
 
   return (
-        <div className="flex-1 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-2xl">Summary</CardTitle>
-            </CardHeader>
-              <CardContent className="grid grid-cols-3 gap-6">
-                    {amountsSummaryItems.map((item) => (
-                      <div key={item.label} className="flex flex-col gap-2">
-                        <p className="text-gray-700 tracking-tight">
-                          {item.label}
-                        </p>
-                        <p onClick={item.onClick} className={`text-sm font-bold text-gray-900 ${item.style}`}>
-                          {formatToRoundedIndianRupee(item.value)}
-                        </p>
-                      </div>
-                    ))}
-              </CardContent>
-          </Card> 
+    <div className="flex-1 space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">Summary</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-3 gap-6">
+          {amountsSummaryItems.map((item) => (
+            <div key={item.label} className="flex flex-col gap-2">
+              <p className="text-gray-700 tracking-tight">
+                {item.label}
+              </p>
+              <p onClick={item.onClick} className={`text-sm font-bold text-gray-900 ${item.style}`}>
+                {formatToRoundedIndianRupee(item.value)}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
-            {tabs && (
-                  <Radio.Group
-                      options={tabs}
-                      defaultValue="All Payments"
-                      optionType="button"
-                      buttonStyle="solid"
-                      value={tab}
-                      onChange={(e) => onClick(e.target.value)}
-                  />
+      {tabs && (
+        <Radio.Group
+          options={tabs}
+          defaultValue="All Payments"
+          optionType="button"
+          buttonStyle="solid"
+          value={tab}
+          onChange={(e) => onClick(e.target.value)}
+        />
+      )}
+
+      <Suspense fallback={<LoadingFallback />}>
+        {tab === "All Payments" ? (
+          <AllPayments tab="Payments Done" projectId={projectData?.name} />
+        ) : tab === "All Orders" ? (
+
+          <ProjectPaymentsList projectId={projectData?.name} />
+        ) : tab === "All PO Invoices" ? (<ProjectWiseInvoices projectId={projectData?.name} />) : <ProjectInvoices projectId={projectData?.name} customerId={projectData?.customer} />}
+      </Suspense>
+
+      <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>
+        <DialogContent className="text-start max-h-[80vh] overflow-auto">
+          <DialogHeader className="text-start py-8 overflow-auto">
+            <DialogTitle>Inflow Payments</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Label className=" text-red-700">Customer:</Label>
+              <span className="text-xs">{projectCustomer?.company_name || "--"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className=" text-red-700">Total Inflow:</Label>
+              <span className="text-xs text-green-600">{formatToRoundedIndianRupee(totalInflowAmount)}</span>
+            </div>
+          </div>
+
+          <Table>
+            <TableHeader className="bg-gray-300">
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Payment Ref.</TableHead>
+                <TableHead>Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(projectInflows || []).length > 0 ? (
+                projectInflows?.map((payment) => {
+                  return (
+                    <TableRow key={payment?.name}>
+                      <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
+                      {payment?.inflow_attachment ? (
+                        <TableCell className="font-semibold text-blue-500 underline">
+                          <a href={`${SITEURL}${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
+                            {payment?.utr}
+                          </a>
+                        </TableCell>
+                      ) : (
+                        <TableCell className="font-semibold">{payment?.utr}</TableCell>
+                      )}
+                      <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
+                    </TableRow>
+                  )
+                })
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-center py-2">
+                    No Payments Found
+                  </TableCell>
+                </TableRow>
               )}
-
-                <Suspense fallback={<LoadingFallback />}>
-                  {tab === "All Payments" ? (
-                    <AllPayments tab="Payments Done" projectId={projectData?.name} />
-                  ) : tab === "All Orders" ? (
-                  
-                    <ProjectPaymentsList projectId={projectData?.name} />
-                  ) : <ProjectWiseInvoices projectId={projectData?.name} />}
-                </Suspense>
-
-                      <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>
-                              <DialogContent className="text-start max-h-[80vh] overflow-auto">
-                                  <DialogHeader className="text-start py-8 overflow-auto">
-                                    <DialogTitle>Inflow Payments</DialogTitle>
-                                  </DialogHeader>
-                                      <div className="flex items-center justify-between mb-4">
-                                          <div className="flex items-center gap-2">
-                                              <Label className=" text-red-700">Customer:</Label>
-                                              <span className="text-xs">{projectCustomer?.company_name || "--"}</span>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                              <Label className=" text-red-700">Total Inflow:</Label>
-                                              <span className="text-xs text-green-600">{formatToRoundedIndianRupee(totalInflowAmount)}</span>
-                                          </div>
-                                      </div>
-              
-                                      <Table>
-                                          <TableHeader className="bg-gray-300">
-                                              <TableRow>
-                                                  <TableHead>Date</TableHead>
-                                                  <TableHead>Payment Ref.</TableHead>
-                                                  <TableHead>Amount</TableHead>
-                                              </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                              {(projectInflows || []).length > 0 ? (
-                                                  projectInflows?.map((payment) => {
-                                                      return (
-                                                          <TableRow key={payment?.name}>
-                                                              <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
-                                                              {payment?.inflow_attachment ? (
-                                                                <TableCell className="font-semibold text-blue-500 underline">
-                                                                      <a href={`${SITEURL}${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
-                                                                          {payment?.utr}
-                                                                    </a>
-                                                              </TableCell>
-                                                              ) : (
-                                                                  <TableCell className="font-semibold">{payment?.utr}</TableCell>
-                                                              )}
-                                                              <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
-                                                          </TableRow>
-                                                      )
-                                                  })
-                                              ) : (
-                                                  <TableRow>
-                                                    <TableCell colSpan={3} className="text-center py-2">
-                                                      No Payments Found
-                                                    </TableCell>
-                                                  </TableRow>
-                                              )}
-                                          </TableBody>
-                                      </Table>
-                              </DialogContent>
-                    </Dialog>
-        </div>
+            </TableBody>
+          </Table>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
 

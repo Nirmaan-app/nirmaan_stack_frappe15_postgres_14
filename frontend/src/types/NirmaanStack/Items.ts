@@ -1,5 +1,5 @@
 
-export interface Items{
+export interface Items {
 	name: string
 	creation: string
 	modified: string
@@ -22,4 +22,5 @@ export interface Items{
 	image_url?: string
 	/**	Category : Link - Category	*/
 	category: string
+	item_status?: "Active" | "Inactive"
 }

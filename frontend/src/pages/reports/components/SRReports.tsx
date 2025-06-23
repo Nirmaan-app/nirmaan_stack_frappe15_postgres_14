@@ -19,7 +19,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport } from "@/utils/FormatPrice";
 
 interface SelectOption { label: string; value: string; }
 
@@ -128,9 +128,9 @@ export default function SRReports() {
             creation: formatDate(row.creation),
             project_name: row.projectName || row.project,
             vendor_name: row.vendorName || row.vendor,
-            total_sr_amt: formatToRoundedIndianRupee(row.totalAmount),
-            total_invoice_amt: formatToRoundedIndianRupee(row.invoiceAmount),
-            amt_paid: formatToRoundedIndianRupee(row.amountPaid),
+            total_sr_amt: formatForReport(row.totalAmount),
+            total_invoice_amt: formatForReport(row.invoiceAmount),
+            amt_paid: formatForReport(row.amountPaid),
             status: row.originalDoc.status,
         }));
 

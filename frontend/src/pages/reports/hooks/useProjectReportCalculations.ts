@@ -15,12 +15,15 @@ import {
     getPOForProjectInvoiceOptions,
     getSRForProjectInvoiceOptions,
     getInflowReportListOptions,
+    getProjectInvoiceReportListOptions,
     getPaidPaymentReportListOptions,
 } from '@/config/queryKeys';
+import { ProjectInvoice } from '@/types/NirmaanStack/ProjectInvoice';
 
 // Define the structure for the calculated fields
 export interface ProjectCalculatedFields {
     totalInvoiced: number;
+    totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
     // You can add more calculated fields here if needed, e.g., totalCredit
@@ -35,6 +38,7 @@ export interface UseProjectReportCalculationsResult {
     mutatePOs: () => Promise<any>;
     mutateSRs: () => Promise<any>;
     mutateInflows: () => Promise<any>;
+    mutateProjectInvoice: () => Promise<any>;
     mutatePayments: () => Promise<any>;
 }
 
@@ -43,11 +47,13 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
     const poOptions = getPOForProjectInvoiceOptions();
     const srOptions = getSRForProjectInvoiceOptions();
     const inflowOptions = getInflowReportListOptions();
+    const projectInvoiceOptions = getProjectInvoiceReportListOptions(); // Not used here, but can be useful for other calculations
     const paymentOptions = getPaidPaymentReportListOptions();
 
     const poQueryKey = queryKeys.procurementOrders.list(poOptions);
     const srQueryKey = queryKeys.serviceRequests.list(srOptions);
     const inflowQueryKey = queryKeys.projectInflows.list(inflowOptions);
+    const projectInvoiceQueryKey = queryKeys.projectInvoices.list(projectInvoiceOptions);
     const paymentQueryKey = queryKeys.projectPayments.list(paymentOptions);
 
     const { data: purchaseOrders, isLoading: isLoadingPOs, error: errorPOs, mutate: mutatePOs } =
@@ -58,6 +64,9 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
 
     const { data: inflowsData, isLoading: isLoadingInflows, error: errorInflows, mutate: mutateInflows } =
         useFrappeGetDocList<ProjectInflows>(inflowQueryKey[0], inflowOptions as GetDocListArgs<FrappeDoc<ProjectInflows>>, inflowQueryKey);
+
+    const { data: projectInvoiceData, isLoading: isLoadingProjectInvoice, error: errorProjectInvoice, mutate: mutateProjectInvoice } =
+        useFrappeGetDocList<ProjectInvoice>(projectInvoiceQueryKey[0], projectInvoiceOptions as GetDocListArgs<FrappeDoc<ProjectInvoice>>, projectInvoiceQueryKey);
 
     const { data: paymentsData, isLoading: isLoadingPayments, error: errorPayments, mutate: mutatePayments } =
         useFrappeGetDocList<ProjectPayments>(paymentQueryKey[0], paymentOptions as GetDocListArgs<FrappeDoc<ProjectPayments>>, paymentQueryKey);
@@ -90,6 +99,15 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         }, new Map<string, number>()) ?? new Map();
     }, [inflowsData]);
 
+    const totalProjectInvoiceByProject = useMemo(() => {
+        return projectInvoiceData?.reduce((acc, inv) => {
+            if (inv.project) {
+                acc.set(inv.project, (acc.get(inv.project) || 0) + parseNumber(inv.amount));
+            }
+            return acc;
+        }, new Map<string, number>()) ?? new Map();
+    }, [projectInvoiceData]);
+
     const totalOutflowByProject = useMemo(() => {
         return paymentsData?.reduce((acc, payment) => {
             if (payment.project) {
@@ -104,7 +122,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         memoize((projectId: string): ProjectCalculatedFields | null => {
             // Important: If any of the dependent global data is still loading,
             // we cannot reliably calculate. The component using this should check `isLoadingGlobalDeps`.
-            if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingPayments) {
+            if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments) {
                 return null; // Indicate that data isn't ready for this calculation
             }
 
@@ -121,25 +139,27 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
             });
 
             const totalInflow = totalInflowByProject.get(projectId) || 0;
+            const totalProjectInvoiced = totalProjectInvoiceByProject.get(projectId) || 0;
             const totalOutflow = totalOutflowByProject.get(projectId) || 0;
 
             return {
                 totalInvoiced: parseNumber(totalInvoiced),
+                totalProjectInvoiced: parseNumber(totalProjectInvoiced),
                 totalInflow: parseNumber(totalInflow),
                 totalOutflow: parseNumber(totalOutflow),
             };
         }),
         [ // Dependencies for useCallback: these ensure `memoize` uses the latest maps if they change
-            posByProject, srsByProject, totalInflowByProject, totalOutflowByProject,
+            posByProject, srsByProject, totalInflowByProject, totalProjectInvoiceByProject, totalOutflowByProject,
             // Also include loading states, so if they flip, the memoized function is "new"
             // and lodash.memoize's cache for specific projectIds might be cleared if its internal
             // function reference changes.
-            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingPayments
+            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments
         ]
     );
 
-    const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingPayments;
-    const globalDepsError = errorPOs || errorSRs || errorInflows || errorPayments;
+    const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments;
+    const globalDepsError = errorPOs || errorSRs || errorInflows || errorProjectInvoice || errorPayments;
 
     return {
         getProjectCalculatedFields,
@@ -148,6 +168,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         mutatePOs,
         mutateSRs,
         mutateInflows,
+        mutateProjectInvoice,
         mutatePayments,
     };
 };
@@ -160,6 +181,7 @@ export interface ProcessedProject extends Projects {
     // They are dynamically fetched/calculated by the cell renderers.
     // For typing purposes in cells or if you enrich data for export, they can be optional.
     totalInvoiced?: number;
+    totalProjectInvoiced?: number;
     totalInflow?: number;
     totalOutflow?: number;
     totalCredit?: number; // For credit outstanding

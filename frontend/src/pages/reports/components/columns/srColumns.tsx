@@ -1,6 +1,6 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { SRReportRowData } from "../../hooks/useSRReportsData";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
 import { Info } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -62,7 +62,7 @@ export const srColumns: ColumnDef<SRReportRowData>[] = [
         header: ({ column }) => <DataTableColumnHeader column={column} title="Total SR Amt" />, // Corrected title
         cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.totalAmount)}</div>,
         meta: {
-            exportValue: (row: SRReportRowData) => formatToRoundedIndianRupee(row.totalAmount),
+            exportValue: (row: SRReportRowData) => formatForReport(row.totalAmount),
             exportHeaderName: "Total SR Amt", isNumeric: true // Corrected title
         }
     },
@@ -71,7 +71,7 @@ export const srColumns: ColumnDef<SRReportRowData>[] = [
         header: ({ column }) => <DataTableColumnHeader column={column} title="Total Invoice Amt" />,
         cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.invoiceAmount)}</div>,
         meta: {
-            exportValue: (row: SRReportRowData) => formatToRoundedIndianRupee(row.invoiceAmount),
+            exportValue: (row: SRReportRowData) => formatForReport(row.invoiceAmount),
             exportHeaderName: "Total Invoice Amt", isNumeric: true
         }
     },
@@ -80,7 +80,7 @@ export const srColumns: ColumnDef<SRReportRowData>[] = [
         header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
         cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.amountPaid)}</div>,
         meta: {
-            exportValue: (row: SRReportRowData) => formatToRoundedIndianRupee(row.amountPaid),
+            exportValue: (row: SRReportRowData) => formatForReport(row.amountPaid),
             exportHeaderName: "Amt Paid", isNumeric: true
         }
     },

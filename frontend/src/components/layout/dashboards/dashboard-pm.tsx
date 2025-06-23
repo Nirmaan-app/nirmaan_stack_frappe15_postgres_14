@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
+import { CircleDollarSign, ClipboardMinus, HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 function DashboardCard({ title, icon, onClick, className, beta = false }: any) {
@@ -54,10 +54,22 @@ export const ProjectManager = () => {
             onClick={() => navigate("/prs&milestones/man-power-report")}
             className="bg-red-600"
           />
-           <DashboardCard
+          <DashboardCard
             title="Service Requests"
             icon={<HandPlatter className="h-8 w-8 text-white" />}
             onClick={() => navigate("/service-requests-list")}
+            className="bg-red-600"
+          />
+          <DashboardCard
+            title="Project Payments"
+            icon={<CircleDollarSign className="h-8 w-8 text-white" />}
+            onClick={() => navigate("/project-payments")}
+            className="bg-red-600"
+          />
+          <DashboardCard
+            title="PO Dispatch Report"
+            icon={<ClipboardMinus className="h-8 w-8 text-white" />}
+            onClick={() => navigate("/reports")}
             className="bg-red-600"
           />
         </div>

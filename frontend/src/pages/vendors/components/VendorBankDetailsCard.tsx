@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { FilePenLine } from "lucide-react";
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { EditBankDetailsDialog } from './EditBankDetailsDialog';
+import { useUserData } from '@/hooks/useUserData';
 
 interface VendorBankDetailsCardProps {
     vendor?: Vendors;
@@ -11,6 +12,7 @@ interface VendorBankDetailsCardProps {
 }
 
 export const VendorBankDetailsCard: React.FC<VendorBankDetailsCardProps> = ({ vendor, mutateVendor }) => {
+    const { role } = useUserData();
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
     if (!vendor) return null;
@@ -21,9 +23,11 @@ export const VendorBankDetailsCard: React.FC<VendorBankDetailsCardProps> = ({ ve
                 <CardHeader>
                     <CardTitle className="text-primary flex items-center justify-between">
                         Account Details
-                        <Button variant="outline" size="sm" onClick={() => setIsDialogOpen(true)} className="flex items-center gap-1 border-primary text-primary hover:bg-primary/5">
-                            Edit <FilePenLine className="w-3.5 h-3.5" />
-                        </Button>
+                        {role !== "Nirmaan Project Manager Profile" &&
+                            <Button variant="outline" size="sm" onClick={() => setIsDialogOpen(true)} className="flex items-center gap-1 border-primary text-primary hover:bg-primary/5">
+                                Edit <FilePenLine className="w-3.5 h-3.5" />
+                            </Button>
+                        }
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">

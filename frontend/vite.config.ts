@@ -11,9 +11,10 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       // injectRegister: 'auto',
-      // workbox: {
-      // 	sourcemap: true
-      // }
+      workbox: {
+        // 	sourcemap: true
+        maximumFileSizeToCacheInBytes: 5000000, // 5MB
+      },
     }),
   ],
   // optimizeDeps: {

@@ -28,6 +28,7 @@ import { toast } from "@/components/ui/use-toast";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import SITEURL from "@/constants/siteURL";
 import { usePOValidation } from "@/hooks/usePOValidation";
+import { useUserData } from "@/hooks/useUserData";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -61,6 +62,8 @@ interface TransactionDetailsCardProps {
 export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   accountsPage, estimatesViewing, summaryPage, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate
 }) => {
+
+  const { role } = useUserData();
 
   const { errors, isValid } = usePOValidation(PO);
   const { upload: upload, loading: uploadLoading } = useFrappeFileUpload();
@@ -203,7 +206,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
             </>
           )}
 
-          {accountsPage && (
+          {accountsPage && ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) && (
             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
               <AlertDialogTrigger
                 onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
@@ -356,14 +359,14 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     <TableCell>{payment?.status}</TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
-                      <Button
+                        <Button
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"
-                          onClick={() => setDeleteFlagged(payment)} 
-                      >
+                          onClick={() => setDeleteFlagged(payment)}
+                        >
                           <Trash2 className="h-4 w-4" />
-                      </Button>
+                        </Button>
                       }
                       <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={payment} onDeleteSuccess={() => poPaymentsMutate()} />
                     </TableCell>

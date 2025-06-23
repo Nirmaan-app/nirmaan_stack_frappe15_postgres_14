@@ -16,6 +16,7 @@ import { EditVendor } from "./edit-vendor";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useUserData } from "@/hooks/useUserData";
 
 const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
 const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
@@ -27,6 +28,8 @@ const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-reque
 type MenuItem = Required<MenuProps>["items"][number];
 
 export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
+
+    const { role } = useUserData()
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
@@ -46,7 +49,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             urlStateManager.updateParam("tab", currentTab);
         }
     }, [currentTab]);
-    
+
     // Effect to sync URL state TO tab state (for popstate/direct URL load)
     useEffect(() => {
         const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
@@ -68,7 +71,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     );
     const projectOptions = useMemo(() =>
         projects?.map(p => ({ label: p.project_name, value: p.name })) || [],
-    [projects]);
+        [projects]);
 
     const { data: procurementRequests } = useFrappeGetDocList<ProcurementRequest>(
         "Procurement Requests", { fields: ["name", "work_package"], limit: 0 } // Fetch only what's needed by tables
@@ -81,9 +84,9 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const menuItems: MenuItem[] = useMemo(() => [
         { label: "Overview", key: "overview" },
         (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
-            { label: "Material Orders", key: "materialOrders" },
+        { label: "Material Orders", key: "materialOrders" },
         (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
-            { label: "Service Orders", key: "serviceOrders" },
+        { label: "Service Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
         { label: "Approved Quotes", key: "approvedQuotes" },
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
@@ -111,21 +114,21 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                 );
             case "materialOrders":
                 return <VendorMaterialOrdersTable
-                            vendorId={vendorId}
-                            projectOptions={projectOptions}
-                            procurementRequests={procurementRequests}
-                        />;
+                    vendorId={vendorId}
+                    projectOptions={projectOptions}
+                    procurementRequests={procurementRequests}
+                />;
             case "serviceOrders":
                 return <ApprovedSRList for_vendor={vendorId} />; // Use your existing component
             case "vendorPayments":
                 return <VendorPaymentsTable
-                            vendorId={vendorId}
-                            projectOptions={projectOptions}
-                        />;
+                    vendorId={vendorId}
+                    projectOptions={projectOptions}
+                />;
             case "approvedQuotes":
                 return <VendorApprovedQuotesTable
-                            vendorId={vendorId} 
-                        />;
+                    vendorId={vendorId}
+                />;
             default:
                 return <div>Select a tab.</div>;
         }
@@ -138,20 +141,22 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                 <h2 className="text-2xl md:text-3xl font-bold tracking-tight ml-4">
                     {vendor?.vendor_name || "Vendor Details"}
                 </h2>
-                <Button variant="ghost" size="icon" onClick={toggleEditSheet} aria-label="Edit Vendor Details">
-                    <FilePenLine className="h-5 w-5 text-blue-500 hover:text-blue-700" />
-                </Button>
+                {role !== "Nirmaan Project Manager Profile" &&
+                    (<Button variant="ghost" size="icon" onClick={toggleEditSheet} aria-label="Edit Vendor Details">
+                        <FilePenLine className="h-5 w-5 text-blue-500 hover:text-blue-700" />
+                    </Button>)
+                }
             </div>
 
             <ConfigProvider
                 theme={{
-                  components: {
-                    Menu: {
-                      horizontalItemSelectedColor: "#D03B45",
-                      itemSelectedBg: "#FFD3CC",
-                      itemSelectedColor: "#D03B45",
+                    components: {
+                        Menu: {
+                            horizontalItemSelectedColor: "#D03B45",
+                            itemSelectedBg: "#FFD3CC",
+                            itemSelectedColor: "#D03B45",
+                        },
                     },
-                  },
                 }}
             >
                 <Menu selectedKeys={[currentTab]} onClick={handleMenuClick} mode="horizontal" items={menuItems} />
@@ -174,9 +179,9 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
 // Main export for the page
 const VendorPage = () => {
-  const { vendorId } = useParams<{ vendorId: string }>();
-  if (!vendorId) return <div className="p-6 text-center text-destructive">Vendor ID is missing.</div>;
-  return <VendorView vendorId={vendorId} />;
+    const { vendorId } = useParams<{ vendorId: string }>();
+    if (!vendorId) return <div className="p-6 text-center text-destructive">Vendor ID is missing.</div>;
+    return <VendorView vendorId={vendorId} />;
 };
 export const Component = VendorPage; // For file-based routing
 export default VendorPage; // Default export

@@ -13,6 +13,7 @@ export const ITEM_LIST_FIELDS_TO_FETCH: (keyof ItemsType | 'name')[] = [
     'make_name',
     'category',
     'creation',
+    'item_status'
 ];
 
 export const ITEM_SEARCHABLE_FIELDS: SearchFieldOption[] = [

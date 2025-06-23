@@ -211,6 +211,11 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ]
     },
+     "Project Invoice": {
+        "on_submit": "nirmaan_stack.doctype.project_invoices.project_invoices.on_submit",
+        "on_cancel": "nirmaan_stack.doctype.project_invoices.project_invoices.on_cancel",
+        "on_trash": "nirmaan_stack.doctype.project_invoices.project_invoices.on_trash",
+    }
 }
 
 # Scheduled Tasks
@@ -331,6 +336,7 @@ fixtures = [
     "Workflow Action Master",
     "Portal Menu Item",
     "Print Format",
+    "Expense Type",
     # "Pincodes"
 ]
 
