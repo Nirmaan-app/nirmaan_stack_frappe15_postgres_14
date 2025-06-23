@@ -110,7 +110,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
         fetchFields: PROJECT_INVOICE_FIELDS_TO_FETCH,
         searchableFields: PROJECT_INVOICE_SEARCHABLE_FIELDS,
         urlSyncKey: `project_invoices_${projectId || 'all'}`,
-        defaultSort: 'creation desc',
+        defaultSort: 'invoice_date desc',
     });
       
     // =================================================================================
@@ -119,7 +119,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     const isLoadingOverall = isDataLoading || isProjectsLoading;
 
     return (
-        <div className="flex-1 space-y-4 p-4 md:p-6">
+        <div className="flex-1 space-y-4">
             {(isLoadingOverall && !projectInvoicesData?.length) ? (
                 <TableSkeleton />
             ) : (

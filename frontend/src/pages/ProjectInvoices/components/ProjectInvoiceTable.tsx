@@ -29,6 +29,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { Projects } from '@/types/NirmaanStack/Projects';
 
 // Define the shape of a single invoice item
 interface InvoiceItem {
@@ -38,6 +39,7 @@ interface InvoiceItem {
   creation: string;
   attachment?: string;
   project?: string;
+  invoice_date: string;
 }
 
 interface ProjectInvoiceTableProps {
@@ -104,7 +106,7 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
             <TableRow>
               <TableHead className="text-center text-gray-700 font-semibold">Invoice No.</TableHead>
               <TableHead className="text-center text-gray-700 font-semibold">Amount(Incl. GST)</TableHead>
-              <TableHead className="text-center text-gray-700 font-semibold">Date</TableHead>
+              <TableHead className="text-center text-gray-700 font-semibold">Invoice Date</TableHead>
               <TableHead className="text-center text-gray-700 font-semibold">Project</TableHead>
               {isAdmin && <TableHead className="text-center text-gray-700 font-semibold">Actions</TableHead>}
             </TableRow>
@@ -149,7 +151,7 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
                       {formatToRoundedIndianRupee(parseFloat(item.amount) || 0)}
                     </TableCell>
                     <TableCell className="text-center">
-                      {formatDate(new Date(item.creation), "dd-MM-yyyy")}
+                      {formatDate(new Date(item.invoice_date), "dd-MM-yyyy")}
                     </TableCell>
                     <TableCell className="text-center">
                       {projectName}

@@ -2,6 +2,9 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
+import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
+import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
+
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -43,6 +46,8 @@ interface PaymentListParams extends ListParams { }
 interface InflowListParams extends ListParams { }
 interface ProjectInvoiceParams extends ListParams { }
 interface CustomerListParams extends ListParams { }
+interface ExpenseTypeListParams extends ListParams { }
+interface NonProjectExpenseListParams extends ListParams { }
 
 
 // --- Define Fields Constants (Good Practice) ---
@@ -56,6 +61,15 @@ const PROJECT_MINIMAL_FIELDS: (keyof Projects)[] = ['name', 'project_name'];
 const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name']; // Assuming this type/field exists
 
 const CUSTOMER_MINIMAL_FIELDS: (keyof Customers)[] = ['name', 'company_name'];
+
+const EXPENSE_TYPE_MINIMAL_FIELDS: (keyof ExpenseType)[] = ['name', 'expense_name'];
+const NON_PROJECT_EXPENSE_DEFAULT_FIELDS: (keyof NonProjectExpenses | `type.${string}`)[] = [
+  "name", "creation", "modified", "owner",
+  "type",
+  "description", "amount",
+  "payment_date", "payment_ref", "payment_attachment",
+  "invoice_date", "invoice_ref", "invoice_attachment",
+];
 
 // Main query key generator object
 export const queryKeys = {
@@ -146,6 +160,12 @@ export const queryKeys = {
     list: (params?: ProjectInvoiceParams) => ['Project Invoices', 'list', params ?? {}] as const,
     // Add doc if needed later
   },
+  expenseTypes: {
+    list: (params?: ExpenseTypeListParams) => ['Expense Type', 'list', params ?? {}] as const,
+  },
+  nonProjectExpenses: {
+    list: (params?: NonProjectExpenseListParams) => ['Non Project Expenses', 'list', params ?? {}] as const,
+  },
   doc: (doctype: string, docId: string) => [doctype, 'get', docId] as const,
   docList: (doctype: string) => [doctype, 'list'] as const,
 
@@ -231,6 +251,18 @@ export const getPaidPaymentReportListOptions = (): PaymentListParams => ({
   // Filter specifically for 'Paid' status for accurate outflow calculation
   filters: [['status', '=', 'Paid']],
   limit: 100000,
+});
+
+export const getExpenseTypeListOptions = (): ExpenseTypeListParams => ({
+  fields: EXPENSE_TYPE_MINIMAL_FIELDS,
+  limit: 100000, // Default to a high limit for dropdowns
+  orderBy: { field: "expense_name", order: "asc" }, // Default sort by name
+});
+
+export const getNonProjectExpenseListOptions = (): NonProjectExpenseListParams => ({
+  fields: NON_PROJECT_EXPENSE_DEFAULT_FIELDS,
+  limit: 100000, // Default limit for a table, adjust as needed for pagination
+  orderBy: { field: "creation", order: "desc" }, // Default sort
 });
 
 

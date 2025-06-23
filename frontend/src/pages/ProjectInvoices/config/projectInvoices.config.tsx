@@ -15,7 +15,7 @@ import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 export const DOCTYPE = "Project Invoices";
 
 export const PROJECT_INVOICE_FIELDS_TO_FETCH = [
-    "name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by",
+    "name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date"
 ];
 
 export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -81,11 +81,11 @@ export const getProjectInvoiceColumns = (
             meta: { exportHeaderName: "Amount", exportValue: (row: ProjectInvoice) => row.amount, isNumeric: true }
         },
         {
-            accessorKey: "creation",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
-            cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
+            accessorKey: "invoice_date",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
+            cell: ({ row }) => <div>{formatDate(row.original.invoice_date)}</div>,
             filterFn: dateFilterFn,
-            meta: { exportHeaderName: "Date", exportValue: (row: ProjectInvoice) => formatDate(row.creation) },
+            meta: { exportHeaderName: "Date", exportValue: (row: ProjectInvoice) => formatDate(row.invoice_date) },
         },
         {
             accessorKey: "owner",

@@ -52,9 +52,9 @@ export const RenderRightActionButton = ({
 }: RenderActionButtonProps) => {
 
   const navigate = useNavigate();
-  const {role, user_id} = useUserData()
+  const { role, user_id } = useUserData()
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];
@@ -72,31 +72,31 @@ export const RenderRightActionButton = ({
     return (
       ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button className="sm:mr-4 mr-2">
-            <CirclePlus className="w-5 h-5 pr-1" />
-            Add New PR
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="mr-16">
-          <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
-            Normal
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-custom-pr`)}>
-            Custom
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button className="sm:mr-4 mr-2">
+              <CirclePlus className="w-5 h-5 pr-1" />
+              Add New PR
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="mr-16">
+            <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
+              Normal
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-custom-pr`)}>
+              Custom
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : (
         <Button
-        className="sm:mr-4 mr-2"
-        onClick={() =>
-          navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)
-        }
-      >
-        <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">New PR</span>
-      </Button>)
+          className="sm:mr-4 mr-2"
+          onClick={() =>
+            navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)
+          }
+        >
+          <CirclePlus className="w-5 h-5 pr-1" />
+          Add <span className="hidden md:flex pl-1">New PR</span>
+        </Button>)
     );
   } else if (locationPath === "/service-requests-list" && selectedProject && role != "Nirmaan Project Manager Profile") {
     return (
@@ -126,10 +126,17 @@ export const RenderRightActionButton = ({
     return (
       <Button onClick={toggleNewProjectInvoiceDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">PROJECT INVOICE</span>
+        Add <span className="hidden md:flex pl-1">New Project Invoice</span>
       </Button>
     );
-  }else if (
+  } else if (locationPath === "/non-project") {
+    return (
+      <Button onClick={toggleNewNonProjectExpenseDialog} className="sm:mr-4 mr-2">
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">New Expense</span>
+      </Button>
+    );
+  } else if (
     locationPath === "/" &&
     ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role)
   ) {

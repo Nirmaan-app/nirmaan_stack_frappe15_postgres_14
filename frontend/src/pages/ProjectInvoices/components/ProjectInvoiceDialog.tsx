@@ -189,7 +189,7 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
                         {/* Date Field */}
                         <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-3 sm:items-center sm:gap-4">
                             <Label htmlFor="invoice_date" className="sm:text-left">
-                                Date<sup className="text-red-500 ml-1">*</sup>:
+                                Invoice Date<sup className="text-red-500 ml-1">*</sup>:
                             </Label>
                             <Input
                                 id="invoice_date"

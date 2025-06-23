@@ -50,7 +50,7 @@ import Users from "@/pages/users/users";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import Vendors from "@/pages/vendors/VendorsPage";
 //---New Vendors-AQ2 Page
-import VendorsAQ2  from "@/pages/vendors-wp-categories/vendors-aq2";
+import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
@@ -60,6 +60,7 @@ import ReportsContainer from "@/pages/reports/ReportsContainer";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
+import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -168,7 +169,7 @@ export const appRoutes: RouteObject[] = [
               {
                 path: ":srId",
                 children: [
-                  { index: true, lazy: () => import("@/pages/ServiceRequests/service-request/sr-summary")},
+                  { index: true, lazy: () => import("@/pages/ServiceRequests/service-request/sr-summary") },
                   { path: "order-view", element: <ApprovedSR summaryPage={true} /> },
                   { path: "resolve-sr", element: <SelectServiceVendor /> },
                 ],
@@ -264,7 +265,7 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <ReportsContainer /> },
             ],
           },
-           // --- Project Invoices Section ---
+          // --- Project Invoices Section ---
 
           {
             path: "project-invoices",
@@ -272,7 +273,12 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <AllProjectInvocies /> },
             ],
           },
-          
+          {
+            path: "non-project",
+            children: [
+              { index: true, element: <NonProjectExpensesPage /> },
+            ],
+          },
           // --- Project Payments ---
           {
             path: "project-payments",
@@ -324,7 +330,7 @@ export const appRoutes: RouteObject[] = [
               },
             ],
           },
-            // --- Vendors AQ2 Section ---
+          // --- Vendors AQ2 Section ---
           {
             path: "vendors-aq2",
             children: [
