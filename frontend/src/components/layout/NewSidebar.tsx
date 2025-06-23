@@ -20,7 +20,8 @@ import {
   CircleDollarSign,
   ClipboardMinus,
   HandCoins,
-  ReceiptText, FileUp
+  ReceiptText, FileUp,
+  Banknote,
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -394,7 +395,7 @@ export function NewSidebar() {
       ? [
         {
           key: '/non-project',
-          icon: FileUp,
+          icon: Banknote,
           label: 'Non Project Expenses',
         },
       ]
