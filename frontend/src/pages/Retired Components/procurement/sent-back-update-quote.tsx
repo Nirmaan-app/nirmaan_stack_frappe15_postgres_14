@@ -1,5 +1,9 @@
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from "@/components/ui/button";
+import {
+    Card,
+    CardContent,
+    CardHeader
+} from "@/components/ui/card";
 import {
     HoverCard,
     HoverCardContent,
@@ -17,33 +21,26 @@ import { NewVendor } from "@/pages/vendors/new-vendor";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import { ColumnDef } from "@tanstack/react-table";
-import {
-    useFrappeCreateDoc,
-    useFrappeDeleteDoc,
-    useFrappeGetDocList,
-    useFrappeUpdateDoc,
-    useSWRConfig,
-} from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import {
     CirclePlus,
     Download,
     ListChecks,
     PencilLine,
-    Trash,
-    Undo2
+    Trash
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { DataTable } from "../data-table/data-table";
+import { DataTable } from "../../../components/data-table/data-table";
 import { AddVendorCategories } from "../forms/addvendorcategories";
-import { ProcurementHeaderCard } from "../helpers/ProcurementHeaderCard";
+import { ProcurementHeaderCard } from "../../../components/helpers/ProcurementHeaderCard";
 import {
     Accordion,
     AccordionContent,
     AccordionItem,
     AccordionTrigger,
-} from "../ui/accordion";
+} from "../../../components/ui/accordion";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -53,17 +50,26 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
     AlertDialogTrigger,
-} from "../ui/alert-dialog";
-import { Badge } from "../ui/badge";
-import { Card, CardContent, CardHeader } from "../ui/card";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
-import { useToast } from "../ui/use-toast";
-import QuotationForm from "./quotation-form";
+} from "../../../components/ui/alert-dialog";
+import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../../../components/ui/dialog";
+import { useToast } from "../../../components/ui/use-toast";
 import { PrintRFQ } from "./rfq-pdf";
+import SentBackQuotationForm from "./sent-back-quotation-form";
 
-export const UpdateQuote = () => {
-  const { prId: orderId } = useParams<{ prId: string }>();
+export const SentBackUpdateQuote = () => {
+  const { sbId: id } = useParams<{ sbId: string }>();
   const navigate = useNavigate();
+
+  const {
+    data: category_data,
+    isLoading: category_loading,
+  } = useFrappeGetDocList("Category", {
+    fields: ["*"],
+    filters: [["work_package", "!=", "Services"]],
+    limit: 10000,
+  });
 
   const {
     data: vendor_list,
@@ -80,13 +86,6 @@ export const UpdateQuote = () => {
   );
 
   const {
-    data: procurement_request_list,
-    isLoading: procurement_request_list_loading,
-  } = useFrappeGetDocList("Procurement Requests", {
-    fields: ["*"],
-    limit: 100000,
-  });
-  const {
     data: quotation_request_list,
     isLoading: quotation_request_list_loading,
     mutate: quotation_request_list_mutate,
@@ -94,38 +93,33 @@ export const UpdateQuote = () => {
     "Quotation Requests",
     {
       fields: ["*"],
-      filters: [["procurement_task", "=", orderId]],
-      limit: 1000,
+      limit: 100000,
     },
-    `Quotations Requests,Procurement_task=${orderId}`
+    "Quotation Requests"
   );
 
-  // console.log("quotations requests", quotation_request_list)
-
   const {
-    data: category_data,
-    isLoading: category_loading,
-  } = useFrappeGetDocList("Category", {
+    data: sent_back_list,
+    isLoading: sent_back_list_loading,
+  } = useFrappeGetDocList("Sent Back Category", {
     fields: ["*"],
-    filters: [["work_package", "!=", "Services"]],
-    limit: 10000,
+    limit: 1000,
   });
 
-  const { updateDoc: updateDoc, error: update_error } = useFrappeUpdateDoc();
-  const { createDoc } = useFrappeCreateDoc();
-
-  const { deleteDoc, loading: delete_loading } = useFrappeDeleteDoc()
+  const [categoryOptions, setCategoryOptions] = useState<
+    { label: string; value: string }[]
+  >([]); // State for dynamic category options
 
   const getVendorName = (vendorName: string) => {
     return vendor_list?.find((vendor) => vendor.name === vendorName)
       ?.vendor_name;
   };
-  const [categoryOptions, setCategoryOptions] = useState<
-    { label: string; value: string }[]
-  >([]);
 
   const [uniqueVendors, setUniqueVendors] = useState({
     list: [],
+  });
+  const [orderData, setOrderData] = useState({
+    project: "",
   });
 
   const [deleteVendor, setDeleteVendor] = useState(null);
@@ -136,52 +130,73 @@ export const UpdateQuote = () => {
     setDeleteDialog((prevState) => !prevState);
   };
 
-  const checkItemQuoteStatus = (vendor_id) => {
-    if (!quotation_request_list || quotation_request_list.length === 0) {
-      return "Not filled";
-    }
+  const { createDoc } = useFrappeCreateDoc();
 
-    const filteredQuotes = quotation_request_list.filter(
-      (quote) => quote.vendor === vendor_id
-    );
+  const { deleteDoc, loading: delete_loading } = useFrappeDeleteDoc()
 
-    if (filteredQuotes.length === 0) {
-      return "Not filled";
-    }
-
-    const allFilled = filteredQuotes.every(
-      (quote) => ![null, "", "0"].includes(quote.quote)
-    );
-    const noneFilled = filteredQuotes.every((quote) =>
-      [null, "", "0"].includes(quote.quote)
-    );
-
-    if (noneFilled) {
-      return "Not filled";
-    } else if (allFilled) {
-      return "All Filled";
-    } else {
-      return "Partially Filled";
-    }
-  };
-
-  const [orderData, setOrderData] = useState({
-    project: "",
-    work_package: "",
-    procurement_list: {
-      list: [],
-    },
-    category_list: {
-      list: [],
-    },
-  });
-  if (!orderData.project) {
-    procurement_request_list?.map((item) => {
-      if (item.name === orderId) {
+  useEffect(() => {
+    sent_back_list?.map((item) => {
+      if (item.name === id) {
         setOrderData(item);
       }
     });
-  }
+  }, [sent_back_list]);
+
+  useEffect(() => {
+    if (category_data) {
+      const currOptions = category_data.map((item) => ({
+        value: item.name,
+        label:
+          item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")",
+      }));
+      setCategoryOptions(currOptions);
+    }
+  }, [category_data]);
+
+  // console.log("uniqueVendors", uniqueVendors)
+
+  // console.log("orderData", orderData)
+
+  useEffect(() => {
+    if (orderData.project) {
+      const vendors = [];
+      // vendor_list?.map((item) => (item.vendor_category.categories)[0] === (orderData.category_list.list)[0].name && vendors.push(item.name))
+      quotation_request_list?.map((item) => {
+        const isPresent = orderData.category_list.list.find(
+          (cat) => cat.name === item.category
+        );
+        const isSameItem = orderData.item_list.list.find(
+          (i) => i.name === item.item
+        );
+        if (
+          orderData.procurement_request === item.procurement_task &&
+          isPresent &&
+          isSameItem
+        ) {
+          const value = item.vendor;
+          vendors.push(value);
+        }
+      });
+      const removeDuplicates = (array) => {
+        return Array.from(new Set(array));
+      };
+      const uniqueList = removeDuplicates(vendors);
+      setUniqueVendors({
+        list: uniqueList,
+      });
+    }
+  }, [quotation_request_list, orderData, vendor_list]);
+
+  const handleUpdateQuote = () => {
+    // if (location.pathname.includes("cancelled-sb")) {
+    //   navigate(`/cancelled-sb/${id}/update-quote/choose-vendor`);
+    // } else if (location.pathname.includes("rejected-sb")) {
+    //   navigate(`/rejected-sb/${id}/update-quote/choose-vendor`);
+    // } else {
+    //   navigate(`/delayed-sb/${id}/update-quote/choose-vendor`);
+    // }
+    navigate("choose-vendor")
+  };
 
   const isButtonDisabled = useCallback(
     (vencat) => {
@@ -194,7 +209,6 @@ export const UpdateQuote = () => {
   );
 
   const { toast } = useToast();
-  const { mutate } = useSWRConfig();
 
   const handleAddVendor = async (vendor_name) => {
     const vendorId = vendor_list?.find(
@@ -202,15 +216,15 @@ export const UpdateQuote = () => {
     ).name;
     try {
       const promises = [];
-      orderData?.procurement_list?.list.forEach((item) => {
+      orderData?.item_list?.list.forEach((item) => {
         const makes = orderData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
         const newItem = {
-          procurement_task: orderData.name,
+          procurement_task: orderData.procurement_request,
           category: item.category,
           item: item.name,
           vendor: vendorId,
           quantity: item.quantity,
-          makes: { list: makes || [] }
+          makes: {list : makes || []}
         };
         promises.push(createDoc("Quotation Requests", newItem));
       });
@@ -218,11 +232,11 @@ export const UpdateQuote = () => {
       await Promise.all(promises);
 
       // Mutate the vendor-related data
-      await mutate("Vendors");
-      await mutate("Quotation Requests");
-      await mutate("Vendor Category");
-      await vendor_list_mutate();
-      await quotation_request_list_mutate();
+      // await mutate("Vendors");
+      // await mutate("Quotation Requests");
+      // await mutate("Vendor Category");
+      vendor_list_mutate();
+      quotation_request_list_mutate();
 
       toast({
         title: "Success!",
@@ -236,41 +250,11 @@ export const UpdateQuote = () => {
         variant: "destructive",
       });
       console.error(
-        "There was an error while adding the vendor in update-quote",
+        "There was an error while adding the vendor in sent-back-update-quote",
         error
       );
     }
   };
-
-  useEffect(() => {
-    if (category_data) {
-      const currOptions = category_data.map((item) => ({
-        value: item.name,
-        label:
-          item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")",
-      }));
-      setCategoryOptions(currOptions);
-    }
-  }, [category_data]);
-
-  useEffect(() => {
-    const vendors = [];
-    quotation_request_list?.map((item) => {
-      const value = item.vendor;
-      vendors.push(value);
-    });
-    const removeDuplicates = (array) => {
-      return Array.from(new Set(array));
-    };
-    const uniqueList = removeDuplicates(vendors);
-
-    setUniqueVendors({
-      list: uniqueList,
-    });
-
-  }, [quotation_request_list]);
-
-  // console.log("orderData", orderData)
 
   const getVendorAddr = (name) => {
     if (vendor_list) {
@@ -278,7 +262,7 @@ export const UpdateQuote = () => {
       return { city: vendor?.vendor_city, state: vendor?.vendor_state };
     }
   };
-
+  // console.log("orderData", orderData)
   const columns: ColumnDef<ProjectsType>[] = useMemo(
     () => [
       {
@@ -299,29 +283,24 @@ export const UpdateQuote = () => {
                       variant={"outline"}
                       className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start"
                     >
-                      <div className="w-[250px] text-wrap flex flex-col">
+                      <div className="w-[300px] text-wrap flex flex-col">
                         <span className="text-red-500 font-semibold">
                           {vendor_name}
                         </span>
-                        <span>Add to PR</span>
+                        <span>Add to Sent Back</span>
                       </div>
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>
-                        Add Vendor to the current PR
+                        Add Vendor to the current Sent Back
                       </AlertDialogTitle>
                       <AlertDialogFooter>
-                        <AlertDialogCancel className="flex items-center gap-1">
-                          <Undo2 className="h-4 w-4" />
-                          Cancel
-                        </AlertDialogCancel>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
                           onClick={() => handleAddVendor(vendor_name)}
-                          className="flex items-center gap-1"
                         >
-                          <CirclePlus className="h-4 w-4" />
                           Add
                         </AlertDialogAction>
                       </AlertDialogFooter>
@@ -337,11 +316,11 @@ export const UpdateQuote = () => {
                       variant={"outline"}
                       className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start"
                     >
-                      <div className="w-[250px] text-wrap flex flex-col">
+                      <div className="w-[300px] text-wrap flex flex-col">
                         <span className="text-red-500 font-semibold">
                           {row.getValue("vendor_name")}
                         </span>{" "}
-                        <span>Add to PR</span>
+                        <span>Add to Sent Back</span>
                       </div>
                     </Button>
                   </HoverCardTrigger>
@@ -349,7 +328,7 @@ export const UpdateQuote = () => {
                     <div>
                       Please add{" "}
                       <span className="font-semibold underline">
-                        All Associated Categories of Current PR
+                        All Associated Categories of Current Sent Back
                       </span>{" "}
                       to this vendor to enable
                     </div>
@@ -432,23 +411,10 @@ export const UpdateQuote = () => {
     [orderData, isButtonDisabled, vendor_list, uniqueVendors]
   );
 
-  const handleUpdateQuote = () => {
-    updateDoc("Procurement Requests", orderId, {
-      workflow_state: "Quote Updated",
-    })
-      .then(() => {
-        console.log("orderId", orderId);
-        navigate(`/procurement-requests/${orderId}?tab=Choose Vendor`);
-      })
-      .catch(() => {
-        console.log("submit_error", update_error);
-      });
-  };
-
   const handleDeleteVendor = async () => {
     try {
 
-      const filteredVendorQuotes = quotation_request_list?.filter(i => i?.vendor === deleteVendor)
+      const filteredVendorQuotes = quotation_request_list?.filter(i => i?.vendor === deleteVendor && i?.procurement_task === orderData?.procurement_request)
 
       filteredVendorQuotes?.forEach(async (item) => {
         await deleteDoc("Quotation Requests", item.name);
@@ -480,14 +446,18 @@ export const UpdateQuote = () => {
     }
   }
 
+  // console.log("universalComments", universalComments)
+
+  // console.log("orderData", orderData)
+
   const filteredVendorList = vendor_list?.filter(
     (ven) => !uniqueVendors?.list?.includes(ven.name)
   );
 
   if (
-    procurement_request_list_loading ||
-    category_loading ||
     quotation_request_list_loading ||
+    sent_back_list_loading ||
+    category_loading ||
     vendor_list_loading
   )
     return (
@@ -499,13 +469,11 @@ export const UpdateQuote = () => {
   return (
     <>
       <div className="flex-1 space-y-4">
-        <div className="flex items-center">
-          {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-          <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
-            Input Quotes
-          </h2>
-        </div>
-        <ProcurementHeaderCard orderData={orderData} />
+        {/* <div className="flex items-center">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Add Vendors/Update Quote</h2>
+                    </div> */}
+        <ProcurementHeaderCard orderData={orderData} sentBack />
         <div className="flex justify-between">
           <div className="p-2 sm:pl-7 font-light underline text-red-700">
             Selected Vendor List
@@ -528,7 +496,7 @@ export const UpdateQuote = () => {
                       <DialogHeader>
                         <DialogTitle>Are you sure?</DialogTitle>
                       </DialogHeader>
-                        <DialogDescription>Click on Confirm to delete vendor: <strong>{getVendorName(deleteVendor)}</strong> from this PR!</DialogDescription>
+                        <DialogDescription>Click on Confirm to delete vendor: <strong>{getVendorName(deleteVendor)}</strong> from this SB!</DialogDescription>
                         <div className="flex items-center justify-end gap-2">
                           {delete_loading ? <TailSpin color="red" height={40} width={40} /> : (
                             <>
@@ -547,7 +515,7 @@ export const UpdateQuote = () => {
               </div>
               <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
                 <Sheet>
-                  <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 py-2 rounded-lg">
+                  <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">
                     <div className="flex">
                       <Download className="h-5 w-5 mt-0.5 mr-1" />
                       RFQ PDF
@@ -556,46 +524,24 @@ export const UpdateQuote = () => {
                   <SheetContent className="overflow-auto">
                     {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
                     <SheetHeader>
-                      <SheetTitle className="text-center">
-                        Print PDF
-                      </SheetTitle>
+                      <SheetTitle className="text-center">Print PDF</SheetTitle>
                       <SheetDescription>
                         <PrintRFQ
                           vendor_id={item}
-                          pr_id={orderData.name}
-                          itemList={orderData?.procurement_list || []}
+                          pr_id={orderData?.procurement_request}
+                          itemList={orderData?.item_list || []}
                         />
                       </SheetDescription>
                     </SheetHeader>
                     {/* </ScrollArea> */}
                   </SheetContent>
                 </Sheet>
-                {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
                 <Sheet>
-                  <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-2 py-2 rounded-lg flex items-center gap-1">
-                    <span className="hover:underline">Enter Price(s) </span>
-                    <HoverCard>
-                      <HoverCardTrigger>
-                        <div
-                          className={`w-2 h-2 ${checkItemQuoteStatus(item) === "All Filled"
-                              ? "bg-green-500"
-                              : checkItemQuoteStatus(item) === "Not filled"
-                                ? "bg-red-500"
-                                : "bg-yellow-500"
-                            }  rounded-full`}
-                        />
-                      </HoverCardTrigger>
-                      <HoverCardContent className="mr-14 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                        {checkItemQuoteStatus(item) === "All Filled"
-                          ? "All items(s) quotes are filled"
-                          : checkItemQuoteStatus(item) === "Not filled"
-                            ? "No item quote is filled"
-                            : "Partially Filled"}
-                      </HoverCardContent>
-                    </HoverCard>
+                  <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">
+                    Enter Price(s)
                   </SheetTrigger>
                   <SheetContent className="overflow-auto">
-                    {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */}
+                    {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
                     <SheetHeader className="text-start">
                       <div className="flex items-center gap-1">
                         <SheetTitle className="text-xl">
@@ -605,9 +551,10 @@ export const UpdateQuote = () => {
                       </div>
                       <SheetDescription className="py-2">
                         {/* <Card className="p-5"> */}
-                        <QuotationForm
+                        <SentBackQuotationForm
                           vendor_id={item}
-                          pr_id={orderData.name}
+                          pr_id={orderData.procurement_request}
+                          sb_id={id}
                         />
                         {/* </Card> */}
                       </SheetDescription>
@@ -619,15 +566,11 @@ export const UpdateQuote = () => {
             </div>
           );
         })}
-        <div className="font-light text-sm text-slate-500 max-sm:px-2 px-8 py-6">
-          <span className="text-red-700">Notes:</span> You can download RFQ
-          PDFs for individual vendors for getting quotes
-        </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mt-6">
           <Sheet>
             <SheetTrigger className="text-blue-500">
-              <div className="sm:pl-8 pl-2">
-                <CirclePlus className="w-4 h-4 inline mr-1 mb-1" />
+              <div className="flex items-center gap-1 ml-4">
+                <CirclePlus className="w-4 h-4" />
                 Add New Vendor
               </div>
             </SheetTrigger>
@@ -641,22 +584,23 @@ export const UpdateQuote = () => {
                     </span>
                     <p className="text-xs">
                       {" "}
-                      - This will add a new vendor entry within the system.
-                      Only add new vendors here.
+                      - This will add a new vendor entry within the system. Only
+                      add new vendors here.
                     </p>
                     <p className="text-xs">
                       {" "}
-                      - This form will automatically add vendors categories
-                      from this PR/SB to the vendor.
+                      - This form will automatically add vendors categories from
+                      this PR/SB to the vendor.
                     </p>
                   </div>
+                  {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}
                   <NewVendor
                     dynamicCategories={
                       orderData?.category_list?.list?.map(
                         (item) => item.name
                       ) || []
                     }
-                    prData={orderData}
+                    sentBackData={orderData}
                     renderCategorySelection={false}
                     navigation={false}
                   />
@@ -672,28 +616,25 @@ export const UpdateQuote = () => {
             Update Quote
           </Button>
         </div>
-        <Accordion type="multiple" defaultValue={["Vendors"]}>
+        <Accordion type="multiple">
           <AccordionItem value="Vendors">
             <AccordionTrigger>
-              <div className="md:mb-2 text-base md:text-lg px-2  w-full text-left">
-                <div className="flex-1">
-                  <span className=" text-base mb-0.5 md:text-lg font-slim">
-                    Recently Added Vendors List
-                  </span>
-                  <div className="text-sm text-gray-400">
-                    Here you can add previosuly added vendors to this PR. You
-                    can also update a previously added vendor`s{" "}
-                    <span className="text-red-700 italic">category</span>{" "}
-                  </div>
-                </div>
-              </div>
+              <Button
+                variant="ghost"
+                size="lg"
+                className="md:mb-2 text-base md:text-lg px-2  w-full justify-start"
+              >
+                <span className=" text-base mb-0.5 md:text-lg font-slim">
+                  Add Existing Vendors
+                </span>
+              </Button>
             </AccordionTrigger>
             <AccordionContent>
               <Card className="max-md:p-0">
                 <CardHeader className="max-md:p-0">
                   <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
                     <span className="font-light max-md:text-sm">
-                      PR Categories:{" "}
+                      Sent Back Categories:{" "}
                     </span>
                     {orderData?.category_list?.list.map((cat) => (
                       <Badge>{cat.name}</Badge>

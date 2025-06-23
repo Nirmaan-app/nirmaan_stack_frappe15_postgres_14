@@ -50,7 +50,7 @@ import { useState, useEffect, useContext } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useUserData } from "@/hooks/useUserData";
-import { NavBar } from "../nav/nav-bar";
+import { NavBar } from "../../../components/nav/nav-bar";
 
 const RoleSelector = ({ selectedValue, setSelectedValue }) => {
     const userData = useUserData();

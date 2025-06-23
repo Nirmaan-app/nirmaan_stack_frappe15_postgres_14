@@ -7,8 +7,8 @@ import { CircleChevronDown, CircleChevronLeft, FolderUp, MessageCircleMore, Prin
 import * as pdfjsLib from 'pdfjs-dist';
 import { useEffect, useRef, useState } from "react";
 import { useReactToPrint } from 'react-to-print';
-import { Separator } from "../ui/separator";
-import { Switch } from "../ui/switch";
+import { Separator } from "../../../components/ui/separator";
+import { Switch } from "../../../components/ui/switch";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 

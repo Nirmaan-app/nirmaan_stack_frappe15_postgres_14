@@ -1,5 +1,5 @@
 import React from 'react'
-import { Input } from '../ui/input'
+import { Input } from '../../../components/ui/input'
 
 type Props = {
     value: string | number

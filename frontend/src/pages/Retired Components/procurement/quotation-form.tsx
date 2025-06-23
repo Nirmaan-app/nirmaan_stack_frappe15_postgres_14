@@ -7,13 +7,13 @@ import { ListChecks, MessageCircleMore, Paperclip } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import ReactSelect, { components } from 'react-select';
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
-import { Label } from "../ui/label";
-import { toast } from "../ui/use-toast";
+import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
+import { Label } from "../../../components/ui/label";
+import { toast } from "../../../components/ui/use-toast";
 
 interface Category {
   name: string;

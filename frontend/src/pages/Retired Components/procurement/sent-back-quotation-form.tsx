@@ -1,19 +1,19 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import {
     SheetClose
 } from "@/components/ui/sheet"
-import { Button } from "../ui/button";
+import { Button } from "../../../components/ui/button";
 import { ListChecks, MessageCircleMore, Paperclip } from "lucide-react";
-import { toast } from "../ui/use-toast";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { toast } from "../../../components/ui/use-toast";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../../components/ui/hover-card";
 import { TailSpin } from "react-loader-spinner";
-import { Label } from "../ui/label";
+import { Label } from "../../../components/ui/label";
 import ReactSelect, {components} from 'react-select';
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Badge } from "../ui/badge";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
+import { Badge } from "../../../components/ui/badge";
 
 interface Category {
     name: string;

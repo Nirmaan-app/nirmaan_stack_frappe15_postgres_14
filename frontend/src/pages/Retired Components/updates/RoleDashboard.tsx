@@ -61,7 +61,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { RocketIcon } from "@radix-ui/react-icons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Sidebar } from "../sidebar-nav";
+import { Sidebar } from "../../../components/sidebar-nav";
 
 const RoleDashboard = ({ selectedValue }) => {
     const { logout } = useContext(UserContext);
