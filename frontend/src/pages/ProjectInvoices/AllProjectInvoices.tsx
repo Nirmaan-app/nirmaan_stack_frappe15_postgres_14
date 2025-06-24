@@ -25,10 +25,13 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { toast } from "@/components/ui/use-toast";
 import { DataTable } from "@/components/data-table/new-data-table";
-import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { ProjectInvoiceDialog } from "./components/ProjectInvoiceDialog";
+import { NewProjectInvoiceDialog } from "./components/NewProjectInvoiceDialog"; // Import the renamed/refactored create dialog
+import { EditProjectInvoiceDialog } from "./components/EditProjectInvoiceDialog"; // Import the new edit dialog
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit dialog state
+import { Button } from "@/components/ui/button"; // For Add New button
+import { PlusCircle } from "lucide-react"; // For Add New button icon
 
 interface SelectOption { label: string; value: string; }
 
@@ -39,12 +42,21 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     // =================================================================================
     const { role } = useUserData();
     const isAdmin = role === "Nirmaan Admin Profile";
+
+    const { 
+        toggleNewProjectInvoiceDialog, 
+        setEditProjectInvoiceDialog // Get the setter for edit dialog
+    } = useDialogStore();
+
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [invoiceToDelete, setInvoiceToDelete] = useState<ProjectInvoice | null>(null);
+    // --- (Indicator) NEW: State for invoice to edit ---
+    const [invoiceToEdit, setInvoiceToEdit] = useState<ProjectInvoice | null>(null);
 
     // =================================================================================
     // 2. DATA FETCHING (LOOKUPS & MAIN DATA)
     // =================================================================================
+    
     const projectsFetchOptions = getProjectListOptions();
     const { data: projects, isLoading: isProjectsLoading } = useFrappeGetDocList<Projects>(
         "Projects", 
@@ -67,6 +79,12 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
         setIsDeleteDialogOpen(true);
     }, []);
 
+    // --- (Indicator) NEW: Handler to open edit dialog ---
+    const handleOpenEditDialog = useCallback((invoice: ProjectInvoice) => {
+        setInvoiceToEdit(invoice);
+        setEditProjectInvoiceDialog(true); // Open dialog via Zustand store
+    }, [setEditProjectInvoiceDialog]);
+
     const confirmDelete = async () => {
         if (!invoiceToDelete) return;
         try {
@@ -86,8 +104,9 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
             isAdmin,
             getProjectName,
             onDelete: handleOpenDeleteDialog,
+            onEdit: handleOpenEditDialog, // --- (Indicator) Pass onEdit handler ---
         }),
-        [isAdmin, getProjectName, handleOpenDeleteDialog]
+        [isAdmin, getProjectName, handleOpenDeleteDialog, handleOpenEditDialog] // Add handleOpenEditDialog to dependencies
     );
 
     const facetOptionsConfig = useMemo(() => ({
@@ -143,7 +162,24 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
                 />
             )}
             
-            <ProjectInvoiceDialog listMutate={refetch} ProjectId={projectId} />
+            {/* Render New Project Invoice Dialog */}
+            <NewProjectInvoiceDialog 
+                listMutate={refetch} 
+                ProjectId={projectId}
+                // onClose can be added if needed by NewProjectInvoiceDialog, but not strictly necessary for this split
+            />
+
+            {/* Render Edit Project Invoice Dialog conditionally */}
+            {invoiceToEdit && (
+                <EditProjectInvoiceDialog
+                    invoiceToEdit={invoiceToEdit}
+                    listMutate={refetch}
+                    onClose={() => {
+                        setInvoiceToEdit(null); 
+                        // setEditProjectInvoiceDialog(false); // Dialog store handles its own closing via its onOpenChange
+                    }}
+                />
+            )}
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent>

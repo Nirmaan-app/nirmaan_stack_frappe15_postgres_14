@@ -2,13 +2,17 @@
 
 import React, { useMemo, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Download, Edit2, FileText, PlusCircle, MoreHorizontal } from "lucide-react";
+import { Download, Edit2, FileText, PlusCircle, MoreHorizontal, Trash2, DollarSign } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+import { useFrappeDeleteDoc } from "frappe-react-sdk"; // For delete
+import { useToast } from "@/components/ui/use-toast"; // For delete feedback
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table'; // Assuming DataTable is correctly imported
@@ -17,6 +21,10 @@ import { Button } from "@/components/ui/button";
 import { TableSkeleton } from "@/components/ui/skeleton"; // Assuming this exists
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert"; // Assuming this exists
 import SITEURL from "@/constants/siteURL";
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from "@/components/ui/alert-dialog"; // For delete confirmation
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable'; // Your hook
@@ -36,8 +44,10 @@ import {
 
 // --- Child Components ---
 import { NewNonProjectExpense } from "./components/NewNonProjectExpense";
+import { EditNonProjectExpense } from "./components/EditNonProjectExpense"; // NEW
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
+import { useUserData } from "@/hooks/useUserData";
 
 const DOCTYPE = 'Non Project Expenses';
 
@@ -46,13 +56,24 @@ interface NonProjectExpensesPageProps {
 }
 
 export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ urlContext = "npe_default" }) => {
-    const { toggleNewNonProjectExpenseDialog } = useDialogStore();
+    const {
+        toggleNewNonProjectExpenseDialog,
+        setEditNonProjectExpenseDialog, // NEW
+        deleteConfirmationDialog,       // NEW
+        setDeleteConfirmationDialog     // NEW
+    } = useDialogStore();
+    const { toast } = useToast();
+    const { role } = useUserData();
+    const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // For delete operation
+
     const urlSyncKey = useMemo(() => `npe_${urlContext}`, [urlContext]);
 
     // State for update dialogs (define these first as handlers depend on them)
     const [isPaymentUpdateDialogOpen, setIsPaymentUpdateDialogOpen] = useState(false);
     const [isInvoiceUpdateDialogOpen, setIsInvoiceUpdateDialogOpen] = useState(false);
     const [selectedExpenseForUpdate, setSelectedExpenseForUpdate] = useState<NonProjectExpensesType | null>(null);
+    const [selectedExpenseForEdit, setSelectedExpenseForEdit] = useState<NonProjectExpensesType | null>(null); // NEW
+    const [expenseToDelete, setExpenseToDelete] = useState<NonProjectExpensesType | null>(null); // NEW for delete context
 
     // Define handlers (these are dependencies for `columnsDefinition`)
     const handleOpenPaymentUpdateDialog = useCallback((expense: NonProjectExpensesType) => {
@@ -64,6 +85,30 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         setSelectedExpenseForUpdate(expense);
         setIsInvoiceUpdateDialogOpen(true);
     }, []);
+
+    const handleOpenEditDialog = useCallback((expense: NonProjectExpensesType) => { // NEW
+        setSelectedExpenseForEdit(expense);
+        setEditNonProjectExpenseDialog(true);
+    }, [setEditNonProjectExpenseDialog]);
+
+    const handleOpenDeleteConfirmation = useCallback((expense: NonProjectExpensesType) => { // NEW
+        setExpenseToDelete(expense);
+        setDeleteConfirmationDialog(true);
+    }, [setDeleteConfirmationDialog]);
+
+    const confirmDeleteExpense = async () => { // NEW
+        if (!expenseToDelete) return;
+        try {
+            await deleteDoc(DOCTYPE, expenseToDelete.name);
+            toast({ title: "Success", description: `Expense "${expenseToDelete.name}" deleted successfully.`, variant: "success" });
+            refetch(); // Refetch table data
+        } catch (error: any) {
+            toast({ title: "Error", description: error.message || "Failed to delete expense.", variant: "destructive" });
+        } finally {
+            setExpenseToDelete(null);
+            setDeleteConfirmationDialog(false);
+        }
+    };
 
     // Now define columns, using the handlers
     // This `columnsDefinition` will be passed to both useServerDataTable and DataTable
@@ -122,7 +167,6 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             header: "Attachments",
             cell: ({ row }) => {
                 const data = row.original;
-                console.log("data", SITEURL + data.payment_attachment);
                 return (
                     <div className="flex items-center space-x-2">
                         {row.original.payment_attachment && (
@@ -151,7 +195,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             cell: ({ row }) => {
                 const expense = row.original;
                 return (
-                    <div>
+                    <div> {/* Ensure parent div is also text-right */}
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" className="h-8 w-8 p-0">
@@ -160,12 +204,26 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                                {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
+                                    <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
+                                </DropdownMenuItem>}
                                 <DropdownMenuItem onClick={() => handleOpenPaymentUpdateDialog(expense)}>
-                                    <Edit2 className="mr-2 h-4 w-4" /> Update Payment
+                                    <DollarSign className="mr-2 h-4 w-4" /> Update Payment
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => handleOpenInvoiceUpdateDialog(expense)}>
                                     <FileText className="mr-2 h-4 w-4" /> Update Invoice
                                 </DropdownMenuItem>
+                                {role === "Nirmaan Admin Profile" &&
+                                    <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                            onClick={() => handleOpenDeleteConfirmation(expense)}
+                                            className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                        >
+                                            <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
+                                        </DropdownMenuItem>
+                                    </>
+                                }
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -174,7 +232,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             size: 80,
             meta: { excludeFromExport: true }
         },
-    ], [handleOpenPaymentUpdateDialog, handleOpenInvoiceUpdateDialog]); // Correct dependencies
+    ], [handleOpenPaymentUpdateDialog, handleOpenInvoiceUpdateDialog, handleOpenEditDialog, handleOpenDeleteConfirmation]);
 
     // Now call useServerDataTable, passing the defined columns
     const {
@@ -218,6 +276,16 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             />
             <NewNonProjectExpense refetchList={refetch} />
 
+            {selectedExpenseForEdit && ( // NEW: Render Edit Dialog
+                <EditNonProjectExpense
+                    expenseToEdit={selectedExpenseForEdit}
+                    onSuccess={() => {
+                        refetch();
+                        setEditNonProjectExpenseDialog(false); // Close dialog on success
+                    }}
+                />
+            )}
+
             {selectedExpenseForUpdate && (
                 <>
                     <UpdatePaymentDetailsDialog
@@ -233,6 +301,30 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                         onSuccess={refetch}
                     />
                 </>
+            )}
+            {/* NEW: Delete Confirmation Dialog */}
+            {expenseToDelete && (
+                <AlertDialog open={deleteConfirmationDialog} onOpenChange={setDeleteConfirmationDialog}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete the expense
+                                <span className="font-semibold mx-1">{expenseToDelete.description || expenseToDelete.name}</span>.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setExpenseToDelete(null)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={confirmDeleteExpense}
+                                disabled={deleteLoading}
+                                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                            >
+                                {deleteLoading ? "Deleting..." : "Yes, delete expense"}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             )}
         </div>
     );

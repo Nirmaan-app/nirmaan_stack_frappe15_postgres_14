@@ -1,7 +1,7 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { Trash2, Edit2 } from "lucide-react";
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { formatDate } from "@/utils/FormatDate";
@@ -24,7 +24,7 @@ export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "owner", label: "Created By", placeholder: "Search by creator's email..." },
 ];
 
-export const PROJECT_INVOICE_DATE_COLUMNS = ["creation"];
+export const PROJECT_INVOICE_DATE_COLUMNS = ["invoice_date"];
 
 // =================================================================================
 // 2. TYPES & INTERFACES FOR COLUMN GENERATION
@@ -35,6 +35,7 @@ interface ColumnGeneratorOptions {
     isAdmin: boolean;
     getProjectName: ProjectNameResolver;
     onDelete: (invoice: ProjectInvoice) => void;
+    onEdit: (invoice: ProjectInvoice) => void; // --- (Indicator) NEW: onEdit callback ---
 }
 
 // =================================================================================
@@ -44,7 +45,7 @@ export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
 
-    const { isAdmin, getProjectName, onDelete } = options;
+    const { isAdmin, getProjectName, onDelete, onEdit } = options; // Destructure onEdit
 
     const columns: ColumnDef<ProjectInvoice>[] = [
         {
@@ -105,7 +106,16 @@ export const getProjectInvoiceColumns = (
                     cell: ({ row }) => {
                         const invoice = row.original;
                         return (
-                            <div className="flex items-center justify-center">
+                            <div className="flex items-center space-x-1"> {/* Use justify-end */}
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => onEdit(invoice)} // Call onEdit
+                                    aria-label={`Edit invoice ${invoice.invoice_no}`}
+                                >
+                                    <Edit2 className="h-4 w-4 text-blue-600" />
+                                </Button>
                                 <Button
                                     variant="ghost"
                                     size="icon"

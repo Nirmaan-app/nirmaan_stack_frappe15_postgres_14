@@ -21,6 +21,11 @@ export type DialogStore = {
   setNewInflowDialog: (open: boolean) => void;
   toggleNewInflowDialog: () => void;
 
+  // --- (Indicator) NEW: Edit Inflow Payment Dialog ---
+  editInflowDialog: boolean;
+  setEditInflowDialog: (open: boolean) => void;
+  toggleEditInflowDialog: () => void;
+
   // New Invoice Dialog (assuming this is for a different "Invoice" type than ProjectInvoice)
   newInvoiceDialog: boolean;
   setNewInvoiceDialog: (open: boolean) => void;
@@ -31,6 +36,11 @@ export type DialogStore = {
   setNewProjectInvoiceDialog: (open: boolean) => void;
   toggleNewProjectInvoiceDialog: () => void;
 
+  // --- (Indicator) NEW: Edit Project Invoice Dialog ---
+  editProjectInvoiceDialog: boolean;
+  setEditProjectInvoiceDialog: (open: boolean) => void;
+  toggleEditProjectInvoiceDialog: () => void;
+
   // New Item Dialog
   newItemDialog: boolean;
   toggleNewItemDialog: () => void; // Consider adding a 'setNewItemDialog' for consistency
@@ -39,6 +49,16 @@ export type DialogStore = {
   newNonProjectExpenseDialog: boolean;
   setNewNonProjectExpenseDialog: (open: boolean) => void;
   toggleNewNonProjectExpenseDialog: () => void;
+
+  // --- (Indicator) NEW: Edit Non-Project Expense Dialog ---
+  editNonProjectExpenseDialog: boolean;
+  setEditNonProjectExpenseDialog: (open: boolean) => void;
+  toggleEditNonProjectExpenseDialog: () => void;
+
+  // --- (Indicator) NEW: Generic Delete Confirmation Dialog ---
+  deleteConfirmationDialog: boolean;
+  setDeleteConfirmationDialog: (open: boolean) => void;
+  toggleDeleteConfirmationDialog: () => void;
   // --- (Explanation)
   // Added state and actions for the "New Non-Project Expense" dialog.
   // - `newNonProjectExpenseDialog`: Boolean to control its visibility.
@@ -63,6 +83,11 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   setNewInflowDialog: (open: boolean) => set({ newInflowDialog: open }),
   toggleNewInflowDialog: () => set((state) => ({ newInflowDialog: !state.newInflowDialog })),
 
+  // --- (Indicator) NEW: Edit Inflow Payment Dialog Implementation ---
+  editInflowDialog: false,
+  setEditInflowDialog: (open: boolean) => set({ editInflowDialog: open }),
+  toggleEditInflowDialog: () => set((state) => ({ editInflowDialog: !state.editInflowDialog })),
+
   newInvoiceDialog: false,
   setNewInvoiceDialog: (open: boolean) => set({ newInvoiceDialog: open }),
   toggleNewInvoiceDialog: () => set((state) => ({ newInvoiceDialog: !state.newInvoiceDialog })),
@@ -70,6 +95,11 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   newProjectInvoiceDialog: false,
   setNewProjectInvoiceDialog: (open: boolean) => set({ newProjectInvoiceDialog: open }),
   toggleNewProjectInvoiceDialog: () => set((state) => ({ newProjectInvoiceDialog: !state.newProjectInvoiceDialog })),
+
+  // --- (Indicator) NEW: Edit Project Invoice Dialog Implementation ---
+  editProjectInvoiceDialog: false,
+  setEditProjectInvoiceDialog: (open: boolean) => set({ editProjectInvoiceDialog: open }),
+  toggleEditProjectInvoiceDialog: () => set((state) => ({ editProjectInvoiceDialog: !state.editProjectInvoiceDialog })),
 
   newItemDialog: false,
   // Consider adding setNewItemDialog if you might need it:
@@ -87,4 +117,14 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   // `toggleNewNonProjectExpenseDialog` flips the current visibility state.
   // Note: Using `(state) => ({...})` in the toggle functions is slightly safer as it always uses the latest state,
   // though `!get().dialogName` is generally fine for simple toggles. I've updated existing toggles to this pattern for consistency.
+
+  // --- (Indicator) NEW: Edit Non-Project Expense Dialog Implementation ---
+  editNonProjectExpenseDialog: false,
+  setEditNonProjectExpenseDialog: (open: boolean) => set({ editNonProjectExpenseDialog: open }),
+  toggleEditNonProjectExpenseDialog: () => set((state) => ({ editNonProjectExpenseDialog: !state.editNonProjectExpenseDialog })),
+
+  // --- (Indicator) NEW: Generic Delete Confirmation Dialog Implementation ---
+  deleteConfirmationDialog: false,
+  setDeleteConfirmationDialog: (open: boolean) => set({ deleteConfirmationDialog: open }),
+  toggleDeleteConfirmationDialog: () => set((state) => ({ deleteConfirmationDialog: !state.deleteConfirmationDialog })),
 }));

@@ -24,12 +24,13 @@ import {
   HoverCardTrigger
 } from "@/components/ui/hover-card";
 import { useUserData } from "@/hooks/useUserData";
-import { formatDate } from 'date-fns';
+import { formatDate as formatDateFns } from 'date-fns'; // Renamed to avoid conflict
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { Trash2, Edit2 } from "lucide-react"; // Added Edit2 icon
 import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { Projects } from '@/types/NirmaanStack/Projects';
+import SITEURL from '@/constants/siteURL'; // Ensure SITEURL is imported
 
 // Define the shape of a single invoice item
 interface InvoiceItem {
@@ -44,14 +45,15 @@ interface InvoiceItem {
 
 interface ProjectInvoiceTableProps {
   items: InvoiceItem[];
-  siteUrl: string;
-  handleDeleteInvoiceEntry: (invoiceId: string) => void;
+  // siteUrl: string; // SITEURL is now imported directly
+  handleDeleteInvoiceEntry: (invoiceId: string, invoiceNo: string) => void; // Pass invoiceNo for toast
+  handleEditInvoiceEntry?: (invoice: InvoiceItem) => void; // --- (Indicator) NEW: onEdit callback ---
 }
 
 export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
   items,
-  siteUrl,
-  handleDeleteInvoiceEntry
+  handleDeleteInvoiceEntry,
+  handleEditInvoiceEntry // --- (Indicator) Destructure onEdit ---
 }) => {
   const { role } = useUserData();
   const isAdmin = role === "Nirmaan Admin Profile";
@@ -71,28 +73,28 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
     }, {} as Record<string, string>);
   }, [projectdata]);
 
-  // State for managing the delete confirmation dialog
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  // // State for managing the delete confirmation dialog
+  // const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  // const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
-  // Memoized function to toggle the dialog state using a functional update
-  // This avoids dependency on the state variable itself.
-  const toggleDeleteDialog = useCallback(() => {
-    setIsDeleteDialogOpen(prev => !prev);
-  }, []);
+  // // Memoized function to toggle the dialog state using a functional update
+  // // This avoids dependency on the state variable itself.
+  // const toggleDeleteDialog = useCallback(() => {
+  //   setIsDeleteDialogOpen(prev => !prev);
+  // }, []);
 
-  // Handler to open the dialog and set the selected invoice ID
-  const openDeleteDialog = (invoiceId: string) => {
-    setSelectedInvoiceId(invoiceId);
-    setIsDeleteDialogOpen(true);
-  };
+  // // Handler to open the dialog and set the selected invoice ID
+  // const openDeleteDialog = (invoiceId: string) => {
+  //   setSelectedInvoiceId(invoiceId);
+  //   setIsDeleteDialogOpen(true);
+  // };
 
-  // Handler for when the user confirms the deletion
-  const onConfirmDelete = () => {
-    if (selectedInvoiceId) {
-      handleDeleteInvoiceEntry(selectedInvoiceId);
-    }
-  };
+  // // Handler for when the user confirms the deletion
+  // const onConfirmDelete = () => {
+  //   if (selectedInvoiceId) {
+  //     handleDeleteInvoiceEntry(selectedInvoiceId);
+  //   }
+  // };
 
   // Ensure items is always an array to prevent .map errors
   const invoiceList = Array.isArray(items) ? items : [];
@@ -114,12 +116,9 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
           <TableBody>
             {invoiceList.length > 0 ? (
               invoiceList.map((item) => {
+                const fullAttachmentUrl = item.attachment ? (item.attachment.startsWith('http') ? item.attachment : SITEURL + item.attachment) : null;
+                const projectName = item.project ? projectMap[item.project] || item.project : 'N/A'; // Fallback to ID
 
-                // const fullAttachmentUrl = item.attachment ? `${siteUrl}${item.attachment}` : null;
-                const fullAttachmentUrl = item.attachment
-                // console.log(fullAttachmentUrl)
-                const projectName = item.project ? projectMap[item.project] : 'N/A';
-                console.log(projectName)
                 return (
                   <TableRow key={item.name}>
                     <TableCell className="text-center">
@@ -147,23 +146,33 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
                         <span>{item.invoice_no}</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-center">{projectName}</TableCell>
                     <TableCell className="text-center">
                       {formatToRoundedIndianRupee(parseFloat(item.amount) || 0)}
                     </TableCell>
                     <TableCell className="text-center">
-                      {formatDate(new Date(item.invoice_date), "dd-MM-yyyy")}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {projectName}
+                      {formatDateFns(new Date(item.invoice_date), "dd-MM-yyyy")}
                     </TableCell>
                     {isAdmin && (
                       <TableCell>
-                        <div className="flex items-center justify-center">
+                        <div className="flex items-center justify-center space-x-1">
+                          {/* --- (Indicator) NEW: Edit Button --- */}
+                          {handleEditInvoiceEntry && (
+                            <Button
+                              variant="ghost"
+                              size="icon" // Changed to "icon" for consistency
+                              className="h-8 w-8 p-0" // Standard icon button size
+                              onClick={() => handleEditInvoiceEntry(item)}
+                              aria-label={`Edit invoice ${item.invoice_no}`}
+                            >
+                              <Edit2 className="h-4 w-4 text-blue-600" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
-                            size="none"
-                            className="h-5 w-5 p-0"
-                            onClick={() => openDeleteDialog(item.name)}
+                            size="icon" // Changed to "icon"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleDeleteInvoiceEntry(item.name, item.invoice_no)}
                             aria-label={`Delete invoice entry ${item.invoice_no}`}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
@@ -176,7 +185,7 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={isAdmin ? 4 : 3} className="text-center py-4 text-gray-500">
+                <TableCell colSpan={isAdmin ? 5 : 4} className="text-center py-4 text-gray-500">
                   No Invoices Found
                 </TableCell>
               </TableRow>
@@ -185,16 +194,16 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
         </Table>
       </div>
       {/* The AlertDialog is now a sibling to the Table, not a child */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      {/* <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the invoice entry from the records.
             </AlertDialogDescription>
-          </AlertDialogHeader>
-          {/* Use AlertDialogFooter for action buttons */}
-          <AlertDialogFooter>
+          </AlertDialogHeader> */}
+      {/* Use AlertDialogFooter for action buttons */}
+      {/* <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setSelectedInvoiceId(null)}>
               Cancel
             </AlertDialogCancel>
@@ -203,7 +212,7 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog> */}
     </>
   );
 };
