@@ -144,6 +144,8 @@ export const useApproveRejectLogic = ({
                 return;
             }
 
+            console.log("in useApproveRejectLogic", prItem.name)
+
             const vendorId = prItem.vendor;
             if (!vendorWiseData[vendorId]) {
                 vendorWiseData[vendorId] = { totalAmount: 0, items: [], key: uuidv4() };
@@ -234,13 +236,18 @@ export const useApproveRejectLogic = ({
             return;
         }
 
-        const selectedItemsForPayload: string[] = [];
-        const vendorSelectionMapForPayload: { [itemId: string]: string } = {};
+       // --- CHANGE: Payload generation is now based on the unique child document 'name' ---
 
-        selectionMap.forEach((itemIdsSet, vendorId) => {
-            itemIdsSet.forEach(itemIdValue => {
-                selectedItemsForPayload.push(itemIdValue);
-                vendorSelectionMapForPayload[itemIdValue] = vendorId;
+        // `selectedItemsForPayload` will now be a list of unique child document names.
+        const selectedItemsForPayload: string[] = []; 
+        
+        // `vendorSelectionMapForPayload` will now map the unique child doc name to its vendor.
+        const vendorSelectionMapForPayload: { [childDocName: string]: string } = {};
+
+        selectionMap.forEach((selectedChildDocNames, vendorId) => {
+            selectedChildDocNames.forEach(childDocName => {
+                selectedItemsForPayload.push(childDocName);
+                vendorSelectionMapForPayload[childDocName] = vendorId;
             });
         });
 
@@ -249,19 +256,25 @@ export const useApproveRejectLogic = ({
             return;
         }
 
+        console.log("in handleApproveConfirm", selectedItemsForPayload, vendorSelectionMapForPayload)
+
         try {
+            // The payload structure remains the same, but the *content* is now correct.
             const payload: ApprovePayload = {
                 project_id: orderData.project,
                 pr_name: orderData.name,
-                selected_items: selectedItemsForPayload,
-                selected_vendors: vendorSelectionMapForPayload,
+                selected_items: selectedItemsForPayload, // Now contains unique names like ['a1b2c3d', 'e4f5g6h']
+                selected_vendors: vendorSelectionMapForPayload, // Now maps unique names to vendors
                 custom: !orderData.work_package,
             };
+            
             const response = await approveSelection(payload);
+
+            // ... Success/error handling remains the same ...
             if (response?.message?.status === 200) {
                 toast({ title: "Success!", description: response.message.message || "Items approved.", variant: "success" });
                 setSelectionMap(new Map()); toggleApproveDialog(); await prMutate();
-                const allPendingInOrderData = (orderData.order_list || []).map(i => i.item_id!);
+                const allPendingInOrderData = (orderData.order_list || []).map(i => i.name); // Using unique name
                 if (!orderData.work_package || selectedItemsForPayload.length === allPendingInOrderData.length) {
                     navigate('/purchase-orders?tab=Approve PO');
                 }
@@ -291,11 +304,16 @@ export const useApproveRejectLogic = ({
             return;
         }
         const selectedItemsForPayload: string[] = [];
-        selectionMap.forEach(itemIdsSet => itemIdsSet.forEach(itemId => selectedItemsForPayload.push(itemId)));
+
+        selectionMap.forEach(childDocNamesSet => childDocNamesSet.forEach(childDocName => selectedItemsForPayload.push(childDocName)));
         if (selectedItemsForPayload.length === 0) {
             toast({ title: "No Selection", description: "No valid items found.", variant: "destructive" });
             return;
         }
+        console.log("in useApproveRejectLogic SendBackPayload",selectedItemsForPayload)
+console.log("in SendBackPayload selectedMAP",selectionMap)
+
+
         try {
             const payload: SendBackPayload = {
                 project_id: orderData.project,
@@ -307,7 +325,7 @@ export const useApproveRejectLogic = ({
             if (response?.message?.status === 200) {
                 toast({ title: "Success!", description: response.message.message || "Items sent back.", variant: "success" });
                 setSelectionMap(new Map()); toggleSendBackDialog(); setComment(""); await prMutate();
-                const allPendingInOrderData = (orderData.order_list || []).map(i => i.item_id!);
+                const allPendingInOrderData = (orderData.order_list || []).map(i => i.name!);
                 if (selectedItemsForPayload.length === allPendingInOrderData.length) {
                     navigate('/purchase-orders?tab=Approve PO');
                 }

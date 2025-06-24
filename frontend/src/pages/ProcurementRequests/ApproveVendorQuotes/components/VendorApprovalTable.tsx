@@ -44,7 +44,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
         if (isChecked === true) {
             // Calculate the set of all item IDs for this vendor
-            const allItemIds = new Set(allItemsForVendor.map(item => item.item_id!));
+            const allItemIds = new Set(allItemsForVendor.map(item => item.name!));
             // Set this vendor's selection to all items
             newSelection.set(vendorId, allItemIds);
 
@@ -60,7 +60,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
     const handleItemCheckChange = useCallback((
         vendorId: string,
-        itemId: string,
+        itemName: string,
         isChecked: boolean | 'indeterminate'
     ) => {
         // Create a mutable copy of the current selection state
@@ -70,10 +70,10 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
         if (isChecked === true) {
             // Add the item to the set
-            vendorSet.add(itemId);
+            vendorSet.add(itemName);
         } else {
             // Remove the item from the set
-            vendorSet.delete(itemId);
+            vendorSet.delete(itemName);
         }
 
         if (vendorSet.size === 0) {
@@ -196,7 +196,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                         <TableBody>
                                             {items.map((item) => {
                                                 // Determine if item selected based on passed 'selection' prop
-                                                const isItemSelected = selection.get(vendorId)?.has(item.item_id) ?? false;
+                                                const isItemSelected = selection.get(vendorId)?.has(item.name) ?? false;
                                                 // const itemSavingLoss = ((item.lowestQuotedAmount || item.targetAmount) && item.amount)
                                                 //                        ? parseNumber(item.lowestQuotedAmount || item.targetAmount) - item.amount
                                                 //                        : undefined;
@@ -214,7 +214,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                             <Checkbox
                                                                 id={`item-${vendorId}-${item.name}`}
                                                                 checked={isItemSelected} // Use checked state from prop
-                                                                onCheckedChange={(checkedState) => handleItemCheckChange(vendorId, item.item_id!, checkedState)}
+                                                                onCheckedChange={(checkedState) => handleItemCheckChange(vendorId, item.name, checkedState)}
                                                                 aria-label={`Select item ${item.item_name}`}
                                                             />
                                                         </TableCell>

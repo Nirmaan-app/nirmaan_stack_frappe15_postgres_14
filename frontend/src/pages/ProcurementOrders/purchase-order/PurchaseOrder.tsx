@@ -68,7 +68,8 @@ import {
   useFrappeDocumentEventListener,
   useFrappeGetDocList,
   useFrappePostCall,
-  useFrappeUpdateDoc
+  useFrappeUpdateDoc,
+  useFrappeGetDoc
 } from "frappe-react-sdk";
 import {
   AlertTriangle,
@@ -136,7 +137,9 @@ export const PurchaseOrder = ({
     fields: ["*"],
     filters: [["name", "=", poId]],
   });
+   const { data: pos } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
 
+  console.log(pos)
   // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
   const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(PO);
 
@@ -1165,7 +1168,7 @@ export const PurchaseOrder = ({
                 </colgroup>
                 <thead className="bg-red-100">
                   <tr className="text-sm font-semibold text-gray-700">
-                    <th className="sticky top-0 z-10 text-left pl-4 py-3 bg-red-100">
+                    <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
                       S.No.
                     </th>
                     <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
@@ -1220,7 +1223,7 @@ export const PurchaseOrder = ({
                   {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
                 </colgroup>
                 <tbody className="divide-y divide-gray-200">
-                  {orderData?.list?.map((item, index) => (
+                  {pos?.items?.map((item, index) => (
                     <tr
                       key={index}
                       className="hover:bg-gray-50 transition-colors text-sm text-gray-600"
@@ -1232,7 +1235,7 @@ export const PurchaseOrder = ({
                       <td className="pl-2 py-2 align-top">
                         <div className="flex flex-col gap-1">
                           <span className="font-medium text-gray-700 truncate">
-                            {item.item}
+                            {item.item_name}
                             {item?.makes?.list?.length > 0 && (
                               <span className="ml-1 text-xs italic font-semibold text-gray-500">
                                 - {item.makes.list.find(i => i?.enabled === "true")?.make || "N/A"}

@@ -1,3 +1,4 @@
+
 import frappe
 import json # Ensure json is imported
 from frappe.utils import cint, flt
@@ -14,6 +15,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
         selected_vendors (dict): A dictionary mapping item names to vendor IDs for PO generation.
         custom (bool): A flag to indicate if custom handling is needed.
     """
+    print("in generate_pos_from_selection",selected_items,selected_vendors)
     try:
         # Fetch the Procurement Request, lock for update
         pr_doc = frappe.get_doc("Procurement Requests", pr_name, for_update=True)
@@ -35,61 +37,65 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
         vendor_po_items_details = {}
         processed_pr_child_item_names_for_status_update = set() # Child doc names to update status
 
-        selected_item_ids_set = set(selected_items) # For efficient lookup
+        # CHANGE 1: We now treat `selected_items` as a set of unique child document `name`s.
+        selected_child_item_names_set = set(selected_items)
 
-        project_doc = None # To fetch project details once
+        project_doc = None
         if pr_doc.project:
             project_doc = frappe.get_doc("Projects", pr_doc.project)
 
-
-        for pr_child_item in pr_doc.order_list: # Iterate through PR's child table
-            if pr_child_item.item_id in selected_item_ids_set:
-                # This item was selected for PO generation.
-                # The vendor_id for this item should come from the selected_vendors payload,
-                # as the pr_child_item.vendor might be from a previous selection if the flow allows re-selection here.
-                # However, if the UI strictly shows pr_child_item.vendor as the one being approved, then
-                # selected_vendors[pr_child_item.item_id] should match pr_child_item.vendor.
+        for pr_child_item in pr_doc.order_list:
+            
+            # CHANGE 2: The primary check is now against the unique `name` of the child row.
+            # This is the key to correctly identifying each specific line item.
+            if pr_child_item.name in selected_child_item_names_set:
                 
-                vendor_id_for_item = selected_vendors.get(pr_child_item.item_id)
-                if not vendor_id_for_item:
-                    # This should ideally not happen if frontend sends consistent data
-                    frappe.log_error(f"Vendor not found in payload for selected item {pr_child_item.item_id} in PR {pr_name}", "generate_pos_from_selection")
-                    continue # Skip this item if no vendor specified in payload
+                # We get the vendor from the payload using the unique `name` as the key.
+                vendor_id_from_payload = selected_vendors.get(pr_child_item.name)
 
-                # The quote should come from pr_child_item.quote, as this is what was approved.
-                if pr_child_item.quote is None:
-                    frappe.throw(f"Quote not found for selected item {pr_child_item.item_id} (child: {pr_child_item.name}) in PR {pr_name}.")
+                # CHANGE 3: We add a critical sanity check to ensure the payload vendor
+                # matches the vendor on the database row. This prevents data corruption.
+                if vendor_id_from_payload and vendor_id_from_payload == pr_child_item.vendor:
+                    # Both checks passed. We are 100% certain this is the correct item.
+                    if pr_child_item.quote is None:
+                        frappe.throw(f"Quote not found for selected item {pr_child_item.item_id} (child: {pr_child_item.name}).")
+
+                    # The rest of the logic for creating the PO item dictionary is the same.
+                    item_quote_rate = flt(pr_child_item.quote)
+                    item_quantity = flt(pr_child_item.quantity)
+                    item_tax_percentage = flt(pr_child_item.tax)
+                    base_amount = item_quantity * item_quote_rate
+                    calculated_tax_amount = base_amount * (item_tax_percentage / 100.0)
+                    final_total_amount = base_amount + calculated_tax_amount
+
+                    po_item_dict = {
+                        "item_id": pr_child_item.item_id,
+                        "item_name": pr_child_item.item_name,
+                        "unit": pr_child_item.unit,
+                        "quantity": item_quantity,
+                        "category": pr_child_item.category,
+                        "procurement_package": pr_child_item.procurement_package,
+                        "quote": item_quote_rate,
+                        "amount": base_amount,
+                        "make": pr_child_item.make,
+                        "tax": item_tax_percentage,
+                        "tax_amount": calculated_tax_amount,
+                        "total_amount": final_total_amount,
+                        "comment": pr_child_item.comment,
+                        "procurement_request_item": pr_child_item.name,
+                    }
+
+                    # Use the verified vendor ID to group items for the PO.
+                    if vendor_id_from_payload not in vendor_po_items_details:
+                        vendor_po_items_details[vendor_id_from_payload] = []
+                    
+                    vendor_po_items_details[vendor_id_from_payload].append(po_item_dict)
+                    processed_pr_child_item_names_for_status_update.add(pr_child_item.name)
                 
-                item_quote_rate = flt(pr_child_item.quote)
-                item_quantity = flt(pr_child_item.quantity)
-                item_tax_percentage = flt(pr_child_item.tax) # Assuming 'tax' field on PR child item is the rate (e.g., 18 for 18%)
-
-                base_amount = item_quantity * item_quote_rate
-                calculated_tax_amount = base_amount * (item_tax_percentage / 100.0)
-                final_total_amount = base_amount + calculated_tax_amount
-
-                po_item_dict = {
-                    "item_id": pr_child_item.item_id,
-                    "item_name": pr_child_item.item_name,
-                    "unit": pr_child_item.unit,
-                    "quantity": item_quantity, # Quantity Ordered
-                    "category": pr_child_item.category,
-                    "procurement_package": pr_child_item.procurement_package, # Or pr_doc.work_package if custom
-                    "quote": item_quote_rate, # Quoted Rate that was approved
-                    "amount": base_amount,
-                    "make": pr_child_item.make, # Selected make from PR item
-                    "tax": item_tax_percentage, # Tax Rate
-                    "tax_amount": calculated_tax_amount,
-                    "total_amount": final_total_amount,
-                    "comment": pr_child_item.comment,
-                    "procurement_request_item": pr_child_item.name # Link to the PR child table row
-                }
-
-                if vendor_id_for_item not in vendor_po_items_details:
-                    vendor_po_items_details[vendor_id_for_item] = []
-                
-                vendor_po_items_details[vendor_id_for_item].append(po_item_dict)
-                processed_pr_child_item_names_for_status_update.add(pr_child_item.name)
+                else:
+                    # If the sanity check fails, log it and skip the item.
+                    frappe.log_error(f"Vendor mismatch for item {pr_child_item.name} in PR {pr_name}. DB vendor: {pr_child_item.vendor}, Payload vendor: {vendor_id_from_payload}")
+                    continue
 
         if not vendor_po_items_details:
             # This means selected_items might have been empty or matched no processable items.
