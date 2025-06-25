@@ -92,6 +92,7 @@ export function SelectVendorQuotesTable({
     //     return <div className="p-4 text-center text-muted-foreground">No vendors were selected for RFQ in edit mode.</div>
     // }
  
+    const numVendors = formData.selectedVendors.length;
 
     return (
         <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-2 md:p-4">
@@ -103,11 +104,15 @@ export function SelectVendorQuotesTable({
                     <div key={cat.name} className="min-w-[600px]">
                         <Table className="w-full">
                             <colgroup>
-                                <col style={{ width: '200px', minWidth: '200px' }} /> {/* Item Details - fixed width */}
-                                <col style={{ width: '60px', minWidth: '60px' }} />  {/* Qty - fixed width */}
-                                <col style={{ width: '60px', minWidth: '60px' }} />  {/* UOM - fixed width */}
-                                <col style={{ width: 'auto' }} /> {/* Dynamic vendor area */}
-                                <col style={{ width: '120px', minWidth: '120px' }} /> {/* Target Rate - fixed width */}
+                                 <col style={{ width: '200px', minWidth: '200px' }} /> {/* Item Details */}
+                                <col style={{ width: '60px' }} />  {/* Qty */}
+                                <col style={{ width: '60px' }} />  {/* UOM */}
+                                <col style={{ width: '100px' }} /> {/* TAX - This was missing */}
+                                 {formData.selectedVendors.map(v => (
+                                    <col key={v.value} style={{ width: numVendors <= 3 ? 'auto' : '160px', minWidth: '160px' }} />
+                                ))}
+                               {numVendors === 0 && <col style={{ width: 'auto' }} />}
+                                <col style={{ width: '120px' }} /> {/* Target Rate */}
                             </colgroup>
                             <TableHeader>
                                 {index === 0 && (
@@ -116,52 +121,50 @@ export function SelectVendorQuotesTable({
                                         <TableHead className="text-primary font-semibold text-center">Qty</TableHead>
                                         <TableHead className="text-primary font-semibold text-center">UOM</TableHead>
                                         <TableHead className="text-primary font-semibold text-center">TAX</TableHead>
-                                        <TableHead className="text-primary font-semibold p-0">
-                                            <div className={`flex ${formData.selectedVendors.length <= 3 ? 'justify-center' : 'justify-start'} gap-2 overflow-x-auto px-2`}>
-                                                {formData.selectedVendors.length === 0 ? (
-                                                    <div className="min-w-[180px] py-2 text-center text-primary font-medium border border-gray-400 rounded-md mx-auto">
-                                                        No Vendors Selected
-                                                    </div>
-                                                ) : (
-                                                    formData.selectedVendors.map((v) => (
-                                                        <div key={v.value} className="flex-shrink-0">
-                                                            <div className="min-w-[150px] max-w-[150px] py-1 flex gap-1 items-center justify-center border border-gray-400 rounded-md px-2 text-xs">
-                                                                <div className="truncate flex-grow">
-                                                                    <VendorHoverCard vendor_id={v.value} />
-                                                                </div>
-                                                                {mode === "edit" && !isReadOnly && (
-                                                                    <AlertDialog>
-                                                                        <AlertDialogTrigger asChild>
-                                                                            <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:bg-destructive/10 flex-shrink-0">
-                                                                                <CircleMinus className="w-3.5 h-3.5" />
-                                                                            </Button>
-                                                                        </AlertDialogTrigger>
-                                                                        <AlertDialogContent>
-                                                                            <AlertDialogHeader>
-                                                                                <AlertDialogTitle>Remove Vendor: {v.label}?</AlertDialogTitle>
-                                                                                <AlertDialogDescription>This will remove the vendor and all their quotes from this RFQ.</AlertDialogDescription>
-                                                                            </AlertDialogHeader>
+                                       {numVendors === 0 ? (
+                                             <TableHead className="text-primary font-semibold text-center">
+                                                <div className="py-2 text-primary font-medium border border-gray-400 rounded-md">
+                                                    No Vendors Selected
+                                                </div>
+                                            </TableHead>
+                                        ) : (
+                                            formData.selectedVendors.map((v) => (
+                                                <TableHead key={v.value} className="text-primary font-semibold p-1.5 text-center">
+                                                    <div className="min-w-[150px] max-w-[150px] mx-auto py-1 flex gap-1 items-center justify-center border border-gray-400 rounded-md px-2 text-xs">
+                                                        <div className="truncate flex-grow">
+                                                            <VendorHoverCard vendor_id={v.value} />
+                                                        </div>
+                                                        {mode === "edit" && !isReadOnly && (
+                                                            <AlertDialog>
+                                                                <AlertDialogTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:bg-destructive/10 flex-shrink-0">
+                                                                        <CircleMinus className="w-3.5 h-3.5" />
+                                                                    </Button>
+                                                                </AlertDialogTrigger>
+                                                               <AlertDialogContent>
+                                                                             <AlertDialogHeader>
+                                                                                <AlertDialogTitle>Remove Vendor: {v.label}?</AlertDialogTitle>                                                                                <AlertDialogDescription>This will remove the vendor and all their quotes from this RFQ.</AlertDialogDescription>
+                                                                           </AlertDialogHeader>
                                                                             <AlertDialogFooter>
-                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                                <Button variant="destructive" onClick={() => handleInternalDeleteVendor(v.value)}>Confirm Remove</Button>
+                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>                                                                                <Button variant="destructive" onClick={() => handleInternalDeleteVendor(v.value)}>Confirm Remove</Button>
                                                                             </AlertDialogFooter>
                                                                         </AlertDialogContent>
-                                                                    </AlertDialog>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))
-                                                )}
-                                            </div>
-                                        </TableHead>
+                                                            </AlertDialog>
+                                                        )}
+                                                    </div>
+                                                </TableHead>
+                                            ))
+                                        )}
                                         <TableHead className="text-primary font-semibold text-right">Target Rate</TableHead>
                                     </TableRow>
                                 )}
                                 <TableRow className="bg-red-50/80 hover:bg-red-50/40">
-                                    <TableHead colSpan={4} className="text-muted-foreground font-medium py-1.5 px-3">{cat.name}</TableHead>
+                                 <TableHead colSpan={4 + (numVendors || 1) + 1} className="text-muted-foreground font-medium py-1.5 px-3">{cat.name}</TableHead>
+                                    {/* <TableHead className="py-1.5" />
                                     <TableHead className="py-1.5" />
                                     <TableHead className="py-1.5" />
-                                    <TableHead className="py-1.5" />
+                                    <TableHead className="py-1.5" /> */}
+
 
                                 </TableRow>
                             </TableHeader>
@@ -188,7 +191,7 @@ export function SelectVendorQuotesTable({
                                             </TableCell>
                                             <TableCell className="align-middle text-center text-sm">{item.quantity}</TableCell>
                                             <TableCell className="align-middle text-center text-sm">{item.unit}</TableCell>
-                                            <TableCell className="align-middle text-center text-sm">
+                                            <TableCell className="align-middle text-center text-sm w-24">
                                                 <Select
                                                     value={String(item.tax)||""}
                                                     onValueChange={(value) => {
@@ -208,35 +211,32 @@ export function SelectVendorQuotesTable({
                                                     </SelectContent>
                                                 </Select>
                                             </TableCell>
-                                            <TableCell className="p-0">
-                                                <div className={`flex ${formData.selectedVendors.length <= 3 ? 'justify-center' : 'justify-start'} gap-2 overflow-x-auto px-2 py-1.5`}>
-                                                    {formData.selectedVendors.length === 0 ? (
-                                                        <div className="min-w-[180px]" />
-                                                    ) : (
-                                                        formData.selectedVendors.map(vendor => {
-                                                            const itemVendorDetails = formData.details[item.item_id]?.vendorQuotes?.[vendor.value];
-                                                            const currentQuote = itemVendorDetails?.quote ?? "";
-                                                            const currentMake = itemVendorDetails?.make ?? formData.details[item.item_id]?.initialMake;
-                                                            const isSelectedForQuote = selectedVendorQuotes.get(item.item_id) === vendor.value;
-                                                            const canSelectThisQuote = (currentQuote || String(currentQuote) === "0") && !isReadOnly && mode !== 'edit';
+                                             {numVendors === 0 && <TableCell />}
+                                            {formData.selectedVendors.map(vendor => {
+                                                const itemVendorDetails = formData.details[item.item_id]?.vendorQuotes?.[vendor.value];
+                                                const currentQuote = itemVendorDetails?.quote ?? "";
+                                                const currentMake = itemVendorDetails?.make ?? formData.details[item.item_id]?.initialMake;
+                                                const isSelectedForQuote = selectedVendorQuotes.get(item.item_id) === vendor.value;
+                                                const canSelectThisQuote = (currentQuote || String(currentQuote) === "0") && !isReadOnly && mode !== 'edit';
 
-                                                            return (
-                                                                <div key={`${item.item_id}-${vendor.value}`} className="flex-shrink-0">
-                                                                    <div
-                                                                        role="radio"
-                                                                        aria-checked={isSelectedForQuote}
-                                                                        tabIndex={canSelectThisQuote ? 0 : -1}
-                                                                        onClick={() => canSelectThisQuote && onVendorSelectForItem(item.item_id, vendor.value)}
-                                                                        onKeyDown={(e) => canSelectThisQuote && (e.key === 'Enter' || e.key === ' ') && onVendorSelectForItem(item.item_id, vendor.value)}
-                                                                        className={`min-w-[150px] max-w-[150px] space-y-1.5 p-2 border rounded-md transition-all relative hover:shadow-sm
-                                                                    ${isSelectedForQuote ? "ring-1 ring-primary bg-primary/5 shadow-md" : "bg-card"}
-                                                                    ${!canSelectThisQuote && mode === 'view' ? "opacity-60 cursor-not-allowed" : canSelectThisQuote ? "cursor-pointer focus:ring-1 focus:ring-ring" : ""}
-                                                                `}
-                                                                    >
-                                                                        {isSelectedForQuote && <CircleCheck className="absolute w-3.5 h-3.5 top-1 right-1 text-primary" />}
-                                                                        <div className="space-y-0.5">
-                                                                            <Label className="text-xs font-medium text-muted-foreground">Make</Label>
-                                                                            {mode === "edit" && !isReadOnly ? (
+                                                return (
+                                                    <TableCell key={`${item.item_id}-${vendor.value}`} className="p-1.5">
+                                                        <div
+                                                            role="radio"
+                                                            aria-checked={isSelectedForQuote}
+                                                            tabIndex={canSelectThisQuote ? 0 : -1}
+                                                            onClick={() => canSelectThisQuote && onVendorSelectForItem(item.item_id, vendor.value)}
+                                                            onKeyDown={(e) => canSelectThisQuote && (e.key === 'Enter' || e.key === ' ') && onVendorSelectForItem(item.item_id, vendor.value)}
+                                                            className={`min-w-[150px] max-w-[150px] mx-auto space-y-1.5 p-2 border rounded-md transition-all relative hover:shadow-sm
+                                                                ${isSelectedForQuote ? "ring-1 ring-primary bg-primary/5 shadow-md" : "bg-card"}
+                                                                ${!canSelectThisQuote && mode === 'view' ? "opacity-60 cursor-not-allowed" : canSelectThisQuote ? "cursor-pointer focus:ring-1 focus:ring-ring" : ""}
+                                                            `}
+                                                        >
+                                                            {isSelectedForQuote && <CircleCheck className="absolute w-3.5 h-3.5 top-1 right-1 text-primary" />}
+                                                            {/* ... Vendor Make and Rate details ... */}
+                                                             <div className="space-y-0.5">
+                                                                <Label className="text-xs font-medium text-muted-foreground">Make</Label>
+                                                                {mode === "edit" && !isReadOnly ? (
                                                                                 <MakesSelection
                                                                                     defaultMake={formData.details[item.item_id]?.initialMake}
                                                                                     vendor={vendor}
@@ -247,10 +247,10 @@ export function SelectVendorQuotesTable({
                                                                             ) : (
                                                                                 <p className={`text-xs font-medium truncate ${targetRateValue !== -1 && parseNumber(String(currentQuote)) < targetRateValue ? "text-green-600" : ""}`}>{currentMake || "-"}</p>
                                                                             )}
-                                                                        </div>
-                                                                        <div className="space-y-0.5">
-                                                                            <Label className="text-xs font-medium text-muted-foreground">Rate</Label>
-                                                                            {mode === "edit" && !isReadOnly ? (
+                                                             </div>
+                                                             <div className="space-y-0.5">
+                                                                <Label className="text-xs font-medium text-muted-foreground">Rate</Label>
+                                                                {mode === "edit" && !isReadOnly ? (
                                                                                 <QuantityQuoteInput
                                                                                     value={currentQuote}
                                                                                     onChange={(val) => handleInternalQuoteChange(item.item_id, vendor.value, val)}
@@ -258,14 +258,12 @@ export function SelectVendorQuotesTable({
                                                                             ) : (
                                                                                 <p className={`text-sm font-semibold ${targetRateValue !== -1 && parseNumber(String(currentQuote)) < targetRateValue ? "text-green-600" : ""}`}>{(currentQuote || String(currentQuote) === "0") ? formatToIndianRupee(parseNumber(String(currentQuote))) : "-"}</p>
                                                                             )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                            </TableCell>
+                                                             </div>
+                                                        </div>
+                                                    </TableCell>
+                                                );
+                                            })}
+                                         
                                             <TableCell className="align-middle text-right">
                                                 <HistoricalQuotesHoverCard quotes={mappedContributingQuotes}>
                                                     {(targetRateValue === -1 || !targetRateValue) ? "N/A" : formatToRoundedIndianRupee(targetRateValue)}
@@ -282,3 +280,4 @@ export function SelectVendorQuotesTable({
         </div>
     );
 }
+

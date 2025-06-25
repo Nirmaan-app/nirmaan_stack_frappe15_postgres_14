@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RFQData } from '@/types/NirmaanStack/ProcurementRequests'; // Adjust path
+import { RFQData } from '../types'; // Adjust path
 import { VendorOption, ProgressDocument, getItemListFromDocument, getCategoryListFromDocument } from '../types'; // Local feature types
 import { usePersistentState } from './usePersistentState'; // Your hook
+import {ChargeItem} from "../types";
+import { ChargeType } from "../components/AddVendorChargesDialog";
 
 const initialRFQDataState: RFQData = {
     selectedVendors: [],
     details: {},
+    chargesByVendor:{}
 };
 
 export const useRFQFormManager = (
@@ -14,60 +17,7 @@ export const useRFQFormManager = (
 ) => {
     const [rfqFormData, setRfqFormData] = usePersistentState<RFQData>(`rfqDraft_${docId}`, initialRFQDataState); // Use rfqDraft key
     const [finalSelectedQuotes, setFinalSelectedQuotes] = useState<Map<string, string>>(() => new Map());
- // item.name -> vendor.name
-
-    // Initialize/Re-initialize formData.details based on items in the document
-    // useEffect(() => {
-    //     if (initialDocumentData) {
-    //         const items = getItemListFromDocument(initialDocumentData);
-    //         const categoryMap = new Map(initialDocumentData.category_list?.list?.map(cat => [cat.name, cat.makes || []]));
-
-    //         // Sync selectedVendors from document's rfq_data if draft is empty
-    //         if (formData.selectedVendors.length === 0 && initialDocumentData.rfq_data?.selectedVendors?.length > 0) {
-    //             setFormData(prev => ({ ...prev, selectedVendors: initialDocumentData.rfq_data.selectedVendors }));
-    //         }
-
-    //         // Sync details: Initialize if empty, but don't overwrite existing draft quotes
-    //         const newDetails = { ...(formData.details || {}) }; // Start with existing draft details
-    //         let detailsChanged = false;
-    //         items.forEach(item => {
-    //             if (!newDetails[item.name]) { // Only initialize if not in draft details
-    //                 const defaultMakes = categoryMap.get(item.category) ?? [];
-    //                 newDetails[item.name] = {
-    //                     initialMake: item.make, // Capture initial make from item
-    //                     vendorQuotes: {},
-    //                     makes: defaultMakes,
-    //                 };
-    //                 detailsChanged = true;
-    //             } else { // If item exists in draft, ensure its 'makes' are up-to-date if category's makes changed
-    //                 const currentMakesInDraft = newDetails[item.name].makes;
-    //                 const categoryMakes = categoryMap.get(item.category) ?? [];
-    //                 if (JSON.stringify(currentMakesInDraft) !== JSON.stringify(categoryMakes)) {
-    //                     newDetails[item.name].makes = categoryMakes;
-    //                     detailsChanged = true;
-    //                 }
-    //             }
-    //         });
-
-    //         if (detailsChanged) {
-    //             setFormData(prev => ({ ...prev, details: newDetails }));
-    //         }
-
-    //         // Initialize selectedVendorQuotes from the document's items if the map is empty
-    //         if (selectedVendorQuotes.size === 0) {
-    //             const initialSelectionMap = new Map<string, string>();
-    //             items.forEach(item => {
-    //                 if ('vendor' in item && item.vendor) { // Check if item has a vendor property
-    //                     initialSelectionMap.set(item.name, item.vendor);
-    //                 }
-    //             });
-    //             if (initialSelectionMap.size > 0) {
-    //                 setSelectedVendorQuotes(initialSelectionMap);
-    //             }
-    //         }
-    //     }
-    // }, [initialDocumentData, prId]); // Rerun when fetched doc changes or prId (for new draft key)
-
+    
     useEffect(() => {
         if (initialDocumentData) {
             let docToSet = { ...initialDocumentData };
@@ -200,6 +150,7 @@ export const useRFQFormManager = (
     }, [setRfqFormData]);
 
     const handleVendorQuoteSelectionForItem = useCallback((itemId: string, vendorId: string | null) => {
+        console.log("VendorId Delayed Item Id",vendorId,"jiu",itemId)
         setFinalSelectedQuotes(prevMap => {
             const newMap = new Map(prevMap);
             if (vendorId === null || newMap.get(itemId) === vendorId) {
@@ -207,9 +158,84 @@ export const useRFQFormManager = (
             } else {
                 newMap.set(itemId, vendorId);
             }
+            console.log("New Map",newMap)
             return newMap;
         });
     }, []);
+
+    // Import the new types at the top
+
+// ... inside the useRFQFormManager hook ...
+
+// At top of the file
+
+// ... inside the useR    // --- CHARGE HANDLERS (MODIFIED) ---
+
+    const handleAddCharges = useCallback((vendorId: string, chargesToAdd: { item_id: string; item_name: string }[]) => {
+        setRfqFormData(prev => {
+            const existingCharges = prev.chargesByVendor?.[vendorId] || [];
+            const existingChargeIds = new Set(existingCharges.map(c => c.item_id));
+console.log("chargesToAdd",chargesToAdd)
+            const newCharges: ChargeItem[] = chargesToAdd
+                .filter(chargeTemplate => !existingChargeIds.has(chargeTemplate.item_id)) // Prevent adding duplicates
+                .map(chargeTemplate => ({ 
+                    item_id: chargeTemplate.item_id,
+                    item_name: chargeTemplate.item_name,
+                    quote: 0, 
+                    tax: 18 // Sensible default
+                }));
+
+            if (newCharges.length === 0) return prev;
+
+            return {
+                ...prev,
+                chargesByVendor: {
+                    ...(prev.chargesByVendor || {}),
+                    [vendorId]: [...existingCharges, ...newCharges],
+                },
+            };
+        });
+    }, [setRfqFormData]);
+
+    const handleUpdateCharge = useCallback((vendorId: string, chargeIndex: number, updatedCharge: ChargeItem) => {
+        setRfqFormData(prev => {
+            const vendorCharges = prev.chargesByVendor?.[vendorId] || [];
+            if (!vendorCharges[chargeIndex]) return prev; // Safety check
+
+            const newVendorCharges = [...vendorCharges];
+            newVendorCharges[chargeIndex] = updatedCharge;
+
+            return {
+                ...prev,
+                chargesByVendor: {
+                    ...(prev.chargesByVendor || {}),
+                    [vendorId]: newVendorCharges,
+                },
+            };
+        });
+    }, [setRfqFormData]);
+
+    const handleDeleteCharge = useCallback((vendorId: string, chargeIndex: number) => {
+        setRfqFormData(prev => {
+            const vendorCharges = prev.chargesByVendor?.[vendorId] || [];
+            const newVendorCharges = vendorCharges.filter((_, index) => index !== chargeIndex);
+
+            const newChargesByVendor = { ...(prev.chargesByVendor || {}) };
+            if (newVendorCharges.length > 0) {
+                newChargesByVendor[vendorId] = newVendorCharges;
+            } else {
+                delete newChargesByVendor[vendorId]; // Clean up if no charges left for vendor
+            }
+
+            return {
+                ...prev,
+                chargesByVendor: newChargesByVendor,
+            };
+        });
+    }, [setRfqFormData]);
+
+
+// Add these new handlers to the return object
 
     const resetRFQForm = useCallback(() => {
         setRfqFormData(initialRFQDataState);
@@ -220,6 +246,9 @@ export const useRFQFormManager = (
 
     return {
         rfqFormData,
+         onAddCharges: handleAddCharges,
+    onUpdateCharge: handleUpdateCharge,
+    onDeleteCharge: handleDeleteCharge,
         setRfqFormData, // Expose if direct manipulation is needed, but prefer handlers
         finalSelectedQuotes,
         setFinalSelectedQuotes, // Expose for direct manipulation if needed

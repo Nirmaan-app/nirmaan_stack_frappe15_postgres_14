@@ -6,11 +6,12 @@ import {
 import { useProcurementActions } from './useProcurementActions';
 import { useTargetRatesForItems } from './useTargetRatesForItems';
 import { useUsersForLookup } from './useUsersForLookup';
-import { useFrappeDocumentEventListener } from 'frappe-react-sdk'; // Only this for events
-import { VendorOption, ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProcurementProgressLogicReturn, ProgressItem } from '../types';
+import { useFrappeDocumentEventListener ,useFrappeGetDocList} from 'frappe-react-sdk'; // Only this for events
+import { VendorOption, ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProcurementProgressLogicReturn,getAdditionalChargesTemplates, ProgressItem } from '../types';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { useRFQFormManager } from './useRFQManager';
+
 
 // Props for the logic hook
 export interface UseProcurementProgressLogicProps {
@@ -20,53 +21,6 @@ export interface UseProcurementProgressLogicProps {
     documentMutate: () => Promise<any>;   // Passed from container
     currentUser: string | undefined;      // Passed from container (or useUserData here)
 }
-
-// Return type of the logic hook
-// export interface UseProcurementProgressLogicReturn {
-//     mode: 'edit' | 'view' | 'review';
-//     docId: string;
-//     currentDocument?: ProgressDocument;
-//     formData: RFQData;
-//     setFormData: React.Dispatch<React.SetStateAction<RFQData>>; // Expose for direct manipulation by children if needed
-//     selectedVendorQuotes: Map<string, string>;
-//     setSelectedVendorQuotes: React.Dispatch<React.SetStateAction<Map<string, string>>>; // Expose
-    
-//     isLoading: boolean; // Overall loading for critical async operations
-//     isUpdatingDocument: boolean;
-//     isRedirecting: string;
-
-//     isAddVendorsDialogOpen: boolean;
-//     isRevertDialogOpen: boolean;
-//     isVendorSheetOpen: boolean;
-
-//     tempSelectedVendorsInDialog: VendorOption[];
-//     availableVendorOptionsForDialog: VendorOption[];
-//     targetRatesDataMap?: Map<string, TargetRateDetailFromAPI>;
-//     otherEditors: string[];
-//     // isDocumentReadOnlyByWorkflow: boolean;
-//     canContinueToReview: boolean;
-    
-//     getFullName: (userId?: string) => string;
-    
-//     handleModeChange: (newMode: 'edit' | 'view') => Promise<void>;
-//     handleTempVendorSelectionInDialog: (selected: VendorOption[]) => void;
-//     handleConfirmAddVendorsToRFQ: () => void;
-//     handleDeleteVendorFromRFQ: (vendorId: string) => void;
-//     handleQuoteChange: (itemId: string, vendorId: string, quote: string) => void;
-//     handleMakeChange: (itemId: string, vendorId: string, make: string) => void;
-//     handleVendorQuoteSelectionForItem: (itemId: string, vendorId: string | null) => void;
-//     handleProceedToReview: () => Promise<void>;
-//     handleRevertPRChanges: () => Promise<void>;
-    
-//     toggleAddVendorsDialog: () => void;
-//     toggleRevertDialog: () => void;
-//     toggleVendorSheet: () => void;
-
-//     // Allow child (SelectVendorQuotesTable) to update the main document state for its own internal processing
-//     // This is a pragmatic choice to avoid overly complex callback chains for direct list manipulation
-//     updateCurrentDocumentItemList: (updater: (prevItems: ProcurementItem[] | SentBackItem[]) => ProcurementItem[] | SentBackItem[]) => void;
-// }
-
 export const useProcurementProgressLogic = ({
     docId,
     initialDocument,
@@ -123,7 +77,9 @@ export const useProcurementProgressLogic = ({
         setRfqFormData,
         finalSelectedQuotes, // Renamed from selectedVendorQuotes
         setFinalSelectedQuotes, // Renamed
-        // Get handlers from RFQFormManager
+     onAddCharges,
+    onUpdateCharge,
+    onDeleteCharge,
         handleAddVendorsToRFQ, // If AddVendorsDialog directly uses this
         handleDeleteVendorFromRFQ,
         handleQuoteChange,
@@ -137,6 +93,24 @@ export const useProcurementProgressLogic = ({
     const itemIdsToFetchTargetRates = useMemo(() =>
         getItemListFromDocument(currentDocumentState).map(item => item.item_id).filter(id => !!id),
     [currentDocumentState]);
+
+      // --- NEW: Discover available charge templates ---
+      const { 
+        data: chargeItemsDataForAdditionalCharges, 
+        
+    } = useFrappeGetDocList("Items", {
+        fields: ['name', 'item_name', 'category'], // 'name' is the item_id
+        filters: [['category', '=', 'Additional Charges']],
+        limit: 200 // Set a reasonable limit for charges
+    });
+    const availableChargeTemplates = useMemo(() => {
+        // Map the fetched data to the format our components expect.
+        // 'item.name' from Frappe is the unique ID we need for 'item_id'.
+        return (chargeItemsDataForAdditionalCharges || []).map(item => ({
+            item_id: item.name, 
+            item_name: item.item_name
+        }));
+    }, [chargeItemsDataForAdditionalCharges]);
 
     const { targetRatesDataMap, isLoading: targetRatesLoading } =
         useTargetRatesForItems(itemIdsToFetchTargetRates, docId);
@@ -160,89 +134,7 @@ export const useProcurementProgressLogic = ({
         true // emitOpenCloseEventsOnMount = true by default, explicit is fine
     );
 
-    // Initialize/Update currentDocumentState, formData, and selectedVendorQuotes when initialDocument changes
-    // useEffect(() => {
-    //     if (initialDocument) {
-    //         let docToSet = { ...initialDocument };
-    //         console.log("docToSet", docToSet)
-    //         // Ensure item lists are parsed if they come as strings (common for Frappe JSON fields)
-    //         if (docToSet.doctype === "Procurement Requests" && typeof docToSet.procurement_list === "string") {
-    //             try { docToSet.procurement_list = JSON.parse(docToSet.procurement_list || '{"list":[]}'); } catch (e) { console.error("Failed to parse PR procurement_list", e); docToSet.procurement_list = { list: [] }; }
-    //         } else if (docToSet.doctype === "Sent Back Category" && typeof docToSet.item_list === "string") {
-    //             try { docToSet.item_list = JSON.parse(docToSet.item_list || '{"list":[]}'); } catch (e) { console.error("Failed to parse SBC item_list", e); docToSet.item_list = { list: [] }; }
-    //         }
-    //         // Ensure list properties exist
-    //         if (docToSet.doctype === "Procurement Requests" && !docToSet.procurement_list?.list) docToSet.procurement_list = { list: [] };
-    //         if (docToSet.doctype === "Sent Back Category" && !docToSet.item_list?.list) docToSet.item_list = { list: [] };
-
-    //         if (docToSet.doctype === "Procurement Requests" && typeof docToSet.category_list === "string") {
-    //             try { docToSet.category_list = JSON.parse(docToSet.category_list || '{"list":[]}'); } catch (e) { console.error("Failed to parse PR category_list", e); docToSet.category_list = { list: [] }; }
-    //         } else if (docToSet.doctype === "Sent Back Category" && typeof docToSet.category_list === "string") {
-    //             try { docToSet.category_list = JSON.parse(docToSet.category_list || '{"list":[]}'); } catch (e) { console.error("Failed to parse SBC category_list", e); docToSet.category_list = { list: [] }; }
-    //         }
-
-    //         if (docToSet.doctype === "Procurement Requests" && typeof docToSet.rfq_data === "string") {
-    //             try { docToSet.rfq_data = JSON.parse(docToSet.rfq_data || '{"selectedVendors":[], "details": {}}'); } catch (e) { console.error("Failed to parse PR rfq_data", e); docToSet.rfq_data = { selectedVendors: [], details: {} }; }
-    //         } else if (docToSet.doctype === "Sent Back Category" && typeof docToSet.rfq_data === "string") {
-    //             try { docToSet.rfq_data = JSON.parse(docToSet.rfq_data || '{"selectedVendors":[], "details": {}}'); } catch (e) { console.error("Failed to parse SBC rfq_data", e); docToSet.rfq_data = { selectedVendors: [], details: {} }; }
-    //         }
-
-    //         // if (!docToSet.category_list?.list) docToSet.category_list = { list: [] };
-
-
-    //         setCurrentDocumentState(docToSet);
-
-    //         const itemsFromDoc = getItemListFromDocument(docToSet);
-    //         const categoryMapFromDoc = new Map(getCategoryListFromDocument(docToSet).map(cat => [cat.name, cat.makes || []]));
-
-    //         // Initialize formData from document's rfq_data only if draft is completely empty
-    //         const isDraftEmpty = (!formData.selectedVendors?.length && Object.keys(formData.details || {}).length === 0);
-    //         if (isDraftEmpty && docToSet.rfq_data && (docToSet.rfq_data.selectedVendors?.length > 0 || Object.keys(docToSet.rfq_data.details || {}).length > 0)) {
-    //             setFormData(docToSet.rfq_data);
-    //         } else {
-    //             // If draft exists, or no rfq_data on doc, ensure formData.details is initialized for all items from doc
-    //             setFormData(prevDraft => {
-    //                 const newDetails = { ...(prevDraft.details || {}) };
-    //                 let changed = false;
-    //                 itemsFromDoc.forEach(item => {
-    //                     if (!newDetails[item.name]) {
-    //                         newDetails[item.name] = {
-    //                             initialMake: item.make,
-    //                             vendorQuotes: {},
-    //                             makes: categoryMapFromDoc.get(item.category) ?? [],
-    //                         };
-    //                         changed = true;
-    //                     } else { // Sync makes if category config changed
-    //                         const currentMakes = newDetails[item.name].makes;
-    //                         const latestCategoryMakes = categoryMapFromDoc.get(item.category) ?? [];
-    //                         if (JSON.stringify(currentMakes) !== JSON.stringify(latestCategoryMakes)) {
-    //                             newDetails[item.name].makes = latestCategoryMakes;
-    //                             changed = true;
-    //                         }
-    //                     }
-    //                 });
-    //                 return changed ? { ...prevDraft, details: newDetails } : prevDraft;
-    //             });
-    //         }
-            
-    //         // Initialize selectedVendorQuotes from document items (vendor field) if the map is currently empty
-    //         // This prioritizes a loaded draft's selections if any exist.
-    //         if (selectedVendorQuotes.size === 0) {
-    //             const initialSelectionMap = new Map<string, string>();
-    //             itemsFromDoc.forEach(item => {
-    //                 if ('vendor' in item && item.vendor) { // Check if item has vendor (ProcurementItemWithVendor)
-    //                     initialSelectionMap.set(item.name, item.vendor);
-    //                 }
-    //             });
-    //             if (initialSelectionMap.size > 0) {
-    //                 setSelectedVendorQuotes(initialSelectionMap);
-    //             }
-    //         }
-    //     }
-    // }, [initialDocument]); // Only re-run if the fetched initialDocument changes
-
-
-
+    
     //updated useffect for new change in item list
     useEffect(() => {
     // This effect runs whenever the initial document data from the server changes.
@@ -314,84 +206,6 @@ export const useProcurementProgressLogic = ({
         setTempSelectedVendorsInDialog(selected);
     }, []);
 
-    // const handleConfirmAddVendorsToRFQ = useCallback(() => {
-    //     setRfqFormData(prev => ({
-    //         ...prev,
-    //         selectedVendors: [
-    //             ...prev.selectedVendors,
-    //             ...tempSelectedVendorsInDialog.filter(nv => !prev.selectedVendors.find(sv => sv.value === nv.value))
-    //         ]
-    //     }));
-    //     setTempSelectedVendorsInDialog([]);
-    //     setAddVendorsDialog(false);
-    // }, [tempSelectedVendorsInDialog, setRfqFormData]);
-
-    // const handleDeleteVendorFromRFQ = useCallback((vendorIdToDelete: string) => {
-    //     setFormData(prev => {
-    //         const newSelectedVendors = prev.selectedVendors.filter(v => v.value !== vendorIdToDelete);
-    //         const newDetails = { ...prev.details };
-    //         Object.keys(newDetails).forEach(itemId => {
-    //             if (newDetails[itemId]?.vendorQuotes?.[vendorIdToDelete]) {
-    //                 delete newDetails[itemId].vendorQuotes[vendorIdToDelete];
-    //             }
-    //         });
-    //         return { ...prev, selectedVendors: newSelectedVendors, details: newDetails };
-    //     });
-    //     setSelectedVendorQuotes(prevMap => {
-    //         const newMap = new Map(prevMap);
-    //         newMap.forEach((vendorId, itemId) => {
-    //             if (vendorId === vendorIdToDelete) newMap.delete(itemId);
-    //         });
-    //         return newMap;
-    //     });
-    // }, [setFormData, setSelectedVendorQuotes]);
-
-    // const handleQuoteChange = useCallback((itemId: string, vendorId: string, quote: string) => {
-    //     console.log("itemId, vendorId, quote", itemId, vendorId, quote)
-    //     setFormData(prev => {
-    //         const itemDetails = prev.details[itemId] || { vendorQuotes: {}, makes: [], initialMake: undefined };
-    //         const vendorQuoteDetails = itemDetails.vendorQuotes[vendorId] || {};
-    //         return {
-    //             ...prev,
-    //             details: {
-    //                 ...prev.details,
-    //                 [itemId]: {
-    //                     ...itemDetails,
-    //                     vendorQuotes: { ...itemDetails.vendorQuotes, [vendorId]: { ...vendorQuoteDetails, quote } },
-    //                 },
-    //             },
-    //         };
-    //     });
-    // }, [setFormData]);
-
-    // const handleMakeChange = useCallback((itemId: string, vendorId: string, makeValue: string) => {
-    //     setFormData(prev => {
-    //         const itemDetails = prev.details[itemId] || { vendorQuotes: {}, makes: [], initialMake: undefined };
-    //         const vendorQuoteDetails = itemDetails.vendorQuotes[vendorId] || {};
-    //         return {
-    //             ...prev,
-    //             details: {
-    //                 ...prev.details,
-    //                 [itemId]: {
-    //                     ...itemDetails,
-    //                     vendorQuotes: { ...itemDetails.vendorQuotes, [vendorId]: { ...vendorQuoteDetails, make: makeValue } },
-    //                 },
-    //             },
-    //         };
-    //     });
-    // }, [setFormData]);
-
-    // const handleVendorQuoteSelectionForItem = useCallback((itemId: string, vendorId: string | null) => {
-    //     setSelectedVendorQuotes(prevMap => {
-    //         const newMap = new Map(prevMap);
-    //         if (vendorId === null || newMap.get(itemId) === vendorId) {
-    //             newMap.delete(itemId);
-    //         } else {
-    //             newMap.set(itemId, vendorId);
-    //         }
-    //         return newMap;
-    //     });
-    // }, []);
 
     const handleProceedToReviewWrapper = useCallback(async () => {
         if (currentDocumentState) {
@@ -401,6 +215,7 @@ export const useProcurementProgressLogic = ({
         }
     }, [currentDocumentState, rfqFormData, finalSelectedQuotes, actionProceedToReview]);
 
+    
     const handleRevertSelectionsWrapper = useCallback(async () => {
         if (currentDocumentState) {
             await actionRevertChanges(currentDocumentState);
@@ -442,13 +257,9 @@ export const useProcurementProgressLogic = ({
         };
     });
 }, []);
-    // Callback to update item list in currentDocumentState (e.g., if MakesSelection updates item.make)
-    // This is tricky because currentDocumentState might be from SWR and should ideally be immutable.
-    // Direct mutation is generally discouraged. A better pattern might be for MakesSelection
-    // to call a handler that updates rfqFormData, and then if item.make needs to persist
-    // outside RFQ (on the item itself), it's done during a save operation.
-    // For now, providing a controlled way to update the *local copy* currentDocumentState.
-    const updateCurrentDocumentStateItemList = useCallback((updater: (prevItems: ProgressItem[]) => ProgressItem[]) => {
+
+
+const updateCurrentDocumentStateItemList = useCallback((updater: (prevItems: ProgressItem[]) => ProgressItem[]) => {
         setCurrentDocumentState(prevDoc => {
             if (!prevDoc) return undefined;
             const currentItems = getItemListFromDocument(prevDoc);
@@ -508,7 +319,12 @@ export const useProcurementProgressLogic = ({
         handleMakeChange,          // from RFQManager
         handleTaxChange, //from RFQManager EXPORT THE NEW HANDLER
         handleFinalVendorSelectionForItem: handleVendorQuoteSelectionForItem, // from RFQManager
-
+// --- ADD THESE NEW HANDLERS TO BE EXPORTED ---
+    onAddCharges,
+    onUpdateCharge,
+    onDeleteCharge,
+     availableChargeTemplates,
+    //----
         // Actions
         handleModeChange: handleModeChangeWrapper,
         handleProceedToReview: handleProceedToReviewWrapper,

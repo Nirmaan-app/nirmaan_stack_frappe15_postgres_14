@@ -199,6 +199,7 @@ const {
     delayedItemsTotalInclGst,
   } = useMemo(() => generateActionSummary(), [generateActionSummary]);
 
+
 if (procurement_request_loading || vendor_list_loading || usersListLoading) return <LoadingFallback />
 
   if (orderData?.workflow_state !== "In Progress") {

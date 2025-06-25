@@ -253,7 +253,6 @@ export const SBQuotesSelectionReview: React.FC = () => {
    
 
     if (sent_back_loading || vendor_list_loading) return <LoadingFallback />
-
     return (
         <>
             {orderData &&

@@ -1,3 +1,4 @@
+
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
@@ -60,7 +61,7 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
 
         // Transform currentDoc.order_list based on selections to create the new order_list payload
         const newOrderListPayload: Partial<ProcurementRequestItemDetail>[] = [];
-        
+
         const currentItemsFromDoc = getItemListFromDocument(currentDoc); // Returns ProgressItem[]
 
         currentItemsFromDoc.forEach((docItem: ProgressItem) => {
@@ -110,9 +111,9 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
             rfq_data: rfqDataPayload === null ? { selectedVendors: [], details: {} } : rfqDataPayload,
             workflow_state: workflowStateUpdate || currentDoc.workflow_state,
             // Assign the new child table directly
-            order_list: newOrderListPayload as ProcurementRequestItemDetail[], 
+            order_list: newOrderListPayload as ProcurementRequestItemDetail[],
         };
-        
+
         // Remove old JSON list fields if they are part of ProgressDocument type but no longer used
         if ('procurement_list' in updatePayload) delete (updatePayload as any).procurement_list;
         if ('item_list' in updatePayload) delete (updatePayload as any).item_list;
@@ -125,7 +126,7 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
 
             // Clear draft after successful save
             localStorage.removeItem(`rfqDraft_${docId}`);
-            
+
             return true; // Indicate success
         } catch (error: any) {
             console.error(`Error updating ${currentDoc.doctype} ${docId}:`, error);
@@ -137,23 +138,151 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
     }, [docId, updateDoc, docMutate, globalSWRMutate, toast]);
 
 
+
     const handleProceedToReview = useCallback(async (
         currentDoc: ProgressDocument,
         currentRfqData: RFQData,
         currentSelectedVendorQuotes: Map<string, string>
     ) => {
-        const success = await _updateDocument(currentDoc, currentRfqData, currentDoc.workflow_state, currentSelectedVendorQuotes);
-        if (success) {
-            toast({ title: "Selections Saved", description: "Proceeding to review mode.", variant: "success" });
-            if(currentDoc.doctype === "Procurement Requests") {
-                navigate(`/procurement-requests/${docId}?tab=In+Progress&mode=review`); // Or appropriate path
-            } else if (currentDoc.doctype === "Sent Back Category") {
-                navigate(`/sent-back-requests/${docId}?mode=review`);
-            }
+
+         // --- STEP 1: VALIDATION LOGIC ---
+    const uniqueSelectedVendors = new Set(currentSelectedVendorQuotes.values());
+    const vendorsWithOnlyCharges: string[] = [];
+    const itemCategoryMap = new Map(getItemListFromDocument(currentDoc).map(item => [item.item_id, item.category]));
+
+    uniqueSelectedVendors.forEach(vendorId => {
+        const itemsForThisVendor = Array.from(currentSelectedVendorQuotes.entries())
+            .filter(([itemId, v]) => v === vendorId)
+            .map(([itemId, v]) => itemId);
+
+        const hasOnlyCharges = itemsForThisVendor.every(itemId => {
+            return itemCategoryMap.get(itemId) === 'Additional Charges';
+        });
+
+        if (hasOnlyCharges && itemsForThisVendor.length > 0) {
+            vendorsWithOnlyCharges.push(vendorId);
         }
-    }, [_updateDocument, docId, navigate, toast]);
+    });
+
+    if (vendorsWithOnlyCharges.length > 0) {
+        // --- THE CHANGE: We now get the vendor names from `currentRfqData` ---
+        const vendorNames = vendorsWithOnlyCharges
+            .map(id => {
+                // Find the vendor in the rfqData's selectedVendors array.
+                const vendorInfo = currentRfqData.selectedVendors.find(v => v.value === id);
+                return vendorInfo ? vendorInfo.label : id; // Use the label if found, otherwise fall back to the ID.
+            })
+            .join(', ');
+        
+        toast({
+            title: "Invalid Selection",
+            description: `You have selected charges for "${vendorNames}" without selecting any of their main products. Please deselect these charges or add a product from this vendor or Remove Vendor.`,
+            variant: "destructive",
+            duration: 10000,
+        });
+        return; 
+    }
+    // --- END OF VALIDATION For Remove vendor or Charge for That vendor  ---
+        setIsRedirecting("review_save");
+        const approvedProductItems: Partial<ProcurementRequestItemDetail>[] = [];
+        const delayedProductItems: Partial<ProcurementRequestItemDetail>[] = [];
+
+        const allProductItems = getItemListFromDocument(currentDoc)
+            .filter(item => item.category !== 'Additional Charges');
+
+            console.log("allProductItems",allProductItems)
+
+        // 1. Loop through all product items to determine their fate
+        allProductItems.forEach(docItem => {
+            const selectedVendorId = currentSelectedVendorQuotes.get(docItem.item_id);
+
+            if (selectedVendorId) {
+                // This item has a selected vendor, so put it in the "approved" bowl.
+                const quoteData = currentRfqData.details[docItem.item_id]?.vendorQuotes[selectedVendorId];
+                approvedProductItems.push({
+                    ...docItem,
+                    vendor: selectedVendorId,
+                    quote: parseNumber(quoteData?.quote),
+                    make: quoteData?.make || docItem.make,
+                    status: 'Pending' // Its status is still "Pending" for the next approval step.
+                });
+            } else {
+                // **THE FIX:** This item was NOT selected. Put it in the "delayed" bowl.
+                delayedProductItems.push({
+                    ...docItem,
+                    status: 'Delayed', // We explicitly change the status here!
+                    vendor: undefined,   // We also clear out any old vendor data.
+                    quote: undefined,
+                });
+            }
+        });
+
+        // 2. --- MODIFIED: Prepare final charges list from rfqFormData ---
+        const finalChargesList: Partial<ProcurementRequestItemDetail>[] = [];
+        
+        if (currentRfqData.chargesByVendor) {
+            const selectedVendors = new Set(currentSelectedVendorQuotes.values());
+            Object.entries(currentRfqData.chargesByVendor).forEach(([vendorId, charges]) => {
+                // Only include charges for vendors who have at least one item selected
+                if (selectedVendors.has(vendorId)) {
+                    charges.forEach(charge => {
+                        // Only include charges that have a quote entered
+                        if (charge.quote > 0) {
+                            finalChargesList.push({
+                                // --- THIS IS THE KEY CHANGE ---
+                                // We use the stored identifiers from the charge item
+                                item_id: charge.item_id,
+                                item_name: charge.item_name,
+                                // ---
+                                category: 'Additional Charges',
+                                unit: 'NOS',
+                                quantity: 1,
+                                tax: charge.tax,
+                                quote: charge.quote,
+                                vendor: vendorId,
+                                status: 'Pending', // Or appropriate status
+                                procurement_package: currentDoc.procurement_package || '',
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        // 3. Combine the lists and create the final payload
+        const finalPayload: Partial<ProgressDocument> = {
+            rfq_data: currentRfqData,
+            order_list: [
+                ...approvedProductItems,
+                ...delayedProductItems,
+                ...finalChargesList
+            ] as ProcurementRequestItemDetail[],
+        };
+        // This is just cleaning the temporary payload object before sending it
+        if ('procurement_list' in finalPayload) delete (finalPayload as any).procurement_list;
+        if ('item_list' in finalPayload) delete (finalPayload as any).item_list;
+
+        // 4. Save to backend and navigate
+        try {
+            await updateDoc(currentDoc.doctype, docId, finalPayload);
+            await docMutate();
+            localStorage.removeItem(`rfqDraft_${docId}`);
+            toast({ title: "Selections Saved", description: "Proceeding to final review.", variant: "success" });
+
+            const reviewUrl = currentDoc.doctype === "Procurement Requests"
+                ? `/procurement-requests/${docId}?tab=In+Progress&mode=review`
+                : `/sent-back-requests/${docId}?mode=review`;
+            navigate(reviewUrl);
+
+        } catch (error: any) {
+            toast({ title: "Error", description: `Could not save final selections: ${error.message}`, variant: "destructive" });
+        } finally {
+            setIsRedirecting("");
+        }
+    }, [docId, navigate, updateDoc, docMutate]);
 
 
+    //-------
     const handleRevertPRChanges = useCallback(async (currentDoc: ProgressDocument) => {
         const success = await _updateDocument(currentDoc, null, "Approved"); // Pass null to clear rfq_data
         if (success) {
@@ -162,18 +291,18 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
             navigate(`/procurement-requests?tab=New%20PR%20Request`); // Example
         }
     }, [_updateDocument, docId, navigate, toast]);
-    
+
     // If you need a function just to save the draft without navigation or workflow change:
     const handleSaveDraft = useCallback(async (
         currentDoc: ProgressDocument,
         currentRfqData: RFQData,
         currentSelectedVendorQuotes: Map<string, string>
     ) => {
-         const success = await _updateDocument(currentDoc, currentRfqData, currentDoc.workflow_state, currentSelectedVendorQuotes);
-         if (success) {
+        const success = await _updateDocument(currentDoc, currentRfqData, currentDoc.workflow_state, currentSelectedVendorQuotes);
+        if (success) {
             toast({ title: "Draft Saved", description: "Your RFQ progress has been saved.", variant: "success" });
-         }
-         return success;
+        }
+        return success;
     }, [_updateDocument, toast]);
 
 
@@ -185,3 +314,4 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
         isRedirecting, // For UI feedback during navigation post-action
     };
 };
+
