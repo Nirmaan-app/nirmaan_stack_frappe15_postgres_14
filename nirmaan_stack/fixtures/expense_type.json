@@ -2,13 +2,6 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_name": "Advertising & Marketing",
-  "modified": "2025-06-23 20:42:30.347237",
-  "name": "Advertising & Marketing"
- },
- {
-  "docstatus": 0,
-  "doctype": "Expense Type",
   "expense_name": "Bank Interest",
   "modified": "2025-06-23 20:42:45.431102",
   "name": "Bank Interest"
@@ -47,13 +40,6 @@
   "expense_name": "Repair & Maintenance",
   "modified": "2025-06-23 20:44:34.711493",
   "name": "Repair & Maintenance"
- },
- {
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_name": "Internet & Mobile Charges",
-  "modified": "2025-06-23 20:44:48.584868",
-  "name": "Internet & Mobile Charges"
  },
  {
   "docstatus": 0,
@@ -117,6 +103,48 @@
   "expense_name": "Bank Fees & Charges",
   "modified": "2025-06-23 16:09:12.362624",
   "name": "Bank Fees & Charges"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Fixed Deposit",
+  "modified": "2025-06-25 13:57:48.398556",
+  "name": "Fixed Deposit"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Staff Welfare Expenses",
+  "modified": "2025-06-25 13:58:27.354822",
+  "name": "Staff Welfare Expenses"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Loan Repayment",
+  "modified": "2025-06-25 13:58:52.397093",
+  "name": "Loan Repayment"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Professional Charges",
+  "modified": "2025-06-25 13:59:06.140830",
+  "name": "Professional Charges"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Advertising & Marketing",
+  "modified": "2025-06-23 20:42:30.347237",
+  "name": "Advertising & Marketing"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Internet & Mobile Charges",
+  "modified": "2025-06-23 20:44:48.584868",
+  "name": "Internet & Mobile Charges"
  },
  {
   "docstatus": 0,
