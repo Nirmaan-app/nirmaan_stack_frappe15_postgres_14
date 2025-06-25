@@ -1,8 +1,8 @@
-import React, { useCallback, useContext, useEffect, useMemo } from "react";
+import React, { useCallback, useState, useContext, useEffect, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter } from "frappe-react-sdk";
-import { Download, Info } from "lucide-react";
+import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { Download, Info, MoreHorizontal, Edit2, Trash2, PlusCircle } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
@@ -10,10 +10,23 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
+import { Button } from "@/components/ui/button"; // NEW
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"; // NEW
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from "@/components/ui/alert-dialog"; // NEW: For delete confirmation
+import { useToast } from "@/components/ui/use-toast"; // NEW
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
+import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { memoize } from "lodash";
 
@@ -30,10 +43,13 @@ import {
     getInflowStaticFilters
 } from './config/inflowPaymentsTable.config';
 import { getCustomerListOptions, getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { useDialogStore } from "@/zustand/useDialogStore"; // NEW
 
 // --- Child Component (Dialog for new inflow) ---
 import { NewInflowPayment } from "./components/NewInflowPayment";
+import { EditInflowPayment } from "./components/EditInflowPayment"; // NEW
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { useUserData } from "@/hooks/useUserData";
 
 // --- Constants ---
 const DOCTYPE = 'Project Inflows';
@@ -52,12 +68,24 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     projectId,
     urlContext = "default" // Default context key
 }) => {
-    // const { toggleNewInflowDialog } = useDialogStore(); // From Zustand
+    const {
+        toggleNewInflowDialog,  // For "Add New" button
+        setEditInflowDialog,    // NEW: For Edit dialog
+        deleteConfirmationDialog, // NEW: For delete confirmation
+        setDeleteConfirmationDialog // NEW
+    } = useDialogStore();
+    const { toast } = useToast(); // NEW
+    const { role } = useUserData(); // NEW: Get user role for permissions
+    const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // NEW
 
     // Dynamic URL key for this table instance
     const urlSyncKey = useMemo(() =>
         `inflow_${urlContext}_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')}`,
         [urlContext, customerId, projectId]);
+
+    // State for dialogs and selected item
+    const [inflowToEdit, setInflowToEdit] = useState<ProjectInflows | null>(null); // NEW
+    const [inflowToDelete, setInflowToDelete] = useState<ProjectInflows | null>(null); // NEW
 
 
     // --- Supporting Data Fetches ---
@@ -101,6 +129,31 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     const fieldsToFetch = DEFAULT_INFLOW_FIELDS_TO_FETCH;
     const searchableFields = INFLOW_SEARCHABLE_FIELDS;
     const dateColumns = INFLOW_DATE_COLUMNS;
+
+    // --- NEW: Handlers for Edit and Delete ---
+    const handleOpenEditDialog = useCallback((inflow: ProjectInflows) => {
+        setInflowToEdit(inflow);
+        setEditInflowDialog(true);
+    }, [setEditInflowDialog]);
+
+    const handleOpenDeleteConfirmation = useCallback((inflow: ProjectInflows) => {
+        setInflowToDelete(inflow);
+        setDeleteConfirmationDialog(true);
+    }, [setDeleteConfirmationDialog]);
+
+    const confirmDeleteItem = async () => {
+        if (!inflowToDelete) return;
+        try {
+            await deleteDoc(DOCTYPE, inflowToDelete.name);
+            toast({ title: "Success", description: `Inflow "${inflowToDelete.utr || inflowToDelete.name}" deleted.`, variant: "success" });
+            refetch(); // Refetch table data
+        } catch (error: any) {
+            toast({ title: "Error", description: error.message || "Failed to delete inflow.", variant: "destructive" });
+        } finally {
+            setInflowToDelete(null);
+            setDeleteConfirmationDialog(false);
+        }
+    };
 
 
     // --- Column Definitions ---
@@ -196,8 +249,45 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             meta: {
                 excludeFromExport: true, // Exclude from export
             }
-        },
-    ], [projectOptions, customerOptions, getProjectName, getCustomerName, projectId, customerId]);
+        },// --- NEW: Actions Column ---
+        ...(role === "Nirmaan Admin Profile" ? [
+            {
+                id: "actions",
+                header: () => <div >Actions</div>,
+                cell: ({ row }) => {
+                    const inflow = row.original;
+                    return (
+                        <div>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" className="h-8 w-8 p-0">
+                                        <span className="sr-only">Open menu</span>
+                                        <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleOpenEditDialog(inflow)}>
+                                        <Edit2 className="mr-2 h-4 w-4" /> Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        onClick={() => handleOpenDeleteConfirmation(inflow)}
+                                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    );
+                },
+                size: 80, // Adjust size as needed
+                enableSorting: false,
+                meta: { excludeFromExport: true }
+            }
+        ] : []),
+        // --- End Actions Column ---
+    ], [getProjectName, getCustomerName, projectId, customerId, handleOpenEditDialog, handleOpenDeleteConfirmation]); // Added new handlers to dependencies
 
 
     // --- Faceted Filter Options ---
@@ -212,8 +302,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     // --- Use the Server Data Table Hook ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
-        searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        isRowSelectionActive
+        searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField
         , refetch,
     } = useServerDataTable<ProjectInflows>({
         doctype: DOCTYPE,
@@ -231,8 +320,8 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     const isLoadingOverall = projectsLoading || customersLoading;
     const combinedErrorOverall = projectsError || customersError || listError;
 
-    if (combinedErrorOverall && !data?.length) {
-        <AlertDestructive error={combinedErrorOverall} />
+    if (combinedErrorOverall && !data?.length && !isLoadingOverall && !listIsLoading) { // Check loading states too
+        return <AlertDestructive error={combinedErrorOverall} />;
     }
 
     return (
@@ -266,6 +355,40 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 />
             )}
             <NewInflowPayment refetch={refetch} />
+            {inflowToEdit && ( // NEW: Render Edit Dialog
+                <EditInflowPayment
+                    inflowToEdit={inflowToEdit}
+                    onSuccess={() => {
+                        refetch();
+                        setEditInflowDialog(false); // Close dialog on success
+                    }}
+                />
+            )}
+
+            {/* NEW: Delete Confirmation Dialog */}
+            {inflowToDelete && (
+                <AlertDialog open={deleteConfirmationDialog} onOpenChange={setDeleteConfirmationDialog}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete the inflow payment
+                                for <span className="font-semibold mx-1">{inflowToDelete.utr || inflowToDelete.name}</span>.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setInflowToDelete(null)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={confirmDeleteItem}
+                                disabled={deleteLoading}
+                                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                            >
+                                {deleteLoading ? "Deleting..." : "Yes, delete inflow"}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            )}
         </div>
     );
 };
