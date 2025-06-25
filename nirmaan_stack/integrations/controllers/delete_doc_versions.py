@@ -148,6 +148,50 @@ def generate_versions(doc, method):
         }
         data["changed"].append(["user_details", serialize_dates(original_data), []])
     
+    elif doc.doctype == "Non Project Expenses":
+        previous_state = ""
+        original_data = {
+            "type": doc.type,
+            "description": doc.description,
+            "amount" : doc.amount,
+            "payment_ref" : doc.payment_ref,
+            "payment_date": doc.payment_date,
+            "invoice_ref": doc.invoice_ref,
+            "invoice_date": doc.invoice_date,
+            "owner": doc.owner,
+            "creation": doc.creation,    # Let serialize_dates handle this
+            "modified": doc.modified,  # Let serialize_dates handle this
+        }
+        data["changed"].append(["non_project_expense_details", serialize_dates(original_data), []])
+
+    elif doc.doctype == "Project Invoices":
+        previous_state = ""
+        original_data = {
+            "project": doc.project,
+            "customer": doc.customer,
+            "invoice_no" : doc.invoice_no,
+            "invoice_date" : doc.invoice_date,
+            "amount": doc.amount,
+            "owner": doc.owner,
+            "creation": doc.creation,    # Let serialize_dates handle this
+            "modified": doc.modified,  # Let serialize_dates handle this
+        }
+        data["changed"].append(["project_invoice_details", serialize_dates(original_data), []])
+
+    elif doc.doctype == "Project Inflows":
+        previous_state = ""
+        original_data = {
+            "project": doc.project,
+            "customer": doc.customer,
+            "amount" : doc.amount,
+            "utr" : doc.utr,
+            "payment_date": doc.payment_date,
+            "owner": doc.owner,
+            "creation": doc.creation,    # Let serialize_dates handle this
+            "modified": doc.modified,  # Let serialize_dates handle this
+        }
+        data["changed"].append(["project_inflow_details", serialize_dates(original_data), []])
+    
     else:
         # If the doctype is not handled, log it and return early to prevent errors
         # Or, if you want a generic versioning, create a generic data structure
