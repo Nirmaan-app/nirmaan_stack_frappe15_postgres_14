@@ -22,7 +22,7 @@ import {
 } from "./config/projectInvoices.config"
 import { useUserData } from "@/hooks/useUserData";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { getCustomerListOptions, getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { toast } from "@/components/ui/use-toast";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { NewProjectInvoiceDialog } from "./components/NewProjectInvoiceDialog"; // Import the renamed/refactored create dialog
@@ -32,6 +32,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit dialog state
 import { Button } from "@/components/ui/button"; // For Add New button
 import { PlusCircle } from "lucide-react"; // For Add New button icon
+import { Customers } from "@/types/NirmaanStack/Customers";
 
 interface SelectOption { label: string; value: string; }
 
@@ -64,6 +65,13 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
         queryKeys.projects.list(projectsFetchOptions)
     );
 
+    const customersFetchOptions = getCustomerListOptions();
+    const { data: customers, isLoading: isCustomersLoading } = useFrappeGetDocList<Customers>(
+        "Customers", 
+        customersFetchOptions as GetDocListArgs<FrappeDoc<Customers>>, 
+        queryKeys.customers.list(customersFetchOptions)
+    );
+
     const { deleteDoc, loading: isDeleting } = useFrappeDeleteDoc();
 
     // =================================================================================
@@ -72,6 +80,11 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     const getProjectName = useCallback(
       memoize((projId?: string) => projects?.find(p => p.name === projId)?.project_name || projId || "--"),
       [projects]
+    );
+
+    const getCustomerName = useCallback(
+      memoize((custId?: string) => customers?.find(p => p.name === custId)?.company_name || custId || "--"),
+      [customers]
     );
 
     const handleOpenDeleteDialog = useCallback((invoice: ProjectInvoice) => {
@@ -103,15 +116,17 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
         () => getProjectInvoiceColumns({
             isAdmin,
             getProjectName,
+            getCustomerName,
             onDelete: handleOpenDeleteDialog,
             onEdit: handleOpenEditDialog, // --- (Indicator) Pass onEdit handler ---
         }),
-        [isAdmin, getProjectName, handleOpenDeleteDialog, handleOpenEditDialog] // Add handleOpenEditDialog to dependencies
+        [isAdmin, getProjectName, getCustomerName, handleOpenDeleteDialog, handleOpenEditDialog] // Add handleOpenEditDialog to dependencies
     );
 
     const facetOptionsConfig = useMemo(() => ({
         project: { title: "Project", options: projects?.map(p => ({ label: p.project_name, value: p.name })) || [] },
-    }), [projects]);
+        customer: { title: "Customer", options: customers?.map(p => ({ label: p.company_name, value: p.name })) || [] },
+    }), [projects, customers]);
 
     const {      
         table,
@@ -135,7 +150,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     // =================================================================================
     // 4. RENDER LOGIC
     // =================================================================================
-    const isLoadingOverall = isDataLoading || isProjectsLoading;
+    const isLoadingOverall = isDataLoading || isProjectsLoading || isCustomersLoading;
 
     return (
         <div className="flex-1 space-y-4">

@@ -8,6 +8,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
+import SITEURL from "@/constants/siteURL";
 
 // =================================================================================
 // 1. STATIC CONFIGURATION
@@ -15,7 +16,7 @@ import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 export const DOCTYPE = "Project Invoices";
 
 export const PROJECT_INVOICE_FIELDS_TO_FETCH = [
-    "name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date"
+    "name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "customer"
 ];
 
 export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -30,10 +31,12 @@ export const PROJECT_INVOICE_DATE_COLUMNS = ["invoice_date"];
 // 2. TYPES & INTERFACES FOR COLUMN GENERATION
 // =================================================================================
 type ProjectNameResolver = (projectId?: string) => string;
+type CustomerNameResolver = (customerId?: string) => string;
 
 interface ColumnGeneratorOptions {
     isAdmin: boolean;
     getProjectName: ProjectNameResolver;
+    getCustomerName: CustomerNameResolver;
     onDelete: (invoice: ProjectInvoice) => void;
     onEdit: (invoice: ProjectInvoice) => void; // --- (Indicator) NEW: onEdit callback ---
 }
@@ -45,14 +48,14 @@ export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
 
-    const { isAdmin, getProjectName, onDelete, onEdit } = options; // Destructure onEdit
+    const { isAdmin, getProjectName, getCustomerName, onDelete, onEdit } = options; // Destructure onEdit
 
     const columns: ColumnDef<ProjectInvoice>[] = [
         {
             accessorKey: "invoice_no",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice No." />,
             cell: ({ row }) => (
-                <Link to={row.original.attachment || '#'} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                <Link to={SITEURL + row.original.attachment || '#'} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
                     {row.original.invoice_no || row.original.name}
                 </Link>
             ),
@@ -73,6 +76,23 @@ export const getProjectInvoiceColumns = (
             meta: {
                 exportHeaderName: "Project",
                 exportValue: (row: ProjectInvoice) => getProjectName(row.project)
+            }
+        },
+        {
+            accessorKey: "customer",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />,
+            cell: ({ row }) => {
+                const customerName = getCustomerName(row.original.customer)
+                return (
+                    <Link to={`/customers/${row.original.customer}`} className="text-blue-600 hover:underline">
+                        {customerName || row.original.customer}
+                    </Link>
+                );
+            },
+            filterFn: facetedFilterFn,
+            meta: {
+                exportHeaderName: "Customer",
+                exportValue: (row: ProjectInvoice) => getCustomerName(row.customer)
             }
         },
         {
