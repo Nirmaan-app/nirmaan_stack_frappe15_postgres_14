@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
@@ -305,7 +305,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
                 exportValue: (row: ProcurementRequest) => {
                     const derivedStatus = prStatuses[row.name];
                     const estimateTotal = getPREstimatedTotal(row, derivedStatus, po_data);
-                    return formatToRoundedIndianRupee(estimateTotal)
+                    return formatForReport(estimateTotal)
                 }
             }
 
@@ -363,14 +363,14 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
     // }, [pr_data_from_hook]);
 
     const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
-            "Procurement Packages", {
-                fields: ["work_package_name"],
-                orderBy: { field: "work_package_name", order: "asc" },
-                limit: 0,
-            },
-            "All_Work_Packages"
-        );
-    
+        "Procurement Packages", {
+        fields: ["work_package_name"],
+        orderBy: { field: "work_package_name", order: "asc" },
+        limit: 0,
+    },
+        "All_Work_Packages"
+    );
+
     const workPackageOptions = useMemo(() => {
         if (!wp_list) return [];
         return wp_list.map(wp => ({ label: wp.work_package_name!, value: wp.work_package_name! }));

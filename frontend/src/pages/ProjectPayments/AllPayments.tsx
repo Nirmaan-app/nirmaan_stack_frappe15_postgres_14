@@ -15,7 +15,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -58,9 +58,9 @@ const AllPaymentsTableWrapper: React.FC<{
     facetFilterOptions: any;
     dateColumns: any;
     URL_SYNC_KEY: string;
-}> = ({ 
-    tab, 
-    columns, 
+}> = ({
+    tab,
+    columns,
     fieldsToFetch,
     paymentsSearchableFields,
     staticFiltersForTab,
@@ -68,42 +68,42 @@ const AllPaymentsTableWrapper: React.FC<{
     dateColumns,
     URL_SYNC_KEY
 }) => {
-    
-    // --- useServerDataTable Hook Instantiation ---
-    const {
-        table, totalCount, isLoading: listIsLoading, error: listError,
-        selectedSearchField, setSelectedSearchField,
-        searchTerm, setSearchTerm,
-    } = useServerDataTable<ProjectPayments>({
-        doctype: DOCTYPE,
-        columns: columns,
-        fetchFields: fieldsToFetch,
-        searchableFields: paymentsSearchableFields,
-        urlSyncKey: URL_SYNC_KEY,
-        defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
-        enableRowSelection: false, // No bulk actions currently
-        additionalFilters: staticFiltersForTab,
-    });
 
-    return (
-        <DataTable<ProjectPayments>
-            table={table}
-            columns={columns}
-            isLoading={listIsLoading}
-            error={listError}
-            totalCount={totalCount}
-            searchFieldOptions={paymentsSearchableFields}
-            selectedSearchField={selectedSearchField}
-            onSelectedSearchFieldChange={setSelectedSearchField}
-            searchTerm={searchTerm}
-            onSearchTermChange={setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            dateFilterColumns={dateColumns}
-            showExportButton={true}
-            onExport={'default'}
-        />
-    );
-};
+        // --- useServerDataTable Hook Instantiation ---
+        const {
+            table, totalCount, isLoading: listIsLoading, error: listError,
+            selectedSearchField, setSelectedSearchField,
+            searchTerm, setSearchTerm,
+        } = useServerDataTable<ProjectPayments>({
+            doctype: DOCTYPE,
+            columns: columns,
+            fetchFields: fieldsToFetch,
+            searchableFields: paymentsSearchableFields,
+            urlSyncKey: URL_SYNC_KEY,
+            defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
+            enableRowSelection: false, // No bulk actions currently
+            additionalFilters: staticFiltersForTab,
+        });
+
+        return (
+            <DataTable<ProjectPayments>
+                table={table}
+                columns={columns}
+                isLoading={listIsLoading}
+                error={listError}
+                totalCount={totalCount}
+                searchFieldOptions={paymentsSearchableFields}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                dateFilterColumns={dateColumns}
+                showExportButton={true}
+                onExport={'default'}
+            />
+        );
+    };
 
 export const AllPayments: React.FC<AllPaymentsProps> = ({
     tab = "Payments Pending", // Default tab
@@ -301,7 +301,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 exportHeaderName: tab === "Payments Done" ? "Amt. Paid" : "Amt. To Pay",
                 exportValue: (row: ProjectPayments) => {
                     const displayAmount = parseNumber(row.amount);
-                    return formatToRoundedIndianRupee(displayAmount);
+                    return formatForReport(displayAmount);
                 }
             }
         },

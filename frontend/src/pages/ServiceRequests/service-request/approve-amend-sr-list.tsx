@@ -12,7 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
 // --- Types ---
@@ -168,7 +168,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
             size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Amended Value",
-                exportValue: (row) => formatToRoundedIndianRupee(getTotalAmount(row.name, 'Service Requests')?.totalWithTax),
+                exportValue: (row) => formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax),
             }
         }
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, getTotalAmount]);

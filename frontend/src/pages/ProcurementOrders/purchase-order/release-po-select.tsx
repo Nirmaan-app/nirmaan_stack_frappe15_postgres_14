@@ -7,7 +7,7 @@ import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
@@ -45,48 +45,48 @@ const PODataTableWrapper: React.FC<{
     staticFiltersForTab: any[];
     facetFilterOptions: any;
     dateColumns: any;
-}> = ({ 
-    tab, 
-    columns, 
+}> = ({
+    tab,
+    columns,
     fieldsToFetch,
     poSearchableFieldsOptions,
     staticFiltersForTab,
     facetFilterOptions,
     dateColumns
 }) => {
-    // Generate urlSyncKey inside the wrapper
-    const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
-    
-    // Instantiate hook here
-    const serverDataTable = useServerDataTable<ProcurementOrdersType>({
-        doctype: DOCTYPE,
-        columns: columns,
-        fetchFields: fieldsToFetch,
-        searchableFields: poSearchableFieldsOptions,
-        urlSyncKey: dynamicUrlSyncKey,
-        defaultSort: 'modified desc',
-        additionalFilters: staticFiltersForTab,
-    });
+        // Generate urlSyncKey inside the wrapper
+        const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
 
-    return (
-        <DataTable<ProcurementOrdersType>
-            table={serverDataTable.table}
-            columns={columns}
-            isLoading={serverDataTable.isLoading}
-            error={serverDataTable.error}
-            totalCount={serverDataTable.totalCount}
-            searchFieldOptions={poSearchableFieldsOptions}
-            selectedSearchField={serverDataTable.selectedSearchField}
-            onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
-            searchTerm={serverDataTable.searchTerm}
-            onSearchTermChange={serverDataTable.setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            dateFilterColumns={dateColumns}
-            showExportButton={true}
-            onExport={'default'}
-        />
-    );
-};
+        // Instantiate hook here
+        const serverDataTable = useServerDataTable<ProcurementOrdersType>({
+            doctype: DOCTYPE,
+            columns: columns,
+            fetchFields: fieldsToFetch,
+            searchableFields: poSearchableFieldsOptions,
+            urlSyncKey: dynamicUrlSyncKey,
+            defaultSort: 'modified desc',
+            additionalFilters: staticFiltersForTab,
+        });
+
+        return (
+            <DataTable<ProcurementOrdersType>
+                table={serverDataTable.table}
+                columns={columns}
+                isLoading={serverDataTable.isLoading}
+                error={serverDataTable.error}
+                totalCount={serverDataTable.totalCount}
+                searchFieldOptions={poSearchableFieldsOptions}
+                selectedSearchField={serverDataTable.selectedSearchField}
+                onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
+                searchTerm={serverDataTable.searchTerm}
+                onSearchTermChange={serverDataTable.setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                dateFilterColumns={dateColumns}
+                showExportButton={true}
+                onExport={'default'}
+            />
+        );
+    };
 
 
 export const ReleasePOSelect: React.FC = () => {
@@ -309,19 +309,19 @@ export const ReleasePOSelect: React.FC = () => {
     const allTab = useMemo(() =>
         [
             // { label: (<div className="flex  items-center"><span>All POs</span><span className="ml-2 text-xs font-bold">{counts.po.all}</span></div>), value: "All POs" },
-           {
-            label: (
-                // Use a single container with text-center.
-                // The 'block' and 'md:inline' classes control the layout.
-                <div className="text-center">
-                    <span className="block md:inline">All POs</span>
-                    <span className="block text-xs font-bold md:inline md:ml-2">
-                        {counts.po.all}
-                    </span>
-                </div>
-            ),
-            value: "All POs"
-        },
+            {
+                label: (
+                    // Use a single container with text-center.
+                    // The 'block' and 'md:inline' classes control the layout.
+                    <div className="text-center">
+                        <span className="block md:inline">All POs</span>
+                        <span className="block text-xs font-bold md:inline md:ml-2">
+                            {counts.po.all}
+                        </span>
+                    </div>
+                ),
+                value: "All POs"
+            },
         ]
         , [counts])
 
@@ -507,7 +507,7 @@ export const ReleasePOSelect: React.FC = () => {
                     const freight = parseNumber(row.freight_charges);
 
                     const poTotal = getPOTotal({ order_list: { list: orderData } }, loading, freight);
-                    return formatToRoundedIndianRupee(poTotal?.totalAmt);
+                    return formatForReport(poTotal?.totalAmt);
                 }
             }
         },
@@ -546,7 +546,7 @@ export const ReleasePOSelect: React.FC = () => {
                     exportHeaderName: "Invoice Amount",
                     exportValue: (row) => {
                         const invoiceAmount = getTotalInvoiceAmount(row.invoice_data);
-                        return formatToRoundedIndianRupee(invoiceAmount || 0);
+                        return formatForReport(invoiceAmount || 0);
                     }
                 }
             } as ColumnDef<ProcurementOrdersType>,
@@ -571,7 +571,7 @@ export const ReleasePOSelect: React.FC = () => {
                     exportHeaderName: "Amount Paid",
                     exportValue: (row) => {
                         const amountPaid = getAmountPaid(row.name);
-                        return formatToRoundedIndianRupee(amountPaid || 0);
+                        return formatForReport(amountPaid || 0);
                     }
                 }
             } as ColumnDef<ProcurementOrdersType>
@@ -632,7 +632,7 @@ export const ReleasePOSelect: React.FC = () => {
             if (!projects || !vendorsList || !userList) {
                 return <div className="text-red-600 text-center p-4">Error loading supporting data for table view.</div>;
             }
-            
+
             // Use wrapper component with key to force complete remount
             return (
                 <PODataTableWrapper
@@ -662,7 +662,7 @@ export const ReleasePOSelect: React.FC = () => {
     return (
         <div className="flex-1 space-y-4">
             {/* <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">  */}
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
 
                 {
                     adminTabs && (

@@ -16,7 +16,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
@@ -203,7 +203,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
             meta: {
                 exportHeaderName: "Value (inc. GST)",
                 exportValue: (row: ServiceRequests) => {
-                    return formatToRoundedIndianRupee(getSRRowTotal(row.service_order_list, row.gst))
+                    return formatForReport(getSRRowTotal(row.service_order_list, row.gst))
                 }
             }
 
@@ -215,7 +215,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
             meta: {
                 exportHeaderName: "Amt. Paid",
                 exportValue: (row: ServiceRequests) => {
-                    return formatToRoundedIndianRupee(getTotalAmountPaidForSR(row.name, ["Paid"]));
+                    return formatForReport(getTotalAmountPaidForSR(row.name, ["Paid"]));
                 }
             }
         },
