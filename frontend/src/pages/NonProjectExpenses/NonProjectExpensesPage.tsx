@@ -138,8 +138,15 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             accessorKey: "description",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.description}>{row.original.description || '--'}</div>,
-            size: 140,
+            size: 100,
             meta: { exportHeaderName: "Description", exportValue: (row) => row.description || '--' }
+        },
+        {
+            accessorKey: "comment",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Comment" />,
+            cell: ({ row }) => <div className="font-medium " title={row.original.comment}>{row.original.comment || '--'}</div>,
+            size: 100,
+            meta: { exportHeaderName: "Comment", exportValue: (row) => row.comment || '--' }
         },
         {
             accessorKey: "amount",
@@ -152,14 +159,14 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             accessorKey: "payment_ref",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Ref" />,
             cell: ({ row }) => <div className="font-medium">{row.original.payment_ref || '--'}</div>,
-            size: 100,
+            size: 60,
             meta: { exportHeaderName: "Payment Ref", exportValue: (row) => row.payment_ref || '--' }
         },
         {
             accessorKey: "invoice_ref",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Ref" />,
             cell: ({ row }) => <div className="font-medium">{row.original.invoice_ref || '--'}</div>,
-            size: 100,
+            size: 60,
             meta: { exportHeaderName: "Invoice Ref", exportValue: (row) => row.invoice_ref || '--' }
         },
         {
@@ -185,7 +192,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                     </div>
                 )
             },
-            size: 100,
+            size: 60,
             enableSorting: false,
             meta: { excludeFromExport: true }
         },
@@ -229,7 +236,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                     </div>
                 );
             },
-            size: 80,
+            size: 60,
             meta: { excludeFromExport: true }
         },
     ], [handleOpenPaymentUpdateDialog, handleOpenInvoiceUpdateDialog, handleOpenEditDialog, handleOpenDeleteConfirmation]);

@@ -8,6 +8,7 @@
   "details_section",
   "type",
   "description",
+  "comment",
   "amount",
   "payment_details_section",
   "payment_attachment",
@@ -79,12 +80,17 @@
    "fieldname": "invoice_date",
    "fieldtype": "Date",
    "label": "Invoice Date"
+  },
+  {
+   "fieldname": "comment",
+   "fieldtype": "Data",
+   "label": "Comment"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-06-24 04:01:56.048782",
+ "modified": "2025-06-26 17:55:26.582929",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Non Project Expenses",

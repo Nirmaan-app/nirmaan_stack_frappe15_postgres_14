@@ -9,8 +9,8 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
     "modified",
     "owner",
     "type",
-    "type.expense_type_name as expense_type_name", // Fetching linked field
     "description",
+    "comment",
     "amount",
     "payment_date",
     "payment_ref",
@@ -22,6 +22,7 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
 
 export const NPE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "description", label: "Description", placeholder: "Search by Description...", default: true },
+    { value: "comment", label: "Comment", placeholder: "Search by comment..." },
     { value: "payment_ref", label: "Payment Ref", placeholder: "Search by Payment Ref..." },
     { value: "invoice_ref", label: "Invoice Ref", placeholder: "Search by Invoice Ref..." },
     { value: "amount", label: "Amount", placeholder: "Search by Amount..." },
