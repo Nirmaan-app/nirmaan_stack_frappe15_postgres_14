@@ -284,7 +284,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             meta: {
                 exportHeaderName: "PO Value",
                 exportValue: (row: ProjectPayments) => {
-                    return formatToRoundedIndianRupee(getDocumentTotal(row.document_name, row.document_type));
+                    return formatForReport(getDocumentTotal(row.document_name, row.document_type));
                 }
             }
         },

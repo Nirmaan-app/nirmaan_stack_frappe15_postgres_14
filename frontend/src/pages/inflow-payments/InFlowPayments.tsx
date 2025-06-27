@@ -27,7 +27,7 @@ import { useToast } from "@/components/ui/use-toast"; // NEW
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { memoize } from "lodash";
 
 // --- Types ---
@@ -238,7 +238,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             meta: {
                 exportHeaderName: "Amount Received",
                 exportValue: (row) => {
-                    return formatToRoundedIndianRupee(row.amount)
+                    return formatForReport(row.amount)
                 }
             }
         },

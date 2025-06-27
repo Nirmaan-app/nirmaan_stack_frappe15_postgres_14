@@ -29,7 +29,7 @@ import {
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable'; // Your hook
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
 
 // --- Types ---
@@ -153,7 +153,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-end" />,
             cell: ({ row }) => <div className="font-medium ">{formatToRoundedIndianRupee(row.original.amount)}</div>,
             size: 100,
-            meta: { exportHeaderName: "Amount", exportValue: (row) => formatToRoundedIndianRupee(row.amount) }
+            meta: { exportHeaderName: "Amount", exportValue: (row) => formatForReport(row.amount) }
         },
         {
             accessorKey: "payment_ref",
