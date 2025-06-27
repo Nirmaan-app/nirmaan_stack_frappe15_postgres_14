@@ -4,7 +4,7 @@ import {
     RFQData // Assuming RFQData is still relevant and its keys match item_id
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { ApprovedQuotations as GlobalApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations"; // For historical data
-
+import {VendorPaymentTerm} from "@/types/NirmaanStack/ProcurementRequests";
 // --- Main Document Type for this flow ---
 // Ensure this uses order_list
 export interface ApproveQuotesPRDoc extends Omit<GlobalProcurementRequest, 'procurement_list'> {
@@ -36,6 +36,7 @@ export interface VendorGroupForTable {
     items: VendorItemDetailsToDisplay[]; // Items quoted by this vendor
     potentialSavingLossForVendor?: number; // Sum of savingLoss for items from this vendor
     key: string; // Unique key for React list
+    paymentTerms?: VendorPaymentTerm;
 }
 
 // --- Selection State ---

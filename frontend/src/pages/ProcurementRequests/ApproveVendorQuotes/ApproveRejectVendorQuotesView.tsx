@@ -61,7 +61,8 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
         ) || [];
     }, [prData?.order_list]); // Depend on the full order_list from the initially fetched prData
 
-    // console.log("prComments", prComments)
+    const ParsedPayment_terms=JSON.parse(orderData?.payment_terms)
+    console.log("orderData", ParsedPayment_terms.list)
 
     return (
         <div className="flex-1 space-y-4 p-4 md:p-6">
@@ -76,6 +77,7 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
                 selection={selectionMap}
+                paymentTerms={ParsedPayment_terms.list||[]}
             // Pass initial selection if needed
             />
 

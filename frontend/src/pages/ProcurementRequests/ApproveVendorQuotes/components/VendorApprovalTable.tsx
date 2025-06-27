@@ -11,6 +11,9 @@ import { SelectionState, VendorGroupForTable, VendorItemDetailsToDisplay } from 
 import formatToIndianRupee, { formatToRoundedIndianRupee } from '@/utils/FormatPrice'; // Adjust path
 import { HistoricalQuotesHoverCard } from '../../VendorQuotesSelection/components/HistoricalQuotesHoverCard';
 import { parseNumber } from '@/utils/parseNumber';
+import { VendorPaymentTerm } from "../../VendorQuotesSelection/types/paymentTerms"
+import { PaymentTermsDetailsDisplay } from "../../VendorQuotesSelection/components/PaymentTermsDetailsDisplay"
+
 
 interface VendorApprovalTableProps {
     dataSource: VendorGroupForTable[];
@@ -21,12 +24,14 @@ interface VendorApprovalTableProps {
     // Keep accordion state internal for simplicity unless external control is needed
     // expandedVendorIds?: string[];
     // onExpandedChange?: (expandedIds: string[]) => void;
+    paymentTerms: VendorPaymentTerm[]
 }
 
 export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
     dataSource = [],
     selection, // Use the passed selection state
     onSelectionChange,
+    paymentTerms = []
 }) => {
     // State for controlling accordion expansion remains internal
     const [openAccordionItems, setOpenAccordionItems] = React.useState<string[]>([]);
@@ -124,6 +129,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                     const { vendorId, vendorName, totalAmount, items, key, potentialSavingLossForVendor } = vendorItem;
                     // Calculate state based on the selection prop
                     const vendorState = getVendorCheckboxState(vendorId, items.length);
+                                                const termsForThisVendor = paymentTerms[vendorId];
+
 
                     return (
                         <AccordionItem value={vendorId} key={key} className="border rounded-md overflow-hidden bg-white shadow-sm">
@@ -207,14 +214,16 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
 
                                                 const baseItemTotal = quantity * quote;
                                                 const itemTotalInclGst = baseItemTotal * (1 + taxRate);
-                                                
+
+
                                                 return (
+
                                                     <TableRow key={item.name}>
                                                         <TableCell className="px-4">
                                                             <Checkbox
                                                                 id={`item-${vendorId}-${item.name}`}
                                                                 checked={isItemSelected} // Use checked state from prop
-                                                                onCheckedChange={(checkedState) => handleItemCheckChange(vendorId, item.name, checkedState)}
+                                                                onCheckedChange={(checkedState) => handleItemCheckChange(vendorId, item.name!, checkedState)}
                                                                 aria-label={`Select item ${item.item_name}`}
                                                             />
                                                         </TableCell>
@@ -259,12 +268,21 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                         </TableCell>
                                                         <TableCell className="text-right">{formatToIndianRupee(itemTotalInclGst)}</TableCell>
                                                     </TableRow>
+
+
+
                                                 );
                                             })}
+                                           
                                         </TableBody>
+                                        
                                     </Table>
+                                    <div className="p-4 bg-primary/20">
+                                        <PaymentTermsDetailsDisplay terms={termsForThisVendor} />                                        
+                                    </div>
                                 </CardContent>
                             </AccordionContent>
+                             
                         </AccordionItem>
                     );
                 })}

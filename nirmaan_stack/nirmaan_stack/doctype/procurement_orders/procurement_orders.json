@@ -23,6 +23,7 @@
   "order_list",
   "category_list",
   "items",
+  "payment_terms",
   "payment_terms_section",
   "advance",
   "amount",
@@ -234,6 +235,12 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Total Amount (inc. Tax)"
+  },
+  {
+   "fieldname": "payment_terms",
+   "fieldtype": "Table",
+   "label": "Payment Terms",
+   "options": "PO Payment Terms"
   }
  ],
  "grid_page_length": 50,
