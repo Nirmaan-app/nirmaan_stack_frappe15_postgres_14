@@ -52,6 +52,7 @@ export function SelectVendorQuotesTable({
     updateCurrentDocumentItemList,
 }: SelectVendorQuotesTableProps) {
 
+    // console.log("currentDocument", currentDocument)
     const itemsToDisplay = getItemListFromDocument(currentDocument);
     const categoriesToDisplay = getCategoryListFromDocument(currentDocument);
 

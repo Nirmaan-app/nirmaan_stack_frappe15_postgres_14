@@ -5,6 +5,7 @@ import { useUserData } from "@/hooks/useUserData"; // Adjust path
 export interface ApprovePayload {
     project_id: string;
     pr_name: string;
+    // payment_terms: string; // JSON string
     selected_items: string[]; // Array of item names (docnames)
     selected_vendors: { [itemName: string]: string }; // Map item name to chosen vendorId
     custom: boolean;

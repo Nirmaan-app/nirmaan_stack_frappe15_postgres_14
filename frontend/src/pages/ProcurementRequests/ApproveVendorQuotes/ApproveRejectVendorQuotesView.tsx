@@ -1,4 +1,4 @@
-import React from 'react';
+import React,{useMemo} from 'react';
 import { Button } from "@/components/ui/button";
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard"; // Adjust path
 import { VendorApprovalTable } from './components/VendorApprovalTable';
@@ -61,8 +61,22 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
         ) || [];
     }, [prData?.order_list]); // Depend on the full order_list from the initially fetched prData
 
-    const ParsedPayment_terms=JSON.parse(orderData?.payment_terms)
-    console.log("orderData", ParsedPayment_terms.list)
+    // The parsing logic from before. This is still the correct way to parse.
+const parsedPaymentTerms = useMemo(() => {
+    const paymentTermsString = orderData?.payment_terms;
+    if (typeof paymentTermsString === 'string' && paymentTermsString.trim() !== '') {
+        try {
+            return JSON.parse(paymentTermsString);
+        } catch (e) {
+            console.error("Failed to parse payment_terms JSON", e);
+            return [];
+        }
+    }
+    return [];
+}, [orderData?.payment_terms]);
+
+    // const ParsedPayment_terms=JSON.parse(orderData?.payment_terms)
+    console.log("orderData", parsedPaymentTerms)
 
     return (
         <div className="flex-1 space-y-4 p-4 md:p-6">
@@ -77,7 +91,7 @@ export const ApproveRejectVendorQuotesView: React.FC<ApproveRejectVendorQuotesVi
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
                 selection={selectionMap}
-                paymentTerms={ParsedPayment_terms.list||[]}
+                paymentTerms={parsedPaymentTerms?.list||[]}
             // Pass initial selection if needed
             />
 

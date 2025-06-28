@@ -24,7 +24,7 @@ interface VendorApprovalTableProps {
     // Keep accordion state internal for simplicity unless external control is needed
     // expandedVendorIds?: string[];
     // onExpandedChange?: (expandedIds: string[]) => void;
-    paymentTerms: VendorPaymentTerm[]
+    paymentTerms?: VendorPaymentTerm[]
 }
 
 export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
@@ -277,9 +277,10 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                         </TableBody>
                                         
                                     </Table>
-                                    <div className="p-4 bg-primary/20">
+                                    {termsForThisVendor&&(<div className="p-4 bg-primary/20">
                                         <PaymentTermsDetailsDisplay terms={termsForThisVendor} />                                        
-                                    </div>
+                                    </div>)}
+                                    
                                 </CardContent>
                             </AccordionContent>
                              

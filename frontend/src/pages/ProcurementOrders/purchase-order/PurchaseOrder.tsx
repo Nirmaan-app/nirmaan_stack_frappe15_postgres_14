@@ -1,4 +1,9 @@
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -11,19 +16,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   HoverCard,
@@ -48,7 +48,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import { usePOValidation } from "@/hooks/usePOValidation";
@@ -57,7 +61,10 @@ import { useUserData } from "@/hooks/useUserData";
 import { PODetails } from "@/pages/ProcurementOrders/purchase-order/components/PODetails";
 import { POPdf } from "./components/POPdf";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import {
+  ProcurementOrder,
+  PurchaseOrderItem,
+} from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
@@ -69,7 +76,7 @@ import {
   useFrappeGetDocList,
   useFrappePostCall,
   useFrappeUpdateDoc,
-  useFrappeGetDoc
+  useFrappeGetDoc,
 } from "frappe-react-sdk";
 import {
   AlertTriangle,
@@ -86,7 +93,7 @@ import {
   Split,
   Trash2,
   Undo,
-  X
+  X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -103,7 +110,6 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 
-
 interface PurchaseOrderProps {
   summaryPage?: boolean;
   accountsPage?: boolean;
@@ -113,11 +119,13 @@ export const PurchaseOrder = ({
   summaryPage = false,
   accountsPage = false,
 }: PurchaseOrderProps) => {
-
-  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO")
+  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO");
 
   const userData = useUserData();
-  const estimatesViewing = useMemo(() => userData?.role === "Nirmaan Estimates Executive Profile", [userData?.role]);
+  const estimatesViewing = useMemo(
+    () => userData?.role === "Nirmaan Estimates Executive Profile",
+    [userData?.role]
+  );
 
   const navigate = useNavigate();
   const params = useParams();
@@ -129,41 +137,48 @@ export const PurchaseOrder = ({
   const poId = id?.replaceAll("&=", "/");
 
   const [orderData, setOrderData] = useState<{ list: PurchaseOrderItem[] }>({
-    list: []
+    list: [],
   });
-  const [PO, setPO] = useState<ProcurementOrder | null>(null)
+  const [PO, setPO] = useState<ProcurementOrder | null>(null);
 
-  const { data: po, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-    fields: ["*"],
-    filters: [["name", "=", poId]],
-  });
-   const { data: pos } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
+  const {
+    data: po,
+    isLoading: poLoading,
+    error: poError,
+    mutate: poMutate,
+  } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
+  //  const { data: pos } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
 
-  console.log(pos)
+  // console.log("POs",pos)
+  console.log("PO", PO);
+
   // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
-  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(PO);
+  const { triggerHistoryPrint, PrintableHistoryComponent } =
+    usePrintHistory(PO);
 
-
-  useFrappeDocumentEventListener("Procurement Orders", poId, (event) => {
-    console.log("Procurement Orders document updated (real-time):", event);
-    toast({
-      title: "Document Updated",
-      description: `Procurement Order ${event.name} has been modified.`,
-    });
-    poMutate(); // Re-fetch this specific document
-  },
+  useFrappeDocumentEventListener(
+    "Procurement Orders",
+    poId,
+    (event) => {
+      console.log("Procurement Orders document updated (real-time):", event);
+      toast({
+        title: "Document Updated",
+        description: `Procurement Order ${event.name} has been modified.`,
+      });
+      poMutate(); // Re-fetch this specific document
+    },
     true // emitOpenCloseEventsOnMount (default)
-  )
+  );
 
   const { errors, isValid } = usePOValidation(PO);
 
   useEffect(() => {
     if (po) {
-      const doc = po[0]
-      setPO(doc)
+      const doc = po;
+      setPO(doc);
       setOrderData(doc?.order_list || { list: [] });
     }
-  }, [po])
+  }, [po]);
 
   const [advance, setAdvance] = useState(0);
   const [materialReadiness, setMaterialReadiness] = useState(0);
@@ -186,7 +201,7 @@ export const PurchaseOrder = ({
   }
 
   interface Operation {
-    operation: 'delete' | 'quantity_change' | 'make_change';
+    operation: "delete" | "quantity_change" | "make_change";
     item: string | PurchaseOrderItem;
     previousQuantity?: number;
     previousMakeList?: Make[];
@@ -195,11 +210,18 @@ export const PurchaseOrder = ({
   const [stack, setStack] = useState<Operation[]>([]);
   const [comment, setComment] = useState("");
 
-  const [editMakeOptions, setEditMakeOptions] = useState<{ label: string, value: string }[]>([]);
+  const [editMakeOptions, setEditMakeOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
 
-  const [selectedMake, setSelectedMake] = useState<{ label: string, value: string } | null>(null);
+  const [selectedMake, setSelectedMake] = useState<{
+    label: string;
+    value: string;
+  } | null>(null);
 
-  const [amendEditItem, setAmendEditItem] = useState<PurchaseOrderItem | null>(null);
+  const [amendEditItem, setAmendEditItem] = useState<PurchaseOrderItem | null>(
+    null
+  );
 
   const [poPdfSheet, setPoPdfSheet] = useState(false);
 
@@ -249,41 +271,67 @@ export const PurchaseOrder = ({
     setShowAddNewMake((prevState) => !prevState);
   }, [showAddNewMake]);
 
-  const { toggleRequestPaymentDialog } = useDialogStore()
+  const { toggleRequestPaymentDialog } = useDialogStore();
 
   const { updateDoc } = useFrappeUpdateDoc();
 
   const { createDoc } = useFrappeCreateDoc();
 
-  const { call: cancelPOCall, loading: cancelPOCallLoading } = useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
+  const { call: cancelPOCall, loading: cancelPOCallLoading } =
+    useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
 
-  const { call: mergePOCall, loading: mergePOCallLoading } = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos");
+  const { call: mergePOCall, loading: mergePOCallLoading } = useFrappePostCall(
+    "nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos"
+  );
 
-  const { call: unMergePOCall, loading: unMergePOCallLoading } = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos");
+  const { call: unMergePOCall, loading: unMergePOCallLoading } =
+    useFrappePostCall(
+      "nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos"
+    );
 
-  const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
+  const {
+    data: associated_po_list,
+    error: associated_po_list_error,
+    isLoading: associated_po_list_loading,
+  } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
     fields: ["*"],
     limit: 100000,
   });
 
-  const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-    fields: ["name", "full_name"],
-    limit: 1000,
-  }, `Nirmaan Users`);
+  const {
+    data: usersList,
+    isLoading: usersListLoading,
+    error: usersListError,
+  } = useFrappeGetDocList<NirmaanUsers>(
+    "Nirmaan Users",
+    {
+      fields: ["name", "full_name"],
+      limit: 1000,
+    },
+    `Nirmaan Users`
+  );
 
-  const { data: poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["*"],
-    filters: [["document_name", "=", poId]],
-    limit: 1000,
-  },
+  const {
+    data: poPayments,
+    isLoading: poPaymentsLoading,
+    error: poPaymentsError,
+    mutate: poPaymentsMutate,
+  } = useFrappeGetDocList<ProjectPayments>(
+    "Project Payments",
+    {
+      fields: ["*"],
+      filters: [["document_name", "=", poId]],
+      limit: 1000,
+    },
     poId ? undefined : null
   );
 
-  const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["*"],
-    filters: [["document_type", "=", "Procurement Orders"]],
-    limit: 1000,
-  });
+  const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } =
+    useFrappeGetDocList<ProjectPayments>("Project Payments", {
+      fields: ["*"],
+      filters: [["document_type", "=", "Procurement Orders"]],
+      limit: 1000,
+    });
 
   useEffect(() => {
     if (associated_po_list && associated_po_list?.length > 0) {
@@ -346,7 +394,7 @@ export const PurchaseOrder = ({
             ?.filter((item) => item.merged === po?.name)
             ?.map((i) => i?.name) || [];
         updatedList = orderData.list.filter(
-          (item) => !associated_merged_pos.includes(item.po || '')
+          (item) => !associated_merged_pos.includes(item.po || "")
         );
       } else {
         updatedList = orderData.list.filter((item) => item.po !== po.name);
@@ -503,7 +551,7 @@ export const PurchaseOrder = ({
     try {
       const response = await cancelPOCall({
         po_id: poId,
-        comment: comment
+        comment: comment,
       });
 
       if (response.message.status === 200) {
@@ -541,88 +589,94 @@ export const PurchaseOrder = ({
     }
   }, [amendPOSheet]);
 
-  const handleSave = useCallback((
-    itemName: string,
-    newQuantity: number,
-    selectedMake: { label: string, value: string }
-  ) => {
-    let curRequest = orderData?.list;
+  const handleSave = useCallback(
+    (
+      itemName: string,
+      newQuantity: number,
+      selectedMake: { label: string; value: string }
+    ) => {
+      let curRequest = orderData?.list;
 
-    // Find the current item and store its previous quantity in the stack
-    const previousItem = curRequest.find(
-      (curValue) => curValue.item === itemName
-    );
+      // Find the current item and store its previous quantity in the stack
+      const previousItem = curRequest.find(
+        (curValue) => curValue.item === itemName
+      );
 
-    if (previousItem && newQuantity !== previousItem?.quantity) {
-      setStack((prevStack) => [
-        ...prevStack,
-        {
-          operation: "quantity_change",
-          item: previousItem.item,
-          previousQuantity: previousItem.quantity,
-        },
-      ]);
-    }
-
-    const makes = previousItem?.makes?.list?.map((i) =>
-      i?.make === selectedMake?.value
-        ? { make: selectedMake?.value, enabled: "true" }
-        : { make: i?.make, enabled: "false" }
-    );
-
-    if (
-      previousItem?.makes?.list?.find((i) => i?.make === selectedMake?.value)
-        ?.enabled === "false"
-    ) {
-      setStack((prevStack) => [
-        ...prevStack,
-        {
-          operation: "make_change",
-          item: previousItem.item,
-          previousMakeList: previousItem.makes?.list,
-        },
-      ]);
-    }
-
-    curRequest = curRequest.map((curValue) => {
-      if (curValue.item === itemName) {
-        return {
-          ...curValue,
-          quantity: newQuantity,
-          makes: { list: makes },
-        };
+      if (previousItem && newQuantity !== previousItem?.quantity) {
+        setStack((prevStack) => [
+          ...prevStack,
+          {
+            operation: "quantity_change",
+            item: previousItem.item,
+            previousQuantity: previousItem.quantity,
+          },
+        ]);
       }
-      return curValue;
-    });
-    setOrderData({
-      list: curRequest,
-    });
-    setQuantity("");
 
-    toggleAmendEditItemDialog();
-  }, [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]);
+      const makes = previousItem?.makes?.list?.map((i) =>
+        i?.make === selectedMake?.value
+          ? { make: selectedMake?.value, enabled: "true" }
+          : { make: i?.make, enabled: "false" }
+      );
 
-  const handleDelete = useCallback((item: string) => {
-    let curRequest = orderData?.list;
-    let itemToPush = curRequest.find((curValue) => curValue.item === item);
+      if (
+        previousItem?.makes?.list?.find((i) => i?.make === selectedMake?.value)
+          ?.enabled === "false"
+      ) {
+        setStack((prevStack) => [
+          ...prevStack,
+          {
+            operation: "make_change",
+            item: previousItem.item,
+            previousMakeList: previousItem.makes?.list,
+          },
+        ]);
+      }
 
-    if (itemToPush) {
-      setStack((prevStack) => [
-        ...prevStack,
-        {
-          operation: "delete",
-          item: itemToPush,
-        },
-      ]);
-    }
-    curRequest = curRequest.filter((curValue) => curValue.item !== item);
-    setOrderData({
-      list: curRequest,
-    });
+      curRequest = curRequest.map((curValue) => {
+        if (curValue.item === itemName) {
+          return {
+            ...curValue,
+            quantity: newQuantity,
+            makes: { list: makes },
+          };
+        }
+        return curValue;
+      });
+      setOrderData({
+        list: curRequest,
+      });
+      setQuantity("");
 
-    setQuantity("");
-    toggleAmendEditItemDialog();
-  }, [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]);
+      toggleAmendEditItemDialog();
+    },
+    [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]
+  );
+
+  const handleDelete = useCallback(
+    (item: string) => {
+      let curRequest = orderData?.list;
+      let itemToPush = curRequest.find((curValue) => curValue.item === item);
+
+      if (itemToPush) {
+        setStack((prevStack) => [
+          ...prevStack,
+          {
+            operation: "delete",
+            item: itemToPush,
+          },
+        ]);
+      }
+      curRequest = curRequest.filter((curValue) => curValue.item !== item);
+      setOrderData({
+        list: curRequest,
+      });
+
+      setQuantity("");
+      toggleAmendEditItemDialog();
+    },
+    [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]
+  );
 
   const UndoDeleteOperation = useCallback(() => {
     if (stack.length === 0) return; // No operation to undo
@@ -634,7 +688,10 @@ export const PurchaseOrder = ({
     if (lastOperation.operation === "delete" && lastOperation.item) {
       // Restore the deleted item
       curRequest.push(lastOperation.item as PurchaseOrderItem); // Type assertion, as item is Item in delete operation
-    } else if (lastOperation.operation === "quantity_change" && lastOperation.item) {
+    } else if (
+      lastOperation.operation === "quantity_change" &&
+      lastOperation.item
+    ) {
       // Restore the previous quantity of the item
       curRequest = curRequest.map((curValue) => {
         if (curValue.item === lastOperation.item) {
@@ -642,7 +699,10 @@ export const PurchaseOrder = ({
         }
         return curValue;
       });
-    } else if (lastOperation.operation === "make_change" && lastOperation.item) {
+    } else if (
+      lastOperation.operation === "make_change" &&
+      lastOperation.item
+    ) {
       curRequest = curRequest.map((curValue) => {
         if (curValue.item === lastOperation.item) {
           return {
@@ -663,60 +723,99 @@ export const PurchaseOrder = ({
     setStack(newStack);
   }, [orderData, setOrderData, setStack, stack]);
 
-  const treeData = useMemo(() => [
-    {
-      title: PO?.name,
-      key: "mainPO",
-      children: prevMergedPOs?.map((po, idx) => ({
-        title: po?.name,
-        key: `po-${idx}`,
-        children: po?.order_list?.list?.map((item, itemIdx) => ({
-          title: item?.item,
-          key: `item-${idx}-${itemIdx}`,
+  const treeData = useMemo(
+    () => [
+      {
+        title: PO?.name,
+        key: "mainPO",
+        children: prevMergedPOs?.map((po, idx) => ({
+          title: po?.name,
+          key: `po-${idx}`,
+          children: po?.order_list?.list?.map((item, itemIdx) => ({
+            title: item?.item,
+            key: `item-${idx}-${itemIdx}`,
+          })),
         })),
-      })),
+      },
+    ],
+    [prevMergedPOs, PO]
+  );
+
+  const amountPaid = useMemo(
+    () =>
+      getTotalAmountPaid(
+        (poPayments || []).filter((i) => i?.status === "Paid")
+      ),
+    [poPayments]
+  );
+
+  const amountPending = useMemo(
+    () =>
+      getTotalAmountPaid(
+        (poPayments || []).filter((i) =>
+          ["Requested", "Approved"].includes(i?.status)
+        )
+      ),
+    [poPayments]
+  );
+
+  const getUserName = useMemo(
+    () => (id: string | undefined) => {
+      return usersList?.find((user) => user?.name === id)?.full_name || "";
     },
-  ], [prevMergedPOs, PO]);
+    [usersList]
+  );
 
-  const amountPaid = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid")), [poPayments]);
+  const MERGEPOVALIDATIONS = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      PO?.custom != "true" &&
+      !estimatesViewing &&
+      PO?.status === "PO Approved" &&
+      PO?.merged !== "true" &&
+      !((poPayments || [])?.length > 0) &&
+      mergeablePOs.length > 0,
+    [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing]
+  );
 
-  const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
+  const CANCELPOVALIDATION = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      !PO?.custom &&
+      !estimatesViewing &&
+      ["PO Approved"].includes(PO?.status) &&
+      !((poPayments || []).length > 0) &&
+      PO?.merged !== "true",
+    [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
+  );
 
   const totalInvoiceAmount = useMemo(() => getTotalInvoiceAmount((PO?.invoice_data || [])), [PO]);
 
   const getUserName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name === id)?.full_name || ""
   }, [usersList]);
+  const AMENDPOVALIDATION = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      !estimatesViewing &&
+      ["PO Approved"].includes(PO?.status) &&
+      PO?.merged !== "true" &&
+      !((poPayments || [])?.length > 0),
+    [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
+  );
 
-  const MERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && PO?.custom != "true" && !estimatesViewing && PO?.status === "PO Approved" && PO?.merged !== "true" && !((poPayments || [])?.length > 0) && mergeablePOs.length > 0,
-    [
-      PO,
-      mergeablePOs,
-      poPayments,
-      summaryPage,
-      accountsPage,
-      estimatesViewing
-    ]);
-
-  const CANCELPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && ["PO Approved"].includes(PO?.status) && !((poPayments || []).length > 0) && PO?.merged !== "true",
-    [PO,
-      poPayments,
-      summaryPage,
-      accountsPage,
-      estimatesViewing])
-
-  const AMENDPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !estimatesViewing && ["PO Approved"].includes(PO?.status) && PO?.merged !== "true" && !((poPayments || [])?.length > 0),
-    [PO,
-      poPayments,
-      summaryPage,
-      accountsPage,
-      estimatesViewing])
-
-  const UNMERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && PO?.merged === "true",
-    [PO,
-      summaryPage,
-      accountsPage,
-      estimatesViewing])
+  const UNMERGEPOVALIDATIONS = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      !PO?.custom &&
+      !estimatesViewing &&
+      PO?.merged === "true",
+    [PO, summaryPage, accountsPage, estimatesViewing]
+  );
 
   if (isRedirecting) {
     return (
@@ -736,9 +835,7 @@ export const PurchaseOrder = ({
     associated_po_list_loading ||
     poPaymentsLoading
   )
-    return (
-      <LoadingFallback />
-    );
+    return <LoadingFallback />;
   if (
     associated_po_list_error ||
     // vendor_address_error ||
@@ -747,7 +844,16 @@ export const PurchaseOrder = ({
     poError ||
     poPaymentsError
   )
-    return <AlertDestructive error={associated_po_list_error || usersListError || poError || poPaymentsError} />
+    return (
+      <AlertDestructive
+        error={
+          associated_po_list_error ||
+          usersListError ||
+          poError ||
+          poPaymentsError
+        }
+      />
+    );
   if (
     !summaryPage &&
     !accountsPage &&
@@ -783,9 +889,6 @@ export const PurchaseOrder = ({
       </div>
     );
 
-
-
-
   return (
     <div className="flex-1 space-y-4">
       {MERGEPOVALIDATIONS && (
@@ -801,13 +904,20 @@ export const PurchaseOrder = ({
               </span>
               {/* PO Merging Feature is available for this PO. */}
               <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
-                <SheetTrigger disabled={!isValid} className="disabled:opacity-50">
+                <SheetTrigger
+                  disabled={!isValid}
+                  className="disabled:opacity-50"
+                >
                   <div>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                          aria-label={isValid ? "Merge PO(s)" : "Merge unavailable"}
-                          className="flex items-center gap-1" color="primary">
+                          aria-label={
+                            isValid ? "Merge PO(s)" : "Merge unavailable"
+                          }
+                          className="flex items-center gap-1"
+                          color="primary"
+                        >
                           <Merge className="w-4 h-4" />
                           Merge PO(s)
                         </Button>
@@ -817,7 +927,10 @@ export const PurchaseOrder = ({
                           side="bottom"
                           className="bg-background border border-border text-foreground w-80"
                         >
-                          <ValidationMessages title="Required Before Merging" errors={errors} />
+                          <ValidationMessages
+                            title="Required Before Merging"
+                            errors={errors}
+                          />
                         </TooltipContent>
                       )}
                     </Tooltip>
@@ -840,9 +953,7 @@ export const PurchaseOrder = ({
                           </p>
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-sm text-gray-500">
-                            Vendor:
-                          </span>
+                          <span className="text-sm text-gray-500">Vendor:</span>
                           <p className="text-base font-medium tracking-tight text-black">
                             {PO?.vendor_name}
                           </p>
@@ -870,10 +981,7 @@ export const PurchaseOrder = ({
                                 {PO?.procurement_request?.slice(9)}
                               </TableCell>
                               <TableCell>
-                                {
-                                  orderData?.list?.filter((i) => !i?.po)
-                                    ?.length
-                                }
+                                {orderData?.list?.filter((i) => !i?.po)?.length}
                               </TableCell>
                               <TableCell>
                                 <ul className="list-disc">
@@ -966,8 +1074,8 @@ export const PurchaseOrder = ({
                                             Unable to Merge this PO as it has
                                             some{" "}
                                             <span className="text-primary">
-                                              overlapping item(s) with
-                                              different quotes
+                                              overlapping item(s) with different
+                                              quotes
                                             </span>
                                           </HoverCardContent>
                                         </HoverCard>
@@ -1080,9 +1188,11 @@ export const PurchaseOrder = ({
       <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
         getTotal={getTotal} amountPaid={amountPaid} totalInvoice={totalInvoiceAmount} poMutate={poMutate} />
 
-      <Accordion type="multiple"
+      <Accordion
+        type="multiple"
         // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
-        className="w-full">
+        className="w-full"
+      >
         <AccordionItem key="transac&payments" value="transac&payments">
           {/* {tab === "Delivered PO" && ( */}
           <AccordionTrigger>
@@ -1093,21 +1203,48 @@ export const PurchaseOrder = ({
           {/* )} */}
           <AccordionContent>
             <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-              <TransactionDetailsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} amountPaid={amountPaid} poPayments={poPayments} poPaymentsMutate={poPaymentsMutate} AllPoPaymentsListMutate={AllPoPaymentsListMutate} />
+              <TransactionDetailsCard
+                accountsPage={accountsPage}
+                estimatesViewing={estimatesViewing}
+                summaryPage={summaryPage}
+                PO={PO}
+                getTotal={getTotal}
+                amountPaid={amountPaid}
+                poPayments={poPayments}
+                poPaymentsMutate={poPaymentsMutate}
+                AllPoPaymentsListMutate={AllPoPaymentsListMutate}
+              />
 
-              <POPaymentTermsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} poMutate={poMutate} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} setAdvance={setAdvance} setMaterialReadiness={setMaterialReadiness} setAfterDelivery={setAfterDelivery} setXDaysAfterDelivery={setXDaysAfterDelivery} setXDays={setXDays} />
+              <POPaymentTermsCard
+                accountsPage={accountsPage}
+                estimatesViewing={estimatesViewing}
+                summaryPage={summaryPage}
+                PO={PO}
+                getTotal={getTotal}
+                poMutate={poMutate}
+                advance={advance}
+                materialReadiness={materialReadiness}
+                afterDelivery={afterDelivery}
+                xDaysAfterDelivery={xDaysAfterDelivery}
+                xDays={xDays}
+                setAdvance={setAdvance}
+                setMaterialReadiness={setMaterialReadiness}
+                setAfterDelivery={setAfterDelivery}
+                setXDaysAfterDelivery={setXDaysAfterDelivery}
+                setXDays={setXDays}
+              />
             </div>
           </AccordionContent>
-
         </AccordionItem>
       </Accordion>
 
-
       {/* PO Attachments Accordion */}
       {PO?.status !== "PO Approved" && (
-        <Accordion type="multiple"
+        <Accordion
+          type="multiple"
           // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
-          className="w-full">
+          className="w-full"
+        >
           <AccordionItem key="poattachments" value="poattachments">
             {/* {tab === "Delivered PO" && ( */}
             <AccordionTrigger>
@@ -1129,9 +1266,12 @@ export const PurchaseOrder = ({
         </Accordion>
       )}
 
-
       {/* Invoice Dialog */}
-      <InvoiceDialog docName={PO?.name} docType="Procurement Orders" docMutate={poMutate} />
+      <InvoiceDialog
+        docName={PO?.name}
+        docType="Procurement Orders"
+        docMutate={poMutate}
+      />
 
       {/* Order Details */}
       <Card className="rounded-sm shadow-md md:col-span-3">
@@ -1223,7 +1363,7 @@ export const PurchaseOrder = ({
                   {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
                 </colgroup>
                 <tbody className="divide-y divide-gray-200">
-                  {pos?.items?.map((item, index) => (
+                  {PO?.items?.map((item, index) => (
                     <tr
                       key={index}
                       className="hover:bg-gray-50 transition-colors text-sm text-gray-600"
@@ -1238,7 +1378,10 @@ export const PurchaseOrder = ({
                             {item.item_name}
                             {item?.makes?.list?.length > 0 && (
                               <span className="ml-1 text-xs italic font-semibold text-gray-500">
-                                - {item.makes.list.find(i => i?.enabled === "true")?.make || "N/A"}
+                                -{" "}
+                                {item.makes.list.find(
+                                  (i) => i?.enabled === "true"
+                                )?.make || "N/A"}
                               </span>
                             )}
                           </span>
@@ -1254,10 +1397,14 @@ export const PurchaseOrder = ({
                       </td>
 
                       {/* Unit */}
-                      <td className="text-center py-2 align-top">{item.unit}</td>
+                      <td className="text-center py-2 align-top">
+                        {item.unit}
+                      </td>
 
                       {/* Quantity */}
-                      <td className="text-center py-2 align-top">{item.quantity}</td>
+                      <td className="text-center py-2 align-top">
+                        {item.quantity}
+                      </td>
 
                       {/* Rate */}
                       <td className="text-center py-2 align-top">
@@ -1265,7 +1412,9 @@ export const PurchaseOrder = ({
                       </td>
 
                       {/* Tax */}
-                      <td className="text-center py-2 align-top">{item?.tax}%</td>
+                      <td className="text-center py-2 align-top">
+                        {item?.tax}%
+                      </td>
 
                       {/* Amount */}
                       <td className="pr-4 text-center py-2 align-top font-medium">
@@ -1294,7 +1443,6 @@ export const PurchaseOrder = ({
           </div>
         </CardContent>
       </Card>
-
 
       {/* Unmerge, Amend and Cancel PO Buttons  */}
 
@@ -1402,8 +1550,7 @@ export const PurchaseOrder = ({
               <PencilRuler className="w-4 h-4" />
               Amend PO
             </Button>
-          )
-          }
+          )}
           <Sheet open={amendPOSheet} onOpenChange={toggleAmendPOSheet}>
             <SheetContent className="overflow-auto">
               <>
@@ -1733,8 +1880,7 @@ export const PurchaseOrder = ({
               <X className="w-4 h-4" />
               Cancel PO
             </Button>
-          )
-          }
+          )}
 
           <AlertDialog
             open={cancelPODialog}
@@ -1759,8 +1905,8 @@ export const PurchaseOrder = ({
                       </li>
                       <li>
                         This action will create a new{" "}
-                        <Badge variant="destructive">Cancelled</Badge> type Sent Back
-                        Request within{" "}
+                        <Badge variant="destructive">Cancelled</Badge> type Sent
+                        Back Request within{" "}
                         <span className="text-red-700 font-semibold">
                           Rejected PO tab of Procurement Requests
                         </span>{" "}
@@ -1815,7 +1961,19 @@ export const PurchaseOrder = ({
       )}
 
       {/* PO Pdf  */}
-      <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
+      <POPdf
+        poPdfSheet={poPdfSheet}
+        togglePoPdfSheet={togglePoPdfSheet}
+        po={PO}
+        orderData={orderData}
+        includeComments={includeComments}
+        getTotal={getTotal}
+        advance={advance}
+        materialReadiness={materialReadiness}
+        afterDelivery={afterDelivery}
+        xDaysAfterDelivery={xDaysAfterDelivery}
+        xDays={xDays}
+      />
       {/* Render RequestPaymentDialog here, outside the Accordion */}
       <RequestPaymentDialog
         totalIncGST={getTotal?.totalAmt || 0}
@@ -1834,12 +1992,11 @@ export const PurchaseOrder = ({
   );
 };
 
-
 export default PurchaseOrder;
 
 interface Make {
-  label: string
-  value: string
+  label: string;
+  value: string;
 }
 
 interface MakesSelectionProps {
@@ -1889,13 +2046,14 @@ const MakesSelection = ({
 
 interface AddNewMakesProps {
   orderData: PurchaseOrderItem[];
-  setOrderData: React.Dispatch<React.SetStateAction<{ list: PurchaseOrderItem[] }>>;
+  setOrderData: React.Dispatch<
+    React.SetStateAction<{ list: PurchaseOrderItem[] }>
+  >;
   editMakeOptions: Make[];
   toggleAddNewMake: () => void;
   amendEditItem: any;
   setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
 }
-
 
 const AddNewMakes = ({
   orderData,

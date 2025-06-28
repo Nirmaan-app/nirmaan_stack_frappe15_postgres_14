@@ -277,6 +277,7 @@ export const useApproveSBSLogic = ({
                 selected_vendors: vendorSelectionMapForPayload, // Keys are actual item_ids
             };
             const response = await approveSBSelection(payload);
+            console.log("Response from backend:", response);
             if (response?.message?.status === 200) {
                 toast({ title: "Success!", description: response.message.message || "Items approved from SB.", variant: "success" });
                 setSelectionMap(new Map()); toggleApproveDialog(); await sbMutate();

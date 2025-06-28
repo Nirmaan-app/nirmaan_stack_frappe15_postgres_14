@@ -5,20 +5,35 @@ from frappe.utils import flt
 @frappe.whitelist()
 def new_handle_approve(sb_id: str, selected_items: list, project_id: str, selected_vendors: dict):
     """
-    Approves selected items from a Sent Back Category's child table,
-    creates Procurement Orders with a child table for items,
+    Approves selected items from a Sent Back Category, creates Procurement Orders with a child table for items,
     and updates the Sent Back Category document.
-
-    Args:
-        sb_id (str): The name of the Sent Back Category document.
-        selected_items (list or str): List of selected item_ids from the SB doc's order_list.
-        project_id (str): Project ID (can also be derived from sb_doc.project).
-        selected_vendors (dict or str): A dictionary mapping item_id to vendor_id for the selected items.
     """
     try:
         sb_doc = frappe.get_doc("Sent Back Category", sb_id, for_update=True) # Lock for update
         if not sb_doc:
             raise frappe.ValidationError(f"Sent Back Category {sb_id} not found.")
+
+        # ====================================================================
+        # --- ADDED BLOCK: Prepare Payment Terms Data ---
+        # ====================================================================
+        payment_terms_by_vendor = {}
+        # Safely get the 'payment_terms' field from the document.
+        # Use your actual fieldname if it's different (e.g., "custom_payment_terms").
+        payment_terms_from_doc = sb_doc.get("payment_terms") 
+
+        if payment_terms_from_doc:
+            try:
+                # Handle both string and dict/list types, as Frappe can sometimes auto-parse JSON fields.
+                data_object = json.loads(payment_terms_from_doc) if isinstance(payment_terms_from_doc, str) else payment_terms_from_doc
+                
+                # Extract the inner dictionary from the "list" key, based on your JSON structure.
+                vendor_terms_dict = data_object.get('list', {})
+                
+                if isinstance(vendor_terms_dict, dict):
+                    payment_terms_by_vendor = vendor_terms_dict
+            except (json.JSONDecodeError, TypeError):
+                frappe.log_error(f"Could not parse payment_terms JSON from SB {sb_id}", "new_handle_approve")
+        # --- END OF ADDED BLOCK ---
 
         # Ensure payloads are Python objects
         if isinstance(selected_items, str):
@@ -29,12 +44,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
         # Read from the child table 'order_list' of Sent Back Category
         source_sb_order_list = sb_doc.get("order_list", []) # List of child document objects
 
-        # RFQ data is still JSON on the SB doc (copied from original PR)
-        rfq_data_sb = frappe.parse_json(sb_doc.rfq_data or '{}')
-        rfq_details_sb = rfq_data_sb.get("details", {})
-
         # --- Group selected SB child items by vendor for PO creation ---
-        # vendor_po_items_for_child_table: vendor_id -> list of dicts for Purchase Order Item child table
         vendor_po_items_for_child_table = {}
         processed_sb_child_item_names_for_status_update = set() # Store child_doc.name for status update
 
@@ -45,45 +55,29 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
             project_doc_for_po = frappe.get_doc("Projects", sb_doc.project)
 
         for sb_child_item in source_sb_order_list: # sb_child_item is a child document object
-            if sb_child_item.item_id in selected_item_ids_set:
-                vendor_id_for_po = selected_vendors.get(sb_child_item.item_id)
+            if sb_child_item.name in selected_item_ids_set:
+                vendor_id_for_po = selected_vendors.get(sb_child_item.name)
                 if not vendor_id_for_po:
-                    frappe.log_error(f"Vendor not found in payload for selected SB item {sb_child_item.item_id} from SB Doc {sb_id}", "new_handle_approve")
+                    frappe.log_error(f"Vendor not found in payload for selected SB item {sb_child_item.name} from SB Doc {sb_id}", "new_handle_approve")
                     continue # Skip if no vendor assigned in payload for this approved item
 
                 if sb_child_item.quote is None: # Quote should be present on the SB item
-                    frappe.throw(f"Quote not found for item {sb_child_item.item_id} in SB Doc {sb_id}.")
+                    frappe.throw(f"Quote not found for item {sb_child_item.name} in SB Doc {sb_id}.")
 
-                # Prepare data for the Purchase Order Item child table
                 item_quote_rate = flt(sb_child_item.quote)
                 item_quantity = flt(sb_child_item.quantity)
                 item_tax_percentage = flt(sb_child_item.tax)
-
                 base_amount = item_quantity * item_quote_rate
                 calculated_tax_amount = base_amount * (item_tax_percentage / 100.0)
                 final_total_amount = base_amount + calculated_tax_amount
                 
-                # Construct "makes" field for the PO item if needed (less common from SB approval)
-                # For simplicity, we'll use the make already on the sb_child_item.
-                # If makes need to be dynamic based on rfq_details_sb for the chosen vendor,
-                # that logic would be more complex and similar to initial PR to PO makes construction.
-                # Current sb_child_item.make is usually the one selected.
-                
                 po_item_dict = {
-                    "item_id": sb_child_item.item_id,
-                    "item_name": sb_child_item.item_name,
-                    "unit": sb_child_item.unit,
-                    "quantity": item_quantity,
-                    "category": sb_child_item.category,
-                    "procurement_package": sb_child_item.procurement_package,
-                    "quote": item_quote_rate,
-                    "amount": base_amount,
-                    "make": sb_child_item.make, # Make from the SB item
-                    "tax": item_tax_percentage,
-                    "tax_amount": calculated_tax_amount,
-                    "total_amount": final_total_amount,
-                    "comment": sb_child_item.comment,
-                    # Link back to the specific Sent Back Category child item row that generated this PO item
+                    "item_id": sb_child_item.item_id, "item_name": sb_child_item.item_name,
+                    "unit": sb_child_item.unit, "quantity": item_quantity,
+                    "category": sb_child_item.category, "procurement_package": sb_child_item.procurement_package,
+                    "quote": item_quote_rate, "amount": base_amount, "make": sb_child_item.make,
+                    "tax": item_tax_percentage, "tax_amount": calculated_tax_amount,
+                    "total_amount": final_total_amount, "comment": sb_child_item.comment,
                     "procurement_request_item": sb_child_item.name
                 }
 
@@ -103,61 +97,72 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
             vendor_doc_for_po = frappe.get_doc("Vendors", vendor_id)
             
             po_doc = frappe.new_doc("Procurement Orders")
-            # PO should link to the original PR for traceability
             po_doc.procurement_request = sb_doc.procurement_request 
-            po_doc.project = sb_doc.project # Project from SB doc
+            po_doc.project = sb_doc.project
             if project_doc_for_po:
                 po_doc.project_name = project_doc_for_po.project_name
                 po_doc.project_address = project_doc_for_po.project_address
-                # po_doc.project_gst = project_doc_for_po.gst_no # if applicable
 
             po_doc.vendor = vendor_id
             po_doc.vendor_name = vendor_doc_for_po.vendor_name
             po_doc.vendor_address = vendor_doc_for_po.vendor_address
             po_doc.vendor_gst = vendor_doc_for_po.vendor_gst
             
-            # Determine if the original PR was custom to set PO's custom flag
             original_pr_is_custom = not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package")
             if original_pr_is_custom:
                  po_doc.custom = "true"
+
+            # ====================================================================
+            # --- ADDED BLOCK: Populate the Payment Terms Child Table ---
+            # ====================================================================
+            if vendor_id in payment_terms_by_vendor:
+                vendor_term_data = payment_terms_by_vendor[vendor_id]
+                milestones = vendor_term_data.get('terms', [])
+                for milestone in milestones:
+                    # Append a row to the 'po_payment_terms' child table.
+                    # This fieldname MUST match your child table fieldname on the PO Doctype.
+                    po_doc.append("payment_terms", {
+                        # The keys here MUST match the fieldnames in your "PO Payment Terms" child Doctype.
+                        "payment_type": vendor_term_data.get('type'),
+                        "label": milestone.get('name'),
+                        "percentage": milestone.get('percentage'),
+                        "amount": milestone.get('amount'),
+                        "due_date": milestone.get('due_date'),
+                        "status": "created"
+                    })
+            # --- END OF ADDED BLOCK ---
 
             # Populate the 'items' child table of the PO
             for po_item_data_dict in po_items_list:
                 po_doc.append("items", po_item_data_dict)
 
             # Calculate PO header totals
-            po_header_amount = sum(item.get("amount", 0) for item in po_doc.items)
-            po_header_tax_amount = sum(item.get("tax_amount", 0) for item in po_doc.items)
-            po_doc.amount = po_header_amount
-            po_doc.tax_amount = po_header_tax_amount
-            po_doc.total_amount = po_header_amount + po_header_tax_amount
+            po_doc.amount = sum(item.get("amount", 0) for item in po_doc.items)
+            po_doc.tax_amount = sum(item.get("tax_amount", 0) for item in po_doc.items)
+            po_doc.total_amount = po_doc.amount + po_doc.tax_amount
 
-            po_doc.insert(ignore_permissions=True) # Consider permissions
+            po_doc.insert(ignore_permissions=True)
             latest_po_name = po_doc.name
             created_po_names.append(po_doc.name)
 
         # --- Update Sent Back Category's child items' statuses and workflow state ---
         sb_state_changed = False
         if processed_sb_child_item_names_for_status_update:
-            for sb_child_doc in sb_doc.order_list: # Iterate child doc objects
+            for sb_child_doc in sb_doc.order_list:
                 if sb_child_doc.name in processed_sb_child_item_names_for_status_update:
                     if sb_child_doc.status != "Approved":
-                        sb_child_doc.status = "Approved" # Directly update attribute
+                        sb_child_doc.status = "Approved"
                         sb_state_changed = True
         
-        if sb_state_changed: # Or if any items were processed for PO
+        if sb_state_changed:
             total_items_in_sb = len(sb_doc.order_list)
             approved_items_in_sb = sum(1 for item_cd in sb_doc.order_list if item_cd.status == "Approved")
-
             if approved_items_in_sb == total_items_in_sb:
                 sb_doc.workflow_state = "Approved"
             elif approved_items_in_sb > 0:
                 sb_doc.workflow_state = "Partially Approved"
-            # If no items were approved from this SB (e.g., selection empty or items not found),
-            # the state might not change unless other logic dictates it.
-            # The current logic implies if items were processed, state becomes Approved/Partially Approved.
             
-            sb_doc.save(ignore_permissions=True) # Saves SB doc and its modified child items
+            sb_doc.save(ignore_permissions=True)
         
         message = f"Procurement Order(s): {', '.join(created_po_names)} created from SB {sb_id}." if created_po_names else f"No POs created from SB {sb_id}."
         if sb_state_changed:
@@ -168,6 +173,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
     except Exception as e:
         frappe.log_error(message=frappe.get_traceback(), title="new_handle_approve_sb_error")
         return {"error": str(e), "status": 400}
+
 
 @frappe.whitelist()
 def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
@@ -209,7 +215,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
 
         for selected_item_id in selected_items:
             # Find the item in the source_item_list (list of child doc objects)
-            item_in_source_sb = next((child_doc for child_doc in source_item_list if child_doc.item_id == selected_item_id), None)
+            item_in_source_sb = next((child_doc for child_doc in source_item_list if child_doc.name == selected_item_id), None)
             
             if item_in_source_sb:
                 items_for_new_sb_doc.append({
@@ -270,7 +276,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         # Update statuses in the original sb_doc's order_list
         source_sb_state_changed = False
         for item_child_doc in source_item_list: # item_child_doc is a Frappe Document
-            if item_child_doc.item_id in selected_items: # selected_items contains item_ids
+            if item_child_doc.name in selected_items: # selected_items contains item_ids
                 if item_child_doc.status != "Sent Back":
                     item_child_doc.status = "Sent Back"
                     source_sb_state_changed = True

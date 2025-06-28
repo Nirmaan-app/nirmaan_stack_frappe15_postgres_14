@@ -153,7 +153,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                     onTaxChange={handleTaxChange} // MODIFIED: Pass the handler down
                     onVendorSelectForItem={handleFinalVendorSelectionForItem}
                     onDeleteVendorFromRFQ={handleDeleteVendorFromRFQ}
-                    // isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
+                    //isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
                     updateCurrentDocumentItemList={updateCurrentDocumentStateItemList} // Pass the updater
                 />
                  {/* --- THIS IS THE EXACT PLACE TO ADD THE NEW COMPONENT --- */}

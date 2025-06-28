@@ -186,7 +186,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                 <CardHeader>
                   <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                     <div className="flex items-center">
-                      Payment Terms
+                      {/* Payment Terms
+                       */}Project Payments
                       {hasMissingGST && (
                         <ValidationIndicator error={VALIDATION_CONFIG.MISSING_GST} />
                       )}

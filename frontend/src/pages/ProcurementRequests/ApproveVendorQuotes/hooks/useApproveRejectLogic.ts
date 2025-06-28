@@ -264,10 +264,12 @@ export const useApproveRejectLogic = ({
                 project_id: orderData.project,
                 pr_name: orderData.name,
                 selected_items: selectedItemsForPayload, // Now contains unique names like ['a1b2c3d', 'e4f5g6h']
+                // payment_terms: orderData.payment_terms,//child table data of PeymentTerms
                 selected_vendors: vendorSelectionMapForPayload, // Now maps unique names to vendors
                 custom: !orderData.work_package,
             };
             
+            console.log("in handleApproveConfirm PO Before Backend", payload)
             const response = await approveSelection(payload);
 
             // ... Success/error handling remains the same ...

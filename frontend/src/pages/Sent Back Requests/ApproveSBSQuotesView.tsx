@@ -1,4 +1,4 @@
-import React from 'react';
+import React,{useMemo} from 'react';
 import { Button } from "@/components/ui/button"; // Adjust path
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard"; // Adjust path
 import { Textarea } from '@/components/ui/textarea'; // Adjust path
@@ -40,6 +40,20 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
     // Can only perform actions if editable and selection exists
     const canPerformActions = isSbEditable && selectionMap.size > 0;
 
+        // The parsing logic from before. This is still the correct way to parse.
+    const parsedPaymentTerms = useMemo(() => {
+        const paymentTermsString = sentBackData?.payment_terms;
+        if (typeof paymentTermsString === 'string' && paymentTermsString.trim() !== '') {
+            try {
+                return JSON.parse(paymentTermsString);
+            } catch (e) {
+                console.error("Failed to parse payment_terms JSON", e);
+                return [];
+            }
+        }
+        return [];
+    }, [sentBackData?.payment_terms]);
+
     return (
         <div className="flex-1 space-y-4 p-4 md:p-6">
             {/* Header */}
@@ -70,6 +84,8 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
                 selection={selectionMap}
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
+                paymentTerms={parsedPaymentTerms?.list||[]}
+
             />
 
             {/* Footer Actions */}
