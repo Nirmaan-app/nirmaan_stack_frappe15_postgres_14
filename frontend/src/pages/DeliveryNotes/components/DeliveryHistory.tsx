@@ -116,7 +116,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
                 <TableRow>
                   <TableHead className="w-[50%] pl-8 font-semibold text-gray-700">Item Name</TableHead>
                   <TableHead className="w-[25%] font-semibold text-gray-700">Unit</TableHead>
-                  <TableHead className="font-semibold text-gray-700">Qty</TableHead>
+                  <TableHead className="font-semibold text-gray-700">Newly Received Qty</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -130,7 +130,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
                       )}
                     </TableCell>
                     <TableCell className="w-[25%]">{item.unit}</TableCell>
-                    <TableCell>{item.to}</TableCell>
+                    <TableCell>{item.to - item.from}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -152,8 +152,8 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
       : [...prev, date]
     );
   }, []);
-  const hasHistory = deliveryData && Object.keys(deliveryData).length > 0;''
-   
+  const hasHistory = deliveryData && Object.keys(deliveryData).length > 0; ''
+
 
   return (
     <Card>
