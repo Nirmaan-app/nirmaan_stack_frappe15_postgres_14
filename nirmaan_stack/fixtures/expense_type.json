@@ -72,16 +72,9 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_name": "Audit Fee",
-  "modified": "2025-06-23 20:45:52.296115",
-  "name": "Audit Fee"
- },
- {
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_name": "Statutory Expenses",
+  "expense_name": "Other Financial Expenses",
   "modified": "2025-06-23 20:46:06.786873",
-  "name": "Statutory Expenses"
+  "name": "Other Financial Expenses"
  },
  {
   "docstatus": 0,
@@ -145,6 +138,13 @@
   "expense_name": "Internet & Mobile Charges",
   "modified": "2025-06-23 20:44:48.584868",
   "name": "Internet & Mobile Charges"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Audit Fee",
+  "modified": "2025-06-23 20:45:52.296115",
+  "name": "Audit Fee"
  },
  {
   "docstatus": 0,
