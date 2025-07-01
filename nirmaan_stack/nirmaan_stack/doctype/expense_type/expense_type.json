@@ -7,7 +7,9 @@
  "engine": "InnoDB",
  "field_order": [
   "details_section",
-  "expense_name"
+  "expense_name",
+  "project",
+  "non_project"
  ],
  "fields": [
   {
@@ -20,12 +22,24 @@
    "fieldtype": "Data",
    "label": "Expense Name",
    "unique": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "project",
+   "fieldtype": "Check",
+   "label": "Project"
+  },
+  {
+   "default": "0",
+   "fieldname": "non_project",
+   "fieldtype": "Check",
+   "label": "Non Project"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-06-24 04:00:50.680157",
+ "modified": "2025-07-01 18:10:06.256519",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Type",

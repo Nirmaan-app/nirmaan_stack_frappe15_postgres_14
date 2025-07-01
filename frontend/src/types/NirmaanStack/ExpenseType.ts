@@ -11,4 +11,6 @@ export interface ExpenseType {
     idx?: number
     /**	Project Type Name : Data	*/
     expense_name: string
+    project?: boolean
+    non_project?: boolean
 }
