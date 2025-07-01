@@ -115,7 +115,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                         "percentage": milestone.get('percentage'),
                         "amount": milestone.get('amount'),
                         "due_date": milestone.get('due_date'),
-                        "status": "created" # Example of setting a default status
+                        "status": "Created" # Example of setting a default status
                     })
 
             # --- Step 4.2: Populate the Items Child Table ---

@@ -32,6 +32,7 @@
   "loading_charges",
   "freight_charges",
   "notes",
+  "note_points",
   "tracking_details_section",
   "status",
   "delivery_contact",
@@ -241,6 +242,11 @@
    "fieldtype": "Table",
    "label": "Payment Terms",
    "options": "PO Payment Terms"
+  },
+  {
+   "fieldname": "note_points",
+   "fieldtype": "JSON",
+   "label": "Note Points"
   }
  ],
  "grid_page_length": 50,

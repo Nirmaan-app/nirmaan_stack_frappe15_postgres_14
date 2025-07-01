@@ -1,23 +1,30 @@
+
+// ADD this new interface for the notes
+export interface NotePoint {
+  note: string;
+  // This is a temporary client-side ID, so it's optional
+  clientId?: number; 
+}
+
 export interface PurchaseOrderItem {
 	name: string;
-	item: string;
+	item_name: string;
+	item_id: string;
 	unit: string;
 	quantity: number;
-	received?: number;
+	received_quantity?: number;
   category: string;
 	procurement_package?: string;
   quote: number;
+	tota_amount?: number;
+	amount?: number;
+	note_points?:string;// remove
   make?: string;
   status: string;
   tax: number;
   comment?: string;
 	po?: string;
-	makes: {
-		list: {
-			make: string;
-			enabled: string;
-		}[]
-	}
+	makes?: string
 }
 
 export interface DeliveryItem {
@@ -26,6 +33,13 @@ export interface DeliveryItem {
 	unit: string;
 	from: number;
 	to: number;
+}
+export interface PaymentTerm {
+	name: string;
+	label: string;
+	percentage: number;
+	amount: number;
+	status: 'Created' | 'Requested' |'Scheduled'|'Approved'| 'Paid'; 
 }
 
 export interface DeliveryDataType {
@@ -72,6 +86,7 @@ export interface ProcurementOrder {
 	merged?: string
 	/**	Attachment : Data	*/
 	attachment?: string
+	payment_terms?: PaymentTerm[]
 	/**	Project Name : Data	*/
 	project_name: string
 	/**	Project Address : Data	*/
@@ -88,6 +103,8 @@ export interface ProcurementOrder {
 	order_list: {
 		list: PurchaseOrderItem[]
 	}
+
+	items:PurchaseOrderItem[]
 	/**	Category List : JSON	*/
 	category_list?: any
 	/**	Advance : Data	*/

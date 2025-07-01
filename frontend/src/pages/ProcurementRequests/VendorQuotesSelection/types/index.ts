@@ -53,6 +53,7 @@ export interface RFQData extends Omit<GlobalRFQData, 'chargesByVendor'> {
     chargesByVendor?: {
         [vendorId: string]: ChargeItem[];
     };
+    
 }
 // --- Vendor Option Type ---
 export interface VendorOption {

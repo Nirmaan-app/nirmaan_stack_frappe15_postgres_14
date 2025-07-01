@@ -128,7 +128,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                         "percentage": milestone.get('percentage'),
                         "amount": milestone.get('amount'),
                         "due_date": milestone.get('due_date'),
-                        "status": "created"
+                        "status": "Created"
                     })
             # --- END OF ADDED BLOCK ---
 

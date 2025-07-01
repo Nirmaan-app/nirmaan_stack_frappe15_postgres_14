@@ -46,6 +46,8 @@ import {
   VendorPaymentTerm,
 } from "../ProcurementRequests/VendorQuotesSelection/types/paymentTerms";
 import { PaymentTermsDetailsDisplay } from "../ProcurementRequests/VendorQuotesSelection/components/PaymentTermsDetailsDisplay";
+import { getItemListFromDocument } from "../ProcurementRequests/VendorQuotesSelection/types";
+import { useTargetRatesForItems } from "../ProcurementRequests/VendorQuotesSelection/hooks/useTargetRatesForItems";
 
 interface DisplayItem extends ProcurementRequestItemDetail {
   amount?: number; // Calculated amount based on quote
@@ -53,6 +55,8 @@ interface DisplayItem extends ProcurementRequestItemDetail {
   lowestQuotedAmount?: number; // From getLowest
   threeMonthsLowestAmount?: number; // From getItemEstimate (if used)
   potentialLoss?: number;
+  targetRateValue?:number;
+
 }
 // Interface for the vendor-wise summary object
 interface VendorWiseApprovalItems {
@@ -140,15 +144,46 @@ export const SBQuotesSelectionReview: React.FC = () => {
     vendorTypes: ["Material", "Material & Service"],
   });
 
-  useEffect(() => {
-    if (sent_back) {
-      const items =
-        sent_back.order_list && Array.isArray(sent_back.order_list)
-          ? sent_back.order_list
-          : [];
-      setOrderData({ ...sent_back, order_list: items });
+//   useEffect(() => {
+//     if (sent_back) {
+//       const items =
+//         sent_back.order_list && Array.isArray(sent_back.order_list)
+//           ? sent_back.order_list
+//           : [];
+//       setOrderData({ ...sent_back, order_list: items });
+//     }
+//   }, [sent_back]);
+
+useEffect(() => {
+  if (sent_back) {
+    // Start with a deep copy to avoid mutating server data
+    const newOrderData = JSON.parse(JSON.stringify(sent_back));
+
+    // 1. Normalize the item list to prevent errors
+    if (!Array.isArray(newOrderData.order_list)) {
+      newOrderData.order_list = [];
     }
-  }, [sent_back]);
+
+    // 2. THIS IS THE CRITICAL FIX: Parse rfq_data if it's a string
+    if (typeof newOrderData.rfq_data === 'string' && newOrderData.rfq_data) {
+      try {
+        newOrderData.rfq_data = JSON.parse(newOrderData.rfq_data);
+      } catch (e) {
+        console.error("Failed to parse rfq_data JSON in VendorsSelectionSummary:", e);
+        newOrderData.rfq_data = { selectedVendors: [], details: {} };
+      }
+    }
+
+    // 3. Ensure rfq_data is a valid object if it was null, undefined, or an empty string
+    if (!newOrderData.rfq_data) {
+      newOrderData.rfq_data = { selectedVendors: [], details: {} };
+    }
+
+    // 4. Set the fully normalized document as our component's working state.
+    setOrderData(newOrderData);
+  }
+}, [sent_back]);
+
 
   const getVendorName = useMemo(
     () => (vendorId: string | undefined) => {
@@ -160,16 +195,44 @@ export const SBQuotesSelectionReview: React.FC = () => {
     [vendor_list]
   );
 
-  const getLowest = useMemo(
-    () =>
-      memoize(
-        (itemId: string) => {
-          return getLowestQuoteFilled(orderData, itemId);
-        },
-        (itemId: string) => itemId
-      ),
-    [orderData]
-  );
+
+const getLowest = useMemo(
+  () =>
+    memoize(
+      (itemId: string): number => {
+        // Guard clause: Ensure the path to the quotes exists in our data.
+        if (!orderData?.rfq_data?.details?.[itemId]?.vendorQuotes) {
+          // Return a very large number so Math.min will ignore it.
+          return Infinity;
+        }
+
+        // Get the object containing all vendor quotes for this specific item.
+        // e.g., { "V-001": { quote: "100" }, "V-002": { quote: "95" } }
+        const allQuotesForItem = orderData.rfq_data.details[itemId].vendorQuotes;
+
+        // 1. Get all quote values from the object.
+        // 2. Convert them from strings to numbers.
+        // 3. Filter out any non-positive values (e.g., 0, null, empty strings that become NaN).
+        const numericQuotes = Object.values(allQuotesForItem)
+          .map((vendorQuote: any) => parseNumber(vendorQuote.quote))
+          .filter(q => q > 0);
+
+        // If after filtering, there are no valid quotes, return Infinity.
+        if (numericQuotes.length === 0) {
+          return Infinity;
+        }
+        
+        // Return the lowest number from the array of valid quotes.
+        return Math.min(...numericQuotes);
+      },
+      // THIS IS THE CORRECTED MEMOIZATION KEY:
+      // It depends on the itemID and the *entire* rfq_data object.
+      // If any quote changes anywhere, the cache will be correctly busted.
+      (itemId: string) => `${itemId}-${JSON.stringify(orderData?.rfq_data)}`
+    ),
+  [orderData] // The function is only recreated if `orderData` itself changes.
+);
+ 
 
   // --- ADD THIS ENTIRE NEW FUNCTION ---
   const savePaymentTerms = async (): Promise<boolean> => {
@@ -268,67 +331,160 @@ export const SBQuotesSelectionReview: React.FC = () => {
     }
   };
 
-  const generateActionSummary = useCallback(() => {
-    let allDelayedItems: DisplayItem[] = [];
-    let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
 
-    let approvalOverallTotalExclGst: number = 0;
-    let approvalOverallTotalInclGst: number = 0;
-    let delayedItemsTotalExclGst: number = 0;
-    let delayedItemsTotalInclGst: number = 0;
+  
+     const itemIdsToFetch = useMemo(
+      () => getItemListFromDocument(orderData).map(item => item.item_id).filter(Boolean),
+      [orderData]
+    );
+  
+    // console.log("itemIdsToFetch", itemIdsToFetch)
+    const {targetRatesDataMap } = useTargetRatesForItems(itemIdsToFetch, sbId);
+  
 
-    orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
-      const vendor = item?.vendor;
-      const quote = parseNumber(item.quote);
-      const quantity = parseNumber(item.quantity);
-      const taxRate = parseNumber(item.tax) / 100; // e.g., 18 -> 0.18
+//   const generateActionSummary = useCallback(() => {
+//     let allDelayedItems: DisplayItem[] = [];
+//     let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
 
-      const baseItemTotal = quantity * quote;
-      const itemTotalInclGst = baseItemTotal * (1 + taxRate);
+//     let approvalOverallTotalExclGst: number = 0;
+//     let approvalOverallTotalInclGst: number = 0;
+//     let delayedItemsTotalExclGst: number = 0;
+//     let delayedItemsTotalInclGst: number = 0;
 
-      if (!vendor || !quote) {
-        allDelayedItems.push(item);
-        delayedItemsTotalExclGst += baseItemTotal;
-        delayedItemsTotalInclGst += itemTotalInclGst;
-      } else {
-        const targetRate = getItemEstimate(item?.item_id)?.averageRate;
-        const lowestItemPrice = targetRate
-          ? targetRate * 0.98
-          : getLowest(item?.item_id);
+//     orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
+//       const vendor = item?.vendor;
+//       const quote = parseNumber(item.quote);
+//       const quantity = parseNumber(item.quantity);
+//       const taxRate = parseNumber(item.tax) / 100; // e.g., 18 -> 0.18
 
-        if (!vendorWiseApprovalItems[vendor]) {
-          vendorWiseApprovalItems[vendor] = {
-            items: [],
-            total: 0,
-            totalInclGst: 0,
-          };
-        }
+//       const baseItemTotal = quantity * quote;
+//       const itemTotalInclGst = baseItemTotal * (1 + taxRate);
 
-        const displayItem: DisplayItem = { ...item, amount: itemTotalInclGst };
+//       if (!vendor || !quote) {
+//         allDelayedItems.push(item);
+//         delayedItemsTotalExclGst += baseItemTotal;
+//         delayedItemsTotalInclGst += itemTotalInclGst;
+//       } else {
+//         const targetRate = getItemEstimate(item?.item_id)?.averageRate;
+//         const lowestItemPrice = targetRate
+//           ? targetRate * 0.98
+//           : getLowest(item?.item_id);
 
-        if (lowestItemPrice && lowestItemPrice < quote) {
-          displayItem.potentialLoss =
-            baseItemTotal - quantity * lowestItemPrice;
-        }
+//         if (!vendorWiseApprovalItems[vendor]) {
+//           vendorWiseApprovalItems[vendor] = {
+//             items: [],
+//             total: 0,
+//             totalInclGst: 0,
+//           };
+//         }
 
-        vendorWiseApprovalItems[vendor].items.push(displayItem);
-        vendorWiseApprovalItems[vendor].total += baseItemTotal;
-        vendorWiseApprovalItems[vendor].totalInclGst += itemTotalInclGst;
+//         const displayItem: DisplayItem = { ...item, amount: itemTotalInclGst };
 
-        approvalOverallTotalExclGst += baseItemTotal;
-        approvalOverallTotalInclGst += itemTotalInclGst;
+//         if (lowestItemPrice && lowestItemPrice < quote) {
+//           displayItem.potentialLoss =
+//             baseItemTotal - quantity * lowestItemPrice;
+//         }
+
+//         vendorWiseApprovalItems[vendor].items.push(displayItem);
+//         vendorWiseApprovalItems[vendor].total += baseItemTotal;
+//         vendorWiseApprovalItems[vendor].totalInclGst += itemTotalInclGst;
+
+//         approvalOverallTotalExclGst += baseItemTotal;
+//         approvalOverallTotalInclGst += itemTotalInclGst;
+//       }
+//     });
+
+//     return {
+//       allDelayedItems,
+//       vendorWiseApprovalItems,
+//       approvalOverallTotal: approvalOverallTotalExclGst,
+//       approvalOverallTotalInclGst,
+//       delayedItemsTotalInclGst,
+//     };
+//   }, [orderData, getLowest, getItemEstimate]);
+
+const generateActionSummary = useCallback(() => {
+  let allDelayedItems: DisplayItem[] = [];
+  let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
+
+  let approvalOverallTotalExclGst: number = 0;
+  let approvalOverallTotalInclGst: number = 0;
+  let delayedItemsTotalExclGst: number = 0;
+  let delayedItemsTotalInclGst: number = 0;
+
+  orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
+    const vendor = item?.vendor;
+    const quote = parseNumber(item.quote);
+    const quantity = parseNumber(item.quantity);
+    const taxRate = parseNumber(item.tax) / 100;
+
+    const baseItemTotal = quantity * quote;
+    const itemTotalInclGst = baseItemTotal * (1 + taxRate);
+
+    if (!vendor || !quote) {
+      allDelayedItems.push(item);
+      delayedItemsTotalExclGst += baseItemTotal;
+      delayedItemsTotalInclGst += itemTotalInclGst;
+    } else {
+      // --- THIS IS THE CORE LOGIC UPDATE ---
+
+      // 1. Calculate the targetRateValue exactly as done in the previous screen.
+      const targetRateDetail = targetRatesDataMap?.get(item.item_id);
+      // console.log("targetRateDetail",targetRateDetail)
+
+      let calculatedTargetRate = -1; // Use -1 as a 'not found' value
+      if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
+          const parsedRate = parseNumber(targetRateDetail.rate);
+          if (!isNaN(parsedRate)) {
+              calculatedTargetRate = parsedRate * 0.98; // The 98% logic
+          }
       }
-    });
 
-    return {
-      allDelayedItems,
-      vendorWiseApprovalItems,
-      approvalOverallTotal: approvalOverallTotalExclGst,
-      approvalOverallTotalInclGst,
-      delayedItemsTotalInclGst,
-    };
-  }, [orderData, getLowest, getItemEstimate]);
+      // 2. Determine the benchmark for potential loss calculation.
+      // const lowestItemPrice = calculatedTargetRate > 0
+      //   ? calculatedTargetRate
+      //   : getLowest(item.item_id);
+        const lowestItemPrice = calculatedTargetRate > 0
+        && Math.min(calculatedTargetRate
+        , getLowest(item.item_id));
 
+      if (!vendorWiseApprovalItems[vendor]) {
+        vendorWiseApprovalItems[vendor] = {
+          items: [],
+          total: 0,
+          totalInclGst: 0,
+        };
+      }
+
+      // 3. Create the displayItem and add our new `targetRateValue` to it.
+      const displayItem: DisplayItem = {
+        ...item,
+        amount: itemTotalInclGst,
+        targetRateValue: lowestItemPrice, // Store the calculated value
+      };
+
+      // 4. Calculate potential loss using the benchmark.
+      if (lowestItemPrice && lowestItemPrice < quote) {
+        displayItem.potentialLoss = baseItemTotal - quantity * lowestItemPrice;
+      }
+
+      vendorWiseApprovalItems[vendor].items.push(displayItem);
+      vendorWiseApprovalItems[vendor].total += baseItemTotal;
+      vendorWiseApprovalItems[vendor].totalInclGst += itemTotalInclGst;
+
+      approvalOverallTotalExclGst += baseItemTotal;
+      approvalOverallTotalInclGst += itemTotalInclGst;
+    }
+  });
+
+  return {
+    allDelayedItems,
+    vendorWiseApprovalItems,
+    approvalOverallTotal: approvalOverallTotalExclGst,
+    approvalOverallTotalInclGst,
+    delayedItemsTotalInclGst,
+  };
+}, [orderData, getLowest, getItemEstimate, targetRatesDataMap]);
   const {
     allDelayedItems,
     vendorWiseApprovalItems,

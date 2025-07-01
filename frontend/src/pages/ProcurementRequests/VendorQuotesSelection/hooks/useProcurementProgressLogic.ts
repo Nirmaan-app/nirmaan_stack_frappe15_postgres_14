@@ -90,6 +90,7 @@ export const useProcurementProgressLogic = ({
 
     const { getFullName, isLoading: usersLoading } = useUsersForLookup(); // Fetches all users for name mapping
     
+    // console.log("currentDocumentState", currentDocumentState)
     const itemIdsToFetchTargetRates = useMemo(() =>
         getItemListFromDocument(currentDocumentState).map(item => item.item_id).filter(id => !!id),
     [currentDocumentState]);
@@ -111,6 +112,8 @@ export const useProcurementProgressLogic = ({
             item_name: item.item_name
         }));
     }, [chargeItemsDataForAdditionalCharges]);
+
+    // console.log("itemIdsToFetchTargetRates", itemIdsToFetchTargetRates,docId)
 
     const { targetRatesDataMap, isLoading: targetRatesLoading } =
         useTargetRatesForItems(itemIdsToFetchTargetRates, docId);

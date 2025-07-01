@@ -1,15 +1,34 @@
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
-import DeliveryHistoryTable from '@/pages/DeliveryNotes/components/DeliveryHistory';
+import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee, {
+  formatToRoundedIndianRupee,
+} from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useFrappeGetDoc, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { AlertTriangle, CheckCheck, CircleX, Download, Eye, Mail, Phone, Printer, Send, Trash2Icon, TriangleAlert, Undo2 } from "lucide-react";
+import {
+  useFrappeGetDoc,
+  useFrappePostCall,
+  useFrappeUpdateDoc,
+} from "frappe-react-sdk";
+import {
+  AlertTriangle,
+  CheckCheck,
+  CircleX,
+  Download,
+  Eye,
+  Mail,
+  Phone,
+  Printer,
+  Send,
+  Trash2Icon,
+  TriangleAlert,
+  Undo2,
+} from "lucide-react";
 import React, { useCallback, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
@@ -40,10 +59,14 @@ import {
   Sheet,
   SheetContent,
   SheetHeader,
-  SheetTitle
+  SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
 import { ValidationIndicator } from "@/components/validations/ValidationIndicator";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
@@ -53,12 +76,12 @@ import { deriveDnIdFromPoId } from "@/pages/DeliveryNotes/constants";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 
 interface PODetailsProps {
-  po: ProcurementOrder | null
-  summaryPage: boolean
-  accountsPage: boolean
-  estimatesViewing: boolean
-  poPayments: ProjectPayments[] | undefined
-  togglePoPdfSheet: () => void
+  po: ProcurementOrder | null;
+  summaryPage: boolean;
+  accountsPage: boolean;
+  estimatesViewing: boolean;
+  poPayments: ProjectPayments[] | undefined;
+  togglePoPdfSheet: () => void;
   getTotal?: {
     total: number
     totalAmt: number
@@ -80,10 +103,17 @@ export const PODetails: React.FC<PODetailsProps> = (
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
-  const { call: deleteCustomPOCall, loading: deleteCustomPOCallLoading } = useFrappePostCall("nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po");
+  const { call: deleteCustomPOCall, loading: deleteCustomPOCallLoading } =
+    useFrappePostCall(
+      "nirmaan_stack.api.delete_custom_po_and_pr.delete_custom_po"
+    );
   const navigate = useNavigate();
 
-  const { data: pr } = useFrappeGetDoc<ProcurementRequest>("Procurement Requests", po?.procurement_request, po ? undefined : null);
+  const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
+    "Procurement Requests",
+    po?.procurement_request,
+    po ? undefined : null
+  );
 
   const [contactPerson, setContactPerson] = useState({
     name: "",
@@ -95,9 +125,9 @@ export const PODetails: React.FC<PODetailsProps> = (
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
 
-  const { toggleNewInvoiceDialog } = useDialogStore()
+  const { toggleNewInvoiceDialog } = useDialogStore();
 
-  const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false)
+  const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false);
   const toggleDeliveryNoteSheet = useCallback(() => {
     setDeliveryNoteSheet((prevState) => !prevState);
   }, []);
@@ -126,13 +156,18 @@ export const PODetails: React.FC<PODetailsProps> = (
     setEmail(e.target.value);
   }, []);
 
-
   const handleDispatchPO = async () => {
     try {
       // Create the update payload with status "Dispatched"
-      const updateData: { status: string; delivery_contact?: string; dispatch_date: string } = {
+      const updateData: {
+        status: string;
+        delivery_contact?: string;
+        dispatch_date: string;
+      } = {
         status: "Dispatched",
-        dispatch_date: new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }), // Set current timestamp
+        dispatch_date: new Date().toLocaleString("en-US", {
+          timeZone: "Asia/Kolkata",
+        }), // Set current timestamp
       };
 
       // If either contact field is provided, add the delivery_contact key
@@ -149,7 +184,9 @@ export const PODetails: React.FC<PODetailsProps> = (
         variant: "success",
       });
 
-      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Dispatched+PO`);
+      navigate(
+        `/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Dispatched+PO`
+      );
     } catch (error) {
       console.log(
         "error while updating the status of the PO to dispatch",
@@ -179,7 +216,9 @@ export const PODetails: React.FC<PODetailsProps> = (
         variant: "success",
       });
 
-      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`);
+      navigate(
+        `/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`
+      );
     } catch (error) {
       toast({
         title: "Failed!",
@@ -191,10 +230,9 @@ export const PODetails: React.FC<PODetailsProps> = (
 
   const handleDeleteCustomPO = async () => {
     try {
-
       const response = await deleteCustomPOCall({
-        po_id: po.name
-      })
+        po_id: po.name,
+      });
 
       if (response.message.status === 200) {
         // ✅ Step 4: Success message & UI updates (Batch State Updates)
@@ -231,12 +269,15 @@ export const PODetails: React.FC<PODetailsProps> = (
     content: () => printComponentRef.current,
     documentTitle: po
       ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
-      : 'Delivery_Note',
+      : "Delivery_Note",
+    // Optional: Add page styles if needed
+    // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
   });
 
-  const downloadurl = "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf"
+  const downloadurl =
+    "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf";
 
-  const viewUrl = "http://localhost:8000/printview"
+  const viewUrl = "http://localhost:8000/printview";
 
   // const { call: triggerPdfDownload, loading } = useFrappePostCall('nirmaan_stack.api.download_po_pdf.download_po_pdf');
 
@@ -266,79 +307,208 @@ export const PODetails: React.FC<PODetailsProps> = (
     const url = `${downloadurl}?${new URLSearchParams(params)}`;
     const view = `${viewUrl}?${new URLSearchParams(params)}`;
 
-    window.open(url, '_blank');
+    window.open(url, "_blank");
     // window.open(view, '_blank');
   };
-
 
   return (
     <div>
       <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-        <CardHeader>
-          <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-            <div>
-              <h2>{po?.custom === "true" && "Custom"} PO Details
-                {!isValid && (
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <TriangleAlert className="inline-block ml-2 text-primary max-sm:w-4 max-sm:h-4" />
-                    </TooltipTrigger>
-                    {!isValid && (
-                      <TooltipContent
-                        side="bottom"
-                        className="bg-background border border-border text-foreground w-80"
-                      >
-                        <ValidationMessages title="Required Before Proceeding" errors={errors} />
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-              </h2>
-              <Badge
-                variant={
-                  po?.status === "PO Approved"
-                    ? "default"
-                    : po?.status === "Dispatched"
-                      ? "orange"
-                      : "green"
-                }
-              >
-                {po?.status}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              {!accountsPage && !estimatesViewing && !summaryPage && (
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Button
-                      disabled={!isValid}
-                      variant="outline"
-                      className="text-primary border-primary text-xs px-2"
-                      onClick={isValid ? toggleRequestPaymentDialog : undefined}
-                    >
-                      Request Payment
-                    </Button>
-                  </TooltipTrigger>
-                  {!isValid && (
-                    <TooltipContent
-                      side="bottom"
-                      className="bg-background border border-border text-foreground w-80"
-                    >
-                      <ValidationMessages title="Required Before Requesting Payment" errors={errors} />
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              )}
+       <CardHeader>
+  {/* Main flex container for the two-column layout */}
+  <div className="flex justify-between items-start gap-4">
 
-              {po?.status !== "PO Approved" && (
+    {/* --- Column 1: Title and Status --- */}
+    <div className="space-y-2">
+      <h1 className="text-2xl font-bold text-red-600">
+        PO Details
+        {/* Validation Warning Icon */}
+        {!isValid && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button>
+                <TriangleAlert className="inline-block ml-2 text-primary max-sm:w-4 max-sm:h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              className="bg-background border border-border text-foreground w-80"
+            >
+              <ValidationMessages
+                title="Required Before Proceeding"
+                errors={errors}
+              />
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </h1>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-gray-700">Status:</span>
+        <Badge
+          variant={
+            po?.status === "PO Approved"
+              ? "default"
+              : po?.status === "Dispatched"
+              ? "orange"
+              : "green"
+          }
+        >
+          {po?.status}
+        </Badge>
+      </div>
+    </div>
+
+    {/* --- Column 2: Action Buttons and Approver Info --- */}
+    <div className="flex flex-col items-end gap-2">
+      {/* Container for all action buttons */}
+      <div className="flex items-center gap-2 flex-wrap justify-end">
+
+        {/* --- All Existing Button Logic is Preserved and Moved Here --- */}
+
+        {/* Request Payment Button */}
+        {!accountsPage && !estimatesViewing && !summaryPage && (
+          <Tooltip>
+            <TooltipTrigger asChild>
                 <Button
-                  variant="outline"
-                  className="text-primary border-primary text-xs px-2"
-                  onClick={toggleNewInvoiceDialog}
+                disabled={!isValid}
+                variant="outline"
+                className="text-primary border-primary"
+                onClick={isValid ? toggleRequestPaymentDialog : undefined}
                 >
-                  Add Invoice
+                Request Payment
                 </Button>
+            </TooltipTrigger>
+            {!isValid && (
+              <TooltipContent
+                side="bottom"
+                className="bg-background border border-border text-foreground w-80"
+              >
+                <ValidationMessages
+                  title="Required Before Requesting Payment"
+                  errors={errors}
+                />
+              </TooltipContent>
+            )}
+          </Tooltip>
+        )}
+
+        {/* Add Invoice Button */}
+        {po?.status !== "PO Approved" && (
+          <Button
+            variant="outline"
+            className="text-primary border-primary"
+            onClick={toggleNewInvoiceDialog}
+          >
+            Add Invoice
+          </Button>
+        )}
+
+        {/* Revert Button */}
+        {!summaryPage &&
+          !accountsPage &&
+          !estimatesViewing &&
+          po?.status === "Dispatched" &&
+          !((poPayments || [])?.length > 0) && (
+            <Button
+              variant="outline"
+              onClick={toggleRevertDialog}
+              className="flex items-center gap-1 border-primary text-primary"
+            >
+              <Undo2 className="w-4 h-4" />
+              Revert
+            </Button>
+        )}
+
+        {/* Update DN Button */}
+        {["Dispatched", "Partially Delivered"].includes(po?.status) && (
+          <Button
+            onClick={toggleDeliveryNoteSheet}
+            variant="outline"
+            className="flex items-center gap-1 border-primary text-primary"
+          >
+            Update DN
+          </Button>
+        )}
+
+        {/* Preview Button */}
+        {(po?.status !== "PO Approved" ||
+          summaryPage ||
+          accountsPage ||
+          estimatesViewing ||
+          role !== "Nirmaan Procurement Executive Profile") && (
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button
+                    variant="outline"
+                    disabled={!isValid}
+                    onClick={isValid ? togglePoPdfSheet : undefined}
+                    className="flex items-center gap-1 border-primary text-primary"
+                    >
+                    <Eye className="w-4 h-4" />
+                    Preview
+                    </Button>
+                </TooltipTrigger>
+                {!isValid && (
+                <TooltipContent
+                    side="bottom"
+                    className="bg-background border border-border text-foreground w-80"
+                >
+                    <ValidationMessages
+                    title="Required Before Preview"
+                    errors={errors}
+                    />
+                </TooltipContent>
+                )}
+            </Tooltip>
+        )}
+        
+        {/* Delete Custom PO Button */}
+        {po?.custom === "true" &&
+          !summaryPage &&
+          !accountsPage &&
+          !estimatesViewing &&
+          po?.status === "PO Approved" &&
+          !((poPayments || [])?.length > 0) && (
+            <Button
+              onClick={toggleDeleteDialog}
+              variant="destructive"
+              className="flex items-center gap-1"
+            >
+              <Trash2Icon className="w-4 h-4" />
+              Delete
+            </Button>
+        )}
+        
+        {/* Dispatch PO Button */}
+        {!summaryPage &&
+          !accountsPage &&
+          !estimatesViewing &&
+          po?.status === "PO Approved" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  disabled={!isValid}
+                  onClick={isValid ? toggleDispatchPODialog : undefined}
+                  className="flex items-center gap-1"
+                >
+                  <Send className="h-4 w-4" />
+                  Dispatch PO
+                </Button>
+              </TooltipTrigger>
+              {!isValid && (
+                <TooltipContent
+                  side="bottom"
+                  className="bg-background border border-border text-foreground w-80"
+                >
+                  <ValidationMessages
+                    title="Required Before Dispatch"
+                    errors={errors}
+                  />
+                </TooltipContent>
               )}
+            </Tooltip>
+        )}
+      </div>
 
               {/* <Button
                         variant="outline"
@@ -892,7 +1062,11 @@ export const PODetails: React.FC<PODetailsProps> = (
               <Label className=" text-red-700">Vendor</Label>
               <div>
                 <VendorHoverCard vendor_id={po?.vendor} />
-                {hasVendorIssues && <ValidationIndicator error={errors.find(e => e.code === "INCOMPLETE_VENDOR")} />}
+                {hasVendorIssues && (
+                  <ValidationIndicator
+                    error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
+                  />
+                )}
               </div>
             </div>
             <div className="flex flex-col gap-2 sm:items-center max-sm:text-end">
@@ -905,11 +1079,13 @@ export const PODetails: React.FC<PODetailsProps> = (
             </div>
             <div className="flex flex-col gap-2 max-sm:items-end">
               <Label className=" text-red-700">Total (Excl. GST)</Label>
-              <span>{formatToRoundedIndianRupee(getTotal?.total)}</span>
+              <span>{formatToRoundedIndianRupee(po?.amount)}</span>
             </div>
             <div className="flex flex-col gap-2 sm:items-center">
               <Label className=" text-red-700">Total Amount Paid</Label>
-              <span>{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
+              <span>
+                {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
+              </span>
             </div>
             <div className="flex flex-col gap-2 items-end">
               {po?.status !== "PO Approved" && (
@@ -941,5 +1117,5 @@ export const PODetails: React.FC<PODetailsProps> = (
         {PrintableHistoryComponent}
       </div>
     </div>
-  )
-}
+  );
+};

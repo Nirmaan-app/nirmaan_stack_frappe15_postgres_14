@@ -55,6 +55,7 @@ export function SelectVendorQuotesTable({
     // console.log("currentDocument", currentDocument)
     const itemsToDisplay = getItemListFromDocument(currentDocument);
     const categoriesToDisplay = getCategoryListFromDocument(currentDocument);
+    // console.log("currentDocument", currentDocument) 
 
     const handleInternalQuoteChange = useCallback((itemId: string, vendorId: string, quoteValue: string | number | undefined) => {
         const newQuoteString = String(quoteValue ?? "");
@@ -178,7 +179,7 @@ export function SelectVendorQuotesTable({
                                         if (!isNaN(parsedRate)) targetRateValue = parsedRate * 0.98;
                                     }
                                     const mappedContributingQuotes = mapApiQuotesToApprovedQuotations(targetRateDetail?.selected_quotations_items || []);
-
+// console.log("targetRateValue in selected table ",targetRateValue)
                                     return (
                                         <TableRow key={item.item_id}>
                                             <TableCell className="py-2.5 text-start align-middle">
@@ -196,7 +197,7 @@ export function SelectVendorQuotesTable({
                                                 <Select
                                                     value={String(item.tax)||""}
                                                     onValueChange={(value) => {
-                                                                    console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
+                                                                    // console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
 
                                                         onTaxChange(item.item_id, value)}}
                                                     disabled={mode === 'view' || isReadOnly}  

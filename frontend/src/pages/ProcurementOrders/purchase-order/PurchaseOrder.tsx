@@ -136,9 +136,7 @@ export const PurchaseOrder = ({
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
 
-  const [orderData, setOrderData] = useState<{ list: PurchaseOrderItem[] }>({
-    list: [],
-  });
+  const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
   const [PO, setPO] = useState<ProcurementOrder | null>(null);
 
   const {
@@ -149,8 +147,7 @@ export const PurchaseOrder = ({
   } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
   //  const { data: pos } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
 
-  // console.log("POs",pos)
-  console.log("PO", PO);
+  // console.log("POs",po)
 
   // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
   const { triggerHistoryPrint, PrintableHistoryComponent } =
@@ -176,7 +173,7 @@ export const PurchaseOrder = ({
     if (po) {
       const doc = po;
       setPO(doc);
-      setOrderData(doc?.order_list || { list: [] });
+      setOrderData(doc?.items || []);
     }
   }, [po]);
 
@@ -202,9 +199,9 @@ export const PurchaseOrder = ({
 
   interface Operation {
     operation: "delete" | "quantity_change" | "make_change";
-    item: string | PurchaseOrderItem;
+    item: PurchaseOrderItem;
     previousQuantity?: number;
-    previousMakeList?: Make[];
+    previousMakeList?: string;
   }
 
   const [stack, setStack] = useState<Operation[]>([]);
@@ -367,53 +364,45 @@ export const PurchaseOrder = ({
     return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
   }, [PO]);
 
-  const handleMerge = (po: ProcurementOrder) => {
-    let updatedOrderList = po.order_list?.list;
-    if (po?.merged !== "true") {
-      updatedOrderList = po.order_list?.list.map((item) => ({
-        ...item,
-        po: po.name,
-      }));
-    }
+  // 🔄 REPLACE THE OLD/STUBBED handleMerge WITH THIS CORRECTED VERSION
 
-    if (orderData) {
-      const updatedList = [...orderData.list, ...updatedOrderList];
+  const handleMerge = (poToMerge: ProcurementOrder) => {
+    // Get the items array directly from the PO to be merged.
+    const itemsToMerge = poToMerge.items || [];
 
-      setOrderData({ list: updatedList });
+    // Tag each item with its original PO name for tracking, same as the old logic.
+    const taggedItems = itemsToMerge.map((item) => ({
+      ...item,
+      po: poToMerge.name,
+    }));
 
-      setMergedItems((prev) => [...prev, po]);
-    }
+    // Correctly append the new items to the existing orderData ARRAY.
+    setOrderData((currentOrderData) => [...currentOrderData, ...taggedItems]);
+
+    setMergedItems((prev) => [...prev, poToMerge]);
   };
 
-  const handleUnmerge = (po: ProcurementOrder) => {
-    if (orderData) {
-      let updatedList;
-      if (po?.merged === "true") {
-        const associated_merged_pos =
-          associated_po_list
-            ?.filter((item) => item.merged === po?.name)
-            ?.map((i) => i?.name) || [];
-        updatedList = orderData.list.filter(
-          (item) => !associated_merged_pos.includes(item.po || "")
-        );
-      } else {
-        updatedList = orderData.list.filter((item) => item.po !== po.name);
-      }
+  const handleUnmerge = (poToUnmerge: ProcurementOrder) => {
+    // Directly filter the orderData ARRAY, removing items that match the unmerged PO's name.
+    setOrderData((currentOrderData) =>
+      currentOrderData.filter((item) => item.po !== poToUnmerge.name)
+    );
 
-      setOrderData({ list: updatedList });
-
-      // Remove the unmerged PO from the mergedItems array
-      setMergedItems((prev) =>
-        prev.filter((mergedPo) => mergedPo?.name !== po.name)
-      );
-    }
+    // Remove the PO from the list of merged items.
+    setMergedItems((prev) =>
+      prev.filter((mergedPo) => mergedPo.name !== poToUnmerge.name)
+    );
   };
+
+  // 🔄 REPLACE THE OLD/STUBBED handleUnmergeAll WITH THIS CORRECTED VERSION
 
   const handleUnmergeAll = () => {
-    if (mergedItems.length) {
-      const updatedList = orderData.list.filter((item) => !item.po);
-
-      setOrderData({ list: updatedList });
+    if (mergedItems.length > 0) {
+      // Directly filter the orderData ARRAY, keeping only the original items
+      // (those that don't have a 'po' property).
+      setOrderData((currentOrderData) =>
+        currentOrderData.filter((item) => !item.po)
+      );
 
       setMergedItems([]);
     }
@@ -515,7 +504,8 @@ export const PurchaseOrder = ({
     try {
       await updateDoc("Procurement Orders", poId, {
         status: "PO Amendment",
-        order_list: orderData,
+        // order_list: orderData,
+        items: orderData,
       });
       if (comment) {
         await createDoc("Nirmaan Comments", {
@@ -579,7 +569,7 @@ export const PurchaseOrder = ({
   };
 
   const handleUnAmendAll = () => {
-    setOrderData(PO?.order_list || { list: [] });
+    setOrderData(PO?.items || []);
     setStack([]);
   };
 
@@ -589,139 +579,132 @@ export const PurchaseOrder = ({
     }
   }, [amendPOSheet]);
 
+  // 🔄 REPLACE THE PREVIOUS handleSave WITH THIS CORRECTED VERSION
+
   const handleSave = useCallback(
-    (
-      itemName: string,
-      newQuantity: number,
-      selectedMake: { label: string; value: string }
-    ) => {
-      let curRequest = orderData?.list;
-
-      // Find the current item and store its previous quantity in the stack
-      const previousItem = curRequest.find(
-        (curValue) => curValue.item === itemName
+    (itemName: string) => {
+      const previousItem = orderData.find(
+        (curValue) => curValue.name === itemName
       );
+      if (!previousItem) return;
 
-      if (previousItem && newQuantity !== previousItem?.quantity) {
-        setStack((prevStack) => [
-          ...prevStack,
+      // CORRECT: Get the make string from the `selectedMake` state object.
+      const newMakeValue = selectedMake?.value || "";
+
+      // Push quantity change to stack if different
+      if (quantity !== null && quantity !== previousItem.quantity) {
+        setStack((prev) => [
+          ...prev,
           {
             operation: "quantity_change",
-            item: previousItem.item,
+            item: previousItem,
             previousQuantity: previousItem.quantity,
           },
         ]);
       }
-
-      const makes = previousItem?.makes?.list?.map((i) =>
-        i?.make === selectedMake?.value
-          ? { make: selectedMake?.value, enabled: "true" }
-          : { make: i?.make, enabled: "false" }
-      );
-
-      if (
-        previousItem?.makes?.list?.find((i) => i?.make === selectedMake?.value)
-          ?.enabled === "false"
-      ) {
-        setStack((prevStack) => [
-          ...prevStack,
+      // Push make change to stack if different
+      if (newMakeValue !== previousItem.make) {
+        setStack((prev) => [
+          ...prev,
           {
             operation: "make_change",
-            item: previousItem.item,
-            previousMakeList: previousItem.makes?.list,
+            item: previousItem,
+            previousMake: previousItem.make,
           },
         ]);
       }
 
-      curRequest = curRequest.map((curValue) => {
-        if (curValue.item === itemName) {
+      // Update the main orderData array
+      const updatedOrderData = orderData.map((curValue) => {
+        if (curValue.name === itemName) {
           return {
             ...curValue,
-            quantity: newQuantity,
-            makes: { list: makes },
+            quantity: quantity !== null ? quantity : curValue.quantity,
+            make: newMakeValue,
           };
         }
         return curValue;
       });
-      setOrderData({
-        list: curRequest,
-      });
-      setQuantity("");
 
+      setOrderData(updatedOrderData);
+
+      // Reset state and close dialog
+      setQuantity(null);
+      setSelectedMake(null); // CORRECT: Reset selectedMake
       toggleAmendEditItemDialog();
     },
-    [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]
-  );
-
+    [orderData, quantity, selectedMake, toggleAmendEditItemDialog]
+  ); // CORRECT: Dependency is on selectedMake
+  // NEW `handleDelete`
   const handleDelete = useCallback(
-    (item: string) => {
-      let curRequest = orderData?.list;
-      let itemToPush = curRequest.find((curValue) => curValue.item === item);
+    (itemNameToDelete: string) => {
+      // Pass the unique 'name' of the item row
+      const itemToDelete = orderData.find(
+        (curValue) => curValue.name === itemNameToDelete
+      );
 
-      if (itemToPush) {
+      if (itemToDelete) {
         setStack((prevStack) => [
           ...prevStack,
           {
             operation: "delete",
-            item: itemToPush,
+            item: itemToDelete, // Push the entire object to the stack
           },
         ]);
       }
-      curRequest = curRequest.filter((curValue) => curValue.item !== item);
-      setOrderData({
-        list: curRequest,
-      });
 
-      setQuantity("");
+      // Filter out the deleted item from the main array
+      const updatedOrderData = orderData.filter(
+        (curValue) => curValue.name !== itemNameToDelete
+      );
+
+      setOrderData(updatedOrderData); // Set the new array
+
+      setQuantity(null); // Reset quantity state
       toggleAmendEditItemDialog();
     },
-    [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]
+    [orderData, toggleAmendEditItemDialog] // Simplified dependencies
   );
 
+  // NEW `UndoDeleteOperation`
   const UndoDeleteOperation = useCallback(() => {
-    if (stack.length === 0) return; // No operation to undo
+    if (stack.length === 0) return;
 
-    let curRequest = orderData?.list;
-    const lastOperation = stack[stack.length - 1]; // Get the last operation
-    const newStack = stack.slice(0, stack.length - 1); // Create a new stack without the last operation
+    const lastOperation = stack[stack.length - 1];
+    const newStack = stack.slice(0, -1); // More efficient way to pop
 
-    if (lastOperation.operation === "delete" && lastOperation.item) {
+    let updatedOrderData = [...orderData]; // Work on a copy
+
+    if (lastOperation.operation === "delete") {
       // Restore the deleted item
-      curRequest.push(lastOperation.item as PurchaseOrderItem); // Type assertion, as item is Item in delete operation
-    } else if (
-      lastOperation.operation === "quantity_change" &&
-      lastOperation.item
-    ) {
-      // Restore the previous quantity of the item
-      curRequest = curRequest.map((curValue) => {
-        if (curValue.item === lastOperation.item) {
-          return { ...curValue, quantity: lastOperation.previousQuantity };
+      updatedOrderData.push(lastOperation.item as PurchaseOrderItem);
+    } else if (lastOperation.operation === "quantity_change") {
+      // Find and restore the previous quantity
+      updatedOrderData = updatedOrderData.map((item) => {
+        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
+          return { ...item, quantity: lastOperation.previousQuantity! };
         }
-        return curValue;
+        return item;
       });
-    } else if (
-      lastOperation.operation === "make_change" &&
-      lastOperation.item
-    ) {
-      curRequest = curRequest.map((curValue) => {
-        if (curValue.item === lastOperation.item) {
+    } else if (lastOperation.operation === "make_change") {
+      // Find and restore the previous make list
+      updatedOrderData = updatedOrderData.map((item) => {
+        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
+          const originalItem = lastOperation.item as PurchaseOrderItem;
           return {
-            ...curValue,
-            makes: { list: lastOperation?.previousMakeList },
+            ...item,
+            makes: { list: lastOperation.previousMakeList! },
+            // also restore the primary 'make' field
+            make: originalItem.make,
           };
         }
-        return curValue;
+        return item;
       });
     }
 
-    // Update the order data with the restored item or quantity
-    setOrderData({
-      list: curRequest,
-    });
-
-    // Update the stack after popping the last operation
-    setStack(newStack);
-  }, [orderData, setOrderData, setStack, stack]);
+    setOrderData(updatedOrderData); // Set the restored array
+    setStack(newStack); // Update the stack
+  }, [orderData, stack]);
 
   const treeData = useMemo(
     () => [
@@ -1222,16 +1205,16 @@ export const PurchaseOrder = ({
                 PO={PO}
                 getTotal={getTotal}
                 poMutate={poMutate}
-                advance={advance}
-                materialReadiness={materialReadiness}
-                afterDelivery={afterDelivery}
-                xDaysAfterDelivery={xDaysAfterDelivery}
-                xDays={xDays}
-                setAdvance={setAdvance}
-                setMaterialReadiness={setMaterialReadiness}
-                setAfterDelivery={setAfterDelivery}
-                setXDaysAfterDelivery={setXDaysAfterDelivery}
-                setXDays={setXDays}
+                // advance={advance}
+                // materialReadiness={materialReadiness}
+                // afterDelivery={afterDelivery}
+                // xDaysAfterDelivery={xDaysAfterDelivery}
+                // xDays={xDays}
+                // setAdvance={setAdvance}
+                // setMaterialReadiness={setMaterialReadiness}
+                // setAfterDelivery={setAfterDelivery}
+                // setXDaysAfterDelivery={setXDaysAfterDelivery}
+                // setXDays={setXDays}
               />
             </div>
           </AccordionContent>
@@ -1627,16 +1610,14 @@ export const PurchaseOrder = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {orderData?.list?.map((item) => {
+                      {orderData?.map((item) => {
                         return (
                           <tr key={item.name}>
                             <td className="w-[45%] text-left border-b-2 py-1 text-sm">
-                              {item.item}
+                              {item.item_name}
                             </td>
                             <td className="w-[20%] border-b-2 py-1 text-sm text-center">
-                              {item?.makes?.list?.find(
-                                (i) => i?.enabled === "true"
-                              )?.make || "--"}
+                              {item.make}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
                               {item.unit}
@@ -1648,22 +1629,29 @@ export const PurchaseOrder = ({
                               <div className="flex items-center justify-center">
                                 <Pencil
                                   onClick={() => {
-                                    const options =
-                                      item?.makes?.list?.map((i) => ({
-                                        label: i?.make,
-                                        value: i?.make,
-                                      })) || [];
-                                    const selected = item?.makes?.list?.find(
-                                      (i) => i?.enabled === "true"
-                                    );
+                                    // Find all makes for this item (from its `makes.list` in the original PO data)
+                                    const itemMakes =
+                                      PO?.items.find(
+                                        (i) => i.name === item.name
+                                      )?.makes?.list || [];
+                                    const options = itemMakes.map((m) => ({
+                                      label: m.make,
+                                      value: m.make,
+                                    }));
+
+                                    setEditMakeOptions(options);
+
+                                    // Find the currently enabled make
+                                    const currentMakeValue = item.make;
+                                    const currentSelected =
+                                      options.find(
+                                        (opt) => opt.value === currentMakeValue
+                                      ) || null;
+                                    setSelectedMake(currentSelected);
 
                                     setQuantity(item.quantity);
                                     setAmendEditItem(item);
-                                    setEditMakeOptions(options);
-                                    setSelectedMake({
-                                      label: selected?.make || "",
-                                      value: selected?.make || "",
-                                    });
+                                    setShowAddNewMake(false); // Make sure the card is hidden initially
                                     toggleAmendEditItemDialog();
                                   }}
                                   className="w-4 h-4 cursor-pointer"
@@ -1774,7 +1762,7 @@ export const PurchaseOrder = ({
                             Item Name
                           </h5>
                           <div className="w-full  p-1 text-left">
-                            {amendEditItem?.item}
+                            {amendEditItem?.item_name}
                           </div>
                         </div>
                         <div className="flex space-x-2 w-full">
@@ -1822,7 +1810,7 @@ export const PurchaseOrder = ({
 
                       {showAddNewMake && (
                         <AddNewMakes
-                          orderData={orderData?.list}
+                          orderData={orderData}
                           setOrderData={setOrderData}
                           editMakeOptions={editMakeOptions}
                           amendEditItem={amendEditItem}
@@ -1833,14 +1821,14 @@ export const PurchaseOrder = ({
                     </DialogDescription>
                     <DialogDescription className="flex justify-end">
                       <div className="flex gap-2">
-                        {orderData?.list?.length === 1 ? (
+                        {orderData?.length === 1 ? (
                           <Button className="flex items-center gap-1" disabled>
                             <Trash2 className="h-4 w-4" />
                             Delete
                           </Button>
                         ) : (
                           <Button
-                            onClick={() => handleDelete(amendEditItem.item)}
+                            onClick={() => handleDelete(amendEditItem?.name)}
                             className="flex gap-1 items-center bg-gray-100 text-black hover:text-white"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1849,13 +1837,7 @@ export const PurchaseOrder = ({
                         )}
                         <Button
                           disabled={!quantity}
-                          onClick={() =>
-                            handleSave(
-                              amendEditItem?.item,
-                              quantity,
-                              selectedMake
-                            )
-                          }
+                          onClick={() => handleSave(amendEditItem?.name)}
                           variant={"outline"}
                           className="flex gap-1 items-center"
                         >
@@ -2044,121 +2026,106 @@ const MakesSelection = ({
   );
 };
 
+// interface AddNewMakesProps {
+//   orderData: PurchaseOrderItem[];
+//   setOrderData: React.Dispatch<
+//     React.SetStateAction<{ list: PurchaseOrderItem[] }>
+//   >;
+//   editMakeOptions: Make[];
+//   toggleAddNewMake: () => void;
+//   amendEditItem: any;
+//   setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
+// }
+
+// 🔄 REPLACE THE ENTIRE AddNewMakes COMPONENT WITH THIS
+
+// The props interface remains the same
 interface AddNewMakesProps {
-  orderData: PurchaseOrderItem[];
-  setOrderData: React.Dispatch<
-    React.SetStateAction<{ list: PurchaseOrderItem[] }>
-  >;
   editMakeOptions: Make[];
+  setEditMakeOptions: (options: Make[]) => void;
   toggleAddNewMake: () => void;
-  amendEditItem: any;
-  setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
+  amendEditItem: PurchaseOrderItem | null;
 }
 
 const AddNewMakes = ({
-  orderData,
-  setOrderData,
   editMakeOptions,
-  amendEditItem,
-  toggleAddNewMake,
   setEditMakeOptions,
+  toggleAddNewMake,
+  amendEditItem,
 }: AddNewMakesProps) => {
-  const [makeOptions, setMakeOptions] = useState<Make[]>([]);
+  // State for the new makes selected in THIS component. Initialized as an empty array.
+  const [newlySelected, setNewlySelected] = useState<readonly Make[]>([]);
 
-  const [newSelectedMakes, setNewSelectedMakes] = useState<Make[]>([]);
+  // State for the options available in THIS component's dropdown.
+  const [availableMakeOptions, setAvailableMakeOptions] = useState<Make[]>([]);
 
+  // Fetch the master list of makes.
   const { data: categoryMakeList } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
     limit: 10000,
   });
 
+  // This useEffect correctly populates the available options for the dropdown.
   useEffect(() => {
-    if ((categoryMakeList || [])?.length > 0) {
-      const categoryMakes = categoryMakeList?.filter(
-        (i) => i?.category === amendEditItem.category
+    if (categoryMakeList && amendEditItem) {
+      const allCategoryMakes = categoryMakeList
+        .filter((i) => i.category === amendEditItem.category)
+        .map((i) => ({ label: i.make, value: i.make }));
+
+      // Filter out makes that are already options in the main dropdown.
+      const filteredOptions = allCategoryMakes.filter(
+        (opt) =>
+          !editMakeOptions.some(
+            (existingOpt) => existingOpt.value === opt.value
+          )
       );
-      const makeOptionsList =
-        categoryMakes?.map((i) => ({ label: i?.make, value: i?.make })) || [];
-      const filteredOptions = makeOptionsList?.filter(
-        (i) => !editMakeOptions?.some((j) => j?.value === i?.value)
-      );
-      setMakeOptions(filteredOptions);
+      setAvailableMakeOptions(filteredOptions);
     }
   }, [categoryMakeList, editMakeOptions, amendEditItem]);
 
-  const handleSumbit = () => {
-    const allOptions = [...editMakeOptions, ...newSelectedMakes];
+  const handleSubmit = () => {
+    // Ensure newlySelected is an array before spreading.
+    const makesToAdd = newlySelected || [];
 
-    const currentMakes = editMakeOptions?.map((j) => ({
-      make: j?.value,
-      enabled: "false",
-    }));
+    // Combine the old options with the newly selected ones.
+    const allOptions = [...editMakeOptions, ...makesToAdd];
 
-    const reformattedNewMakes = newSelectedMakes?.map((i) => ({
-      make: i?.value,
-      enabled: "false",
-    }));
-
-    const combinedMakes = [...currentMakes, ...reformattedNewMakes];
-
-    const curRequest = orderData.map((curValue) => {
-      if (curValue.item === amendEditItem?.item) {
-        return { ...curValue, makes: { list: combinedMakes } };
-      }
-      return curValue;
-    });
-
-    setOrderData({
-      list: curRequest,
-    });
-
+    // Update the state in the parent component.
     setEditMakeOptions(allOptions);
 
+    // Close this component.
     toggleAddNewMake();
   };
 
   return (
-    <Card className="w-full bg-gray-100 my-2">
-      <CardContent className="py-2">
-        <div className="flex flex-col gap-2">
-          <h2 className="font-semibold">Existing Makes for this item:</h2>
-          {editMakeOptions?.length > 0 ? (
-            <div className="flex gap-1 flex-wrap">
-              {editMakeOptions?.map((i) => (
-                <Badge>{i?.value}</Badge>
-              ))}
-            </div>
-          ) : (
-            "--"
-          )}
-        </div>
-        <div className="flex gap-4 items-end my-4">
-          <div className="w-[70%]">
-            <Label>Select New Make</Label>
-            {categoryMakeList && (
-              <ReactSelect
-                options={makeOptions}
-                value={newSelectedMakes}
-                isMulti
-                onChange={(selectedOptions) =>
-                  setNewSelectedMakes(selectedOptions)
-                }
-              />
-            )}
+    <Card className="w-full bg-gray-50 my-2 border-dashed border-primary">
+      <CardContent className="py-4">
+        <div className="flex flex-col gap-4">
+          <div>
+            <Label>Select New Make(s) to Add to Dropdown</Label>
+            <ReactSelect
+              options={availableMakeOptions}
+              value={newlySelected}
+              isMulti // This is correct
+              // The `onChange` from react-select for isMulti provides a `readonly Make[]` or `null`.
+              // We cast it to ensure type safety.
+              onChange={(selectedOptions) =>
+                setNewlySelected(selectedOptions as readonly Make[])
+              }
+            />
           </div>
-
-          <div className="flex gap-2 items-center">
-            <Button onClick={() => toggleAddNewMake()} variant="outline">
+          <div className="flex gap-2 items-center justify-end">
+            <Button onClick={toggleAddNewMake} variant="outline">
               <CircleX className="h-4 w-4 mr-1" />
               Cancel
             </Button>
             <Button
-              onClick={handleSumbit}
-              disabled={!newSelectedMakes?.length}
+              onClick={handleSubmit}
+              disabled={!newlySelected || newlySelected.length === 0} // Corrected disabled check
               className="flex items-center gap-1"
             >
-              <ListChecks className="h-4 w-4" />
-              Confirm
+              <ListChecks className="h-4 w-4 mr-1" />
+              Add to Options
             </Button>
           </div>
         </div>

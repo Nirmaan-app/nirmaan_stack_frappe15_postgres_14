@@ -7,6 +7,7 @@ export interface PaymentTermMilestone {
   amount: number;
   percentage: number;
   due_date?: string; // Optional due date
+  status: 'Created' | 'Requested' |'Scheduled'|'Approved'| 'Paid';
 }
 
 export interface VendorPaymentTerm {

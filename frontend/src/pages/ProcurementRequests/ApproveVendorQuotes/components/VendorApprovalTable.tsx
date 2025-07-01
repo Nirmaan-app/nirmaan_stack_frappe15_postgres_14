@@ -207,7 +207,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                                 // const itemSavingLoss = ((item.lowestQuotedAmount || item.targetAmount) && item.amount)
                                                 //                        ? parseNumber(item.lowestQuotedAmount || item.targetAmount) - item.amount
                                                 //                        : undefined;
-                                                const itemSavingLoss = item.savingLoss
+                                                const itemSavingLoss = item.savingLoss 
                                                 const quote = parseNumber(item.quote);
                                                 const quantity = parseNumber(item.quantity);
                                                 const taxRate = parseNumber(item.tax) / 100; // e.g., 18 -> 0.18
