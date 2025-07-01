@@ -47,7 +47,7 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { queryKeys, getExpenseTypeListOptions } from "@/config/queryKeys";
+import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
 
 interface NewExpenseFormState {
     type: string; // Will store the value (ID) of the selected ExpenseType
@@ -96,7 +96,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
-    const expenseTypeFetchOptions = useMemo(() => getExpenseTypeListOptions(), []);
+    const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
     const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
         "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey

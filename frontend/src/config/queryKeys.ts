@@ -62,7 +62,7 @@ const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name']; // Ass
 
 const CUSTOMER_MINIMAL_FIELDS: (keyof Customers)[] = ['name', 'company_name'];
 
-const EXPENSE_TYPE_MINIMAL_FIELDS: (keyof ExpenseType)[] = ['name', 'expense_name'];
+const EXPENSE_TYPE_MINIMAL_FIELDS: (keyof ExpenseType)[] = ['name', 'expense_name', 'project', 'non_project'];
 const NON_PROJECT_EXPENSE_DEFAULT_FIELDS: (keyof NonProjectExpenses | `type.${string}`)[] = [
   "name", "creation", "modified", "owner",
   "type",
@@ -253,8 +253,9 @@ export const getPaidPaymentReportListOptions = (): PaymentListParams => ({
   limit: 100000,
 });
 
-export const getExpenseTypeListOptions = (): ExpenseTypeListParams => ({
+export const getNonProjectExpenseTypeListOptions = (): ExpenseTypeListParams => ({
   fields: EXPENSE_TYPE_MINIMAL_FIELDS,
+  filters: [['non_project', '=', 1]], // Only fetch non-project expense types
   limit: 100000, // Default to a high limit for dropdowns
   orderBy: { field: "expense_name", order: "asc" }, // Default sort by name
 });
