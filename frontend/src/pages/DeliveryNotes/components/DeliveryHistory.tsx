@@ -55,86 +55,54 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
   }, (id: string | undefined) => id), [usersList]);
 
   return (
+    // --- (Indicator) MODIFIED: For mobile, each "row" is now a block element inside a div. On desktop, it's a TableRow. ---
+    // We use a React.Fragment to avoid adding an extra DOM element.
     <>
-      <TableRow
-        role="button"
-        tabIndex={0}
-        onClick={() => onToggle(date)}
-        onKeyDown={handleKeyPress}
-        aria-expanded={isExpanded}
-        className="cursor-pointer transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
-      >
-        <TableCell>
-          <div className="flex items-center">
-            <span className="font-medium">{formatDate(new Date(date), "dd/MM/yyyy")}</span>
-            <button
-              aria-label={`${isExpanded ? 'Collapse' : 'Expand'} delivery details`}
-              className="ml-2 rounded p-1 hover:bg-gray-100"
-            >
-              {isExpanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </button>
+      {/* Mobile Card View */}
+      <div className="block sm:hidden border-t p-4">
+        <div className="flex justify-between items-center" onClick={() => onToggle(date)}>
+          <div>
+            <div className="font-medium">{formatDate(new Date(date), "dd MMMM, yyyy")}</div>
+            <div className="text-sm text-gray-500">{data.items.length} item(s) updated by {getUserName(data.updated_by)}</div>
           </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(data); }}><Printer className="h-4 w-4" /></Button>
+            <button aria-label="Toggle details" className="p-1">{isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</button>
+          </div>
+        </div>
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] mt-4' : 'max-h-0'}`}>
+          <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
+            {data.items.map((item, idx) => (
+              <li key={idx} className="flex-col"><div><strong>{item.item_name}</strong></div> <div>Received : {item.to - item.from}({item.unit})</div></li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      {/* Desktop Table Row View */}
+      <TableRow role="button" onClick={() => onToggle(date)} className="hidden sm:table-row cursor-pointer hover:bg-gray-50">
+        <TableCell>
+          <div className="flex items-center font-medium">{formatDate(new Date(date), "dd/MM/yyyy")} <span className="ml-2">{isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span></div>
         </TableCell>
         <TableCell>{data.items.length}</TableCell>
         <TableCell className={`${index === 0 ? "font-bold" : ""}`}>{index === 0 ? "Create" : "Update"}</TableCell>
+        <TableCell>{getUserName(data.updated_by)}</TableCell>
         <TableCell>
-          {getUserName(data.updated_by)}
-        </TableCell>
-        <TableCell>
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded bg-red-400 hover:bg-red-100 group"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPrint(data);
-              }}
-              aria-label={`Print delivery note for ${date}`}
-            >
-              <Printer className="h-4 w-4 text-gray-700 group-hover:text-red-600" />
-            </Button>
-          </div>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(data); }}><Printer className="h-4 w-4 text-gray-700" /></Button>
         </TableCell>
       </TableRow>
-      <TableRow aria-hidden={!isExpanded}>
-        <TableCell colSpan={3} className="p-0">
-          <div
-            className={`overflow-hidden transition-all duration-${TRANSITION_DURATION} ease-in-out`}
-            style={{
-              maxHeight: isExpanded ? MAX_HEIGHT : 0,
-              transitionProperty: 'max-height',
-              transitionDuration: `${TRANSITION_DURATION}ms`,
-            }}
-          >
-            <Table className="bg-gray-50">
-              <TableHeader className="bg-red-100">
-                <TableRow>
-                  <TableHead className="w-[50%] pl-8 font-semibold text-gray-700">Item Name</TableHead>
-                  <TableHead className="w-[25%] font-semibold text-gray-700">Unit</TableHead>
-                  <TableHead className="font-semibold text-gray-700">Newly Received Qty</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.items.map((item, index) => (
-                  <TableRow key={`${date}-${index}`}>
-                    <TableCell className="w-[50%]">
-                      {item.item_name && (
-                        <span className="ml-6 italic font-semibold text-gray-600">
-                          - {item.item_name}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="w-[25%]">{item.unit}</TableCell>
-                    <TableCell>{item.to - item.from}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+      {/* The expanded content row for desktop */}
+      <TableRow className="hidden sm:table-row" aria-hidden={!isExpanded}>
+        <TableCell colSpan={5} className="p-0">
+          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px]' : 'max-h-0'}`}>
+            <div className="p-4 bg-gray-50">
+              <Table>
+                <TableHeader className="bg-gray-200"><TableRow><TableHead>Item Name</TableHead><TableHead>Unit</TableHead><TableHead>Received</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {data.items.map((item, itemIdx) => (<TableRow key={itemIdx}><TableCell>{item.item_name}</TableCell><TableCell>{item.unit}</TableCell><TableCell>{item.to - item.from}</TableCell></TableRow>))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         </TableCell>
       </TableRow>
@@ -157,56 +125,38 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
 
   return (
     <Card>
-      <CardHeader className="border-b">
-        <CardTitle className="text-xl font-semibold text-red-600 max-md:text-lg">
-          Delivery History
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-auto">
+      <CardHeader className="border-b"><CardTitle>Delivery History</CardTitle></CardHeader>
+      <CardContent className="p-0 sm:p-6"> {/* Remove padding on mobile, add it back for desktop table */}
+        {/* For Desktop */}
+        <div className="overflow-auto hidden sm:block">
           <Table>
-            <TableHeader className="bg-gray-100">
+            <TableHeader className="bg-red-100">
               <TableRow>
-                <TableHead className="font-bold w-[50%] min-w-[200px]">Date</TableHead>
-                <TableHead className="font-bold w-[25%] min-w-[100px]">No. of Items</TableHead>
-                <TableHead className="font-bold w-[25%] min-w-[100px]">Change Type</TableHead>
-                <TableHead className="font-bold">Updated By</TableHead>
-                <TableHead className="font-bold">Print</TableHead>
-
+                <TableHead>Date</TableHead><TableHead>No. of Items</TableHead><TableHead>Change Type</TableHead><TableHead>Updated By</TableHead><TableHead>Print</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {/* === NEW MESSAGE FOR UPDATES === */}
-              {/* {!hasHistory && (
-          <div className="m-4 rounded-md border border-blue-200 bg-blue-50 p-4 text-center text-sm text-blue-800">
-            <p>Update and save the delivery quantities to generate the first delivery note.</p>
-          </div>
-        )} */}
-
-              {hasHistory ? (
+              {deliveryData && Object.keys(deliveryData).length > 0 ? (
                 Object.entries(deliveryData).map(([date, data], index) => (
-                  <ExpandableRow
-                    index={index}
-                    key={date}
-                    date={date}
-                    data={data}
-                    isExpanded={expandedRows.includes(date)}
-                    onToggle={handleToggle}
-                    onPrint={onPrintHistory} // <-- PASS THE HANDLER DOWN
-                  />
+                  <ExpandableRow key={date} index={index} date={date} data={data} isExpanded={expandedRows.includes(date)} onToggle={handleToggle} onPrint={onPrintHistory} />
                 ))
               ) : (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="text-center py-4 text-gray-500"
-                  >
-                    No delivery history available
-                  </TableCell>
-                </TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center py-4 text-gray-500">No delivery history available</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
+        </div>
+        {/* For Mobile */}
+        <div className="block sm:hidden">
+          {deliveryData && Object.keys(deliveryData).length > 0 ? (
+            <div className="divide-y">
+              {Object.entries(deliveryData).map(([date, data], index) => (
+                <ExpandableRow key={date} index={index} date={date} data={data} isExpanded={expandedRows.includes(date)} onToggle={handleToggle} onPrint={onPrintHistory} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-center p-4 text-gray-500">No delivery history available</p>
+          )}
         </div>
       </CardContent>
     </Card>

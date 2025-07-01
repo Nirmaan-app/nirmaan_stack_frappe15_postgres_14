@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useReactToPrint } from 'react-to-print'; // Re-add useReactToPrint
 import { Printer } from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
+import { useToast } from '@/components/ui/use-toast'; // --- (Indicator) NEW: Import useToast ---
 
 // UI Components
 import { Button } from "@/components/ui/button";
@@ -150,6 +151,7 @@ export default function DeliveryNote() {
   } = useDeliveryNoteData();
 
   // --- FIX: Revert to the original local print setup since the hook doesn't exist ---
+  const { toast } = useToast(); // --- (Indicator) NEW: Initialize toast ---
   const printComponentRef = useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
     content: () => printComponentRef.current,
@@ -160,7 +162,7 @@ export default function DeliveryNote() {
 
   // Use the history printing hook (this is correct)
   const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
-  console.log("deliveryNoteData", deliveryNoteData)
+  // console.log("deliveryNoteData", deliveryNoteData)
 
   // --- LOADING / ERROR / NOT FOUND STATES (no changes) ---
   if (isLoading) {
@@ -193,27 +195,74 @@ export default function DeliveryNote() {
   const deliveryHistory = safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData.delivery_data, { data: {} });
   const displayDnId = formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE);
 
+  // --- (Indicator) NEW: Logic to find the latest history entry ---
+  const latestHistoryEntry = useMemo(() => {
+    const historyData = deliveryHistory.data;
+    if (!historyData || Object.keys(historyData).length === 0) {
+      return null;
+    }
+    // Sort keys (timestamps) in descending order to find the latest one
+    const sortedKeys = Object.keys(historyData).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    const latestKey = sortedKeys[0];
+    return historyData[latestKey];
+  }, [deliveryHistory.data]);
+
+  // --- (Indicator) NEW: Callback for the "Print Latest DN" button ---
+  const handlePrintLatest = useCallback(() => {
+    if (latestHistoryEntry) {
+      triggerHistoryPrint(latestHistoryEntry);
+    } else {
+      toast({
+        title: "No History Available",
+        description: "A delivery must be recorded before its note can be printed.",
+      });
+    }
+  }, [latestHistoryEntry, triggerHistoryPrint, toast]);
+
   return (
     <div className="container mx-auto px-4 py-6 max-w-4xl space-y-6">
-      <div className="flex items-center justify-between mb-4">
+      {/* --- (Indicator) MODIFIED: Header with new button and responsive wrapper --- */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-4">
         <h1 className="text-2xl font-bold text-gray-800">{displayDnId}</h1>
-        <Button onClick={handlePrint} variant="default" size="sm">
-          <Printer className="h-4 w-4 mr-2" />
-          Print DN
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button
+            onClick={handlePrintLatest}
+            variant="outline"
+            size="sm"
+            disabled={!latestHistoryEntry} // Disable if no history exists
+            className="w-full sm:w-auto"
+          >
+            <Printer className="h-4 w-4 mr-2" />
+            Print Latest DN
+          </Button>
+          <Button
+            onClick={handlePrint}
+            variant="default"
+            size="sm"
+            className="w-full sm:w-auto"
+          >
+            <Printer className="h-4 w-4 mr-2" />
+            Print Overall DN
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6">
-        <OrderDetailsCard data={deliveryNoteData} />
-        <DeliveryPersonDetails deliveryContact={deliveryNoteData.delivery_contact} />
-        <DeliveryNoteItemsDisplay
-          data={deliveryNoteData}
-          poMutate={refetchDeliveryNoteData}
-        />
-        <DeliveryHistoryTable
-          deliveryData={deliveryHistory.data}
-          onPrintHistory={triggerHistoryPrint}
-        />
+      {/* --- (Indicator) MODIFIED: Main layout now responsive --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1 space-y-6">
+          <OrderDetailsCard data={deliveryNoteData} />
+          <DeliveryPersonDetails deliveryContact={deliveryNoteData.delivery_contact} />
+        </div>
+        <div className="lg:col-span-2 space-y-6">
+          <DeliveryNoteItemsDisplay
+            data={deliveryNoteData}
+            poMutate={refetchDeliveryNoteData}
+          />
+          <DeliveryHistoryTable
+            deliveryData={deliveryHistory.data}
+            onPrintHistory={triggerHistoryPrint}
+          />
+        </div>
       </div>
 
       {/* --- HIDDEN PRINTABLE COMPONENTS --- */}

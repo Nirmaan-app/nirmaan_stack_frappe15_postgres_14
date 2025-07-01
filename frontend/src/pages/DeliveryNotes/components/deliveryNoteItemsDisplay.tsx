@@ -270,24 +270,26 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between border-b">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between border-b gap-2">
           <CardTitle className="text-xl font-semibold text-red-600">Item List</CardTitle>
-          {data?.status !== "Delivered" && (
-            showEdit ? (
-              <div className="flex gap-4 items-center"> {/* Use items-center for better alignment */}
-                <CustomAttachment maxFileSize={20 * 1024 * 1024} selectedFile={selectedAttachment} onFileSelect={setSelectedAttachment} label="Attach DC" className="w-auto" />
-                <Button onClick={() => setProceedDialog(true)} disabled={!hasChanges} className="gap-1"><ListChecks className="h-4 w-4" /> Update</Button>
-                <Button onClick={() => setShowEdit(false)} variant="ghost" className="gap-1"><X className="h-4 w-4" /> Cancel</Button>
+          {/* {data?.status !== "Delivered" && ( */}
+          {showEdit ? (
+            <div className="flex flex-wrap gap-2 items-center">
+              <CustomAttachment maxFileSize={20 * 1024 * 1024} selectedFile={selectedAttachment} onFileSelect={setSelectedAttachment} label="Attach DC" className="w-auto" />
+              <div className="flex gap-2">
+                <Button onClick={() => setProceedDialog(true)} disabled={!hasChanges} size="sm" className="gap-1"><ListChecks className="h-4 w-4" /> Update</Button>
+                <Button onClick={() => setShowEdit(false)} variant="secondary" size="sm" className="gap-1"><X className="h-4 w-4" /> Cancel</Button>
               </div>
-            ) : (
-              <Button onClick={() => setShowEdit(true)} className="gap-1"><Pencil className="h-4 w-4" /> Edit</Button>
-            )
+            </div>
+          ) : (
+            <Button onClick={() => setShowEdit(true)} className="gap-1"><Pencil className="h-4 w-4" /> Record New Updates</Button>
           )}
+          {/* )} */}
         </CardHeader>
         <CardContent>
-          <div className="overflow-auto">
+          <div className="overflow-auto hidden sm:block">
             <Table>
-              <TableHeader className="bg-gray-100">
+              <TableHeader className="bg-red-100">
                 <TableRow>
                   <TableHead className="w-[40%] min-w-[200px]">Item Name</TableHead>
                   <TableHead>Unit</TableHead>
@@ -373,6 +375,97 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                 })}
               </TableBody>
             </Table>
+          </div>
+          {/* --- (Indicator) NEW MOBILE CARD-WITH-TABLE VIEW --- */}
+          <div className="block sm:hidden">
+            <div className="divide-y">
+              {originalOrder.map(item => {
+                const alreadyDelivered = item.received ?? 0;
+                const isFullyDelivered = alreadyDelivered >= item.quantity;
+
+                return (
+                  <div key={`mobile-card-${item.name}`} className="p-4">
+                    {/* Item Name and Unit */}
+                    <div className="mb-3">
+                      <p className="font-semibold text-gray-800">{item.item}</p>
+                      <p className="text-sm text-gray-500">Unit: {item.unit}</p>
+                    </div>
+
+                    {/* --- Inner Table for Quantities --- */}
+                    <Table className="text-sm">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="h-8 px-2">Ordered</TableHead>
+                          {showEdit ? (
+                            <>
+                              <TableHead className="h-8 px-2">Delivered</TableHead>
+                              <TableHead className="h-8 px-2 text-center">Newly Delivered</TableHead>
+                            </>
+                          ) : (
+                            <TableHead className="h-8 px-2">Total Received</TableHead>
+                          )}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow>
+                          <TableCell className="px-2 py-2 font-medium">{item.quantity}</TableCell>
+
+                          {showEdit ? (
+                            <>
+                              <TableCell className="px-2 py-2">
+                                <div className="flex items-center gap-1">
+                                  {isFullyDelivered ? (<Check className="h-5 w-5 text-green-500" />)
+                                    : alreadyDelivered > 0 ? (<ArrowDown className="text-primary" />) : null}
+                                  <span>{alreadyDelivered}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="px-2 py-2 text-center">
+                                {/* {!isFullyDelivered ? (
+                                  <Input
+                                    type="number"
+                                    value={newlyDeliveredQuantities[item.name] ?? ''}
+                                    onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
+                                    placeholder="0"
+                                    className="w-full h-9 p-1 text-center"
+                                    min={0}
+                                  />
+                                ) : (
+                                  <Check className="h-5 w-5 mx-auto text-green-600" />
+                                )} */}
+                                <Input
+                                  type="number"
+                                  value={newlyDeliveredQuantities[item.name] ?? ''}
+                                  onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
+                                  placeholder="0"
+                                  className="w-full h-9 p-1 text-center"
+                                  min={0}
+                                />
+                              </TableCell>
+                            </>
+                          ) : (
+                            <TableCell className="px-2 py-2">
+                              <div className="flex items-center gap-1">
+                                {isFullyDelivered ? (<Check className="h-5 w-5 text-green-500" />)
+                                  : alreadyDelivered > 0 ? (<ArrowDown className="text-primary" />) : null}
+                                <span>{alreadyDelivered}</span>
+                              </div>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+
+                    {/* Comment section if available */}
+                    {item.comment && (
+                      <div className="mt-2 flex items-start gap-2 text-xs text-gray-600 border-t pt-2">
+                        <MessageCircleMore className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-500" />
+                        <p className="italic">{item.comment}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </CardContent>
       </Card>
