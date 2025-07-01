@@ -7,7 +7,7 @@ import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectInflows } from '@/types/NirmaanStack/ProjectInflows';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { getPOTotal, getSRTotal } from '@/utils/getAmounts';
+import { getPOTotal, getSRTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
@@ -23,6 +23,7 @@ import { ProjectInvoice } from '@/types/NirmaanStack/ProjectInvoice';
 // Define the structure for the calculated fields
 export interface ProjectCalculatedFields {
     totalInvoiced: number;
+    totalPoSrInvoiced: number; // This is the new field for invoiced amounts from invoice_data
     totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
@@ -117,6 +118,30 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         }, new Map<string, number>()) ?? new Map();
     }, [paymentsData]);
 
+    // --- (Indicator) NEW MEMOIZED MAP: Calculate total invoiced amount from POs and SRs ---
+    const totalPoSrInvoicedByProject = useMemo(() => {
+        const projectTotals = new Map<string, number>();
+
+        // Process Purchase Orders
+        purchaseOrders?.forEach(po => {
+            if (po.project && po.invoice_data) {
+                const currentTotal = projectTotals.get(po.project) || 0;
+                // getTotalInvoiceAmount is the utility function that iterates through the invoice_data JSON
+                projectTotals.set(po.project, currentTotal + getTotalInvoiceAmount(po.invoice_data));
+            }
+        });
+
+        // Process Service Requests
+        serviceRequests?.forEach(sr => {
+            if (sr.project && sr.invoice_data) {
+                const currentTotal = projectTotals.get(sr.project) || 0;
+                projectTotals.set(sr.project, currentTotal + getTotalInvoiceAmount(sr.invoice_data));
+            }
+        });
+
+        return projectTotals;
+    }, [purchaseOrders, serviceRequests]);
+
     // --- Memoized Function for Per-Project Calculation ---
     const getProjectCalculatedFields = useCallback(
         memoize((projectId: string): ProjectCalculatedFields | null => {
@@ -142,18 +167,20 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
             const totalProjectInvoiced = totalProjectInvoiceByProject.get(projectId) || 0;
             const totalOutflow = totalOutflowByProject.get(projectId) || 0;
 
+            // Get the newly calculated invoiced amount from our map
+            const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
+
             return {
                 totalInvoiced: parseNumber(totalInvoiced),
+                totalPoSrInvoiced: parseNumber(totalPoSrInvoiced), // Add the new value here
                 totalProjectInvoiced: parseNumber(totalProjectInvoiced),
                 totalInflow: parseNumber(totalInflow),
                 totalOutflow: parseNumber(totalOutflow),
             };
         }),
-        [ // Dependencies for useCallback: these ensure `memoize` uses the latest maps if they change
-            posByProject, srsByProject, totalInflowByProject, totalProjectInvoiceByProject, totalOutflowByProject,
-            // Also include loading states, so if they flip, the memoized function is "new"
-            // and lodash.memoize's cache for specific projectIds might be cleared if its internal
-            // function reference changes.
+        [
+            // Add the new map to the dependency array
+            posByProject, srsByProject, totalInflowByProject, totalProjectInvoiceByProject, totalOutflowByProject, totalPoSrInvoicedByProject,
             isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments
         ]
     );
@@ -181,6 +208,7 @@ export interface ProcessedProject extends Projects {
     // They are dynamically fetched/calculated by the cell renderers.
     // For typing purposes in cells or if you enrich data for export, they can be optional.
     totalInvoiced?: number;
+    totalPoSrInvoiced: number; // This is the new field for invoiced amounts from invoice_data
     totalProjectInvoiced?: number;
     totalInflow?: number;
     totalOutflow?: number;
