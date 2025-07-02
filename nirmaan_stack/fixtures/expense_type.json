@@ -164,6 +164,60 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_name": "Loading & Unloading Charges",
+  "modified": "2025-07-01 19:14:42.021344",
+  "name": "Loading & Unloading Charges",
+  "non_project": 0,
+  "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Material Transportation Charges",
+  "modified": "2025-07-01 19:15:01.232812",
+  "name": "Material Transportation Charges",
+  "non_project": 0,
+  "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Scaffolding Rent",
+  "modified": "2025-07-01 19:15:18.985910",
+  "name": "Scaffolding Rent",
+  "non_project": 0,
+  "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Project Insurance Charges",
+  "modified": "2025-07-01 19:18:16.496043",
+  "name": "Project Insurance Charges",
+  "non_project": 0,
+  "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Project Printing Charges",
+  "modified": "2025-07-01 19:18:34.086064",
+  "name": "Project Printing Charges",
+  "non_project": 0,
+  "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Other Project Related Charges",
+  "modified": "2025-07-01 19:18:51.698059",
+  "name": "Other Project Related Charges",
+  "non_project": 0,
+  "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
   "expense_name": "Advertising & Marketing",
   "modified": "2025-06-23 20:42:30.347237",
   "name": "Advertising & Marketing",
@@ -187,6 +241,24 @@
   "name": "Audit Fee",
   "non_project": 1,
   "project": 0
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Labour Charges",
+  "modified": "2025-07-01 19:14:23.310134",
+  "name": "Labour Charges",
+  "non_project": 0,
+  "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Material Purchases",
+  "modified": "2025-07-01 19:18:00.942831",
+  "name": "Material Purchases",
+  "non_project": 0,
+  "project": 1
  },
  {
   "docstatus": 0,
