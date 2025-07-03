@@ -15,6 +15,7 @@ import { urlStateManager } from "@/utils/urlStateManager"
 import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"
 
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
@@ -28,6 +29,7 @@ interface ProjectFinancialsTabProps {
   getTotalAmountPaid: {
     poAmount: number;
     srAmount: number;
+    projectExpensesAmount: number; // Receive the new field
     totalAmount: number;
   }
   totalPOAmountWithGST: number;
@@ -93,7 +95,13 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     {
       label: "Total Amount Paid",
       value: getTotalAmountPaid.totalAmount,
-      style: "text-red-600"
+      style: "text-red-600",
+      // --- (Indicator) NEW: Add breakdown data for hover card ---
+      breakdown: {
+        poAmount: getTotalAmountPaid.poAmount,
+        srAmount: getTotalAmountPaid.srAmount,
+        projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
+      }
     },
     {
       label: "Total Amount Due",
@@ -163,9 +171,18 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
               <p className="text-gray-700 tracking-tight">
                 {item.label}
               </p>
-              <p onClick={item.onClick} className={`text-sm font-bold text-gray-900 ${item.style}`}>
-                {formatToRoundedIndianRupee(item.value)}
-              </p>
+              {/* --- (Indicator) MODIFIED: Conditionally wrap with hover card --- */}
+              {item.breakdown ? (
+                <AmountBreakdownHoverCard {...item.breakdown}>
+                  <p className={`text-sm font-bold text-gray-900 ${item.style} border-b border-dashed cursor-pointer w-fit`}>
+                    {formatToRoundedIndianRupee(item.value)}
+                  </p>
+                </AmountBreakdownHoverCard>
+              ) : (
+                <p onClick={item.onClick} className={`text-sm font-bold text-gray-900 ${item.style} ${item.onClick ? 'cursor-pointer' : ''}`}>
+                  {formatToRoundedIndianRupee(item.value)}
+                </p>
+              )}
             </div>
           ))}
         </CardContent>

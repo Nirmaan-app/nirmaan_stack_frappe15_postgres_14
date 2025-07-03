@@ -5,6 +5,7 @@ import { ServiceItemType, ServiceRequests } from "@/types/NirmaanStack/ServiceRe
 import memoize from "lodash/memoize";
 import { parseNumber } from "./parseNumber";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
+import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 
 
 export const getPOTotal = memoize(
@@ -109,6 +110,13 @@ export const getTotalAmountPaid = memoize(
     return payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
   },
   (payments: ProjectPayments[]) => JSON.stringify(payments)
+);
+
+export const getTotalExpensePaid = memoize(
+  (payments: ProjectExpenses[]): number => {
+    return payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
+  },
+  (payments: ProjectExpenses[]) => JSON.stringify(payments)
 );
 
 

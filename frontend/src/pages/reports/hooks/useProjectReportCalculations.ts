@@ -7,6 +7,7 @@ import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectInflows } from '@/types/NirmaanStack/ProjectInflows';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
+import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses'; // --- (Indicator) NEW: Import ProjectExpenses type ---
 import { getPOTotal, getSRTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
@@ -41,6 +42,7 @@ export interface UseProjectReportCalculationsResult {
     mutateInflows: () => Promise<any>;
     mutateProjectInvoice: () => Promise<any>;
     mutatePayments: () => Promise<any>;
+    mutateProjectExpenses: () => Promise<any>; // --- (Indicator) NEW: Mutator for Project Expenses ---
 }
 
 export const useProjectReportCalculations = (): UseProjectReportCalculationsResult => {
@@ -71,6 +73,13 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
 
     const { data: paymentsData, isLoading: isLoadingPayments, error: errorPayments, mutate: mutatePayments } =
         useFrappeGetDocList<ProjectPayments>(paymentQueryKey[0], paymentOptions as GetDocListArgs<FrappeDoc<ProjectPayments>>, paymentQueryKey);
+
+    // --- (Indicator) NEW: Fetch all Project Expenses ---
+    const { data: projectExpensesData, isLoading: isLoadingProjectExpenses, error: errorProjectExpenses, mutate: mutateProjectExpenses } =
+        useFrappeGetDocList<ProjectExpenses>('Project Expenses', {
+            fields: ['projects', 'amount'], // Only fields needed for this calculation
+            limit: 0,
+        }, 'AllProjectExpensesForReports');
 
     // --- Pre-process and Group Data (Memoized) ---
     const posByProject = useMemo(() => {
@@ -117,6 +126,15 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
             return acc;
         }, new Map<string, number>()) ?? new Map();
     }, [paymentsData]);
+    // --- (Indicator) NEW: Create a map for Project Expenses totals ---
+    const totalProjectExpensesByProject = useMemo(() => {
+        return projectExpensesData?.reduce((acc, expense) => {
+            if (expense.projects) { // The link field in the doctype is 'projects'
+                acc.set(expense.projects, (acc.get(expense.projects) || 0) + parseNumber(expense.amount));
+            }
+            return acc;
+        }, new Map<string, number>()) ?? new Map();
+    }, [projectExpensesData]);
 
     // --- (Indicator) NEW MEMOIZED MAP: Calculate total invoiced amount from POs and SRs ---
     const totalPoSrInvoicedByProject = useMemo(() => {
@@ -147,7 +165,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         memoize((projectId: string): ProjectCalculatedFields | null => {
             // Important: If any of the dependent global data is still loading,
             // we cannot reliably calculate. The component using this should check `isLoadingGlobalDeps`.
-            if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments) {
+            if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments || isLoadingProjectExpenses) {
                 return null; // Indicate that data isn't ready for this calculation
             }
 
@@ -165,7 +183,11 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
 
             const totalInflow = totalInflowByProject.get(projectId) || 0;
             const totalProjectInvoiced = totalProjectInvoiceByProject.get(projectId) || 0;
-            const totalOutflow = totalOutflowByProject.get(projectId) || 0;
+            const poSrPaymentOutflow = totalOutflowByProject.get(projectId) || 0;
+            const projectExpenseOutflow = totalProjectExpensesByProject.get(projectId) || 0;
+
+            // The new combined total
+            const totalOutflow = poSrPaymentOutflow + projectExpenseOutflow;
 
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
@@ -186,7 +208,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
     );
 
     const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments;
-    const globalDepsError = errorPOs || errorSRs || errorInflows || errorProjectInvoice || errorPayments;
+    const globalDepsError = errorPOs || errorSRs || errorInflows || errorProjectInvoice || errorPayments || errorProjectExpenses;
 
     return {
         getProjectCalculatedFields,
@@ -197,6 +219,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         mutateInflows,
         mutateProjectInvoice,
         mutatePayments,
+        mutateProjectExpenses
     };
 };
 

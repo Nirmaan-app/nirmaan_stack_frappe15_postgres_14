@@ -28,6 +28,8 @@ import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/Procur
 import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses"; // Import new type
+import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"; // Import new hover card
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
@@ -446,6 +448,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     limit: 0
   })
 
+  // --- (Indicator) NEW: Fetch Project Expenses for this specific project ---
+  const { data: projectExpenses, isLoading: projectExpensesLoading } = useFrappeGetDocList<ProjectExpenses>("Project Expenses", {
+    fields: ["name", "amount"], // Only need amount for calculation
+    filters: [['projects', '=', projectId]],
+    limit: 0
+  });
+
   // const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
   //   fields: ["*"],
   //   limit: 1000,
@@ -526,21 +535,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //   value: ven.vendor_name,
   // })), [vendorsList]);
 
+  // --- (Indicator) MODIFIED: Update the getTotalAmountPaid calculation ---
   const getTotalAmountPaid = useMemo(() => {
     if (!projectPayments) {
-      return { poAmount: 0, srAmount: 0, totalAmount: 0 };
+      return { poAmount: 0, srAmount: 0, projectExpensesAmount: 0, totalAmount: 0 };
     }
 
-    const poAmount = projectPayments
-      .filter((i) => i?.document_type === "Procurement Orders")
-      .reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
+    const poAmount = projectPayments.filter(p => p?.document_type === "Procurement Orders").reduce((acc, p) => acc + parseNumber(p.amount), 0);
+    const srAmount = projectPayments.filter(p => p?.document_type === "Service Requests").reduce((acc, p) => acc + parseNumber(p.amount), 0);
+    const projectExpensesAmount = projectExpenses?.reduce((acc, e) => acc + parseNumber(e.amount), 0) || 0;
 
-    const srAmount = projectPayments
-      .filter((i) => i?.document_type === "Service Requests")
-      .reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-
-    return { poAmount, srAmount, totalAmount: poAmount + srAmount };
-  }, [projectPayments]);
+    return { poAmount, srAmount, projectExpensesAmount, totalAmount: poAmount + srAmount + projectExpensesAmount };
+  }, [projectPayments, projectExpenses]);
 
   const totalPosRaised = useMemo(() => {
     if (!po_data || po_data.length === 0) {
@@ -1471,9 +1477,16 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             </div>
             <div>
               <span className="whitespace-nowrap">Total Amt Paid: </span>
-              <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
-              </span>
+              {/* --- (Indicator) MODIFIED: Wrap the amount in the new hover card --- */}
+              <AmountBreakdownHoverCard
+                poAmount={getTotalAmountPaid.poAmount}
+                srAmount={getTotalAmountPaid.srAmount}
+                projectExpensesAmount={getTotalAmountPaid.projectExpensesAmount}
+              >
+                <span className="max-sm:text-end max-sm:w-full text-primary cursor-pointer border-b border-dashed">
+                  {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
+                </span>
+              </AmountBreakdownHoverCard>
             </div>
           </div>
         </div>
