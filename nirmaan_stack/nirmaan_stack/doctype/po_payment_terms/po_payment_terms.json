@@ -48,8 +48,9 @@
   },
   {
    "fieldname": "status",
-   "fieldtype": "Data",
-   "label": "Status"
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Created\nRequested\nScheduled\nApproved\nPaid\nReturn"
   },
   {
    "fieldname": "project_payment",
@@ -62,7 +63,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-06-26 20:09:29.704511",
+ "modified": "2025-07-04 12:19:18.900922",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "PO Payment Terms",

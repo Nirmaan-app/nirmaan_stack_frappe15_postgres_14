@@ -351,7 +351,7 @@ export const ReleasePOSelect: React.FC = () => {
                         ) : (
                             <p>{row.original.name}</p>
                         )}
-                        <ItemsHoverCard order_list={row.original?.order_list?.list} />
+                        <ItemsHoverCard order_list={row.original?.items} />
                     </div>
                     {row.original?.custom === "true" && (
                         <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>

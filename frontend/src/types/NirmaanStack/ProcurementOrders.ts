@@ -16,7 +16,7 @@ export interface PurchaseOrderItem {
   category: string;
 	procurement_package?: string;
   quote: number;
-	tota_amount?: number;
+	total_amount?: number;
 	amount?: number;
 	note_points?:string;// remove
   make?: string;
@@ -86,7 +86,7 @@ export interface ProcurementOrder {
 	merged?: string
 	/**	Attachment : Data	*/
 	attachment?: string
-	payment_terms?: PaymentTerm[]
+	payment_terms?:PaymentTerm[]
 	/**	Project Name : Data	*/
 	project_name: string
 	/**	Project Address : Data	*/
@@ -105,6 +105,7 @@ export interface ProcurementOrder {
 	}
 
 	items:PurchaseOrderItem[]
+	payment_terms:
 	/**	Category List : JSON	*/
 	category_list?: any
 	/**	Advance : Data	*/

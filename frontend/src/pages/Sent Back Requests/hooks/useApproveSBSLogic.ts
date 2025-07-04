@@ -18,7 +18,8 @@ import {
     TargetRateDetailFromAPI,
     FrappeTargetRateApiResponse,
     mapApiQuotesToApprovedQuotations,
-    ApprovedQuotationForHoverCard // Reused from PR types if hover card is identical
+    ApprovedQuotationForHoverCard ,// Reused from PR types if hover card is identical
+    DynamicPaymentTerms
 } from '@/pages/ProcurementRequests/ApproveVendorQuotes/types'; // Import from PR approval types
 import { parseNumber } from '@/utils/parseNumber';
 import getLowestQuoteFilled from '@/utils/getLowestQuoteFilled';
@@ -52,6 +53,8 @@ export interface UseApproveSBSLogicReturn {
     handleApproveConfirm: () => Promise<void>;
     handleSendBackConfirm: () => Promise<void>;
     getVendorName: (vendorId: string | undefined) => string;
+      dynamicPaymentTerms: DynamicPaymentTerms; // ✨ EXPOSE state
+        setDynamicPaymentTerms: React.Dispatch<React.SetStateAction<DynamicPaymentTerms>>; //
     // getUserName?: (userId: string | undefined) => string; // Add if needed
 }
 
@@ -72,6 +75,9 @@ export const useApproveSBSLogic = ({
     const [isSendBackDialogOpen, setSendBackDialog] = useState<boolean>(false);
     const [comment, setComment] = useState<string>("");
     const [itemIdsForTargetRateAPI, setItemIdsForTargetRateAPI] = useState<string[]>([]);
+
+      // ✨ ADD state for dynamic payment terms
+        const [dynamicPaymentTerms, setDynamicPaymentTerms] = useState<DynamicPaymentTerms>({});
 
     useEffect(() => {
         if (initialSbData) {
@@ -275,6 +281,8 @@ export const useApproveSBSLogic = ({
                 sb_id: sentBackData.name,
                 selected_items: selectedItemsForPayload, // These are actual item_ids
                 selected_vendors: vendorSelectionMapForPayload, // Keys are actual item_ids
+                  // ✨ ADD dynamic payment terms to the payload
+                payment_terms: JSON.stringify(dynamicPaymentTerms),
             };
             const response = await approveSBSelection(payload);
             console.log("Response from backend:", response);
@@ -290,7 +298,7 @@ export const useApproveSBSLogic = ({
             console.error("Error approving SB selection:", error);
             toast({ title: "SB Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
-    }, [sentBackData, selectionMap, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast]);
+    }, [sentBackData, selectionMap, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast,dynamicPaymentTerms]);
 
     const handleSendBackConfirm = useCallback(async () => {
         if (!sentBackData || selectionMap.size === 0) {
@@ -335,6 +343,7 @@ export const useApproveSBSLogic = ({
         comment, isLoading: isLoadingHook, isSbEditable, targetRatesDataMap,
         handleSelectionChange, handleCommentChange, toggleApproveDialog, toggleSendBackDialog,
         handleApproveConfirm, handleSendBackConfirm, getVendorName,
+          dynamicPaymentTerms, setDynamicPaymentTerms, // ✨ EXPORT state and setter
         // getUserName // Add if implemented
     };
 };

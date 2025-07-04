@@ -35,25 +35,58 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
     // getVendorName, // May not be needed directly in view if header handles it
     sbComments = [],
     getUserName,
+  setDynamicPaymentTerms, // ✨ RECEIVE the setter function
+
 }) => {
 
     // Can only perform actions if editable and selection exists
     const canPerformActions = isSbEditable && selectionMap.size > 0;
+  // ✨ --- CORRECTED PAYMENT TERM PARSING AND TRANSFORMATION --- ✨
+  const paymentTermsByVendor = useMemo(() => {
+    const paymentTermsString = sentBackData?.payment_terms; // Use sentBackData which has the full doc
+    if (
+      typeof paymentTermsString !== "string" ||
+      paymentTermsString.trim() === ""
+    ) {
+      return {};
+    }
 
-        // The parsing logic from before. This is still the correct way to parse.
-    const parsedPaymentTerms = useMemo(() => {
-        const paymentTermsString = sentBackData?.payment_terms;
-        if (typeof paymentTermsString === 'string' && paymentTermsString.trim() !== '') {
-            try {
-                return JSON.parse(paymentTermsString);
-            } catch (e) {
-                console.error("Failed to parse payment_terms JSON", e);
-                return [];
+    try {
+            const parsedJson = JSON.parse(paymentTermsString);
+            const vendorDataList = parsedJson?.list;
+
+            if (typeof vendorDataList !== 'object' || vendorDataList === null) {
+                return {};
             }
-        }
-        return [];
-    }, [sentBackData?.payment_terms]);
 
+            // The transformed object will hold an array of milestones, each with the 'type' added.
+            const transformedTerms: { [vendorId: string]: (PaymentTermMilestone & { type: string })[] } = {};
+
+            for (const vendorId in vendorDataList) {
+                if (Object.prototype.hasOwnProperty.call(vendorDataList, vendorId)) {
+                    const vendorInfo = vendorDataList[vendorId];
+                    
+                    if (vendorInfo && vendorInfo.type && Array.isArray(vendorInfo.terms)) {
+                        // Map over the original terms array...
+                        transformedTerms[vendorId] = vendorInfo.terms.map(milestone => ({
+                            // ...spread the original milestone properties...
+                            ...milestone,
+                            // ...and add the 'type' from the parent vendorInfo object.
+                            type: vendorInfo.type 
+                        }));
+                    }
+                }
+            }
+            
+            return transformedTerms;
+
+        } catch (e) {
+            console.error("Failed to parse or transform payment_terms JSON", e);
+            return {};
+        }
+    }, [sentBackData?.payment_terms]);
+    
+ 
     return (
         <div className="flex-1 space-y-4 p-4 md:p-6">
             {/* Header */}
@@ -84,7 +117,8 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
                 selection={selectionMap}
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
-                paymentTerms={parsedPaymentTerms?.list||[]}
+                paymentTerms={paymentTermsByVendor} // Pass the processed original terms
+        onDynamicTermsChange={setDynamicPaymentTerms} // ✨ PASS the setter down
 
             />
 

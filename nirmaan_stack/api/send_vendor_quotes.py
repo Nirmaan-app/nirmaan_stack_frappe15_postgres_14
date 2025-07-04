@@ -174,7 +174,9 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
 
             # Check if these items are ready for PO (validation)
             # Pass the updated pr_doc object directly to the validation function
+            
             is_ready_for_po = validate_procurement_request_for_po(pr_doc)
+            # print("is_ready_for_po": {is_ready_for_po})
 
             if is_ready_for_po:
                 pr_doc.workflow_state = "Vendor Approved" # Final state if validation passes

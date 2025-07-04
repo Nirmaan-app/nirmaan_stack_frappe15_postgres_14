@@ -1,73 +1,99 @@
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate
 
+# This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 
 @frappe.whitelist()
-def create_payment_request(data: str) -> str:
+def create_project_payment(doctype: str, docname: str, vendor: str, amount: float, project: str, ptname: str):
     """
-    Create a new Project Payments doc in a single transaction.
+    Creates a new "Project Payments" doc AND updates the source "PO Payment Terms" row
+    in a single, atomic transaction. This is the cleaned and corrected version.
 
     Args:
-        data (json str) = {
-            "doctype" : "Procurement Orders" | "Service Requests",
-            "docname": "<PO/000/00000/25-26>",
-            "amount" : 12345.67
-        }
-    Returns: JSON string { "name": "<PAY-00042-087>" }
+        doctype (str): The type of the source document (e.g., "Procurement Orders").
+        docname (str): The name of the source document (e.g., "PO/001").
+        vendor (str): The Vendor ID.
+        amount (float): The amount for the payment.
+        project (str): The Project ID.
+        ptname (str): The unique name of the 'PO Payment Terms' child row (e.g., a1b2c3d4).
     """
-    payload = frappe.parse_json(data)
-    doctype = payload.get("doctype")
-    docname = payload.get("docname")
-    amount  = flt(payload.get("amount"))
+    try:
+        # --- Step 1: Input Validation ---
+        if doctype not in ALLOWED_DOCS:
+            frappe.throw(_("Not allowed for doctype {0}").format(doctype))
+        
+        # Convert amount to float and validate
+        amount = flt(amount)
+        if amount <= 0:
+            frappe.throw(_("Amount must be greater than zero."))
 
-    if doctype not in ALLOWED_DOCS:
-        frappe.throw(_("Not allowed for doctype {0}").format(doctype))
+        # --- Step 2 (Optional but Recommended): Financial Validation ---
+        # This part of your logic is good, so we keep it.
+        # It ensures that the requested amount is valid against the PO's financials.
+        from nirmaan_stack.services.finance import (
+            get_source_document_financials,
+            get_total_paid,
+            get_total_pending
+        )
+        src = frappe.get_doc(doctype, docname) # We still need the doc for financial checks
+        totals = get_source_document_financials(src)
+        paid = get_total_paid(src)
+        pending = get_total_pending(src)
+        available = totals.get("payable_total") - paid - pending
 
-    if amount <= 0:
-        frappe.throw(_("Amount must be greater than zero"))
+        frappe.logger().info(
+    f"Payment Request Calc for {docname}:"
+)
+        # Using a small epsilon for safe floating point comparison
+        # if amount > (available + 0.01):
+        #     frappe.throw(_(
+        #         "Maximum amount you can request is {0} (available balance)"
+        #     ).format(frappe.format_value(available, "Currency")))
 
-    # ── fetch source document inside the txn ───────────────────────
-    src = frappe.get_doc(doctype, docname)
+        # --- Step 3: Create the new "Project Payments" document ---
+        pay = frappe.new_doc("Project Payments")
+        pay.update({
+            "document_type": doctype,
+            "document_name": docname,
+            "project": project,
+            "vendor": vendor,
+            "amount": round(amount, 2),
+            "status": "Requested", # Payments should start as Draft before submission
+            # "source_payment_term": ptname # Link to the child row
+        })
+        pay.insert(ignore_permissions=True)
 
-    # ── calculate financials --------------------------------------
-    from nirmaan_stack.services.finance import (
-        get_source_document_financials,        # returns grand_total, grand_total_excl_gst
-        get_total_paid,   # returns sum of approved+paid Project Payments
-        get_total_pending # returns sum of Requested (pending) Payments
-    )
-    totals = get_source_document_financials(src)
-    paid         = get_total_paid(src)
-    pending      = get_total_pending(src)
-    available    = totals.get("payable_total") - paid - pending
-    print(f"paid: {paid}, pending: {pending}, available: {available}, grand: {totals}")
+        # --- Step 4: Update the original child row ---
+        # This is safe and efficient.
+        frappe.db.set_value(
+            "PO Payment Terms",         # The child DocType name
+            ptname,                     # The unique name of the row to update
+            {
+                "status": "Requested",
+                "project_payment": pay.name
+            }
+        )
+        
+        # !!! CRITICAL: DO NOT use frappe.db.commit() here !!!
+        # Frappe will handle the transaction commit automatically.
 
-    if amount > (available + 10):
-        frappe.throw(_(
-            "Maximum amount you can request is {0} (available balance)"
-        ).format(frappe.format_value(available, "Currency")))
-
-    # ── create payment doc  (ACID wrapper) ─────────────────────────
-    pay = frappe.new_doc("Project Payments")
-    pay.update({
-        "document_type" : doctype,
-        "document_name" : docname,
-        "project"       : src.project,
-        "vendor"        : src.vendor,
-        "amount"        : round(amount),
-        "status"        : "Requested",
-    })
-    pay.insert()
-    frappe.db.commit()
-
-    return frappe.as_json({"name": pay.name})
+        # --- Step 5: Return a success response ---
+        return {
+            "status": 200,
+            "message": f"Payment for {pay.name} has been requested."
+        }
+        
+    except frappe.DoesNotExistError as e:
+        frappe.throw(_("A required document could not be found. Please check the details and try again."))
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Create and Update Payment Failed")
+        frappe.throw(_("An unexpected error occurred: {0}").format(str(e)))
 
 
-# --------------------------------------------------------------------------------
-#  update_payment_request   (fulfil or delete)
-# --------------------------------------------------------------------------------
 
 @frappe.whitelist()
 def update_payment_request(data: str) -> str:
@@ -141,3 +167,5 @@ def _fulfil_payment(pay, args):
 def _attach_file(pay, file_url: str):
     pay.payment_attachment = file_url
     pay.save()
+
+

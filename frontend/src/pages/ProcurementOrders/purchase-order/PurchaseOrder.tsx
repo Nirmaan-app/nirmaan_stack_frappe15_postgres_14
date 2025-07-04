@@ -5,6 +5,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -191,6 +192,8 @@ export const PurchaseOrder = ({
   const [loadingFuncName, setLoadingFuncName] = useState<string>("");
 
   const [quantity, setQuantity] = useState<number | null | string>(null);
+  const [tax, setTax] = useState<number | null | string>(null);
+
 
   interface Make {
     make: string;
@@ -198,10 +201,11 @@ export const PurchaseOrder = ({
   }
 
   interface Operation {
-    operation: "delete" | "quantity_change" | "make_change";
+    operation: "delete" | "quantity_change" | "make_change"|"tax_change";
     item: PurchaseOrderItem;
     previousQuantity?: number;
     previousMakeList?: string;
+     previousTax?: number;
   }
 
   const [stack, setStack] = useState<Operation[]>([]);
@@ -364,8 +368,7 @@ export const PurchaseOrder = ({
     return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
   }, [PO]);
 
-  // 🔄 REPLACE THE OLD/STUBBED handleMerge WITH THIS CORRECTED VERSION
-
+  
   const handleMerge = (poToMerge: ProcurementOrder) => {
     // Get the items array directly from the PO to be merged.
     const itemsToMerge = poToMerge.items || [];
@@ -394,8 +397,7 @@ export const PurchaseOrder = ({
     );
   };
 
-  // 🔄 REPLACE THE OLD/STUBBED handleUnmergeAll WITH THIS CORRECTED VERSION
-
+  
   const handleUnmergeAll = () => {
     if (mergedItems.length > 0) {
       // Directly filter the orderData ARRAY, keeping only the original items
@@ -418,7 +420,6 @@ export const PurchaseOrder = ({
       });
 
       if (response.message.status === 200) {
-        // ✅ Step 4: Success message & UI updates (Batch State Updates)
         setMergeablePOs([]);
         toast({
           title: "Merge Successful!",
@@ -428,7 +429,6 @@ export const PurchaseOrder = ({
         toggleMergeConfirmDialog();
         toggleMergeSheet();
 
-        // ✅ Step 5: Add redirect overlay, then navigate smoothly
         setIsRedirecting(true);
 
         setTimeout(() => {
@@ -579,7 +579,6 @@ export const PurchaseOrder = ({
     }
   }, [amendPOSheet]);
 
-  // 🔄 REPLACE THE PREVIOUS handleSave WITH THIS CORRECTED VERSION
 
   const handleSave = useCallback(
     (itemName: string) => {
@@ -614,13 +613,24 @@ export const PurchaseOrder = ({
         ]);
       }
 
-      // Update the main orderData array
+      if (tax !== null && tax !== previousItem.tax) {
+        setStack((prev) => [
+          ...prev,
+          {
+            operation: "tax_change",
+            item: previousItem,
+            previousTax: previousItem.tax,
+          },
+        ]);
+      }
+      
       const updatedOrderData = orderData.map((curValue) => {
         if (curValue.name === itemName) {
           return {
             ...curValue,
             quantity: quantity !== null ? quantity : curValue.quantity,
             make: newMakeValue,
+            tax: tax !== null ? Number(tax) : curValue.tax, // ➕ ADDED: Update tax
           };
         }
         return curValue;
@@ -630,6 +640,7 @@ export const PurchaseOrder = ({
 
       // Reset state and close dialog
       setQuantity(null);
+      setTax(null)
       setSelectedMake(null); // CORRECT: Reset selectedMake
       toggleAmendEditItemDialog();
     },
@@ -659,7 +670,7 @@ export const PurchaseOrder = ({
       );
 
       setOrderData(updatedOrderData); // Set the new array
-
+setTax(null)
       setQuantity(null); // Reset quantity state
       toggleAmendEditItemDialog();
     },
@@ -700,6 +711,13 @@ export const PurchaseOrder = ({
         }
         return item;
       });
+    } else if (lastOperation.operation === "tax_change") { // ➕ ADDED: Handler for undoing tax changes
+        updatedOrderData = updatedOrderData.map((item) => {
+            if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
+                return { ...item, tax: lastOperation.previousTax! };
+            }
+            return item;
+        });
     }
 
     setOrderData(updatedOrderData); // Set the restored array
@@ -786,7 +804,7 @@ export const PurchaseOrder = ({
       !estimatesViewing &&
       ["PO Approved"].includes(PO?.status) &&
       PO?.merged !== "true" &&
-      !((poPayments || [])?.length > 0),
+      // !((poPayments || [])?.length > 0),
     [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
   );
 
@@ -1401,7 +1419,7 @@ export const PurchaseOrder = ({
 
                       {/* Amount */}
                       <td className="pr-4 text-center py-2 align-top font-medium">
-                        {formatToIndianRupee(item?.quote * item?.quantity)}
+                        {formatToIndianRupee(item?.amount)}
                       </td>
 
                       {/* Amount (Incl GST) */}
@@ -1596,6 +1614,9 @@ export const PurchaseOrder = ({
                           Item Name
                         </th>
                         <th className="w-[20%]  py-1 text-xs text-center">
+                          Tax
+                        </th>
+                        <th className="w-[20%]  py-1 text-xs text-center">
                           Make
                         </th>
                         <th className="w-[10%]  py-1 text-xs text-center">
@@ -1617,6 +1638,9 @@ export const PurchaseOrder = ({
                               {item.item_name}
                             </td>
                             <td className="w-[20%] border-b-2 py-1 text-sm text-center">
+                              {item.tax}
+                            </td>
+                            <td className="w-[20%] border-b-2 py-1 text-sm text-center">
                               {item.make}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
@@ -1627,7 +1651,8 @@ export const PurchaseOrder = ({
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
                               <div className="flex items-center justify-center">
-                                <Pencil
+                               {item.category!="Additional Charges" &&(
+                                 <Pencil
                                   onClick={() => {
                                     // Find all makes for this item (from its `makes.list` in the original PO data)
                                     const itemMakes =
@@ -1648,7 +1673,7 @@ export const PurchaseOrder = ({
                                         (opt) => opt.value === currentMakeValue
                                       ) || null;
                                     setSelectedMake(currentSelected);
-
+setTax(item.tax)
                                     setQuantity(item.quantity);
                                     setAmendEditItem(item);
                                     setShowAddNewMake(false); // Make sure the card is hidden initially
@@ -1656,6 +1681,7 @@ export const PurchaseOrder = ({
                                   }}
                                   className="w-4 h-4 cursor-pointer"
                                 />
+                               )}
                               </div>
                             </td>
                           </tr>
@@ -1765,6 +1791,42 @@ export const PurchaseOrder = ({
                             {amendEditItem?.item_name}
                           </div>
                         </div>
+                        <div className="w-[30%]">
+                        <h5 className="text-base text-gray-400 text-left mb-1">
+                            Tax %
+                          </h5>
+                          <Select
+                            value={String(tax) || ""}
+                            onValueChange={(value) => {
+                              // console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
+                              console.log("tax",value)
+setTax(Number(value))
+                              // onTaxChange(amendEditItem.item_id, value);
+                            }}
+                            // disabled={mode === "view" || isReadOnly}
+                          >
+                            <SelectTrigger>
+                              <SelectValue
+                                className="text-gray-200"
+                                placeholder="Select Tax %"
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem key={5} value={"5"}>
+                                5 %
+                              </SelectItem>
+                              <SelectItem key={12} value={"12"}>
+                                12 %
+                              </SelectItem>
+                              <SelectItem key={18} value={"18"}>
+                                18 %
+                              </SelectItem>
+                              <SelectItem key={28} value={"28"}>
+                                28 %
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <div className="flex space-x-2 w-full">
                           <div className="w-[60%]">
                             <h5 className="text-base text-gray-400 text-left mb-1">
@@ -1775,7 +1837,9 @@ export const PurchaseOrder = ({
                                 selectedMake={selectedMake}
                                 setSelectedMake={setSelectedMake}
                                 editMakeOptions={editMakeOptions}
-                                toggleAddNewMake={toggleAddNewMake}
+                                 setEditMakeOptions={setEditMakeOptions} // Pass the setter function
+                                // toggleAddNewMake={toggleAddNewMake}
+                                amendEditItem={amendEditItem} 
                               />
                             </div>
                           </div>
@@ -1808,7 +1872,7 @@ export const PurchaseOrder = ({
                         </div>
                       </div>
 
-                      {showAddNewMake && (
+                      {/* {showAddNewMake && (
                         <AddNewMakes
                           orderData={orderData}
                           setOrderData={setOrderData}
@@ -1817,7 +1881,7 @@ export const PurchaseOrder = ({
                           toggleAddNewMake={toggleAddNewMake}
                           setEditMakeOptions={setEditMakeOptions}
                         />
-                      )}
+                      )} */}
                     </DialogDescription>
                     <DialogDescription className="flex justify-end">
                       <div className="flex gap-2">
@@ -1976,160 +2040,172 @@ export const PurchaseOrder = ({
 
 export default PurchaseOrder;
 
-interface Make {
-  label: string;
-  value: string;
-}
-
+// ===================================================================
+// ✨ NEW, SIMPLIFIED SINGLE-SELECT MAKES COMPONENT
+// ===================================================================
 interface MakesSelectionProps {
   selectedMake: Make | null;
   setSelectedMake: React.Dispatch<React.SetStateAction<Make | null>>;
-  editMakeOptions: Make[];
-  toggleAddNewMake: () => void;
+  amendEditItem: PurchaseOrderItem | null;
 }
 
 const MakesSelection = ({
   selectedMake,
   setSelectedMake,
-  editMakeOptions,
-  toggleAddNewMake,
-}: MakesSelectionProps) => {
-  const CustomMenu = (props) => {
-    const { MenuList } = components;
-
-    return (
-      <MenuList {...props}>
-        {props.children}
-        <div
-          className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
-          onClick={() => toggleAddNewMake()}
-        >
-          <strong>Add New Make</strong>
-        </div>
-      </MenuList>
-    );
-  };
-
-  return (
-    <>
-      <div className="w-full">
-        <ReactSelect
-          className="w-full"
-          placeholder="Select Make..."
-          value={selectedMake}
-          options={editMakeOptions}
-          onChange={(selectedOption) => setSelectedMake(selectedOption)}
-          components={{ MenuList: CustomMenu }}
-        />
-      </div>
-    </>
-  );
-};
-
-// interface AddNewMakesProps {
-//   orderData: PurchaseOrderItem[];
-//   setOrderData: React.Dispatch<
-//     React.SetStateAction<{ list: PurchaseOrderItem[] }>
-//   >;
-//   editMakeOptions: Make[];
-//   toggleAddNewMake: () => void;
-//   amendEditItem: any;
-//   setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
-// }
-
-// 🔄 REPLACE THE ENTIRE AddNewMakes COMPONENT WITH THIS
-
-// The props interface remains the same
-interface AddNewMakesProps {
-  editMakeOptions: Make[];
-  setEditMakeOptions: (options: Make[]) => void;
-  toggleAddNewMake: () => void;
-  amendEditItem: PurchaseOrderItem | null;
-}
-
-const AddNewMakes = ({
-  editMakeOptions,
-  setEditMakeOptions,
-  toggleAddNewMake,
   amendEditItem,
-}: AddNewMakesProps) => {
-  // State for the new makes selected in THIS component. Initialized as an empty array.
-  const [newlySelected, setNewlySelected] = useState<readonly Make[]>([]);
-
-  // State for the options available in THIS component's dropdown.
+}: MakesSelectionProps) => {
+  // State for the options available in this component's dropdown.
   const [availableMakeOptions, setAvailableMakeOptions] = useState<Make[]>([]);
 
-  // Fetch the master list of makes.
-  const { data: categoryMakeList } = useFrappeGetDocList("Category Makelist", {
-    fields: ["*"],
-    limit: 10000,
-  });
+  // Fetch the list of possible makes for the current item's category
+  const { data: categoryMakeList, isLoading: makesLoading } = useFrappeGetDocList(
+    "Category Makelist", {
+      fields: ["make"],
+      filters: [["category", "=", amendEditItem?.category]],
+      limit: 1000,
+    },
+    amendEditItem?.category ? `category_makelist_for_${amendEditItem.category}` : null
+  );
 
-  // This useEffect correctly populates the available options for the dropdown.
+  // Populate the available makes dropdown when data is fetched
   useEffect(() => {
-    if (categoryMakeList && amendEditItem) {
-      const allCategoryMakes = categoryMakeList
-        .filter((i) => i.category === amendEditItem.category)
-        .map((i) => ({ label: i.make, value: i.make }));
+    if (categoryMakeList) {
+      const allCategoryMakes = categoryMakeList.map((i) => ({ label: i.make, value: i.make }));
+      setAvailableMakeOptions(allCategoryMakes);
 
-      // Filter out makes that are already options in the main dropdown.
-      const filteredOptions = allCategoryMakes.filter(
-        (opt) =>
-          !editMakeOptions.some(
-            (existingOpt) => existingOpt.value === opt.value
-          )
-      );
-      setAvailableMakeOptions(filteredOptions);
+      // ✨ Optional: If the current item's make is not in the list, add it.
+      // This handles cases where a make was manually entered before this feature was added.
+      const currentMakeExists = allCategoryMakes.some(opt => opt.value === amendEditItem?.make);
+      if (amendEditItem?.make && !currentMakeExists) {
+        setAvailableMakeOptions(prev => [{ label: amendEditItem.make, value: amendEditItem.make }, ...prev]);
+      }
     }
-  }, [categoryMakeList, editMakeOptions, amendEditItem]);
-
-  const handleSubmit = () => {
-    // Ensure newlySelected is an array before spreading.
-    const makesToAdd = newlySelected || [];
-
-    // Combine the old options with the newly selected ones.
-    const allOptions = [...editMakeOptions, ...makesToAdd];
-
-    // Update the state in the parent component.
-    setEditMakeOptions(allOptions);
-
-    // Close this component.
-    toggleAddNewMake();
-  };
+  }, [categoryMakeList, amendEditItem?.make]);
 
   return (
-    <Card className="w-full bg-gray-50 my-2 border-dashed border-primary">
-      <CardContent className="py-4">
-        <div className="flex flex-col gap-4">
-          <div>
-            <Label>Select New Make(s) to Add to Dropdown</Label>
-            <ReactSelect
-              options={availableMakeOptions}
-              value={newlySelected}
-              isMulti // This is correct
-              // The `onChange` from react-select for isMulti provides a `readonly Make[]` or `null`.
-              // We cast it to ensure type safety.
-              onChange={(selectedOptions) =>
-                setNewlySelected(selectedOptions as readonly Make[])
-              }
-            />
-          </div>
-          <div className="flex gap-2 items-center justify-end">
-            <Button onClick={toggleAddNewMake} variant="outline">
-              <CircleX className="h-4 w-4 mr-1" />
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={!newlySelected || newlySelected.length === 0} // Corrected disabled check
-              className="flex items-center gap-1"
-            >
-              <ListChecks className="h-4 w-4 mr-1" />
-              Add to Options
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <ReactSelect
+      options={availableMakeOptions}
+      value={selectedMake}
+      isMulti={false} // Ensure single select
+      isLoading={makesLoading}
+      onChange={(selectedOption) => setSelectedMake(selectedOption as Make | null)}
+      placeholder="Select a make..."
+      noOptionsMessage={() => 'No makes available for this category.'}
+    />
   );
 };
+
+// interface MakesSelectionProps {
+//   selectedMake: Make | null;
+//   setSelectedMake: React.Dispatch<React.SetStateAction<Make | null>>;
+//   editMakeOptions: Make[];
+//   setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
+//    amendEditItem: PurchaseOrderItem | null; // Now needed here
+// }
+
+// const MakesSelection = ({
+//   selectedMake,
+//   setSelectedMake,
+//   editMakeOptions,
+//   // toggleAddNewMake,
+//    setEditMakeOptions,
+//   amendEditItem,
+// }: MakesSelectionProps) => {
+  
+//  // Fetch the master list of makes.
+//  const [isAddingMode, setIsAddingMode] = useState(false);
+  
+//   // State for the multi-select dropdown when adding new makes
+//   const [newlySelected, setNewlySelected] = useState<readonly Make[]>([]);
+//   const [availableMakeOptions, setAvailableMakeOptions] = useState<Make[]>([]);
+
+//   const { data: categoryMakeList, isLoading: makesLoading } = useFrappeGetDocList("Category Makelist", {
+//       fields: ["make"],
+//       filters: [["category", "=", amendEditItem?.category]],
+//       limit: 1000,
+//     },
+//     amendEditItem?.category ? `category_makelist_for_${amendEditItem.category}` : null
+//   );
+
+//   console.log(amendEditItem?.category, categoryMakeList);
+//   // Populate the "available makes" dropdown when data is fetched
+//   useEffect(() => {
+//     if (categoryMakeList) {
+//       const allCategoryMakes = categoryMakeList.map((i) => ({ label: i.make, value: i.make }));
+//       // Filter out makes that are already in the main dropdown
+//       const filteredOptions = allCategoryMakes.filter(
+//         (opt) => !editMakeOptions.some((existingOpt) => existingOpt.value === opt.value)
+//       );
+//       setAvailableMakeOptions(filteredOptions);
+//     }
+//   }, [categoryMakeList, editMakeOptions]);
+
+//     // ✨ NEW: This is a conditional query key.
+//     // The query will ONLY run if `amendEditItem.category` has a value.
+//     // If it's null, the hook is disabled, preventing unnecessary API calls.
+//    const handleConfirmAdd = () => {
+//     const makesToAdd = newlySelected || [];
+//     const allOptions = [...editMakeOptions, ...makesToAdd];
+//     setEditMakeOptions(allOptions); // Update the parent's state
+//     setNewlySelected([]); // Reset local state
+//     setIsAddingMode(false); // Switch back to selection mode
+//   };
+
+// const CustomMenu = (props) => {
+//     const { MenuList } = components;
+//     return (
+//       <MenuList {...props}>
+//         {props.children}
+//         <div
+//           className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
+//           onClick={() => setIsAddingMode(true)} // Toggle local state
+//         >
+//           <strong>Add New Make</strong>
+//         </div>
+//       </MenuList>
+//     );
+//   };
+  
+//   // Render either the selection dropdown or the "add new" interface
+//   return isAddingMode ? (
+//     // "Add New" Mode UI
+//     <Card className="w-full bg-gray-50 p-3 border-dashed border-primary">
+//       <div className="flex flex-col gap-3">
+//         <Label>Select New Make(s) to Add</Label>
+//         {makesLoading ? (
+//             <div className="flex items-center justify-center p-2"><TailSpin color="red" height={24} width={24} /></div>
+//         ) : (
+//             <ReactSelect
+//               options={availableMakeOptions}
+//               value={newlySelected}
+//               isMulti
+//               onChange={(selectedOptions) => setNewlySelected(selectedOptions as readonly Make[])}
+//               noOptionsMessage={() => 'No more makes available for this category.'}
+//             />
+//         )}
+//         <div className="flex gap-2 items-center justify-end">
+//           <Button onClick={() => setIsAddingMode(false)} variant="outline" size="sm">
+//             <CircleX className="h-4 w-4 mr-1" /> Cancel
+//           </Button>
+//           <Button
+//             onClick={handleConfirmAdd}
+//             disabled={!newlySelected || newlySelected.length === 0}
+//             size="sm"
+//           >
+//             <ListChecks className="h-4 w-4 mr-1" /> Add
+//           </Button>
+//         </div>
+//       </div>
+//     </Card>
+//   ) : (
+//     // Default Selection Mode UI
+//     <ReactSelect
+//       className="w-full"
+//       placeholder="Select Make..."
+//       value={selectedMake}
+//       options={availableMakeOptions}
+//       onChange={(selectedOption) => setSelectedMake(selectedOption)}
+//       components={{ MenuList: CustomMenu }}
+//     />
+//   );
+// };

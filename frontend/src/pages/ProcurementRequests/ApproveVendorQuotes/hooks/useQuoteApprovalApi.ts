@@ -9,6 +9,7 @@ export interface ApprovePayload {
     selected_items: string[]; // Array of item names (docnames)
     selected_vendors: { [itemName: string]: string }; // Map item name to chosen vendorId
     custom: boolean;
+    payment_terms?: string; 
 }
 
 export interface SendBackPayload {

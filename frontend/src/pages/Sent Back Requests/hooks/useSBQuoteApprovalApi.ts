@@ -8,6 +8,7 @@ export interface ApproveSBPayload {
     sb_id: string; // ID of the Sent Back Category doc
     selected_items: string[]; // Array of SBItem names (child table row name)
     selected_vendors: { [itemName: string]: string }; // Map SBItem name to chosen vendorId
+    payment_terms?: string; // Optional payment terms
 }
 
 export interface SendBackSBPayload {

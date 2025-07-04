@@ -7,7 +7,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-   DialogPortal,
+  DialogPortal,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +26,11 @@ import {
 } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {
+  useFrappeGetDoc,
+  useFrappeUpdateDoc,
+  useFrappePostCall,
+} from "frappe-react-sdk";
 import {
   AlertCircle,
   Check,
@@ -40,6 +44,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from "uuid";
+import { ApiResponse } from "@/types/NirmaanStack/ApiResponse";
 
 // =================================================================================
 // PROPS & TYPE DEFINITIONS
@@ -81,14 +86,21 @@ const parseNotePoints = (
 // =================================================================================
 
 const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
-  const { control, handleSubmit, watch, setValue, formState: { errors } } = useForm({
+  const {
+    control,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useForm({
     defaultValues: {
-      payment_terms: po.payment_terms?.map(term => ({
-        ...term,
-        percentage: Number(term.percentage) || 0,
-        // Ensure due_date is in YYYY-MM-DD format for the input[type="date"]
-        due_date: term.due_date ? term.due_date.split(' ')[0] : '', 
-      })) || [],
+      payment_terms:
+        po.payment_terms?.map((term) => ({
+          ...term,
+          percentage: Number(term.percentage) || 0,
+          // Ensure due_date is in YYYY-MM-DD format for the input[type="date"]
+          due_date: term.due_date ? term.due_date.split(" ")[0] : "",
+        })) || [],
     },
   });
 
@@ -99,13 +111,23 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
   const calculateTotals = (terms) => {
     if (!terms || !Array.isArray(terms)) return { percentage: 0, amount: 0 };
     const activeTerms = terms.filter((term) => Number(term.docstatus) !== 1);
-    const percentage = activeTerms.reduce((sum, term) => sum + (Number(term.percentage) || 0), 0);
-    const amount = activeTerms.reduce((sum, term) => sum + (Number(term.amount) || 0), 0);
+    const percentage = activeTerms.reduce(
+      (sum, term) => sum + (Number(term.percentage) || 0),
+      0
+    );
+    const amount = activeTerms.reduce(
+      (sum, term) => sum + (Number(term.amount) || 0),
+      0
+    );
     return { percentage, amount };
   };
 
-  const [totalPercentage, setTotalPercentage] = useState(() => calculateTotals(po.payment_terms).percentage);
-  const [totalAmount, setTotalAmount] = useState(() => calculateTotals(po.payment_terms).amount);
+  const [totalPercentage, setTotalPercentage] = useState(
+    () => calculateTotals(po.payment_terms).percentage
+  );
+  const [totalAmount, setTotalAmount] = useState(
+    () => calculateTotals(po.payment_terms).amount
+  );
 
   useEffect(() => {
     const subscription = watch((value) => {
@@ -116,147 +138,207 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
     });
     return () => subscription.unsubscribe();
   }, [watch]);
-  
+
   // Get today's date in YYYY-MM-DD format for the input min attribute
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split("T")[0];
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogPortal>
- <DialogContent className="sm:max-w-2xl bg-white p-6 rounded-lg shadow-xl">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-semibold text-gray-800 text-center">
-            Edit {po.payment_terms?.[0]?.payment_type || "Payment"} Terms
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit(onSave)}>
-          <div className="my-6 space-y-2">
-            {/* --- Header Row with Due Date --- */}
-            <div className="flex px-2 pb-2 border-b">
-              <div className="w-2/5 text-sm font-medium text-muted-foreground">Term</div>
-              <div className="w-1/5 text-right text-sm font-medium text-muted-foreground">Percentage (%)</div>
-              <div className="w-1/5 text-right text-sm font-medium text-muted-foreground">Amount</div>
-              {po.payment_terms?.[0]?.payment_type === "Credit" && (
-                <div className="w-1/5 text-center text-sm font-medium text-muted-foreground">Due Date</div>
-              )}
-            </div>
-            {/* --- Data Rows --- */}
-            <div className="space-y-1">
-              {fields.map((field, index) => (
-                <div key={field.id} className="flex items-center p-2 rounded-md hover:bg-gray-50">
-                  <div className="w-2/5 flex items-center">
-                    <Controller
-                      name={`payment_terms.${index}.docstatus`}
-                      control={control}
-                      render={({ field: checkField }) => (
-                        <Checkbox
-                          id={`term-${index}`}
-                          checked={checkField.value !== 1}
-                          onCheckedChange={(checked) => {
-                            checkField.onChange(checked ? 0 : 1);
-                            if (!checked) {
-                              setValue(`payment_terms.${index}.percentage`, 0, { shouldDirty: true });
-                              setValue(`payment_terms.${index}.amount`, "0.00", { shouldDirty: true });
-                            }
-                          }}
-                        />
-                      )}
-                    />
-                    <Label htmlFor={`term-${index}`} className="ml-3 text-sm font-medium text-gray-700 cursor-pointer">
-                      {field.label}
-                    </Label>
+        <DialogContent className="sm:max-w-2xl bg-white p-6 rounded-lg shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold text-gray-800 text-center">
+              Edit {po.payment_terms?.[0]?.payment_type || "Payment"} Terms
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit(onSave)}>
+            <div className="my-6 space-y-2">
+              {/* --- Header Row with Due Date --- */}
+              <div className="flex px-2 pb-2 border-b">
+                <div className="w-2/5 text-sm font-medium text-muted-foreground">
+                  Term
+                </div>
+                <div className="w-1/5 text-right text-sm font-medium text-muted-foreground">
+                  Percentage (%)
+                </div>
+                <div className="w-1/5 text-right text-sm font-medium text-muted-foreground">
+                  Amount
+                </div>
+                {po.payment_terms?.[0]?.payment_type === "Credit" && (
+                  <div className="w-1/5 text-center text-sm font-medium text-muted-foreground">
+                    Due Date
                   </div>
-                  <div className="w-1/5 px-1">
-                    <Controller
-                      name={`payment_terms.${index}.percentage`}
-                      control={control}
-                      render={({ field: percentageField }) => (
-                        <Input
-                          className="text-right h-9"
-                          disabled={watchedTerms[index]?.docstatus === 1}
-                          {...percentageField}
-                          onChange={(e) => {
-                            const newPercentage = e.target.value === "" ? "" : Number(e.target.value);
-                            percentageField.onChange(newPercentage);
-                            const newAmount = (Number(po.total_amount) * (Number(newPercentage) || 0)) / 100;
-                            setValue(`payment_terms.${index}.amount`, newAmount.toFixed(2));
-                          }}
-                        />
-                      )}
-                    />
-                  </div>
-                  <div className="w-1/5 px-1">
-                    <Input
-                      className="text-right h-9 bg-gray-100 cursor-not-allowed"
-                      readOnly
-                      value={formatToIndianRupee(Number(watchedTerms[index]?.amount) || 0)}
-                    />
-                  </div>
-                  {/* --- NEW: Conditional Due Date Input --- */}
-                  {po.payment_terms?.[0]?.payment_type === "Credit" && (
+                )}
+              </div>
+              {/* --- Data Rows --- */}
+              <div className="space-y-1">
+                {fields.map((field, index) => (
+                  <div
+                    key={field.id}
+                    className="flex items-center p-2 rounded-md hover:bg-gray-50"
+                  >
+                    <div className="w-2/5 flex items-center">
+                      <Controller
+                        name={`payment_terms.${index}.docstatus`}
+                        control={control}
+                        render={({ field: checkField }) => (
+                          <Checkbox
+                            id={`term-${index}`}
+                            checked={checkField.value !== 1}
+                            onCheckedChange={(checked) => {
+                              checkField.onChange(checked ? 0 : 1);
+                              if (!checked) {
+                                setValue(
+                                  `payment_terms.${index}.percentage`,
+                                  0,
+                                  { shouldDirty: true }
+                                );
+                                setValue(
+                                  `payment_terms.${index}.amount`,
+                                  "0.00",
+                                  { shouldDirty: true }
+                                );
+                              }
+                            }}
+                          />
+                        )}
+                      />
+                      <Label
+                        htmlFor={`term-${index}`}
+                        className="ml-3 text-sm font-medium text-gray-700 cursor-pointer"
+                      >
+                        {field.label}
+                      </Label>
+                    </div>
                     <div className="w-1/5 px-1">
                       <Controller
-                        name={`payment_terms.${index}.due_date`}
+                        name={`payment_terms.${index}.percentage`}
                         control={control}
-                        // Add validation rules
-                        rules={{
-                          required: "Due date is required for credit terms.",
-                          validate: value => new Date(value) > new Date(today) || "Due date must be in the future."
-                        }}
-                        render={({ field: dateField }) => (
+                        render={({ field: percentageField }) => (
                           <Input
-                            type="date"
-                           
-                            className={`h-9 ${errors.payment_terms?.[index]?.due_date ? 'border-red-500' : ''}`}
-                            min={today} // Prevents selecting past dates
-                            disabled={true}
-                            {...dateField}
+                            className="text-right h-9"
+                            disabled={watchedTerms[index]?.docstatus === 1}
+                            {...percentageField}
+                            onChange={(e) => {
+                              const newPercentage =
+                                e.target.value === ""
+                                  ? ""
+                                  : Number(e.target.value);
+                              percentageField.onChange(newPercentage);
+                              const newAmount =
+                                (Number(po.total_amount) *
+                                  (Number(newPercentage) || 0)) /
+                                100;
+                              setValue(
+                                `payment_terms.${index}.amount`,
+                                newAmount.toFixed(2)
+                              );
+                            }}
                           />
                         )}
                       />
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* --- Totals and Validation --- */}
-            <div className="flex px-2 pt-3 border-t">
-              <div className="w-2/5 text-base font-bold text-gray-800">Total</div>
-              <div className="w-1/5 text-right text-base font-bold text-gray-800">{Math.round(totalPercentage)}%</div>
-              <div className="w-1/5 text-right text-base font-bold text-gray-800">{formatToIndianRupee(totalAmount)}</div>
-              {po.payment_terms?.[0]?.payment_type === "Credit" && <div className="w-1/5"></div>}
-            </div>
-          </div>
-          
-          {/* Display Validation Errors */}
-          {Object.values(errors.payment_terms || {}).map((error: any, index) => 
-            error.due_date && (
-              <div key={index} className="text-xs text-red-600 p-2 bg-red-50 rounded-md">
-                Error on row {index + 1}: {error.due_date.message}
+                    <div className="w-1/5 px-1">
+                      <Input
+                        className="text-right h-9 bg-gray-100 cursor-not-allowed"
+                        readOnly
+                        value={formatToIndianRupee(
+                          Number(watchedTerms[index]?.amount) || 0
+                        )}
+                      />
+                    </div>
+                    {/* --- NEW: Conditional Due Date Input --- */}
+                    {po.payment_terms?.[0]?.payment_type === "Credit" && (
+                      <div className="w-1/5 px-1">
+                        <Controller
+                          name={`payment_terms.${index}.due_date`}
+                          control={control}
+                          // Add validation rules
+                          rules={{
+                            required: "Due date is required for credit terms.",
+                            validate: (value) =>
+                              new Date(value) > new Date(today) ||
+                              "Due date must be in the future.",
+                          }}
+                          render={({ field: dateField }) => (
+                            <Input
+                              type="date"
+                              className={`h-9 ${
+                                errors.payment_terms?.[index]?.due_date
+                                  ? "border-red-500"
+                                  : ""
+                              }`}
+                              min={today} // Prevents selecting past dates
+                              disabled={true}
+                              {...dateField}
+                            />
+                          )}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            )
-          )}
-          {Math.round(totalPercentage) !== 100 && (
-            <div className="flex items-center p-3 text-sm text-red-700 bg-red-50 rounded-lg mt-2">
-              <AlertCircle className="h-5 w-5 mr-2" /> The total percentage must be exactly 100%.
-            </div>
-          )}
 
-          <div className="flex justify-end gap-3 mt-8">
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button
-              type="submit"
-              className="bg-red-600 hover:bg-red-700"
-              disabled={isLoading || Math.round(totalPercentage) !== 100 || Object.keys(errors).length > 0}
-            >
-              {isLoading ? <TailSpin color="white" height={20} width={20} /> : "Confirm"}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
+              {/* --- Totals and Validation --- */}
+              <div className="flex px-2 pt-3 border-t">
+                <div className="w-2/5 text-base font-bold text-gray-800">
+                  Total
+                </div>
+                <div className="w-1/5 text-right text-base font-bold text-gray-800">
+                  {Math.round(totalPercentage)}%
+                </div>
+                <div className="w-1/5 text-right text-base font-bold text-gray-800">
+                  {formatToIndianRupee(totalAmount)}
+                </div>
+                {po.payment_terms?.[0]?.payment_type === "Credit" && (
+                  <div className="w-1/5"></div>
+                )}
+              </div>
+            </div>
+
+            {/* Display Validation Errors */}
+            {Object.values(errors.payment_terms || {}).map(
+              (error: any, index) =>
+                error.due_date && (
+                  <div
+                    key={index}
+                    className="text-xs text-red-600 p-2 bg-red-50 rounded-md"
+                  >
+                    Error on row {index + 1}: {error.due_date.message}
+                  </div>
+                )
+            )}
+            {Math.round(totalPercentage) !== 100 && (
+              <div className="flex items-center p-3 text-sm text-red-700 bg-red-50 rounded-lg mt-2">
+                <AlertCircle className="h-5 w-5 mr-2" /> The total percentage
+                must be exactly 100%.
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 mt-8">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-red-600 hover:bg-red-700"
+                disabled={
+                  isLoading ||
+                  Math.round(totalPercentage) !== 100 ||
+                  Object.keys(errors).length > 0
+                }
+              >
+                {isLoading ? (
+                  <TailSpin color="white" height={20} width={20} />
+                ) : (
+                  "Confirm"
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
       </DialogPortal>
-     
     </Dialog>
   );
 };
@@ -465,7 +547,7 @@ const RequestPaymentDialog = ({
               • {term.label}
             </div>
             <div className="col-span-2 text-right text-sm text-gray-600">
-              {Number(term.percentage)}%
+              {Number(term.percentage).toFixed(2)}%
             </div>
             <div className="col-span-3 text-right text-sm font-semibold text-gray-800">
               {formatToIndianRupee(Number(term.amount))}
@@ -510,12 +592,14 @@ const PaymentTermRow = ({
         </span>
       </span>
       <div className="w-40 text-right">
-        {displayStatus === "Created" && (
-          <Badge
-            variant="outline"
-            className="border-grey-500 text-grey-600"
-          >
-            Created
+        {displayStatus === "Return" && (
+          <Badge variant="outline" className="border-grey-500 text-blue-600">
+            Return
+          </Badge>
+        )}
+        {displayStatus === "Approved" && (
+          <Badge variant="outline" className="border-grey-500 text-grey-600">
+            Approved
           </Badge>
         )}
         {displayStatus === "Paid" && (
@@ -532,14 +616,25 @@ const PaymentTermRow = ({
             Requested
           </Badge>
         )}
-          {displayStatus === "Scheduled" && (
-          <Badge
-            variant="outline"
-            className="border-grey-500 text-grey-600"
+        {displayStatus === "Scheduled" && term.payment_type == "Credit" && (
+          <Button
+            size="sm"
+            className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-3"
+            onClick={() => onReques_tPayment(term)}
           >
-            Scheduled
-          </Badge>
+            Request Payments
+          </Button>
         )}
+        {displayStatus === "Created" && term.payment_type !== "Credit" && (
+          <Button
+            size="sm"
+            className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-3"
+            onClick={() => onReques_tPayment(term)}
+          >
+            Request Payment
+          </Button>
+        )}
+
         {/* {displayStatus === "Approved" &&
           (isUpdating ? (
             <div className="flex justify-center items-center h-full">
@@ -585,28 +680,54 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     PO ? `Projects-${PO.name}` : null
   );
   const { updateDoc, loading: isUpdatingDoc } = useFrappeUpdateDoc();
+
+  const {
+    call: CreatePPApi,
+    loading: CreatePPApiLoading,
+    error: CreatePPapiError,
+  } = useFrappePostCall<ApiResponse>(
+    "nirmaan_stack.api.payments.project_payments.create_project_payment"
+  );
+
   const [updatingTermName, setUpdatingTermName] = useState<string | null>(null);
   const [isEditTermsOpen, setEditTermsOpen] = useState(false);
   const [isEditGstNotesOpen, setEditGstNotesOpen] = useState(false);
   const [termToRequest, setTermToRequest] = useState<PaymentTerm | null>(null);
 
   const isReadOnly = accountsPage || estimatesViewing || summaryPage;
+   // NEW: Determines if the payment terms can be edited.
+  // Editing is allowed only if all payment terms have the status "Created".
+  const isPaymentTermsEditable = useMemo(() => {
+    if (!PO.payment_terms || !Array.isArray(PO.payment_terms) || PO.payment_terms.length === 0) {
+      return true; // Allow editing if no terms exist.
+    }
+    // Check if EVERY term's status is "Created".
+    return PO.payment_terms.every((term) => term.status === "Created");
+  }, [PO.payment_terms]);
 
   const processedPaymentTerms = useMemo(() => {
     let nextActionableFound = false;
     const terms = Array.isArray(PO.payment_terms) ? PO.payment_terms : [];
     return terms.map((term) => {
-      let displayStatus: "Created" |"Paid" | "Requested" | "Approved" |"Scheduled"| "Created" =
-        "Created";
-        
+      let displayStatus:
+        | "Created"
+        | "Paid"
+        | "Requested"
+        | "Approved"
+        | "Scheduled"
+        | "Return"
+        | "Created" = "Created";
+
       const termStatus = term.status;
-      if(termStatus === "Created") displayStatus = "Created";
+      if (termStatus === "Created") displayStatus = "Created";
       else if (termStatus === "Paid") displayStatus = "Paid";
       else if (termStatus === "Requested") displayStatus = "Requested";
-      else if (!nextActionableFound && !isReadOnly) {
-        displayStatus = "Approved";
-        nextActionableFound = true;
-      }
+      else if (termStatus === "Return") displayStatus = "Return";
+      else if (termStatus === "Approved") displayStatus = "Approved";
+      // else if (!nextActionableFound && !isReadOnly) {
+      //   displayStatus = "Approved";
+      //   nextActionableFound = true;
+      // }
       return { ...term, displayStatus };
     });
   }, [PO.payment_terms, isReadOnly]);
@@ -622,21 +743,38 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     if (!termToRequest) return;
     setUpdatingTermName(termToRequest.name);
     try {
-      const updatedPaymentTerms = PO.payment_terms.map((term) =>
-        term.name === termToRequest.name
-          ? { ...term, status: "requested" }
-          : term
-      );
-      await handleSave({ payment_terms: updatedPaymentTerms });
-      toast({
-        title: "Success!",
-        description: `Payment for "${termToRequest.label}" has been requested.`,
-        variant: "success",
+      //  const newProjectPayment = {
+      //       document_type: "Procurement Orders",
+      //       document_name: PO.name,
+      //       project: PO.project,
+      //       vendor: PO.vendor,
+      //       amount: termToRequest.amount,
+      //       // This is the most important field for the backend hook!
+      //       source_payment_term: termToRequest.name,
+      //   };
+      const { message } = await CreatePPApi({
+        doctype: "Procurement Orders",
+        docname: PO.name,
+        project: PO.project,
+        vendor: PO.vendor,
+        amount: termToRequest.amount,
+        // This is the most important field for the backend hook!
+        ptname: termToRequest.name,
       });
+
+      console.log("result of PP api", message);
+      if (message?.status === 200) {
+        toast({
+          title: "Success!",
+          description: `${message?.message}`,
+          variant: "success",
+        });
+      }
+      poMutate();
     } catch (error) {
       toast({
         title: "Error",
-        description: "Could not request payment.",
+        description: `Could not request payment ${CreatePPapiError?.message}`,
         variant: "destructive",
       });
     } finally {
@@ -648,6 +786,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const handleSave = async (dataToSave: Partial<ProcurementOrder>) => {
     try {
       await updateDoc("Procurement Orders", PO.name, dataToSave);
+
       poMutate();
       setEditTermsOpen(false);
       setEditGstNotesOpen(false);
@@ -667,7 +806,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to update terms.",
+        description: `Failed to update terms `,
         variant: "destructive",
       });
     }
@@ -709,6 +848,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                   size="sm"
                   className="h-7 px-3 text-xs"
                   onClick={() => setEditTermsOpen(true)}
+                 disabled={!isPaymentTermsEditable} // MODIFIED: Button is disabled if terms are not editable
                 >
                   <PencilIcon className="w-3 h-3 mr-1" />
                   Edit
@@ -806,7 +946,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         onClose={() => setTermToRequest(null)}
         term={termToRequest}
         onConfirm={handleConfirmRequestPayment}
-        isLoading={!!updatingTermName}
+        isLoading={CreatePPApiLoading}
       />
     </>
   );

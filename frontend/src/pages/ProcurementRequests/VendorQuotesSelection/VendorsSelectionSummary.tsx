@@ -435,8 +435,8 @@ const generateActionSummary = useCallback(() => {
       //   ? calculatedTargetRate
       //   : getLowest(item.item_id);
         const lowestItemPrice = calculatedTargetRate > 0
-        && Math.min(calculatedTargetRate
-        , getLowest(item.item_id));
+        ? Math.min(calculatedTargetRate
+        , getLowest(item.item_id)): getLowest(item.item_id);
 
       if (!vendorWiseApprovalItems[vendor]) {
         vendorWiseApprovalItems[vendor] = {
@@ -452,11 +452,23 @@ const generateActionSummary = useCallback(() => {
         amount: itemTotalInclGst,
         targetRateValue: lowestItemPrice, // Store the calculated value
       };
+      console.log("displayItem",displayItem)
 
-      // 4. Calculate potential loss using the benchmark.
-      if (lowestItemPrice && lowestItemPrice < quote) {
-        displayItem.potentialLoss = baseItemTotal - quantity * lowestItemPrice;
+      if(displayItem?.category === "Additional Charges"){
+        displayItem.potentialLoss = 0;
       }
+      // 4. Calculate potential loss using the benchmark.
+      if(displayItem?.category !== "Additional Charges") {
+      if (lowestItemPrice && lowestItemPrice < quote) {
+        displayItem.potentialLoss = baseItemTotal - (quantity * lowestItemPrice);
+      }else{
+        displayItem.potentialLoss = 0;
+      }
+    }
+      // else if(getLowest(item.item_id) > quote){
+      //   displayItem.potentialLoss = -(getLowest(item.item_id)-lowestItemPrice)
+      // }
+    
 
       vendorWiseApprovalItems[vendor].items.push(displayItem);
       vendorWiseApprovalItems[vendor].total += baseItemTotal;

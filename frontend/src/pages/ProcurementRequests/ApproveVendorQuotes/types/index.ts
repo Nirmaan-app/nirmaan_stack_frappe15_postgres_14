@@ -4,7 +4,8 @@ import {
     RFQData // Assuming RFQData is still relevant and its keys match item_id
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { ApprovedQuotations as GlobalApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations"; // For historical data
-import {VendorPaymentTerm} from "@/types/NirmaanStack/ProcurementRequests";
+import { VendorPaymentTerm } from "../../VendorQuotesSelection/types/paymentTerms";
+
 // --- Main Document Type for this flow ---
 // Ensure this uses order_list
 export interface ApproveQuotesPRDoc extends Omit<GlobalProcurementRequest, 'procurement_list'> {
@@ -107,3 +108,9 @@ export const mapApiQuotesToApprovedQuotations = (apiQuotes: ApiSelectedQuotation
         idx: cq.idx,
     }));
 };
+
+
+//New Change For Dynamic Table
+export interface DynamicPaymentTerms {
+  [vendorId: string]: VendorPaymentTerm[];
+}

@@ -20,12 +20,18 @@ import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUs
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
 import { formatDate } from "@/utils/FormatDate";
 import TextArea from "antd/es/input/TextArea";
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc ,useFrappePostCall} from "frappe-react-sdk";
 import { CheckCheck, Undo2, X } from 'lucide-react';
 import { useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-
+interface ApiResponse {
+    message: {
+        status: number;
+        message?: string; // Success message
+        error?: string; // Error message
+    }
+}
 // --- Main Entry Component (No Changes) ---
 const ApproveAmendPO = () => {
     const { id: po } = useParams<{ id: string }>();
@@ -34,6 +40,8 @@ const ApproveAmendPO = () => {
     const orderId = po.replaceAll("&=", "/");
 
     const { data: po_data, isLoading: po_loading, error: po_error, mutate: po_mutate } = useFrappeGetDoc("Procurement Orders", orderId, `Procurement Orders ${orderId}`);
+
+    // Direct API call For Amend PO
 
     useFrappeDocumentEventListener("Procurement Orders", orderId, (event) => {
         toast({ title: "Document Updated", description: `PO ${event.name} has been modified.` });
@@ -94,6 +102,10 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
         filters: [["reference_name", "=", po_data?.name], ["subject", "=", "updating po(amendment)"]]
     });
 
+    const { call: approveAmendItemsCall, loading: approveAmendLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_amend_po.approve_amend_po_with_payment_terms");
+
+
+
     const getUserName = (name: string | undefined) => {
         return usersList?.find((user) => user?.name === name)?.full_name;
     };
@@ -137,7 +149,15 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
     const handleAction = async () => {
         try {
             if (actionType === 'approve') {
-                await updateDoc("Procurement Orders", po_data.name, { status: "PO Approved" });
+                // await updateDoc("Procurement Orders", po_data.name, { status: "PO Approved" });
+                const {message:result}=await approveAmendItemsCall({po_name: po_data.name})
+                if(result.status===200){
+
+            toast({ title: "Success", description: `Amende PO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`, variant: "success" });
+                }else{
+                    toast({ title: "Error", description: `An error occurred while processing the action ${result.message}.`, variant: "destructive" });
+                }
+                
             } else {
                 await updateDoc("Procurement Orders", po_data.name, {
                     status: "PO Approved",
@@ -153,7 +173,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
                 });
             }
 
-            toast({ title: "Success", description: `PO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`, variant: "success" });
+            // toast({ title: "Success", description: `Amende PO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`, variant: "success" });
             setIsDialogOpen(false);
             navigate("/purchase-orders?tab=Approve Amended PO");
         } catch (error) {
