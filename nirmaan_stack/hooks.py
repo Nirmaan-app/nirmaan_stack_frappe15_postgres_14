@@ -226,26 +226,33 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
-# 	"all": [
-# 		"nirmaan_stack.tasks.all"
-# 	],
+	# "all": [
+	# 	"nirmaan_stack.tasks.all",
+	# ],
 	"daily": [
-		"nirmaan_stack.populate_target_rates.populate_target_rates"
+		"nirmaan_stack.populate_target_rates.populate_target_rates",
+		"nirmaan_stack.tasks.payment_term_worker.update_payment_term_status"
+    
 	],
+   
+  
 # 	"hourly": [
 # 		"nirmaan_stack.tasks.hourly"
 # 	],
+
 # 	"weekly": [
 # 		"nirmaan_stack.tasks.weekly"
 # 	],
 # 	"monthly": [
 # 		"nirmaan_stack.tasks.monthly"
 # 	],
-    # "cron": {
-    #     "31 14 * * *": [
-    #         "nirmaan_stack.populate_target_rates.populate_target_rates"
-    #     ]
-    # }
+    #  "cron": {
+        # "31 14 * * *": [
+        #     "nirmaan_stack.populate_target_rates.populate_target_rates"
+        # ],
+       
+       
+    #  }
 }
 
 # Testing
