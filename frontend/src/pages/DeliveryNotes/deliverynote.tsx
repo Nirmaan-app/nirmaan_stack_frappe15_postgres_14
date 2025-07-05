@@ -164,7 +164,40 @@ export default function DeliveryNote() {
   const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
   // console.log("deliveryNoteData", deliveryNoteData)
 
-  // --- LOADING / ERROR / NOT FOUND STATES (no changes) ---
+  // It's safe to call useMemo and useCallback even if deliveryNoteData is null initially.
+  // They will simply return their initial values and re-calculate on the next render.
+  const deliveryHistory = useMemo(() =>
+    safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData?.delivery_data, { data: {} }),
+    [deliveryNoteData?.delivery_data]
+  );
+
+  const displayDnId = useMemo(() =>
+    formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE),
+    [deliveryNoteId]
+  );
+
+  const latestHistoryEntry = useMemo(() => {
+    const historyData = deliveryHistory.data;
+    if (!historyData || Object.keys(historyData).length === 0) {
+      return null;
+    }
+    const sortedKeys = Object.keys(historyData).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    const latestKey = sortedKeys[0];
+    return historyData[latestKey];
+  }, [deliveryHistory.data]);
+
+  const handlePrintLatest = useCallback(() => {
+    if (latestHistoryEntry) {
+      triggerHistoryPrint(latestHistoryEntry);
+    } else {
+      toast({
+        title: "No History Available",
+        description: "A delivery must be recorded before its note can be printed.",
+      });
+    }
+  }, [latestHistoryEntry, triggerHistoryPrint, toast]);
+
+  // --- (Indicator) STEP 2: Conditional rendering logic now comes AFTER all hooks ---
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[80vh]">
@@ -190,34 +223,6 @@ export default function DeliveryNote() {
       </div>
     );
   }
-
-  // --- RENDER LOGIC ---
-  const deliveryHistory = safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData.delivery_data, { data: {} });
-  const displayDnId = formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE);
-
-  // --- (Indicator) NEW: Logic to find the latest history entry ---
-  const latestHistoryEntry = useMemo(() => {
-    const historyData = deliveryHistory.data;
-    if (!historyData || Object.keys(historyData).length === 0) {
-      return null;
-    }
-    // Sort keys (timestamps) in descending order to find the latest one
-    const sortedKeys = Object.keys(historyData).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-    const latestKey = sortedKeys[0];
-    return historyData[latestKey];
-  }, [deliveryHistory.data]);
-
-  // --- (Indicator) NEW: Callback for the "Print Latest DN" button ---
-  const handlePrintLatest = useCallback(() => {
-    if (latestHistoryEntry) {
-      triggerHistoryPrint(latestHistoryEntry);
-    } else {
-      toast({
-        title: "No History Available",
-        description: "A delivery must be recorded before its note can be printed.",
-      });
-    }
-  }, [latestHistoryEntry, triggerHistoryPrint, toast]);
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-4xl space-y-6">
