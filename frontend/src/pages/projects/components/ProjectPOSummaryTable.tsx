@@ -17,7 +17,7 @@ import { TailSpin } from "react-loader-spinner";
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
@@ -104,7 +104,7 @@ interface POAggregatesResponse extends POAggregates {
 export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ projectId }) => {
     const { toast } = useToast();
 
-    if(!projectId) return "Project ID is required.";
+    if (!projectId) return "Project ID is required.";
 
     // --- State for Aggregates Card ---
     const [poAggregates, setPOAggregates] = useState<POAggregates | null>(null);
@@ -265,7 +265,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
             meta: {
                 exportHeaderName: "PO Value (inc. GST)",
                 exportValue: (row: ProcurementOrder) => {
-                    return formatToRoundedIndianRupee(poAmountsDict?.[row.name]?.total_incl_gst);
+                    return formatForReport(poAmountsDict?.[row.name]?.total_incl_gst);
                 }
             }
         },
@@ -276,7 +276,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
             meta: {
                 exportHeaderName: "Amt. Paid",
                 exportValue: (row: ProcurementOrder) => {
-                    return formatToRoundedIndianRupee(getTotalAmountPaidForPO(row.name));
+                    return formatForReport(getTotalAmountPaidForPO(row.name));
                 }
             }
         },

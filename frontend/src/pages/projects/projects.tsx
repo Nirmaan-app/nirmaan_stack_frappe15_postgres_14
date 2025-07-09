@@ -17,7 +17,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalInflowAmount, getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { getTotalInflowAmount, getPOTotal, getSRTotal, getTotalAmountPaid, getTotalExpensePaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
@@ -36,6 +36,7 @@ import {
   getProjectStaticFilters
 } from './config/projectTable.config';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 
 // --- Constants ---
 const DOCTYPE = 'Projects';
@@ -136,24 +137,29 @@ export const Projects: React.FC<ProjectsProps> = ({
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>(
     "Project Payments", { fields: ["project", "amount", "status"], filters: [["status", "=", "Paid"]], limit: 100000 }, "Payments_For_ProjectsList"
   );
+  const { data: projectExpenses, isLoading: projectExpensesLoading, error: projectExpensesError } = useFrappeGetDocList<ProjectExpenses>(
+    "Project Expenses", { fields: ["projects", "amount"], limit: 100000 }, "ProjectExpenses_For_ProjectsList"
+  );
 
   // --- Memoized Lookups & Pre-processing for Column Calculations ---
   const projectTypeOptions = useMemo(() => projectTypesList?.map(pt => ({ label: pt.name, value: pt.name })) || [], [projectTypesList]);
 
   const getProjectFinancials = useMemo(() => {
-    if (!poData || !srData || !projectInflows || !projectPayments) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0 });
+    if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0 });
 
     // Pre-group data for efficiency
     const posByProject = memoize((projId: string) => poData.filter(po => po.project === projId));
     const srsByProject = memoize((projId: string) => srData.filter(sr => sr.project === projId));
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
+    const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
 
     return memoize((projectId: string) => {
       const relatedPOs = posByProject(projectId);
       const relatedSRs = srsByProject(projectId);
       const relatedInflows = inflowsByProject(projectId);
       const relatedPayments = paymentsByProject(projectId);
+      const relatedExpenses = expensesByProject(projectId);
 
       let totalInvoiced = 0;
       relatedPOs.forEach(po => totalInvoiced += getPOTotal(po, parseNumber(po.loading_charges), parseNumber(po.freight_charges))?.totalAmt || 0);
@@ -163,7 +169,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       });
 
       const totalInflow = getTotalInflowAmount(relatedInflows);
-      const totalOutflow = getTotalAmountPaid(relatedPayments); // Already filtered for "Paid"
+      const totalOutflow = getTotalAmountPaid(relatedPayments) + getTotalExpensePaid(relatedExpenses); // Already filtered for "Paid"
 
       return {
         calculatedTotalInvoiced: totalInvoiced,
@@ -329,9 +335,9 @@ export const Projects: React.FC<ProjectsProps> = ({
   }), [statusOptions, projectTypeOptions]);
 
   // --- Combined Loading & Error States ---
-  const isLoadingOverall = poDataLoading || srDataLoading || projectInflowsLoading || projectPaymentsLoading || projectTypesLoading;
+  const isLoadingOverall = poDataLoading || srDataLoading || projectInflowsLoading || projectPaymentsLoading || projectExpensesLoading || projectTypesLoading;
 
-  const combinedErrorOverall = poDataError || srDataError || projectInflowsError || projectPaymentsError || projectTypesError || listError;
+  const combinedErrorOverall = poDataError || srDataError || projectInflowsError || projectPaymentsError || projectExpensesError || projectTypesError || listError;
 
   if (combinedErrorOverall && !projectsDataForTable?.length) {
     // Display prominent error from data fetching/processing

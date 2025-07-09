@@ -96,13 +96,20 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   },
   {
     id: "totalInvoiced", // Use ID for columns not directly on `Projects`
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR (incl. GST)" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Value (incl. GST)" />,
     cell: (props) => <CalculatedCell {...props} accessor="totalInvoiced" formatter={formatDisplayValueToLakhs} />,
-    meta: { exportHeaderName: "Total PO+SR (incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
+    meta: { exportHeaderName: "Total PO+SR Value(incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
+  },
+  // --- (Indicator) NEW COLUMN ---
+  {
+    id: "totalPoSrInvoiced",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Invoiced (incl. GST)" />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalPoSrInvoiced" formatter={formatDisplayValueToLakhs} />,
+    meta: { exportHeaderName: "Total PO+SR Invoiced (incl. GST)", isNumeric: true }
   },
   {
     id: "totalProjectInvoiced", // Use ID for columns not directly on `Projects`
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Project Invoiced (incl. GST)" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Client Invoiced (incl. GST)" />,
     cell: (props) => <CalculatedCell {...props} accessor="totalProjectInvoiced" formatter={formatDisplayValueToLakhs} />,
     meta: { exportHeaderName: "Total Project Invoiced (incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
   },

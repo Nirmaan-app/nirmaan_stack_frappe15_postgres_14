@@ -1,8 +1,8 @@
-import React, { useCallback, useContext, useMemo } from "react";
+import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc } from "frappe-react-sdk";
-import { Download, Info } from "lucide-react";
+import { Download, Info, Edit2, MoreHorizontal } from "lucide-react";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -15,7 +15,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -34,6 +34,10 @@ import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { EditFulfilledPaymentDialog } from "./update-payment/EditFulfilledPaymentDialog"; // Import the new dialog
+import { useUserData } from "@/hooks/useUserData";
+import { useDialogStore } from "@/zustand/useDialogStore";
+import { Button } from "@/components/ui/button";
 
 interface SelectOption { label: string; value: string; }
 
@@ -49,61 +53,61 @@ interface AllPaymentsProps {
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
-const AllPaymentsTableWrapper: React.FC<{
-    tab: string;
-    columns: any;
-    fieldsToFetch: string[];
-    paymentsSearchableFields: SearchFieldOption[];
-    staticFiltersForTab: any[];
-    facetFilterOptions: any;
-    dateColumns: any;
-    URL_SYNC_KEY: string;
-}> = ({ 
-    tab, 
-    columns, 
-    fieldsToFetch,
-    paymentsSearchableFields,
-    staticFiltersForTab,
-    facetFilterOptions,
-    dateColumns,
-    URL_SYNC_KEY
-}) => {
-    
-    // --- useServerDataTable Hook Instantiation ---
-    const {
-        table, totalCount, isLoading: listIsLoading, error: listError,
-        selectedSearchField, setSelectedSearchField,
-        searchTerm, setSearchTerm,
-    } = useServerDataTable<ProjectPayments>({
-        doctype: DOCTYPE,
-        columns: columns,
-        fetchFields: fieldsToFetch,
-        searchableFields: paymentsSearchableFields,
-        urlSyncKey: URL_SYNC_KEY,
-        defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
-        enableRowSelection: false, // No bulk actions currently
-        additionalFilters: staticFiltersForTab,
-    });
+// const AllPaymentsTableWrapper: React.FC<{
+//     tab: string;
+//     columns: any;
+//     fieldsToFetch: string[];
+//     paymentsSearchableFields: SearchFieldOption[];
+//     staticFiltersForTab: any[];
+//     facetFilterOptions: any;
+//     dateColumns: any;
+//     URL_SYNC_KEY: string;
+// }> = ({
+//     tab,
+//     columns,
+//     fieldsToFetch,
+//     paymentsSearchableFields,
+//     staticFiltersForTab,
+//     facetFilterOptions,
+//     dateColumns,
+//     URL_SYNC_KEY
+// }) => {
 
-    return (
-        <DataTable<ProjectPayments>
-            table={table}
-            columns={columns}
-            isLoading={listIsLoading}
-            error={listError}
-            totalCount={totalCount}
-            searchFieldOptions={paymentsSearchableFields}
-            selectedSearchField={selectedSearchField}
-            onSelectedSearchFieldChange={setSelectedSearchField}
-            searchTerm={searchTerm}
-            onSearchTermChange={setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            dateFilterColumns={dateColumns}
-            showExportButton={true}
-            onExport={'default'}
-        />
-    );
-};
+//         // --- useServerDataTable Hook Instantiation ---
+//         const {
+//             table, totalCount, isLoading: listIsLoading, error: listError,
+//             selectedSearchField, setSelectedSearchField,
+//             searchTerm, setSearchTerm, refetch,
+//         } = useServerDataTable<ProjectPayments>({
+//             doctype: DOCTYPE,
+//             columns: columns,
+//             fetchFields: fieldsToFetch,
+//             searchableFields: paymentsSearchableFields,
+//             urlSyncKey: URL_SYNC_KEY,
+//             defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
+//             enableRowSelection: false, // No bulk actions currently
+//             additionalFilters: staticFiltersForTab,
+//         });
+
+//         return (
+//             <DataTable<ProjectPayments>
+//                 table={table}
+//                 columns={columns}
+//                 isLoading={listIsLoading}
+//                 error={listError}
+//                 totalCount={totalCount}
+//                 searchFieldOptions={paymentsSearchableFields}
+//                 selectedSearchField={selectedSearchField}
+//                 onSelectedSearchFieldChange={setSelectedSearchField}
+//                 searchTerm={searchTerm}
+//                 onSearchTermChange={setSearchTerm}
+//                 facetFilterOptions={facetFilterOptions}
+//                 dateFilterColumns={dateColumns}
+//                 showExportButton={true}
+//                 onExport={'default'}
+//             />
+//         );
+//     };
 
 export const AllPayments: React.FC<AllPaymentsProps> = ({
     tab = "Payments Pending", // Default tab
@@ -112,6 +116,16 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     contextKey = "all" // Default context for URL key
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
+    const { role } = useUserData(); // Get user role
+    const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
+
+    const { setEditFulfilledPaymentDialog } = useDialogStore(); // Get the setter for the new dialog
+    const [paymentToEdit, setPaymentToEdit] = useState<ProjectPayments | null>(null); // State to hold the payment for the dialog
+
+    const handleOpenEditDialog = useCallback((payment: ProjectPayments) => {
+        setPaymentToEdit(payment);
+        setEditFulfilledPaymentDialog(true);
+    }, [setEditFulfilledPaymentDialog]);
 
     // --- Dynamic URL Sync Key based on context and tab ---
     const urlSyncKey = useMemo(() =>
@@ -284,7 +298,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             meta: {
                 exportHeaderName: "PO Value",
                 exportValue: (row: ProjectPayments) => {
-                    return formatToRoundedIndianRupee(getDocumentTotal(row.document_name, row.document_type));
+                    return formatForReport(getDocumentTotal(row.document_name, row.document_type));
                 }
             }
         },
@@ -301,7 +315,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 exportHeaderName: tab === "Payments Done" ? "Amt. Paid" : "Amt. To Pay",
                 exportValue: (row: ProjectPayments) => {
                     const displayAmount = parseNumber(row.amount);
-                    return formatToRoundedIndianRupee(displayAmount);
+                    return formatForReport(displayAmount);
                 }
             }
         },
@@ -323,12 +337,27 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             //     size: 100,
             // },
             {
-                id: "download_action", header: "Proof",
-                cell: ({ row }) => row.original.payment_attachment ? (<a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noreferrer"><Download className="h-4 w-4 text-blue-500" /></a>) : null,
-                size: 80,
-                meta: {
-                    excludeFromExport: true
-                }
+                id: "actions",
+                header: () => <div className="text-center">Actions</div>,
+                cell: ({ row }) => (
+                    <div className="flex justify-center items-center gap-1">
+                        {row.original.payment_attachment && (
+                            <a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noopener noreferrer" title="Download Proof">
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-500 hover:text-blue-600">
+                                    <Download className="h-4 w-4" />
+                                </Button>
+                            </a>
+                        )}
+                        {/* Edit button only for Admins */}
+                        {isAdmin && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-600 hover:text-gray-800" onClick={() => handleOpenEditDialog(row.original)}>
+                                <Edit2 className="h-4 w-4" />
+                            </Button>
+                        )}
+                    </div>
+                ),
+                size: 100,
+                meta: { excludeFromExport: true }
             }
         ] as ColumnDef<ProjectPayments>[] : []),
         ...(["Payments Pending", "All Payments"].includes(tab) ? [{
@@ -336,7 +365,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             cell: ({ row }) => <Badge variant={row.original.status === PAYMENT_STATUS.APPROVED ? "default" : row.original.status === PAYMENT_STATUS.PAID ? "green" : "outline"}>{row.original.status}</Badge>,
             enableColumnFilter: true, size: 120
         } as ColumnDef<ProjectPayments>] : []),
-    ], [tab, projectId, notifications, projectOptions, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification]);
+    ], [tab, projectId, notifications, projectOptions, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification, isAdmin, handleOpenEditDialog]);
 
     // --- Faceted Filter Options ---
     const facetFilterOptions = useMemo(() => {
@@ -352,10 +381,34 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         return opts;
     }, [projectOptions, vendorOptions, projectId, tab]);
 
+    // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
+    const {
+        table,
+        data, // We get data directly from the hook now
+        totalCount,
+        isLoading: listIsLoading,
+        error: listError,
+        refetch, // `refetch` is now available in this scope!
+        selectedSearchField,
+        setSelectedSearchField,
+        searchTerm,
+        setSearchTerm,
+    } = useServerDataTable<ProjectPayments>({
+        doctype: DOCTYPE,
+        columns: columns,
+        fetchFields: fieldsToFetch, // Assuming fieldsToFetch is defined in this scope
+        searchableFields: paymentsSearchableFields, // Assuming paymentsSearchableFields is defined
+        urlSyncKey: urlSyncKey,
+        defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
+        enableRowSelection: false,
+        additionalFilters: staticFilters,
+    });
+
+
 
     // --- Combined Loading & Error States ---
-    const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading;
-    const combinedErrorOverall = projectsError || vendorsError || poError || srError || userError;
+    const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading || listIsLoading;
+    const combinedErrorOverall = projectsError || vendorsError || poError || srError || userError || listError;
 
     if (combinedErrorOverall) {
         <AlertDestructive error={combinedErrorOverall} />
@@ -368,16 +421,40 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             {isLoadingOverall ? (
                 <TableSkeleton />
             ) : (
-                <AllPaymentsTableWrapper
-                    key={urlSyncKey} // Key on wrapper ensures complete remount
-                    tab={tab}
+                // --- (Indicator) Render DataTable directly, removing the wrapper ---
+                <DataTable<ProjectPayments>
+                    table={table}
                     columns={columns}
-                    fieldsToFetch={fieldsToFetch}
-                    paymentsSearchableFields={paymentsSearchableFields}
-                    staticFiltersForTab={staticFilters}
+                    isLoading={listIsLoading}
+                    error={listError}
+                    totalCount={totalCount}
+                    searchFieldOptions={paymentsSearchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
                     facetFilterOptions={facetFilterOptions}
-                    dateColumns={dateColumns}
-                    URL_SYNC_KEY={urlSyncKey}
+                    dateFilterColumns={dateColumns}
+                    showExportButton={true}
+                    onExport={'default'}
+                // toolbarActions={
+                //     (!projectId && !customerId) && (
+                //         <Button onClick={toggleNewInflowDialog} size="sm">
+                //             <PlusCircle className="mr-2 h-4 w-4" /> Add New Inflow
+                //         </Button>
+                //     )
+                // }
+                />
+            )}
+            {/* --- (Indicator) NEW: Render the EditFulfilledPaymentDialog --- */}
+            {paymentToEdit && (
+                <EditFulfilledPaymentDialog
+                    payment={paymentToEdit}
+                    onSuccess={() => {
+                        refetch(); // Refetch the table data after a successful edit
+                        setPaymentToEdit(null); // Clear the state
+                        // The dialog will close itself by calling its store setter.
+                    }}
                 />
             )}
         </div>

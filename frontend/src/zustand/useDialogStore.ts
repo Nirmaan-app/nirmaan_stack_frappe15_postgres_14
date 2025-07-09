@@ -12,6 +12,10 @@ export type DialogStore = {
   setPaymentDialog: (open: boolean) => void;
   togglePaymentDialog: () => void;
 
+  // --- (Indicator) NEW: For editing already paid/fulfilled payments ---
+  editFulfilledPaymentDialog: boolean;
+  setEditFulfilledPaymentDialog: (open: boolean) => void;
+
   shareDialog: boolean;
   setShareDialog: (open: boolean) => void;
   toggleShareDialog: () => void;
@@ -55,6 +59,15 @@ export type DialogStore = {
   setEditNonProjectExpenseDialog: (open: boolean) => void;
   toggleEditNonProjectExpenseDialog: () => void;
 
+  // --- (Indicator) NEW: Project Expense Dialogs ---
+  newProjectExpenseDialog: boolean;
+  setNewProjectExpenseDialog: (open: boolean) => void;
+  toggleNewProjectExpenseDialog: () => void;
+
+  editProjectExpenseDialog: boolean;
+  setEditProjectExpenseDialog: (open: boolean) => void;
+  toggleEditProjectExpenseDialog: () => void;
+
   // --- (Indicator) NEW: Generic Delete Confirmation Dialog ---
   deleteConfirmationDialog: boolean;
   setDeleteConfirmationDialog: (open: boolean) => void;
@@ -74,6 +87,10 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   paymentDialog: false,
   setPaymentDialog: (open: boolean) => set({ paymentDialog: open }),
   togglePaymentDialog: () => set((state) => ({ paymentDialog: !state.paymentDialog })),
+
+  // --- (Indicator) NEW: Implementation for the new dialog state ---
+  editFulfilledPaymentDialog: false,
+  setEditFulfilledPaymentDialog: (open: boolean) => set({ editFulfilledPaymentDialog: open }),
 
   shareDialog: false,
   setShareDialog: (open: boolean) => set({ shareDialog: open }),
@@ -122,6 +139,15 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   editNonProjectExpenseDialog: false,
   setEditNonProjectExpenseDialog: (open: boolean) => set({ editNonProjectExpenseDialog: open }),
   toggleEditNonProjectExpenseDialog: () => set((state) => ({ editNonProjectExpenseDialog: !state.editNonProjectExpenseDialog })),
+
+  // --- (Indicator) NEW: Project Expense Dialog Implementations ---
+  newProjectExpenseDialog: false,
+  setNewProjectExpenseDialog: (open: boolean) => set({ newProjectExpenseDialog: open }),
+  toggleNewProjectExpenseDialog: () => set((state) => ({ newProjectExpenseDialog: !state.newProjectExpenseDialog })),
+
+  editProjectExpenseDialog: false,
+  setEditProjectExpenseDialog: (open: boolean) => set({ editProjectExpenseDialog: open }),
+  toggleEditProjectExpenseDialog: () => set((state) => ({ editProjectExpenseDialog: !state.editProjectExpenseDialog })),
 
   // --- (Indicator) NEW: Generic Delete Confirmation Dialog Implementation ---
   deleteConfirmationDialog: false,

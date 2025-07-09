@@ -30,11 +30,9 @@ interface DeliveryNoteItemsDisplayProps {
   toggleDeliveryNoteSheet?: () => void;
 }
 
-interface ModifiedItems {
-  [itemId: string]: {
-    previousReceived: number;
-    newReceived: number;
-  };
+// --- (Indicator) MODIFIED STATE: We no longer track the "total diff", but the "newly delivered" amount.
+interface NewlyDeliveredQuantities {
+  [itemId: string]: string; // Store as string to handle empty inputs
 }
 
 export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> = ({
@@ -42,11 +40,12 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 }) => {
   const userData = useUserData();
   const { toast } = useToast();
-  const {mutate} = useSWRConfig();
+  const { mutate } = useSWRConfig();
 
   // State management
   const [originalOrder, setOriginalOrder] = useState<PurchaseOrderItem[]>([]);
-  const [modifiedItems, setModifiedItems] = useState<ModifiedItems>({});
+  // --- (Indicator) NEW STATE: Tracks only the values entered in the "Newly Delivered" input boxes ---
+  const [newlyDeliveredQuantities, setNewlyDeliveredQuantities] = useState<NewlyDeliveredQuantities>({});
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [proceedDialog, setProceedDialog] = useState(false);
@@ -58,55 +57,51 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   );
   const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
-  // Derived state
+  // --- (Indicator) MODIFIED DERIVED STATE: hasChanges now depends on the new state ---
   const hasChanges = useMemo(
-    () => Object.keys(modifiedItems).length > 0 || selectedAttachment !== null,
-    [modifiedItems, selectedAttachment]
+    () => Object.values(newlyDeliveredQuantities).some(val => parseNumber(val) > 0) || selectedAttachment !== null,
+    [newlyDeliveredQuantities, selectedAttachment]
   );
 
   // Initialize original order
   useEffect(() => {
     if (data?.order_list) {
-      const parsedOrder = typeof data.order_list === "string" 
-        ? JSON.parse(data.order_list) 
+      const parsedOrder = typeof data.order_list === "string"
+        ? JSON.parse(data.order_list)
         : data.order_list;
       setOriginalOrder(parsedOrder.list);
     }
   }, [data]);
 
-  // Handle quantity changes
-  const handleReceivedChange = useCallback(
+  // When toggling edit mode, reset the inputs
+  useEffect(() => {
+    if (!showEdit) {
+      setNewlyDeliveredQuantities({});
+      setSelectedAttachment(null);
+    }
+  }, [showEdit]);
+
+  // --- (Indicator) MODIFIED HANDLER: Updates the new state for newly delivered quantities ---
+  const handleNewlyDeliveredChange = useCallback(
     (item: PurchaseOrderItem, value: string) => {
+      // Allow empty string to clear input, but only add to state if it's a valid number
       const parsedValue = parseNumber(value);
-      const originalReceived = item.received ?? 0;
 
-      setModifiedItems((prevModifiedItems) => {
-        const updatedItems = { ...prevModifiedItems };
-
-        if (updatedItems[item.name]) {
-          if (parsedValue === originalReceived) {
-            delete updatedItems[item.name];
-          } else {
-            updatedItems[item.name].newReceived = parsedValue;
-          }
+      setNewlyDeliveredQuantities((prev) => {
+        const updated = { ...prev };
+        if (value === '' || parsedValue === 0) {
+          delete updated[item.name]; // Remove from state if cleared or zero
         } else {
-          updatedItems[item.name] = {
-            previousReceived: originalReceived || item.quantity,
-            newReceived: parsedValue,
-          };
+          updated[item.name] = value; // Store the raw string value
         }
-
-        return updatedItems;
+        return updated;
       });
     },
     []
   );
 
-  // Transform changes to delivery data format
+  // --- (Indicator) MODIFIED LOGIC: This now builds the history log based on the new input state ---
   const transformChangesToDeliveryData = useCallback(() => {
-    // const now = new Date();
-    // const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padEnd(6, '0')}`;
-
     const deliveryData: DeliveryDataType = {
       [deliveryDate]: {
         items: [],
@@ -114,22 +109,27 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       }
     };
 
-    
-    Object.entries(modifiedItems).forEach(([itemId, { previousReceived, newReceived }]) => {
+    Object.entries(newlyDeliveredQuantities).forEach(([itemId, newlyDeliveredStr]) => {
+      const newlyDeliveredQty = parseNumber(newlyDeliveredStr);
+      if (newlyDeliveredQty <= 0) return; // Don't log entries with no new delivery
+
       const originalItem = originalOrder.find(item => item.name === itemId);
       if (!originalItem) return;
+
+      const alreadyDelivered = originalItem.received ?? 0;
+      const newTotal = alreadyDelivered + newlyDeliveredQty;
 
       deliveryData[deliveryDate].items.push({
         item_id: itemId,
         item_name: originalItem.item,
         unit: originalItem.unit,
-        from: previousReceived,
-        to: newReceived,
+        from: alreadyDelivered, // The quantity before this update
+        to: newTotal,           // The new total quantity
       });
     });
 
     return deliveryData;
-  }, [modifiedItems, originalOrder, userData, selectedAttachment]);
+  }, [newlyDeliveredQuantities, originalOrder, userData, deliveryDate]);
 
   // Handle file upload
   const uploadAttachment = useCallback(async () => {
@@ -153,23 +153,42 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
     }
   }, [selectedAttachment, data, upload, toast]);
 
-  // Submit handler
+  // --- (Indicator) MODIFIED SUBMISSION LOGIC: Calculates the new total before sending to backend ---
   const handleUpdateDeliveryNote = useCallback(async () => {
+    const modifiedItemsPayload: { [itemId: string]: number } = {};
+    let hasInvalidEntry = false;
+
+    // Build the payload and validate quantities
+    Object.entries(newlyDeliveredQuantities).forEach(([itemId, newlyDeliveredStr]) => {
+      const newlyDeliveredQty = parseNumber(newlyDeliveredStr);
+      if (newlyDeliveredQty < 0) {
+        toast({ title: "Invalid Quantity", description: `Cannot deliver a negative quantity for item ${itemId}.`, variant: "destructive" });
+        hasInvalidEntry = true;
+        return;
+      }
+      if (newlyDeliveredQty === 0) return; // Skip items with 0 new quantity
+
+      const originalItem = originalOrder.find(item => item.name === itemId);
+      if (!originalItem) return;
+
+      const alreadyDelivered = originalItem.received ?? 0;
+      const newTotalReceived = alreadyDelivered + newlyDeliveredQty;
+
+      // Optional: Add a check for over-delivery if needed, for now we allow it.
+      // if (newTotalReceived > originalItem.quantity) { /* can show warning */ }
+
+      modifiedItemsPayload[itemId] = newTotalReceived;
+    });
+
+    if (hasInvalidEntry) return;
+    if (Object.keys(modifiedItemsPayload).length === 0 && !selectedAttachment) {
+      toast({ title: "No Changes", description: "Please enter a delivery quantity or attach a challan.", variant: "default" });
+      return;
+    }
+
     try {
       const attachmentId = await uploadAttachment();
       const deliveryData = transformChangesToDeliveryData();
-
-      // Update delivery data with actual attachment ID
-      // if (attachmentId) {
-      //   Object.values(deliveryData).forEach(entry => {
-      //     entry.dc_attachment_id = attachmentId;
-      //   });
-      // }
-      const modifiedItemsPayload: { [itemId: string]: number } = {};
-      Object.entries(modifiedItems).forEach(([itemId, receivedObject]) => {
-        modifiedItemsPayload[itemId] = receivedObject.newReceived;
-      });
-
 
       const payload = {
         po_id: data?.name,
@@ -182,205 +201,305 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 
       if (response.message.status === 200) {
         await poMutate();
-        await mutate(`Nirmaan Attachments-${data?.name}`)
+        await mutate(`Nirmaan Attachments-${data?.name}`);
         setShowEdit(false);
         setProceedDialog(false);
-        setModifiedItems({});
+        setNewlyDeliveredQuantities({}); // Reset new state
         setSelectedAttachment(null);
-
-        toast({
-          title: "Success!",
-          description: response.message.message,
-          variant: "success"
-        });
-
+        toast({ title: "Success!", description: response.message.message, variant: "success" });
         toggleDeliveryNoteSheet?.();
       } else if (response.message.status === 400) {
-        toast({
-          title: "Failed!",
-          description: response.message.error,
-          variant: "destructive"
-        });
+        toast({ title: "Failed!", description: response.message.error, variant: "destructive" });
       }
     } catch (error) {
       console.error("Error updating delivery note:", error);
-      toast({
-        title: "Update Failed",
-        description: "Failed to update delivery note",
-        variant: "destructive"
-      });
+      toast({ title: "Update Failed", description: "Failed to update delivery note", variant: "destructive" });
     }
-  }, [data, userData, DNUpdateCall, poMutate, toggleDeliveryNoteSheet, toast, transformChangesToDeliveryData, uploadAttachment]);
+  }, [data, originalOrder, newlyDeliveredQuantities, DNUpdateCall, poMutate, toggleDeliveryNoteSheet, toast, transformChangesToDeliveryData, uploadAttachment, selectedAttachment, mutate]);
 
   // Render helpers
-  const renderReceivedCell = (item: PurchaseOrderItem) => {
-    const originallyAllReceived = item.received === item.quantity;
-    const modifiedValue = modifiedItems[item.name]?.newReceived;
+  // const renderReceivedCell = (item: PurchaseOrderItem) => {
+  //   const originallyAllReceived = item.received === item.quantity;
+  //   const modifiedValue = modifiedItems[item.name]?.newReceived;
 
-    if (!showEdit) {
-      return (
-        <div className="flex items-center gap-1">
-          {originallyAllReceived ? (
-            <Check className="h-5 w-5 text-green-500" />
-          ) : item.received && (item.received > item.quantity) ? (
-            <ArrowUp className="text-primary" />
-          ) : item.received && (item.received < item.quantity) ? (
-            <ArrowDown className="text-primary" />
-          ) : null}
-          {!originallyAllReceived ? (
-            <span className="">{parseNumber(item.received)}
-            {/* <span> (original : {item.quantity})</span> */}
-            </span>
-          ) : (<span>{item.quantity}</span>)}
-        </div>
-      );
-    }
+  //   if (!showEdit) {
+  //     return (
+  //       <div className="flex items-center gap-1">
+  //         {originallyAllReceived ? (
+  //           <Check className="h-5 w-5 text-green-500" />
+  //         ) : item.received && (item.received > item.quantity) ? (
+  //           <ArrowUp className="text-primary" />
+  //         ) : item.received && (item.received < item.quantity) ? (
+  //           <ArrowDown className="text-primary" />
+  //         ) : null}
+  //         {!originallyAllReceived ? (
+  //           <span className="">{parseNumber(item.received)}
+  //           {/* <span> (original : {item.quantity})</span> */}
+  //           </span>
+  //         ) : (<span>{item.quantity}</span>)}
+  //       </div>
+  //     );
+  //   }
 
-    if (originallyAllReceived) {
-      return <Check className="h-5 w-5 text-green-500" />;
-    }
+  //   if (originallyAllReceived) {
+  //     return <Check className="h-5 w-5 text-green-500" />;
+  //   }
 
-    return (
-      <>
-      <Input
-        type="number"
-        value={modifiedValue ?? item.received}
-        onChange={(e) => handleReceivedChange(item, e.target.value)}
-        // min={0}
-        // max={item.quantity * 2} // Allow reasonable over-delivery
-        placeholder={`${String(item.received || item.quantity)}`}
-        className="w-24"
-      />
-      {/* {item.received ? (
-        <span className="text-xs text-gray-400">
-          (Ordered: {item.quantity})
-        </span>
-      ) : (
-        <span />
-      )}   */}
-      </>
-    );
-  };
+  //   return (
+  //     <>
+  //     <Input
+  //       type="number"
+  //       value={modifiedValue ?? item.received}
+  //       onChange={(e) => handleReceivedChange(item, e.target.value)}
+  //       // min={0}
+  //       // max={item.quantity * 2} // Allow reasonable over-delivery
+  //       placeholder={`${String(item.received || item.quantity)}`}
+  //       className="w-24"
+  //     />
+  //     {/* {item.received ? (
+  //       <span className="text-xs text-gray-400">
+  //         (Ordered: {item.quantity})
+  //       </span>
+  //     ) : (
+  //       <span />
+  //     )}   */}
+  //     </>
+  //   );
+  // };
 
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between border-b">
-          <CardTitle className="text-xl font-semibold text-red-600">
-            Item List
-          </CardTitle>
-          {data?.status !== "Delivered" && (
-            showEdit ? (
-              <div className="flex gap-4 items-start">
-                <CustomAttachment
-                  maxFileSize={20 * 1024 * 1024} // 20MB
-                  selectedFile={selectedAttachment}
-                  onFileSelect={setSelectedAttachment}
-                  label="Attach DC"
-                  className="w-full"
-                />
-                <Button
-                  onClick={() => setProceedDialog(true)}
-                  disabled={!hasChanges}
-                  className="gap-1"
-                >
-                  <ListChecks className="h-4 w-4" />
-                  Update
-                </Button>
-                <Button
-                  onClick={() => setShowEdit(false)}
-                  className="gap-1"
-                >
-                  <X className="h-4 w-4" />
-                  Cancel
-                </Button>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between border-b gap-2">
+          <CardTitle className="text-xl font-semibold text-red-600">Item List</CardTitle>
+          {/* {data?.status !== "Delivered" && ( */}
+          {showEdit ? (
+            <div className="flex flex-wrap gap-2 items-center">
+              <CustomAttachment maxFileSize={20 * 1024 * 1024} selectedFile={selectedAttachment} onFileSelect={setSelectedAttachment} label="Attach DC" className="w-auto" />
+              <div className="flex gap-2">
+                <Button onClick={() => setProceedDialog(true)} disabled={!hasChanges} size="sm" className="gap-1"><ListChecks className="h-4 w-4" /> Update</Button>
+                <Button onClick={() => setShowEdit(false)} variant="secondary" size="sm" className="gap-1"><X className="h-4 w-4" /> Cancel</Button>
               </div>
-            ) : (
-              <Button onClick={() => setShowEdit(true)} className="gap-1">
-                <Pencil className="h-4 w-4" />
-                Edit
-              </Button>
-            )
+            </div>
+          ) : (
+            <Button onClick={() => setShowEdit(true)} className="gap-1"><Pencil className="h-4 w-4" /> Record New Updates</Button>
           )}
+          {/* )} */}
         </CardHeader>
         <CardContent>
-        <div className="overflow-auto">
-          <Table>
-            <TableHeader className="bg-gray-100">
-              <TableRow>
-                <TableHead className="w-[50%] min-w-[200px]">Item Name</TableHead>
-                <TableHead>Unit</TableHead>
-                <TableHead>Ordered</TableHead>
-                <TableHead>Received</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {originalOrder.map((item) => (
-                <TableRow key={item.name}>
-                  <TableCell>
-                    <div className="inline items-baseline">
-                      <p>{item.item}</p>
-                      {item.comment && (
-                        <HoverCard>
-                          <HoverCardTrigger>
-                            <MessageCircleMore className="text-blue-400 w-4 h-4 inline-block ml-1" />
-                          </HoverCardTrigger>
-                          <HoverCardContent>
-                            <div className="pb-4">
-                              <span className="block">{item.comment}</span>
-                              <span className="text-xs italic text-gray-600">
-                                - Comment by PL
-                              </span>
-                            </div>
-                          </HoverCardContent>
-                        </HoverCard>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>{item.unit}</TableCell>
-                  <TableCell className="text-center">{item.quantity}</TableCell>
-                  <TableCell>
-                    {renderReceivedCell(item)}
-                  </TableCell>
+          <div className="overflow-auto hidden sm:block">
+            <Table>
+              <TableHeader className="bg-red-100">
+                <TableRow>
+                  <TableHead className="w-[40%] min-w-[200px]">Item Name</TableHead>
+                  <TableHead>Unit</TableHead>
+                  <TableHead>Ordered</TableHead>
+                  {/* --- (Indicator) MODIFIED HEADERS: Dynamically change based on edit mode --- */}
+                  {showEdit ? (
+                    <>
+                      <TableHead>Already Delivered</TableHead>
+                      <TableHead>Newly Delivered</TableHead>
+                    </>
+                  ) : (
+                    <TableHead>Total Received</TableHead>
+                  )}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {originalOrder.map((item) => {
+                  const alreadyDelivered = item.received ?? 0;
+                  const isFullyDelivered = alreadyDelivered >= item.quantity;
+
+                  return (
+                    <TableRow key={item.name}>
+                      <TableCell>
+                        <div className="inline items-baseline">
+                          <p>{item.item}</p>
+                          {item.comment && (
+                            <HoverCard><HoverCardTrigger><MessageCircleMore className="text-blue-400 w-4 h-4 inline-block ml-1" /></HoverCardTrigger><HoverCardContent><div className="pb-4"><span className="block">{item.comment}</span><span className="text-xs italic text-gray-600">- Comment by PL</span></div></HoverCardContent></HoverCard>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>{item.unit}</TableCell>
+                      <TableCell className="text-center">{item.quantity}</TableCell>
+
+                      {/* --- (Indicator) MODIFIED CELL RENDERING --- */}
+                      {showEdit ? (
+                        <>
+                          <TableCell className="text-center">
+                            <div className="flex items-center gap-1">
+                              {/* Show icon based on delivery status */}
+                              {isFullyDelivered ? (<Check className="h-5 w-5 text-green-500" />)
+                                : alreadyDelivered > 0 ? (<ArrowDown className="text-primary" />) : null}
+                              <span>{alreadyDelivered}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {/* Render input only if not fully delivered */}
+                            {/* {!isFullyDelivered ? (
+                              <Input
+                                type="number"
+                                value={newlyDeliveredQuantities[item.name] ?? ''}
+                                onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
+                                placeholder="0"
+                                className="w-24"
+                                min={0}
+                              />
+                            ) : (
+                              <div className="flex items-center justify-center text-green-600">
+                                <Check className="h-5 w-5" />
+                                <span className="ml-1 text-xs">Complete</span>
+                              </div>
+                            )} */}
+                            <Input
+                              type="number"
+                              value={newlyDeliveredQuantities[item.name] ?? ''}
+                              onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
+                              placeholder="0"
+                              className="w-24"
+                              min={0}
+                            />
+                          </TableCell>
+                        </>
+                      ) : (
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            {isFullyDelivered ? (<Check className="h-5 w-5 text-green-500" />)
+                              : alreadyDelivered > 0 ? (<ArrowDown className="text-primary" />) : null}
+                            <span>{alreadyDelivered}</span>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          {/* --- (Indicator) NEW MOBILE CARD-WITH-TABLE VIEW --- */}
+          <div className="block sm:hidden">
+            <div className="divide-y">
+              {originalOrder.map(item => {
+                const alreadyDelivered = item.received ?? 0;
+                const isFullyDelivered = alreadyDelivered >= item.quantity;
+
+                return (
+                  <div key={`mobile-card-${item.name}`} className="p-4">
+                    {/* Item Name and Unit */}
+                    <div className="mb-3">
+                      <p className="font-semibold text-gray-800">{item.item}</p>
+                      <p className="text-sm text-gray-500">Unit: {item.unit}</p>
+                    </div>
+
+                    {/* --- Inner Table for Quantities --- */}
+                    <Table className="text-sm">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="h-8 px-2">Ordered</TableHead>
+                          {showEdit ? (
+                            <>
+                              <TableHead className="h-8 px-2">Delivered</TableHead>
+                              <TableHead className="h-8 px-2 text-center">Newly Delivered</TableHead>
+                            </>
+                          ) : (
+                            <TableHead className="h-8 px-2">Total Received</TableHead>
+                          )}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow>
+                          <TableCell className="px-2 py-2 font-medium">{item.quantity}</TableCell>
+
+                          {showEdit ? (
+                            <>
+                              <TableCell className="px-2 py-2">
+                                <div className="flex items-center gap-1">
+                                  {isFullyDelivered ? (<Check className="h-5 w-5 text-green-500" />)
+                                    : alreadyDelivered > 0 ? (<ArrowDown className="text-primary" />) : null}
+                                  <span>{alreadyDelivered}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="px-2 py-2 text-center">
+                                {/* {!isFullyDelivered ? (
+                                  <Input
+                                    type="number"
+                                    value={newlyDeliveredQuantities[item.name] ?? ''}
+                                    onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
+                                    placeholder="0"
+                                    className="w-full h-9 p-1 text-center"
+                                    min={0}
+                                  />
+                                ) : (
+                                  <Check className="h-5 w-5 mx-auto text-green-600" />
+                                )} */}
+                                <Input
+                                  type="number"
+                                  value={newlyDeliveredQuantities[item.name] ?? ''}
+                                  onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
+                                  placeholder="0"
+                                  className="w-full h-9 p-1 text-center"
+                                  min={0}
+                                />
+                              </TableCell>
+                            </>
+                          ) : (
+                            <TableCell className="px-2 py-2">
+                              <div className="flex items-center gap-1">
+                                {isFullyDelivered ? (<Check className="h-5 w-5 text-green-500" />)
+                                  : alreadyDelivered > 0 ? (<ArrowDown className="text-primary" />) : null}
+                                <span>{alreadyDelivered}</span>
+                              </div>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+
+                    {/* Comment section if available */}
+                    {item.comment && (
+                      <div className="mt-2 flex items-start gap-2 text-xs text-gray-600 border-t pt-2">
+                        <MessageCircleMore className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-500" />
+                        <p className="italic">{item.comment}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       <AlertDialog open={proceedDialog} onOpenChange={setProceedDialog}>
+        {/* ... (Confirmation Dialog unchanged) ... */}
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Delivery Update</AlertDialogTitle>
             <AlertDialogDescription>
-              {Object.keys(modifiedItems).length} item changes detected
-              {selectedAttachment && " with attached delivery challan"}
+              {Object.keys(newlyDeliveredQuantities).length} item(s) will be updated
+              {selectedAttachment && " and a new delivery challan will be attached"}
+              .
               <div className="flex gap-4 items-center w-full mt-4" >
                 <Label className="w-[40%]">Delivery Date: <sup className="text-sm text-red-600">*</sup></Label>
-                    <Input
-                        type="date"
-                        placeholder="DD/MM/YYYY"
-                        value={deliveryDate}
-                        onChange={(e) => setDeliveryDate(e.target.value)}
-                        max={new Date().toISOString().split("T")[0]}
-                        onKeyDown={(e) => e.preventDefault()}
-                     />
-            </div>
+                <Input
+                  type="date"
+                  placeholder="DD/MM/YYYY"
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  max={new Date().toISOString().split("T")[0]}
+                  onKeyDown={(e) => e.preventDefault()}
+                />
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             {uploadLoading || DnUpdateCallLoading ? <TailSpin color="red" width={40} height={40} /> : (
               <>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <Button 
-                onClick={handleUpdateDeliveryNote}
-                disabled={DnUpdateCallLoading || uploadLoading || !deliveryDate}
-              >
-                Confirm Update
-              </Button>
-            </>)}
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <Button onClick={handleUpdateDeliveryNote} disabled={DnUpdateCallLoading || uploadLoading || !deliveryDate}>
+                  Confirm Update
+                </Button>
+              </>)}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

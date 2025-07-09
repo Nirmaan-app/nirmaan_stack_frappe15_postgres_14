@@ -9,6 +9,7 @@ export interface NonProjectExpenses {
     type: string; // Link to Expense Type
     expense_type_name?: string; // Denormalized field for easier display
     description?: string;
+    comment?: string
     amount: number;
 
     // Payment Details (conditionally entered)

@@ -59,7 +59,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     },
     {
         accessorKey: "totalAmount", // This is pre-calculated in POReportRowData
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Amt" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Amt (incl.GST)" />,
         cell: ({ row }) => <div className="tabular-nums">{formatToRoundedIndianRupee(row.original.totalAmount)}</div>,
         meta: {
             exportValue: (row: POReportRowData) => formatForReport(row.totalAmount),

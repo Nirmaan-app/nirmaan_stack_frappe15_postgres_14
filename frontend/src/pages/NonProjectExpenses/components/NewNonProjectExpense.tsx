@@ -47,11 +47,12 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { queryKeys, getExpenseTypeListOptions } from "@/config/queryKeys";
+import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
 
 interface NewExpenseFormState {
     type: string; // Will store the value (ID) of the selected ExpenseType
     description: string;
+    comment: string;
     amount: string;
     payment_date: string;
     payment_ref: string;
@@ -62,6 +63,7 @@ interface NewExpenseFormState {
 const INITIAL_FORM_STATE: NewExpenseFormState = {
     type: "",
     description: "",
+    comment: "",
     amount: "",
     payment_date: formatDateFns(new Date(), "yyyy-MM-dd"),
     payment_ref: "",
@@ -94,7 +96,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
-    const expenseTypeFetchOptions = useMemo(() => getExpenseTypeListOptions(), []);
+    const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
     const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
         "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
@@ -171,6 +173,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
             const docToCreate: Partial<NonProjectExpensesType> = {
                 type: formState.type,
                 description: formState.description.trim(),
+                comment: formState.comment.trim() || undefined,
                 amount: parseNumber(formState.amount),
                 ...(recordPaymentDetails && { payment_date: formState.payment_date, payment_ref: formState.payment_ref.trim() || undefined, payment_attachment: paymentAttachmentUrl }),
                 ...(recordInvoiceDetails && { invoice_date: formState.invoice_date, invoice_ref: formState.invoice_ref.trim() || undefined, invoice_attachment: invoiceAttachmentUrl }),
@@ -276,6 +279,10 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                         <Label htmlFor="description_new_npe" className="text-right col-span-1">Description <sup className="text-destructive">*</sup></Label>
                         <Textarea id="description_new_npe" name="description" value={formState.description} onChange={handleInputChange} className="col-span-3 h-20" disabled={isLoadingOverall} />
                         {formErrors.description && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.description}</p>}
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-3">
+                        <Label htmlFor="comment_new_npe" className="text-right col-span-1">Comment</Label>
+                        <Textarea id="comment_new_npe" name="comment" value={formState.comment} onChange={handleInputChange} className="col-span-3 h-20" disabled={isLoadingOverall} />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="amount_new_npe" className="text-right col-span-1">Amount <sup className="text-destructive">*</sup></Label>

@@ -13,7 +13,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
@@ -201,7 +201,7 @@ export const ApproveSelectVendor: React.FC = () => {
                 exportHeaderName: "Est. Value",
                 exportValue: (row) => {
                     const total = getTotal(row.procurement_list);
-                    return total === 0 ? "N/A" : formatToRoundedIndianRupee(total);
+                    return total === 0 ? "N/A" : formatForReport(total);
                 }
             }
         }

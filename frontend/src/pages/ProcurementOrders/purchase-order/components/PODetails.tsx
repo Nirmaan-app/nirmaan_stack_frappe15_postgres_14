@@ -50,6 +50,7 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { DeliveryNotePrintLayout } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
 import { useReactToPrint } from "react-to-print";
 import { deriveDnIdFromPoId } from "@/pages/DeliveryNotes/constants";
+import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 
 interface PODetailsProps {
   po: ProcurementOrder | null
@@ -63,13 +64,14 @@ interface PODetailsProps {
     totalAmt: number
   }
   amountPaid: number
+  totalInvoice?: number
   poMutate: any
   toggleRequestPaymentDialog: () => void
 }
 
 export const PODetails: React.FC<PODetailsProps> = (
   { po, summaryPage, accountsPage, estimatesViewing, poPayments, togglePoPdfSheet,
-    getTotal, amountPaid, poMutate, toggleRequestPaymentDialog
+    getTotal, amountPaid, totalInvoice, poMutate, toggleRequestPaymentDialog
   }) => {
 
   if (!po) return <div>No PO ID Provided</div>
@@ -220,15 +222,16 @@ export const PODetails: React.FC<PODetailsProps> = (
     }
   };
 
+  // --- (Indicator) STEP 1: Implement the print logic hooks ---
   const printComponentRef = useRef<HTMLDivElement>(null);
+  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(po);
 
+  // The main print handler is for the overall DN/PO Summary, which you might already have a version of.
   const handlePrint = useReactToPrint({
     content: () => printComponentRef.current,
     documentTitle: po
       ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
       : 'Delivery_Note',
-    // Optional: Add page styles if needed
-    // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
   });
 
   const downloadurl = "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf"
@@ -361,7 +364,7 @@ export const PODetails: React.FC<PODetailsProps> = (
                 )}
 
               {
-                ["Dispatched", "Partially Delivered"].includes(po?.status) && (
+                ["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && (
                   <Button
                     onClick={toggleDeliveryNoteSheet}
                     variant="outline"
@@ -393,7 +396,11 @@ export const PODetails: React.FC<PODetailsProps> = (
                     <DeliveryNoteItemsDisplay data={po} poMutate={poMutate}
                       toggleDeliveryNoteSheet={toggleDeliveryNoteSheet} />
 
-                    <DeliveryHistoryTable deliveryData={po?.delivery_data?.data || null} />
+                    {/* --- (Indicator) STEP 2: Pass the required prop --- */}
+                    <DeliveryHistoryTable
+                      deliveryData={po?.delivery_data?.data || null}
+                      onPrintHistory={triggerHistoryPrint} // ✅ Pass the trigger function here
+                    />
 
                   </div>
                 </SheetContent>
@@ -905,19 +912,33 @@ export const PODetails: React.FC<PODetailsProps> = (
               <span>{amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}</span>
             </div>
             <div className="flex flex-col gap-2 items-end">
+              {po?.status !== "PO Approved" && (
+                <>
+                  <Label className=" text-red-700">Date Dispatched</Label>
+                  <span>{formatDate(po?.dispatch_date || "")}</span>
+                </>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 max-sm:items-end">
               <Label className=" text-red-700">Total (Incl. GST)</Label>
-              <span>
-                {formatToRoundedIndianRupee(getTotal?.totalAmt)}
-              </span>
+              <span>{formatToRoundedIndianRupee(getTotal?.totalAmt)}</span>
+            </div>
+            <div className="flex flex-col gap-2 sm:items-center">
+              <Label className=" text-red-700">Total Invoiced Amount</Label>
+              <span>{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</span>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Hidden Printable Component */}
-      {/* Keep this outside the main layout flow */}
-      <div className="hidden print:block"> {/* Use print:block utility */}
-        <DeliveryNotePrintLayout ref={printComponentRef} data={po} />
+      {/* --- (Indicator) STEP 3: Add the hidden printable components to the JSX --- */}
+      <div className="hidden">
+        {/* This is for the overall DN print */}
+        <div ref={printComponentRef}>
+          <DeliveryNotePrintLayout data={po} />
+        </div>
+        {/* This is the dynamically rendered component for history printing */}
+        {PrintableHistoryComponent}
       </div>
     </div>
   )

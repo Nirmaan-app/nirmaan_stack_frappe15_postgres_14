@@ -77,7 +77,7 @@ def calculate_order_status(order: list) -> str:
     total_items = len(order)
     delivered_items = sum(
         1 for item in order 
-        if item.get("quantity", 0) == item.get("received", 0)
+        if item.get("quantity", 0) <= item.get("received", 0)
     )
     
     if delivered_items == total_items:

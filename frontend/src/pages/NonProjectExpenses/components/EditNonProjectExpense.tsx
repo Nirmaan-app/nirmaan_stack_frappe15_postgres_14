@@ -41,11 +41,12 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { queryKeys, getExpenseTypeListOptions } from "@/config/queryKeys";
+import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
 
 interface EditExpenseFormState {
     type: string;
     description: string;
+    comment: string;
     amount: string;
     payment_date: string;
     payment_ref: string;
@@ -66,7 +67,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     const { toast } = useToast();
 
     const [formState, setFormState] = useState<EditExpenseFormState>({
-        type: "", description: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: ""
+        type: "", description: "", comment: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: ""
     });
     const [formErrors, setFormErrors] = useState<Partial<Record<keyof EditExpenseFormState, string>>>({});
 
@@ -97,6 +98,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             setFormState({
                 type: expenseToEdit.type || "",
                 description: expenseToEdit.description || "",
+                comment: expenseToEdit.comment || "",
                 amount: expenseToEdit.amount?.toString() || "",
                 payment_date: expenseToEdit.payment_date ? formatDateFns(new Date(expenseToEdit.payment_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
                 payment_ref: expenseToEdit.payment_ref || "",
@@ -121,7 +123,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     }, [editNonProjectExpenseDialog, expenseToEdit]);
 
 
-    const expenseTypeFetchOptions = useMemo(() => getExpenseTypeListOptions(), []);
+    const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
     const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
         "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
@@ -187,6 +189,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         const dataToUpdate: Partial<NonProjectExpensesType> = {
             type: formState.type,
             description: formState.description.trim(),
+            comment: formState.comment.trim() || undefined, // Send null to clear if empty
             amount: parseNumber(formState.amount),
         };
 
@@ -240,7 +243,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
     const handleDialogCloseAttempt = useCallback(() => {
         // Reset local form states, but the dialog's open state is controlled by parent via Zustand
-        setFormState({ type: "", description: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
+        setFormState({ type: "", description: "", comment: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
         setFormErrors({});
         setRecordPaymentDetails(false);
         setRecordInvoiceDetails(false);
@@ -354,6 +357,10 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         <Label htmlFor="description_edit_npe" className="text-right col-span-1">Description <sup className="text-destructive">*</sup></Label>
                         <Textarea id="description_edit_npe" name="description" value={formState.description} onChange={handleInputChange} className="col-span-3 h-20" disabled={isLoadingOverall} />
                         {formErrors.description && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.description}</p>}
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-3">
+                        <Label htmlFor="comment_edit_npe" className="text-right col-span-1">Comment</Label>
+                        <Textarea id="comment_edit_npe" name="comment" value={formState.comment} onChange={handleInputChange} className="col-span-3 h-20" disabled={isLoadingOverall} />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="amount_edit_npe" className="text-right col-span-1">Amount <sup className="text-destructive">*</sup></Label>

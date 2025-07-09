@@ -13,6 +13,7 @@ interface HistoricalDeliveryItem {
   item_name: string;
   unit: string;
   to: string;
+  from: string; // Assuming 'from' is a string representing the quantity received
 }
 
 // --- FIX: A single, consistent interface for any item being rendered ---
@@ -39,7 +40,7 @@ const getCompanyAddress = (gst: string | undefined): string => {
 
 export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePrintLayoutProps>(
   ({ data }, ref) => {
-    
+
     // --- FIX: Normalize both historical and current data into a single, type-safe structure ---
     const itemsToRender: NormalizedPrintItem[] = (() => {
       // Case 1: Printing a specific historical delivery.
@@ -47,7 +48,7 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
         return data.delivery_list.list.map(item => ({
           name: item.item_name,
           unit: item.unit,
-          quantity: parseFloat(item.to) || 0,
+          quantity: parseFloat(item.to) - parseFloat(item.from) || 0,
           comment: null,
         }));
       }

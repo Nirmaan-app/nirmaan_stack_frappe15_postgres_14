@@ -2,35 +2,53 @@
  "actions": [],
  "allow_import": 1,
  "allow_rename": 1,
- "creation": "2025-06-23 16:03:34.311834",
+ "creation": "2025-07-01 19:24:04.551190",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "details_section",
+  "links_section",
+  "projects",
+  "vendor",
   "type",
+  "details_section",
   "description",
   "comment",
   "amount",
-  "payment_details_section",
-  "payment_attachment",
-  "payment_ref",
   "payment_date",
-  "invoice_details_section",
-  "invoice_attachment",
-  "invoice_ref",
-  "invoice_date"
+  "payment_by"
  ],
  "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "projects",
+   "fieldtype": "Link",
+   "label": "Projects",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
+  },
   {
    "fieldname": "details_section",
    "fieldtype": "Section Break",
    "label": "Details"
   },
   {
-   "fieldname": "type",
-   "fieldtype": "Link",
-   "label": "Type",
-   "options": "Expense Type"
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "label": "Description"
+  },
+  {
+   "fieldname": "comment",
+   "fieldtype": "Data",
+   "label": "Comment"
   },
   {
    "fieldname": "amount",
@@ -43,58 +61,24 @@
    "label": "Payment Date"
   },
   {
-   "fieldname": "payment_ref",
+   "fieldname": "payment_by",
    "fieldtype": "Data",
-   "label": "Payment Ref"
+   "label": "Payment By"
   },
   {
-   "fieldname": "description",
-   "fieldtype": "Data",
-   "label": "Description"
-  },
-  {
-   "fieldname": "payment_details_section",
-   "fieldtype": "Section Break",
-   "label": "Payment Details"
-  },
-  {
-   "fieldname": "payment_attachment",
-   "fieldtype": "Attach",
-   "label": "Payment Attachment"
-  },
-  {
-   "fieldname": "invoice_details_section",
-   "fieldtype": "Section Break",
-   "label": "Invoice Details"
-  },
-  {
-   "fieldname": "invoice_attachment",
-   "fieldtype": "Attach",
-   "label": "Invoice Attachment"
-  },
-  {
-   "fieldname": "invoice_ref",
-   "fieldtype": "Data",
-   "label": "Invoice Ref"
-  },
-  {
-   "fieldname": "invoice_date",
-   "fieldtype": "Date",
-   "label": "Invoice Date"
-  },
-  {
-   "fieldname": "comment",
-   "fieldtype": "Data",
-   "label": "Comment"
+   "fieldname": "type",
+   "fieldtype": "Link",
+   "label": "Type",
+   "options": "Expense Type"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-01 17:54:41.236988",
+ "modified": "2025-07-02 15:55:26.318840",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
- "name": "Non Project Expenses",
+ "name": "Project Expenses",
  "owner": "Administrator",
  "permissions": [
   {

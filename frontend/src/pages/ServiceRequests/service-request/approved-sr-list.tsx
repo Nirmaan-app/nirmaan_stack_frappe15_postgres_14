@@ -14,7 +14,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 
 // --- Types ---
@@ -220,7 +220,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
             meta: {
                 exportHeaderName: "SR Value",
                 exportValue: (row) => {
-                    return formatToRoundedIndianRupee(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
+                    return formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
                 }
             }
         },
@@ -234,7 +234,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                 exportHeaderName: "Amt Paid",
                 exportValue: (row) => {
                     const amountPaid = getAmountPaidForSR(row.name);
-                    return formatToRoundedIndianRupee(amountPaid || 0);
+                    return formatForReport(amountPaid || 0);
                 }
             }
         },

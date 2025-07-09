@@ -28,6 +28,8 @@ import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/Procur
 import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses"; // Import new type
+import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"; // Import new hover card
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
@@ -81,6 +83,8 @@ const ProjectSpendsTab = React.lazy(() => import("./ProjectSpendsTab"));
 const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
+import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
+
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -132,32 +136,32 @@ export const ProjectQueryKeys = {
 const Project: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
-  if(!projectId) return <div>No Project ID Provided</div>
+  if (!projectId) return <div>No Project ID Provided</div>
 
   const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? ProjectQueryKeys.project(projectId) : null);
 
   useFrappeDocumentEventListener("Projects", projectId, (event) => {
     console.log("Project document updated (real-time):", event);
     toast({
-            title: "Document Updated",
-            description: `Project ${event.name} has been modified.`,
-        });
+      title: "Document Updated",
+      description: `Project ${event.name} has been modified.`,
+    });
     project_mutate();
   },
-  true // emitOpenCloseEventsOnMount
-);
+    true // emitOpenCloseEventsOnMount
+  );
 
   const { data: projectCustomer, isLoading: projectCustomerLoading, mutate: projectCustomerMutate } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? ProjectQueryKeys.customer(data?.customer) : null);
 
   useFrappeDocumentEventListener("Customers", data?.customer, (event) => {
     console.log("Customer document updated (real-time):", event);
     toast({
-            title: "Document Updated",
-            description: `Customer ${event.name} has been modified.`,
-        });
-        projectCustomerMutate();
+      title: "Document Updated",
+      description: `Customer ${event.name} has been modified.`,
+    });
+    projectCustomerMutate();
   },
-  true // emitOpenCloseEventsOnMount
+    true // emitOpenCloseEventsOnMount
   );
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{
@@ -220,15 +224,16 @@ export const Component = Project;
 
 
 export const PROJECT_PAGE_TABS = {
-    OVERVIEW: 'overview',
-    PR_SUMMARY: 'prsummary',
-    SR_SUMMARY: 'srsummary',
-    PO_SUMMARY: 'posummary',
-    FINANCIALS: 'projectfinancials',
-    SPENDS: 'projectspends',
-    MAKES: 'projectmakes',  
-    ESTIMATES: 'projectestimates',
-    MATERIAL_USAGE: 'projectmaterialusage', // need to create this
+  OVERVIEW: 'overview',
+  PR_SUMMARY: 'prsummary',
+  SR_SUMMARY: 'srsummary',
+  PO_SUMMARY: 'posummary',
+  FINANCIALS: 'projectfinancials',
+  SPENDS: 'projectspends',
+  MAKES: 'projectmakes',
+  ESTIMATES: 'projectestimates',
+  MATERIAL_USAGE: 'projectmaterialusage',
+  PROJECT_EXPENSES: 'projectexpenses', // --- (Indicator) NEW TAB KEY ---
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -257,48 +262,48 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // --- Tab State Management using urlStateManager ---
   const initialActivePage = useMemo(() => {
     return getUrlStringParam("page", PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
-}, []); // Calculate once
+  }, []); // Calculate once
 
-const [activePage, setActivePage] = useState<ProjectPageTabValue>(initialActivePage);
+  const [activePage, setActivePage] = useState<ProjectPageTabValue>(initialActivePage);
 
-// Effect to sync activePage state TO URL
-useEffect(() => {
+  // Effect to sync activePage state TO URL
+  useEffect(() => {
     if (urlStateManager.getParam("page") !== activePage) {
-        urlStateManager.updateParam("page", activePage);
+      urlStateManager.updateParam("page", activePage);
     }
-}, [activePage]);
+  }, [activePage]);
 
-// Effect to sync URL "page" param TO activePage state (for popstate/direct URL load)
-useEffect(() => {
-  const unsubscribe = urlStateManager.subscribe("page", (_, value) => {
+  // Effect to sync URL "page" param TO activePage state (for popstate/direct URL load)
+  useEffect(() => {
+    const unsubscribe = urlStateManager.subscribe("page", (_, value) => {
       const newPage = (value || PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
       if (activePage !== newPage) {
-          setActivePage(newPage);
+        setActivePage(newPage);
       }
-  });
-  // Ensure initial sync if URL already has the param
-  const currentUrlPage = urlStateManager.getParam("page") as ProjectPageTabValue | null;
-  if (currentUrlPage && activePage !== currentUrlPage) {
+    });
+    // Ensure initial sync if URL already has the param
+    const currentUrlPage = urlStateManager.getParam("page") as ProjectPageTabValue | null;
+    if (currentUrlPage && activePage !== currentUrlPage) {
       setActivePage(currentUrlPage);
-  }
-  return unsubscribe;
-}, [activePage, initialActivePage]); // Rerun if initialTab logic changes or tab changes externally
+    }
+    return unsubscribe;
+  }, [activePage, initialActivePage]); // Rerun if initialTab logic changes or tab changes externally
 
   const [makesTab] = useStateSyncedWithParams<string>("makesTab", makeOptions?.[0]?.value)
 
-  const handlePageChange : MenuProps['onClick'] = useCallback((e) => {
+  const handlePageChange: MenuProps['onClick'] = useCallback((e) => {
     const newPage = e.key as ProjectPageTabValue;
     if (activePage !== newPage) {
-        setActivePage(newPage);
-        // If changing main page/tab, you might want to clear sub-tabs or specific filters
-        // Example: Clearing 'makesTab', 'eTab', 'fTab' when switching main 'page'
-        // urlStateManager.updateParam("makesTab", null);
-        // urlStateManager.updateParam("eTab", null);
-        // urlStateManager.updateParam("fTab", null);
+      setActivePage(newPage);
+      // If changing main page/tab, you might want to clear sub-tabs or specific filters
+      // Example: Clearing 'makesTab', 'eTab', 'fTab' when switching main 'page'
+      // urlStateManager.updateParam("makesTab", null);
+      // urlStateManager.updateParam("eTab", null);
+      // urlStateManager.updateParam("fTab", null);
     }
-}, [activePage]);
+  }, [activePage]);
 
-type MenuItem = Required<MenuProps>["items"][number];
+  type MenuItem = Required<MenuProps>["items"][number];
 
   const items: MenuItem[] = useMemo(() => [
     {
@@ -347,26 +352,31 @@ type MenuItem = Required<MenuProps>["items"][number];
       label: "Project Makes",
       key: PROJECT_PAGE_TABS.MAKES
     },
-  {
-    label: "Material Usage",
-    key: PROJECT_PAGE_TABS.MATERIAL_USAGE
-  }
+    {
+      label: "Material Usage",
+      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
+    },
+    // --- (Indicator) NEW MENU ITEM ---
+    {
+      label: "Project Expenses",
+      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
+    }
   ], [role]);
 
-// Define tabs available based on role or other logic
-// const availableTabs = useMemo(() => {
-//   const tabs = [
-//       { label: "Overview", value: PROJECT_PAGE_TABS.OVERVIEW },
-//       { label: "PR Summary", value: PROJECT_PAGE_TABS.PR_SUMMARY },
-//       { label: "SR Summary", value: PROJECT_PAGE_TABS.SR_SUMMARY },
-//       { label: "PO Summary", value: PROJECT_PAGE_TABS.PO_SUMMARY },
-//       { label: "Project Spends", value: PROJECT_PAGE_TABS.SPENDS },
-//       { label: "Financials", value: PROJECT_PAGE_TABS.FINANCIALS },
-//       { label: "Project Estimates", value: PROJECT_PAGE_TABS.ESTIMATES },
-//       { label: "Project Makes", value: PROJECT_PAGE_TABS.MAKES }, // Assuming makes are per project
-//   ];
-//   return tabs;
-// }, [role]);
+  // Define tabs available based on role or other logic
+  // const availableTabs = useMemo(() => {
+  //   const tabs = [
+  //       { label: "Overview", value: PROJECT_PAGE_TABS.OVERVIEW },
+  //       { label: "PR Summary", value: PROJECT_PAGE_TABS.PR_SUMMARY },
+  //       { label: "SR Summary", value: PROJECT_PAGE_TABS.SR_SUMMARY },
+  //       { label: "PO Summary", value: PROJECT_PAGE_TABS.PO_SUMMARY },
+  //       { label: "Project Spends", value: PROJECT_PAGE_TABS.SPENDS },
+  //       { label: "Financials", value: PROJECT_PAGE_TABS.FINANCIALS },
+  //       { label: "Project Estimates", value: PROJECT_PAGE_TABS.ESTIMATES },
+  //       { label: "Project Makes", value: PROJECT_PAGE_TABS.MAKES }, // Assuming makes are per project
+  //   ];
+  //   return tabs;
+  // }, [role]);
 
 
   // const getTabsToRemove = useMemo(() => memoize((newPage: string) => {
@@ -437,6 +447,13 @@ type MenuItem = Required<MenuProps>["items"][number];
     filters: [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 0
   })
+
+  // --- (Indicator) NEW: Fetch Project Expenses for this specific project ---
+  const { data: projectExpenses, isLoading: projectExpensesLoading } = useFrappeGetDocList<ProjectExpenses>("Project Expenses", {
+    fields: ["name", "amount"], // Only need amount for calculation
+    filters: [['projects', '=', projectId]],
+    limit: 0
+  });
 
   // const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
   //   fields: ["*"],
@@ -518,21 +535,18 @@ type MenuItem = Required<MenuProps>["items"][number];
   //   value: ven.vendor_name,
   // })), [vendorsList]);
 
+  // --- (Indicator) MODIFIED: Update the getTotalAmountPaid calculation ---
   const getTotalAmountPaid = useMemo(() => {
     if (!projectPayments) {
-      return { poAmount: 0, srAmount: 0, totalAmount: 0 };
+      return { poAmount: 0, srAmount: 0, projectExpensesAmount: 0, totalAmount: 0 };
     }
 
-    const poAmount = projectPayments
-      .filter((i) => i?.document_type === "Procurement Orders")
-      .reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
+    const poAmount = projectPayments.filter(p => p?.document_type === "Procurement Orders").reduce((acc, p) => acc + parseNumber(p.amount), 0);
+    const srAmount = projectPayments.filter(p => p?.document_type === "Service Requests").reduce((acc, p) => acc + parseNumber(p.amount), 0);
+    const projectExpensesAmount = projectExpenses?.reduce((acc, e) => acc + parseNumber(e.amount), 0) || 0;
 
-    const srAmount = projectPayments
-      .filter((i) => i?.document_type === "Service Requests")
-      .reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-
-    return { poAmount, srAmount, totalAmount: poAmount + srAmount };
-  }, [projectPayments]);
+    return { poAmount, srAmount, projectExpensesAmount, totalAmount: poAmount + srAmount + projectExpensesAmount };
+  }, [projectPayments, projectExpenses]);
 
   const totalPosRaised = useMemo(() => {
     if (!po_data || po_data.length === 0) {
@@ -1322,31 +1336,34 @@ type MenuItem = Required<MenuProps>["items"][number];
     if (!projectId) return <div>Project ID is missing.</div>;
 
     switch (activePage) {
-        case PROJECT_PAGE_TABS.OVERVIEW:
-            // Pass necessary data to ProjectOverviewTab
-            return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
-        case PROJECT_PAGE_TABS.PR_SUMMARY:
-            return <ProjectPRSummaryTable projectId={projectId} />;
-        case PROJECT_PAGE_TABS.SR_SUMMARY:
-            return <ProjectSRSummaryTable projectId={projectId} />;
-        case PROJECT_PAGE_TABS.PO_SUMMARY:
-            return <ProjectPOSummaryTable projectId={projectId} />;
-        case PROJECT_PAGE_TABS.FINANCIALS:
-            return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
-            totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
-        case PROJECT_PAGE_TABS.SPENDS:
-            return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
-            categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
-        case PROJECT_PAGE_TABS.MAKES:
-            return <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />; // Example
-        case PROJECT_PAGE_TABS.ESTIMATES:
-            return <ProjectEstimates projectTab />; // Example
-        case PROJECT_PAGE_TABS.MATERIAL_USAGE:
-            return <ProjectMaterialUsageTab projectId={projectId} projectPayments={projectPayments} />;
-        default:
-            return <div>Select a tab.</div>;
+      case PROJECT_PAGE_TABS.OVERVIEW:
+        // Pass necessary data to ProjectOverviewTab
+        return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
+      case PROJECT_PAGE_TABS.PR_SUMMARY:
+        return <ProjectPRSummaryTable projectId={projectId} />;
+      case PROJECT_PAGE_TABS.SR_SUMMARY:
+        return <ProjectSRSummaryTable projectId={projectId} />;
+      case PROJECT_PAGE_TABS.PO_SUMMARY:
+        return <ProjectPOSummaryTable projectId={projectId} />;
+      case PROJECT_PAGE_TABS.FINANCIALS:
+        return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
+          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
+      case PROJECT_PAGE_TABS.SPENDS:
+        return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
+          categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
+      case PROJECT_PAGE_TABS.MAKES:
+        return <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />; // Example
+      case PROJECT_PAGE_TABS.ESTIMATES:
+        return <ProjectEstimates projectTab />; // Example
+      case PROJECT_PAGE_TABS.MATERIAL_USAGE:
+        return <ProjectMaterialUsageTab projectId={projectId} projectPayments={projectPayments} />;
+      // --- (Indicator) NEW CASE FOR THE NEW TAB ---
+      case PROJECT_PAGE_TABS.PROJECT_EXPENSES:
+        return <ProjectExpensesTab projectId={projectId} />;
+      default:
+        return <div>Select a tab.</div>;
     }
-};
+  };
 
   return (
     <div className="flex-1 space-y-4">
@@ -1460,9 +1477,16 @@ type MenuItem = Required<MenuProps>["items"][number];
             </div>
             <div>
               <span className="whitespace-nowrap">Total Amt Paid: </span>
-              <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
-              </span>
+              {/* --- (Indicator) MODIFIED: Wrap the amount in the new hover card --- */}
+              <AmountBreakdownHoverCard
+                poAmount={getTotalAmountPaid.poAmount}
+                srAmount={getTotalAmountPaid.srAmount}
+                projectExpensesAmount={getTotalAmountPaid.projectExpensesAmount}
+              >
+                <span className="max-sm:text-end max-sm:w-full text-primary cursor-pointer border-b border-dashed">
+                  {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
+                </span>
+              </AmountBreakdownHoverCard>
             </div>
           </div>
         </div>
@@ -1492,7 +1516,7 @@ type MenuItem = Required<MenuProps>["items"][number];
 
       {/* Content Area for the Active Tab */}
       <Suspense fallback={<LoadingFallback />}>
-            {renderTabContent()}
+        {renderTabContent()}
       </Suspense>
 
       {/* Overview Section */}
@@ -1538,7 +1562,7 @@ type MenuItem = Required<MenuProps>["items"][number];
         </div>
       )} */}
 
-        {/* {activePage === "prsummary" && (
+      {/* {activePage === "prsummary" && (
           <Suspense fallback={<LoadingFallback />}>
             <ProjectPRSummaryTable projectId={projectId} />
           </Suspense>

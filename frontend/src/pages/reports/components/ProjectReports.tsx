@@ -87,6 +87,8 @@ export default function ProjectReports() {
                 project_value_lakhs: formatValueToLakhsString(project.project_value),
                 // Add calculated fields, formatted for export
                 totalInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalInvoiced) : 'N/A',
+                // --- (Indicator) NEW: Add the new invoiced field to the exported data ---
+                totalPoSrInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalPoSrInvoiced) : 'N/A',
                 totalProjectInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalProjectInvoiced) : 'N/A',
                 totalInflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalInflow) : 'N/A',
                 totalOutflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalOutflow) : 'N/A',
@@ -99,7 +101,9 @@ export default function ProjectReports() {
             { header: "Project Name", accessorKey: "project_name" },
             { header: "Creation Date", accessorKey: "creation" },
             { header: "Value (excl. GST)", accessorKey: "project_value_lakhs" },
-            { header: "Total PO+SR (incl. GST)", accessorKey: "totalInvoiced_lakhs" },
+            { header: "Total PO+SR Value(incl. GST)", accessorKey: "totalInvoiced_lakhs" },
+            // --- (Indicator) NEW: Add the new column header for the export ---
+            { header: "Total PO+SR Invoiced (incl. GST)", accessorKey: "totalPoSrInvoiced_lakhs" },
             { header: "Total Project Invoiced (incl. GST)", accessorKey: "totalProjectInvoiced_lakhs" },
             { header: "Inflow", accessorKey: "totalInflow_lakhs" },
             { header: "Outflow", accessorKey: "totalOutflow_lakhs" },

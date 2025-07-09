@@ -60,7 +60,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { getPOTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
 import {
@@ -122,7 +122,7 @@ export const PurchaseOrder = ({
   const params = useParams();
   const id = summaryPage ? params.poId : params.id;
 
-  if(!id) return <div>No PO ID Provided</div>
+  if (!id) return <div>No PO ID Provided</div>
 
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
@@ -142,15 +142,15 @@ export const PurchaseOrder = ({
 
 
   useFrappeDocumentEventListener("Procurement Orders", poId, (event) => {
-          console.log("Procurement Orders document updated (real-time):", event);
-          toast({
-              title: "Document Updated",
-              description: `Procurement Order ${event.name} has been modified.`,
-          });
-          poMutate(); // Re-fetch this specific document
-        },
-        true // emitOpenCloseEventsOnMount (default)
-        )
+    console.log("Procurement Orders document updated (real-time):", event);
+    toast({
+      title: "Document Updated",
+      description: `Procurement Order ${event.name} has been modified.`,
+    });
+    poMutate(); // Re-fetch this specific document
+  },
+    true // emitOpenCloseEventsOnMount (default)
+  )
 
   const { errors, isValid } = usePOValidation(PO);
 
@@ -679,6 +679,8 @@ export const PurchaseOrder = ({
 
   const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
 
+  const totalInvoiceAmount = useMemo(() => getTotalInvoiceAmount((PO?.invoice_data || [])), [PO]);
+
   const getUserName = useMemo(() => (id: string | undefined) => {
     return usersList?.find((user) => user?.name === id)?.full_name || ""
   }, [usersList]);
@@ -778,9 +780,9 @@ export const PurchaseOrder = ({
       </div>
     );
 
-    
-   
-    
+
+
+
   return (
     <div className="flex-1 space-y-4">
       {MERGEPOVALIDATIONS && (
@@ -1073,7 +1075,7 @@ export const PurchaseOrder = ({
       )}
 
       <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
-        getTotal={getTotal} amountPaid={amountPaid} poMutate={poMutate} />
+        getTotal={getTotal} amountPaid={amountPaid} totalInvoice={totalInvoiceAmount} poMutate={poMutate} />
 
       <Accordion type="multiple"
         // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
@@ -1158,7 +1160,8 @@ export const PurchaseOrder = ({
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  {tab === "Delivered PO" && <col className="w-[5%]" />}
+                  <col className="w-[10%]" />
+                  {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
                 </colgroup>
                 <thead className="bg-red-100">
                   <tr className="text-sm font-semibold text-gray-700">
@@ -1172,7 +1175,7 @@ export const PurchaseOrder = ({
                       Unit
                     </th>
                     <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                      Quantity
+                      Qty
                     </th>
                     <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
                       Rate
@@ -1183,9 +1186,12 @@ export const PurchaseOrder = ({
                     <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
                       Amount
                     </th>
-                    {tab === "Delivered PO" && (
+                    <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
+                      Amount (incl.GST)
+                    </th>
+                    {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                       <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                        OD
+                        Delivered Quantity
                       </th>
                     )}
                   </tr>
@@ -1210,7 +1216,8 @@ export const PurchaseOrder = ({
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  {tab === "Delivered PO" && <col className="w-[5%]" />}
+                  <col className="w-[10%]" />
+                  {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
                 </colgroup>
                 <tbody className="divide-y divide-gray-200">
                   {orderData?.list?.map((item, index) => (
@@ -1262,8 +1269,13 @@ export const PurchaseOrder = ({
                         {formatToIndianRupee(item?.quote * item?.quantity)}
                       </td>
 
+                      {/* Amount (Incl GST) */}
+                      <td className="pr-4 text-center py-2 align-top font-medium">
+                        {formatToIndianRupee((item?.quote * item?.quantity) * (1 + item?.tax / 100))}
+                      </td>
+
                       {/* OD (Conditional) */}
-                      {tab === "Delivered PO" && (
+                      {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                         <td className={`text-center py-2 align-top ${item?.received === item?.quantity
                           ? 'text-green-600'
                           : 'text-red-700'
@@ -1803,18 +1815,18 @@ export const PurchaseOrder = ({
       <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
       {/* Render RequestPaymentDialog here, outside the Accordion */}
       <RequestPaymentDialog
-         totalIncGST   ={getTotal?.totalAmt || 0}
-         totalExGST    ={getTotal?.total || 0}
-         paid          ={amountPaid}
-         pending       ={amountPending}
-         gst           ={true}
-         docType       ="Procurement Orders"
-         docName       ={PO?.name || "Unknown"}
-         project       ={PO?.project || "Unknown"}
-         vendor        ={PO?.vendor || "Unknown"}
-         onSuccess     ={poPaymentsMutate}
+        totalIncGST={getTotal?.totalAmt || 0}
+        totalExGST={getTotal?.total || 0}
+        paid={amountPaid}
+        pending={amountPending}
+        gst={true}
+        docType="Procurement Orders"
+        docName={PO?.name || "Unknown"}
+        project={PO?.project || "Unknown"}
+        vendor={PO?.vendor || "Unknown"}
+        onSuccess={poPaymentsMutate}
       />
-{PrintableHistoryComponent}
+      {PrintableHistoryComponent}
     </div>
   );
 };
