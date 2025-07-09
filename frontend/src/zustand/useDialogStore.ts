@@ -12,6 +12,10 @@ export type DialogStore = {
   setPaymentDialog: (open: boolean) => void;
   togglePaymentDialog: () => void;
 
+  // --- (Indicator) NEW: For editing already paid/fulfilled payments ---
+  editFulfilledPaymentDialog: boolean;
+  setEditFulfilledPaymentDialog: (open: boolean) => void;
+
   shareDialog: boolean;
   setShareDialog: (open: boolean) => void;
   toggleShareDialog: () => void;
@@ -83,6 +87,10 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   paymentDialog: false,
   setPaymentDialog: (open: boolean) => set({ paymentDialog: open }),
   togglePaymentDialog: () => set((state) => ({ paymentDialog: !state.paymentDialog })),
+
+  // --- (Indicator) NEW: Implementation for the new dialog state ---
+  editFulfilledPaymentDialog: false,
+  setEditFulfilledPaymentDialog: (open: boolean) => set({ editFulfilledPaymentDialog: open }),
 
   shareDialog: false,
   setShareDialog: (open: boolean) => set({ shareDialog: open }),
