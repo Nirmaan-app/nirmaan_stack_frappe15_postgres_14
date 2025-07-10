@@ -5,7 +5,13 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -194,18 +200,17 @@ export const PurchaseOrder = ({
   const [quantity, setQuantity] = useState<number | null | string>(null);
   const [tax, setTax] = useState<number | null | string>(null);
 
-
   interface Make {
     make: string;
     enabled: string;
   }
 
   interface Operation {
-    operation: "delete" | "quantity_change" | "make_change"|"tax_change";
+    operation: "delete" | "quantity_change" | "make_change" | "tax_change";
     item: PurchaseOrderItem;
     previousQuantity?: number;
     previousMakeList?: string;
-     previousTax?: number;
+    previousTax?: number;
   }
 
   const [stack, setStack] = useState<Operation[]>([]);
@@ -368,7 +373,6 @@ export const PurchaseOrder = ({
     return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
   }, [PO]);
 
-  
   const handleMerge = (poToMerge: ProcurementOrder) => {
     // Get the items array directly from the PO to be merged.
     const itemsToMerge = poToMerge.items || [];
@@ -397,7 +401,6 @@ export const PurchaseOrder = ({
     );
   };
 
-  
   const handleUnmergeAll = () => {
     if (mergedItems.length > 0) {
       // Directly filter the orderData ARRAY, keeping only the original items
@@ -501,10 +504,91 @@ export const PurchaseOrder = ({
 
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
+
+    // --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+    // --- START: FULL FRONTEND VALIDATION (MIRRORS BACKEND) ---
+    // --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+
+    // --- PRE-CALCULATIONS ---
+    // Use a console.log to be 100% sure your PO object is loaded correctly.
+    // console.log("Validating with PO data:", PO);
+
+    // 1. Calculate the new total based on the user's changes (items only).
+    const newTotalAmountForValidation = orderData.reduce((acc, item) => {
+      const itemAmount = (item.quantity || 0) * (item.quote || 0);
+      const taxAmount = itemAmount * ((item.tax || 0) / 100);
+      return acc + itemAmount + taxAmount;
+    }, 0);
+
+    // 2. Get the total from the PO before any changes were made.
+    const previousTotal = PO?.total_amount || 0;
+
+    // --- CHECK 1: "Overpayment / Return" Scenario ---
+    // This directly replicates the `frappe.throw` condition in your Python script.
+
+    // A) Calculate the sum of all payments that cannot be changed.
+    const lockedAmount = (PO?.payment_terms || [])
+      .filter((term) => ["Paid", "Requested", "Approved"].includes(term.status))
+      .reduce((sum, term) => sum + (term.amount || 0), 0);
+
+    // B) Check if a "Return" term already exists from a previous amendment.
+    const hasExistingReturn = PO?.payment_terms?.some(
+      (term) => term.status === "Return"
+    );
+
+    // C) Check if the new total is less than what's already been paid/requested.
+    const willCreateReturn =
+      newTotalAmountForValidation < lockedAmount && lockedAmount > 0;
+
+    // D) Perform the block if either condition is true.
+    if (hasExistingReturn || willCreateReturn) {
+      toast({
+        title: "Amendment Blocked: Overpayment",
+        description: `This change would create a negative balance. New total (${newTotalAmountForValidation.toFixed(
+          2
+        )}) cannot be less than the locked amount (${lockedAmount.toFixed(
+          2
+        )}).`,
+        variant: "destructive",
+        duration: 8000,
+      });
+      setLoadingFuncName("");
+      return; // STOP EXECUTION
+    }
+
+    // --- CHECK 2: "Impossible Reduction" Scenario ---
+    // This is the extra, intelligent check to prevent a logical error.
+
+    // This check only matters if the total is being reduced.
+    if (newTotalAmountForValidation < previousTotal) {
+      const reductionAmount = previousTotal - newTotalAmountForValidation;
+
+      // Calculate the total amount from terms that can actually be reduced.
+      const modifiableAmount = (PO?.payment_terms || [])
+        .filter((term) => ["Created", "Scheduled"].includes(term.status))
+        .reduce((sum, term) => sum + (term.amount || 0), 0);
+
+      console.log("DEBUG: Reduction Amount:", reductionAmount);
+      console.log("DEBUG: Modifiable Amount:", modifiableAmount);
+      // Block if the user is trying to reduce more than is available to be reduced.
+      if (reductionAmount > modifiableAmount) {
+        toast({
+          title: "Amendment Blocked: Invalid Reduction",
+          description: `Cannot reduce total by ${reductionAmount.toFixed(
+            2
+          )}. There is only ${modifiableAmount} available in 'Created' & 'Scheduled' payment terms.`,
+          variant: "destructive",
+          duration: 8000,
+        });
+        setLoadingFuncName("");
+        return; // STOP EXECUTION
+      }
+    }
+
     try {
+      // This part only runs if the validation above passes
       await updateDoc("Procurement Orders", poId, {
         status: "PO Amendment",
-        // order_list: orderData,
         items: orderData,
       });
       if (comment) {
@@ -525,8 +609,9 @@ export const PurchaseOrder = ({
       });
 
       navigate("/purchase-orders?tab=Approved%20PO");
+      setLoadingFuncName("");
     } catch (error) {
-      console.log("Error while cancelling po", error);
+      console.log("Error while amending po", error); // Changed from "cancelling"
       toast({
         title: "Failed!",
         description: `${poId} Amendment Failed!`,
@@ -579,7 +664,6 @@ export const PurchaseOrder = ({
     }
   }, [amendPOSheet]);
 
-
   const handleSave = useCallback(
     (itemName: string) => {
       const previousItem = orderData.find(
@@ -623,7 +707,7 @@ export const PurchaseOrder = ({
           },
         ]);
       }
-      
+
       const updatedOrderData = orderData.map((curValue) => {
         if (curValue.name === itemName) {
           return {
@@ -640,7 +724,7 @@ export const PurchaseOrder = ({
 
       // Reset state and close dialog
       setQuantity(null);
-      setTax(null)
+      setTax(null);
       setSelectedMake(null); // CORRECT: Reset selectedMake
       toggleAmendEditItemDialog();
     },
@@ -670,7 +754,7 @@ export const PurchaseOrder = ({
       );
 
       setOrderData(updatedOrderData); // Set the new array
-setTax(null)
+      setTax(null);
       setQuantity(null); // Reset quantity state
       toggleAmendEditItemDialog();
     },
@@ -711,13 +795,14 @@ setTax(null)
         }
         return item;
       });
-    } else if (lastOperation.operation === "tax_change") { // ➕ ADDED: Handler for undoing tax changes
-        updatedOrderData = updatedOrderData.map((item) => {
-            if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
-                return { ...item, tax: lastOperation.previousTax! };
-            }
-            return item;
-        });
+    } else if (lastOperation.operation === "tax_change") {
+      // ➕ ADDED: Handler for undoing tax changes
+      updatedOrderData = updatedOrderData.map((item) => {
+        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
+          return { ...item, tax: lastOperation.previousTax! };
+        }
+        return item;
+      });
     }
 
     setOrderData(updatedOrderData); // Set the restored array
@@ -803,9 +888,13 @@ setTax(null)
       !accountsPage &&
       !estimatesViewing &&
       ["PO Approved"].includes(PO?.status) &&
-      PO?.merged !== "true" &&
-      // !((poPayments || [])?.length > 0),
-    [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
+      PO?.merged !== "true" && [ // !((poPayments || [])?.length > 0),
+        PO,
+        poPayments,
+        summaryPage,
+        accountsPage,
+        estimatesViewing,
+      ]
   );
 
   const UNMERGEPOVALIDATIONS = useMemo(
@@ -1185,86 +1274,99 @@ setTax(null)
           </Alert>
         </>
       )}
-
-      <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
-        getTotal={getTotal} amountPaid={amountPaid} totalInvoice={totalInvoiceAmount} poMutate={poMutate} />
-
-      <Accordion
-        type="multiple"
-        // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
-        className="w-full"
-      >
-        <AccordionItem key="transac&payments" value="transac&payments">
-          {/* {tab === "Delivered PO" && ( */}
-          <AccordionTrigger>
-            <p className="font-semibold text-lg text-red-600 pl-6">
-              Payment Details
-            </p>
-          </AccordionTrigger>
-          {/* )} */}
-          <AccordionContent>
-            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-              <TransactionDetailsCard
-                accountsPage={accountsPage}
-                estimatesViewing={estimatesViewing}
-                summaryPage={summaryPage}
-                PO={PO}
-                getTotal={getTotal}
-                amountPaid={amountPaid}
-                poPayments={poPayments}
-                poPaymentsMutate={poPaymentsMutate}
-                AllPoPaymentsListMutate={AllPoPaymentsListMutate}
-              />
-
-              <POPaymentTermsCard
-                accountsPage={accountsPage}
-                estimatesViewing={estimatesViewing}
-                summaryPage={summaryPage}
-                PO={PO}
-                getTotal={getTotal}
-                poMutate={poMutate}
-                // advance={advance}
-                // materialReadiness={materialReadiness}
-                // afterDelivery={afterDelivery}
-                // xDaysAfterDelivery={xDaysAfterDelivery}
-                // xDays={xDays}
-                // setAdvance={setAdvance}
-                // setMaterialReadiness={setMaterialReadiness}
-                // setAfterDelivery={setAfterDelivery}
-                // setXDaysAfterDelivery={setXDaysAfterDelivery}
-                // setXDays={setXDays}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-
-      {/* PO Attachments Accordion */}
-      {PO?.status !== "PO Approved" && (
+      <PODetails
+        po={PO}
+        toggleRequestPaymentDialog={toggleRequestPaymentDialog}
+        summaryPage={summaryPage}
+        accountsPage={accountsPage}
+        estimatesViewing={estimatesViewing}
+        poPayments={poPayments}
+        togglePoPdfSheet={togglePoPdfSheet}
+        // getTotal={getTotal}
+        amountPaid={amountPaid}
+        poMutate={poMutate}
+      />
+      <Card className="rounded-sm  md:col-span-3 p-2">
         <Accordion
           type="multiple"
-          // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+          // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
           className="w-full"
         >
-          <AccordionItem key="poattachments" value="poattachments">
+          <AccordionItem key="transac&payments" value="transac&payments">
             {/* {tab === "Delivered PO" && ( */}
             <AccordionTrigger>
               <p className="font-semibold text-lg text-red-600 pl-6">
-                PO Attachments
+                Payment Details
               </p>
             </AccordionTrigger>
             {/* )} */}
             <AccordionContent>
-              <DocumentAttachments
-                docType="Procurement Orders"
-                docName={poId}
-                documentData={PO}
-                docMutate={poMutate}
-              />
-              {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
+              <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                <TransactionDetailsCard
+                  accountsPage={accountsPage}
+                  estimatesViewing={estimatesViewing}
+                  summaryPage={summaryPage}
+                  PO={PO}
+                  getTotal={getTotal}
+                  amountPaid={amountPaid}
+                  poPayments={poPayments}
+                  poPaymentsMutate={poPaymentsMutate}
+                  AllPoPaymentsListMutate={AllPoPaymentsListMutate}
+                />
+
+                <POPaymentTermsCard
+                  accountsPage={accountsPage}
+                  estimatesViewing={estimatesViewing}
+                  summaryPage={summaryPage}
+                  PO={PO}
+                  getTotal={getTotal}
+                  poMutate={poMutate}
+                  projectPaymentsMutate={poPaymentsMutate}
+                  // advance={advance}
+                  // materialReadiness={materialReadiness}
+                  // afterDelivery={afterDelivery}
+                  // xDaysAfterDelivery={xDaysAfterDelivery}
+                  // xDays={xDays}
+                  // setAdvance={setAdvance}
+                  // setMaterialReadiness={setMaterialReadiness}
+                  // setAfterDelivery={setAfterDelivery}
+                  // setXDaysAfterDelivery={setXDaysAfterDelivery}
+                  // setXDays={setXDays}
+                />
+              </div>
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+      </Card>
+      {/* PO Attachments Accordion */}
+
+      {PO?.status !== "PO Approved" && (
+        <Card className="rounded-sm  md:col-span-3 p-2">
+          <Accordion
+            type="multiple"
+            // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+            className="w-full"
+          >
+            <AccordionItem key="poattachments" value="poattachments">
+              {/* {tab === "Delivered PO" && ( */}
+              <AccordionTrigger>
+                <p className="font-semibold text-lg text-red-600 pl-6">
+                  PO Attachments
+                </p>
+              </AccordionTrigger>
+              {/* )} */}
+              <AccordionContent>
+                <DocumentAttachments
+                  docType="Procurement Orders"
+                  docName={poId}
+                  documentData={PO}
+                  docMutate={poMutate}
+                />
+                {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </Card>
       )}
 
       {/* Invoice Dialog */}
@@ -1273,7 +1375,6 @@ setTax(null)
         docType="Procurement Orders"
         docMutate={poMutate}
       />
-
       {/* Order Details */}
       <Card className="rounded-sm shadow-md md:col-span-3">
         <CardHeader>
@@ -1444,9 +1545,7 @@ setTax(null)
           </div>
         </CardContent>
       </Card>
-
       {/* Unmerge, Amend and Cancel PO Buttons  */}
-
       {/* Unmerge */}
       <div className="flex items-center justify-between">
         {UNMERGEPOVALIDATIONS ? (
@@ -1651,37 +1750,39 @@ setTax(null)
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
                               <div className="flex items-center justify-center">
-                               {item.category!="Additional Charges" &&(
-                                 <Pencil
-                                  onClick={() => {
-                                    // Find all makes for this item (from its `makes.list` in the original PO data)
-                                    const itemMakes =
-                                      PO?.items.find(
-                                        (i) => i.name === item.name
-                                      )?.makes?.list || [];
-                                    const options = itemMakes.map((m) => ({
-                                      label: m.make,
-                                      value: m.make,
-                                    }));
+                                {item.category != "Additional Charges" && (
+                                  <Pencil
+                                    onClick={() => {
+                                      // Find all makes for this item (from its `makes.list` in the original PO data)
+                                      const itemMakes =
+                                        PO?.items.find(
+                                          (i) => i.name === item.name
+                                        )?.makes?.list || [];
+                                      const options = itemMakes.map((m) => ({
+                                        label: m.make,
+                                        value: m.make,
+                                      }));
 
-                                    setEditMakeOptions(options);
+                                      setEditMakeOptions(options);
 
-                                    // Find the currently enabled make
-                                    const currentMakeValue = item.make;
-                                    const currentSelected =
-                                      options.find(
-                                        (opt) => opt.value === currentMakeValue
-                                      ) || null;
-                                    setSelectedMake(currentSelected);
-setTax(item.tax)
-                                    setQuantity(item.quantity);
-                                    setAmendEditItem(item);
-                                    setShowAddNewMake(false); // Make sure the card is hidden initially
-                                    toggleAmendEditItemDialog();
-                                  }}
-                                  className="w-4 h-4 cursor-pointer"
-                                />
-                               )}
+                                      // Find the currently enabled make
+                                      const currentMakeValue = item.make;
+                                      // Create the correct object structure for react-select
+                                      const currentSelectedObject = {
+                                        label: currentMakeValue,
+                                        value: currentMakeValue,
+                                      };
+
+                                      setSelectedMake(currentSelectedObject);
+                                      setTax(item.tax);
+                                      setQuantity(item.quantity);
+                                      setAmendEditItem(item);
+                                      setShowAddNewMake(false); // Make sure the card is hidden initially
+                                      toggleAmendEditItemDialog();
+                                    }}
+                                    className="w-4 h-4 cursor-pointer"
+                                  />
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1777,7 +1878,7 @@ setTax(item.tax)
                 >
                   <DialogContent className="max-w-3xl">
                     <DialogHeader>
-                      <DialogTitle className="flex justify-between">
+                      <DialogTitle className="flex justify-between border-b-2 border-gray-300 pb-2">
                         Edit Item
                       </DialogTitle>
                     </DialogHeader>
@@ -1792,15 +1893,15 @@ setTax(item.tax)
                           </div>
                         </div>
                         <div className="w-[30%]">
-                        <h5 className="text-base text-gray-400 text-left mb-1">
+                          <h5 className="text-base text-gray-400 text-left mb-1">
                             Tax %
                           </h5>
                           <Select
                             value={String(tax) || ""}
                             onValueChange={(value) => {
                               // console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
-                              console.log("tax",value)
-setTax(Number(value))
+                              console.log("tax", value);
+                              setTax(Number(value));
                               // onTaxChange(amendEditItem.item_id, value);
                             }}
                             // disabled={mode === "view" || isReadOnly}
@@ -1837,9 +1938,9 @@ setTax(Number(value))
                                 selectedMake={selectedMake}
                                 setSelectedMake={setSelectedMake}
                                 editMakeOptions={editMakeOptions}
-                                 setEditMakeOptions={setEditMakeOptions} // Pass the setter function
+                                setEditMakeOptions={setEditMakeOptions} // Pass the setter function
                                 // toggleAddNewMake={toggleAddNewMake}
-                                amendEditItem={amendEditItem} 
+                                amendEditItem={amendEditItem}
                               />
                             </div>
                           </div>
@@ -1997,7 +2098,6 @@ setTax(Number(value))
           </AlertDialog>
         </div>
       </div>
-
       {/* Delivery History */}
       {["Delivered", "Partially Delivered"].includes(PO?.status) && (
         <DeliveryHistory
@@ -2005,7 +2105,6 @@ setTax(Number(value))
           onPrintHistory={triggerHistoryPrint}
         />
       )}
-
       {/* PO Pdf  */}
       <POPdf
         poPdfSheet={poPdfSheet}
@@ -2058,26 +2157,38 @@ const MakesSelection = ({
   const [availableMakeOptions, setAvailableMakeOptions] = useState<Make[]>([]);
 
   // Fetch the list of possible makes for the current item's category
-  const { data: categoryMakeList, isLoading: makesLoading } = useFrappeGetDocList(
-    "Category Makelist", {
-      fields: ["make"],
-      filters: [["category", "=", amendEditItem?.category]],
-      limit: 1000,
-    },
-    amendEditItem?.category ? `category_makelist_for_${amendEditItem.category}` : null
-  );
+  const { data: categoryMakeList, isLoading: makesLoading } =
+    useFrappeGetDocList(
+      "Category Makelist",
+      {
+        fields: ["make"],
+        filters: [["category", "=", amendEditItem?.category]],
+        limit: 1000,
+      },
+      amendEditItem?.category
+        ? `category_makelist_for_${amendEditItem.category}`
+        : null
+    );
 
   // Populate the available makes dropdown when data is fetched
   useEffect(() => {
     if (categoryMakeList) {
-      const allCategoryMakes = categoryMakeList.map((i) => ({ label: i.make, value: i.make }));
+      const allCategoryMakes = categoryMakeList.map((i) => ({
+        label: i.make,
+        value: i.make,
+      }));
       setAvailableMakeOptions(allCategoryMakes);
 
       // ✨ Optional: If the current item's make is not in the list, add it.
       // This handles cases where a make was manually entered before this feature was added.
-      const currentMakeExists = allCategoryMakes.some(opt => opt.value === amendEditItem?.make);
+      const currentMakeExists = allCategoryMakes.some(
+        (opt) => opt.value === amendEditItem?.make
+      );
       if (amendEditItem?.make && !currentMakeExists) {
-        setAvailableMakeOptions(prev => [{ label: amendEditItem.make, value: amendEditItem.make }, ...prev]);
+        setAvailableMakeOptions((prev) => [
+          { label: amendEditItem.make, value: amendEditItem.make },
+          ...prev,
+        ]);
       }
     }
   }, [categoryMakeList, amendEditItem?.make]);
@@ -2088,124 +2199,11 @@ const MakesSelection = ({
       value={selectedMake}
       isMulti={false} // Ensure single select
       isLoading={makesLoading}
-      onChange={(selectedOption) => setSelectedMake(selectedOption as Make | null)}
+      onChange={(selectedOption) =>
+        setSelectedMake(selectedOption as Make | null)
+      }
       placeholder="Select a make..."
-      noOptionsMessage={() => 'No makes available for this category.'}
+      noOptionsMessage={() => "No makes available for this category."}
     />
   );
 };
-
-// interface MakesSelectionProps {
-//   selectedMake: Make | null;
-//   setSelectedMake: React.Dispatch<React.SetStateAction<Make | null>>;
-//   editMakeOptions: Make[];
-//   setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
-//    amendEditItem: PurchaseOrderItem | null; // Now needed here
-// }
-
-// const MakesSelection = ({
-//   selectedMake,
-//   setSelectedMake,
-//   editMakeOptions,
-//   // toggleAddNewMake,
-//    setEditMakeOptions,
-//   amendEditItem,
-// }: MakesSelectionProps) => {
-  
-//  // Fetch the master list of makes.
-//  const [isAddingMode, setIsAddingMode] = useState(false);
-  
-//   // State for the multi-select dropdown when adding new makes
-//   const [newlySelected, setNewlySelected] = useState<readonly Make[]>([]);
-//   const [availableMakeOptions, setAvailableMakeOptions] = useState<Make[]>([]);
-
-//   const { data: categoryMakeList, isLoading: makesLoading } = useFrappeGetDocList("Category Makelist", {
-//       fields: ["make"],
-//       filters: [["category", "=", amendEditItem?.category]],
-//       limit: 1000,
-//     },
-//     amendEditItem?.category ? `category_makelist_for_${amendEditItem.category}` : null
-//   );
-
-//   console.log(amendEditItem?.category, categoryMakeList);
-//   // Populate the "available makes" dropdown when data is fetched
-//   useEffect(() => {
-//     if (categoryMakeList) {
-//       const allCategoryMakes = categoryMakeList.map((i) => ({ label: i.make, value: i.make }));
-//       // Filter out makes that are already in the main dropdown
-//       const filteredOptions = allCategoryMakes.filter(
-//         (opt) => !editMakeOptions.some((existingOpt) => existingOpt.value === opt.value)
-//       );
-//       setAvailableMakeOptions(filteredOptions);
-//     }
-//   }, [categoryMakeList, editMakeOptions]);
-
-//     // ✨ NEW: This is a conditional query key.
-//     // The query will ONLY run if `amendEditItem.category` has a value.
-//     // If it's null, the hook is disabled, preventing unnecessary API calls.
-//    const handleConfirmAdd = () => {
-//     const makesToAdd = newlySelected || [];
-//     const allOptions = [...editMakeOptions, ...makesToAdd];
-//     setEditMakeOptions(allOptions); // Update the parent's state
-//     setNewlySelected([]); // Reset local state
-//     setIsAddingMode(false); // Switch back to selection mode
-//   };
-
-// const CustomMenu = (props) => {
-//     const { MenuList } = components;
-//     return (
-//       <MenuList {...props}>
-//         {props.children}
-//         <div
-//           className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
-//           onClick={() => setIsAddingMode(true)} // Toggle local state
-//         >
-//           <strong>Add New Make</strong>
-//         </div>
-//       </MenuList>
-//     );
-//   };
-  
-//   // Render either the selection dropdown or the "add new" interface
-//   return isAddingMode ? (
-//     // "Add New" Mode UI
-//     <Card className="w-full bg-gray-50 p-3 border-dashed border-primary">
-//       <div className="flex flex-col gap-3">
-//         <Label>Select New Make(s) to Add</Label>
-//         {makesLoading ? (
-//             <div className="flex items-center justify-center p-2"><TailSpin color="red" height={24} width={24} /></div>
-//         ) : (
-//             <ReactSelect
-//               options={availableMakeOptions}
-//               value={newlySelected}
-//               isMulti
-//               onChange={(selectedOptions) => setNewlySelected(selectedOptions as readonly Make[])}
-//               noOptionsMessage={() => 'No more makes available for this category.'}
-//             />
-//         )}
-//         <div className="flex gap-2 items-center justify-end">
-//           <Button onClick={() => setIsAddingMode(false)} variant="outline" size="sm">
-//             <CircleX className="h-4 w-4 mr-1" /> Cancel
-//           </Button>
-//           <Button
-//             onClick={handleConfirmAdd}
-//             disabled={!newlySelected || newlySelected.length === 0}
-//             size="sm"
-//           >
-//             <ListChecks className="h-4 w-4 mr-1" /> Add
-//           </Button>
-//         </div>
-//       </div>
-//     </Card>
-//   ) : (
-//     // Default Selection Mode UI
-//     <ReactSelect
-//       className="w-full"
-//       placeholder="Select Make..."
-//       value={selectedMake}
-//       options={availableMakeOptions}
-//       onChange={(selectedOption) => setSelectedMake(selectedOption)}
-//       components={{ MenuList: CustomMenu }}
-//     />
-//   );
-// };

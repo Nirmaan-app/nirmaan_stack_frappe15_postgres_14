@@ -181,7 +181,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
           <p className="text-xl max-sm:text-lg text-red-600">
             Transaction Details
           </p>
-          {!accountsPage && !estimatesViewing && !summaryPage && (
+          {/* {!accountsPage && !estimatesViewing && !summaryPage && (
             <>
               <Tooltip>
                 <TooltipTrigger>
@@ -204,9 +204,9 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                 )}
               </Tooltip>
             </>
-          )}
+          )} */}
 
-          {accountsPage && ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) && (
+          {/* {accountsPage && (
             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
               <AlertDialogTrigger
                 onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
@@ -314,7 +314,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                 </AlertDialogHeader>
               </AlertDialogContent>
             </AlertDialog>
-          )}
+          )} */}
         </CardTitle>
       </CardHeader>
       <CardContent className="overflow-auto">

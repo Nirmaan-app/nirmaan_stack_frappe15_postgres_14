@@ -287,7 +287,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
                         <DialogDescription>Add a comment for this action (optional).</DialogDescription>
                     </DialogHeader>
                     <TextArea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="e.g., Changes approved as per discussion."/>
-                    {(update_loading || create_loading) ? <div className='flex items-center justify-center p-6'><TailSpin width={60} color='red' /> </div> : (
+                    {(approveAmendLoading) ? <div className='flex items-center justify-center p-6'><TailSpin width={60} color='red' /> </div> : (
                         <div className="flex justify-end mt-4 space-x-2">
                             <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
                             <Button onClick={handleAction}>Confirm {actionType === 'approve' ? 'Approval' : 'Revert'}</Button>
