@@ -7,6 +7,18 @@ from ..integrations.Notifications.pr_notifications import PrNotification, get_ad
 from ..integrations.controllers.procurement_requests import validate_procurement_request_for_po
 from ..api.approve_vendor_quotes import generate_pos_from_selection # Make sure this path is correct
 
+def convert_to_format1(data_format2: dict) -> dict:
+    """ Helper function to convert payment terms format. """
+    if not isinstance(data_format2, dict):
+        return {}
+    data_format1 = {}
+    for vendor_id, vendor_data in data_format2.items():
+        if isinstance(vendor_data, dict) and 'terms' in vendor_data:
+            milestones = vendor_data.get('terms', [])
+            if isinstance(milestones, list):
+                data_format1[vendor_id] = milestones
+    return data_format1
+
 
 @frappe.whitelist()
 def handle_delayed_items(pr_id: str, comments: dict = None):
@@ -30,6 +42,8 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         # procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
         order_list = pr_doc.get("order_list", [])
         category_list = frappe.parse_json(pr_doc.category_list).get('list', [])
+        payment_terms = frappe.parse_json(pr_doc.payment_terms or '{}').get('list', {})
+
         # RFQ data handling
         rfq_data_pr = {}
         if isinstance(pr_doc.rfq_data, str):
@@ -91,6 +105,11 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                 # Mark as Delayed in the original PR
                 # updated_procurement_list_items.append({**item, "status": "Delayed"})
                 item.status = "Delayed"
+            else:
+        # THIS IS THE FIX:
+        # Explicitly mark items that are NOT delayed (i.e., have a vendor)
+        # with the "Pending" status that the validator function expects.
+                item.status = "Pending"  
             # else:
             #     # Keep original item data (including vendor if present)
             #     updated_procurement_list_items.append(item)
@@ -168,23 +187,32 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
             # All items were delayed
             pr_doc.workflow_state = "Delayed"
             final_message = "All items have been marked as delayed. You can find them in the 'Sent Back Requests' under the delayed tab."
+            pr_doc.save(ignore_permissions=True) # Save the final "Delayed" state
         else:
             # Some items have vendors selected (are not delayed)
             pr_doc.workflow_state = "Vendor Selected" # Tentative state
+ 
+            pr_doc.save(ignore_permissions=True)
+            frappe.db.commit() # Ensure the transaction is committed
 
+   
+            doc_to_validate = frappe.get_doc("Procurement Requests", pr_id)
+    
             # Check if these items are ready for PO (validation)
             # Pass the updated pr_doc object directly to the validation function
             
-            is_ready_for_po = validate_procurement_request_for_po(pr_doc)
+            is_ready_for_po = validate_procurement_request_for_po(doc_to_validate)
             # print("is_ready_for_po": {is_ready_for_po})
 
             if is_ready_for_po:
-                pr_doc.workflow_state = "Vendor Approved" # Final state if validation passes
+                doc_to_validate.workflow_state = "Vendor Approved" # Final state if validation passes
                 # Prepare for PO generation - Extract necessary data from the *updated* pr_doc
                 # current_procurement_list = json.loads(pr_doc.procurement_list).get('list', [])
-                current_order_list = pr_doc.get("order_list", [])
-                items_for_po = [item.item_id for item in current_order_list if item.get("status") != "Delayed" and item.get("vendor")]
-                selected_vendors_for_po = {item.item_id: item.vendor for item in current_order_list if item.get("status") != "Delayed" and item.get("vendor")}
+                current_order_list = doc_to_validate.get("order_list", [])
+                # items_for_po = [item.item_id for item in current_order_list if item.get("status") != "Delayed" and item.get("vendor")]
+                # selected_vendors_for_po = {item.item_id: item.vendor for item in current_order_list if item.get("status") != "Delayed" and item.get("vendor")}
+                items_for_po = [item.name for item in current_order_list if item.get("status") == "Pending"]
+                selected_vendors_for_po = {item.name: item.vendor for item in current_order_list if item.get("status") == "Pending"}
 
                 # We will generate PO *after* saving the PR successfully
                 po_generated = True
@@ -224,7 +252,13 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         # Generate POs if validation passed
         if po_generated:
             try:
-                po_details = generate_pos_from_selection(pr_doc.project, pr_doc.name, po_items_arr, po_selected_vendors, False)
+                 # 1. Convert the payment_terms DICTIONARY into a JSON STRING.
+                payment_terms_str = json.dumps(convert_to_format1(payment_terms))
+        
+        # 2. Add a debug print to confirm the string format.
+                print(f"DEBUGSVQ: Passing payment_terms as string: {payment_terms_str}")
+
+                po_details = generate_pos_from_selection(pr_doc.project, pr_doc.name, po_items_arr, po_selected_vendors, False,payment_terms=payment_terms_str)
                 if po_details and po_details.get('po'):
                     final_message += f" PO {po_details['po']} generated."
                     po_doc = frappe.get_doc("Procurement Orders", po_details['po'])

@@ -85,6 +85,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
             return (
               existingTerm || {
                 id: placeholderId,
+                type:initialData.type,
                 name,
                 amount: 0,
                 percentage: 0,
@@ -148,6 +149,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
         setMilestones([
           {
             id: `term_${Date.now()}`,
+            type: "Credit",
             name: "1st Payment",
             amount: 0,
             percentage: 0,
@@ -159,6 +161,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
         setMilestones(
           DELIVERY_TERM_NAMES.map((name) => ({
             id: `term_${Date.now()}_${name.replace(/\s+/g, "")}`,
+            type: "Delivery against payment",
             name,
             amount: 0,
             percentage: 0,
@@ -177,6 +180,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
         ...milestones,
         {
           id: `term_${Date.now()}`,
+          type: "Credit",
           name: `${getOrdinal(newPaymentNumber)} Payment`,
           amount: 0,
           percentage: 0,
@@ -281,6 +285,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
 
   const handleFinalConfirm = () => {
     if (type && isFormValid) {
+      console.log("DEBUG: handleFinalConfirm",milestones),
       onConfirm({
         type,
         total_po_amount: poAmount,
