@@ -3,78 +3,82 @@
 import frappe
 from frappe.utils import today
 
-# We add @frappe.whitelist() so you can easily test this from the browser console
-# or via an API call, just like your other script.
+# We add @frappe.whitelist() so you can easily test this from the browser console.
 @frappe.whitelist()
 def update_payment_term_status():
     """
-    This function is designed to be run daily.
+    This function is designed to be run daily by the scheduler.
     It finds all 'PO Payment Terms' child records that meet the criteria:
     1. Status is 'Created'
-    2. Due Date is today
+    2. Payment Type is 'Credit'
+    3. Due Date is on or before today (handles overdue terms)
     ...and updates their status to 'Scheduled'.
     """
+    # --- Optional Security ---
+    # For a scheduled job, this isn't strictly required, but it's good practice
+    # if you want to manually trigger it via API.
+    # frappe.only_for("System Manager") 
+
     try:
-        # Get today's date in 'YYYY-MM-DD' format, which is how Frappe stores dates.
         today_date = today()
         
-        # Log the start of the process for easy debugging in the Error Log.
-        # frappe.log("Starting payment term status update job PaymentTermWorker")
+        # Using frappe.logger is the standard way to log messages.
+        # They will appear in the 'Error Log' list in the UI.
+        frappe.logger("payment_term_worker").info("Starting daily job to update due payment terms.")
 
-        # Use frappe.get_all to efficiently find the specific child table rows we need to update.
-        # This is much faster than loading every single Purchase Order.
-        # We need the 'name' of the child row to update it, and 'parent' to log which PO it belongs to.
+        #
+        # --- WHAT CHANGED ---
+        # 1. Added `payment_type: "Credit"` to the filters.
+        # 2. Changed `due_date` filter to `["<=", today_date]` to include overdue items.
+        #
         payments_to_update = frappe.get_all(
-            "PO Payment Terms",  # The name of the Child DocType
+            "PO Payment Terms",
             filters={
                 "status": "Created",
-                "due_date": today_date,
+                "payment_type": "Credit", # Only target credit terms
+                "due_date": ["<=", today_date], # Find terms due today or in the past
             },
-            fields=["name", "parent"]  # 'parent' will give the Purchase Order ID
+            fields=["name", "parent"] # 'parent' gives the PO ID for logging
         )
 
         if not payments_to_update:
-            # frappe.log_message(f"No payment terms due for update on {today_date}.", "PaymentTermWorker")
+            frappe.logger("payment_term_worker").info(f"No credit payment terms due for update on {today_date}.")
             return {"status": "success", "message": "No payment terms to update."}
 
         updated_count = 0
-        print("s {updated_count}:Here worker ")
+        frappe.logger("payment_term_worker").info(f"Found {len(payments_to_update)} payment term(s) to process.")
+        
         for payment in payments_to_update: 
             try:
                 # frappe.db.set_value is the most efficient way to update a single field
-                # in any document (parent or child) without triggering all document hooks (like on_update).
-                # This is perfect for a simple status change.
+                # without triggering all document hooks (like on_update).
                 frappe.db.set_value(
-                    "PO Payment Terms",  # DocType name
-                    payment.name,        # The unique name of the child table row
-                    "status",            # The field to update
-                    "Scheduled"          # The new value
+                    "PO Payment Terms",
+                    payment.name,
+                    "status",
+                    "Scheduled"
                 )
                 updated_count += 1
                 
-                # Log each successful update for traceability.
-                # frappe.log_message(
-                #     f"Updated status to 'Scheduled' for payment term {payment.name} in PO {payment.parent}",
-                #     "PaymentTermWorker"
-                # )
-
             except Exception as e:
                 # If a single update fails, log the error but continue with the next one.
-                frappe.log_error(
-                    f"Failed to update payment term {payment.name} in PO {payment.parent}. Error: {e}",
-                    "PaymentTermWorkerError"
+                frappe.logger("payment_term_worker").error(
+                    f"Failed to update payment term {payment.name} in PO {payment.parent}. Error: {e}"
                 )
 
-        # After the loop has finished, commit all the changes to the database at once.
+        # After the loop, commit all successful changes to the database at once.
         frappe.db.commit()
 
         success_message = f"Successfully updated {updated_count} payment term(s) to 'Scheduled'."
-        # frappe.log_message(success_message, "PaymentTermWorker")
+        frappe.logger("payment_term_worker").info(success_message)
 
         return {"status": "success", "message": success_message}
 
     except Exception as e:
-        # If a major error occurs (e.g., the query fails), rollback any potential changes.
+        # If a major error occurs, rollback any potential changes.
         frappe.db.rollback()
-        frappe.log_error(frappe.get_traceback(), "PaymentTermWorkerError")
-        return {"status": "error", "message": f"An error occurred in the main process: {str(e)}"}
+        # Use frappe.log_error to capture the full traceback for easy debugging.
+        frappe.log_error(title="Payment Term Worker Failed", message=frappe.get_traceback())
+        return {"status": "error", "message": f"An unexpected error occurred in the main process: {str(e)}"}
+
+

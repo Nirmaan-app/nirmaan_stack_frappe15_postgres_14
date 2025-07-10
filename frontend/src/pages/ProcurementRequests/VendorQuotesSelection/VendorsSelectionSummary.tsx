@@ -31,6 +31,7 @@ import {
   SendToBack,
   Undo2,
   CirclePlus,
+  Pencil,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -171,20 +172,7 @@ export const VendorsSelectionSummary: React.FC = () => {
 
 
   
-  // useEffect(() => {
-  //   if (procurement_request) {
-  //     const items =
-  //       procurement_request.order_list &&
-  //       Array.isArray(procurement_request.order_list)
-  //         ? procurement_request.order_list
-  //         : [];
-  //     setOrderData({ ...procurement_request, order_list: items });
-  //   }
-  // }, [procurement_request]);
-
- // In: .../VendorsSelectionSummary.tsx
-
-// --- REPLACE THE useEffect that calls setOrderData ---
+ 
 useEffect(() => {
   if (procurement_request) {
     // Start with a deep copy to avoid mutating server data
@@ -228,23 +216,7 @@ useEffect(() => {
   );
 
 
-// const getLowest = useMemo(
-//   () =>
-//     memoize(
-//       (itemId: string): number => {
-//         return getLowestQuoteFilled(orderData, itemId);
-//       },
-//       (itemId: string) =>
-//         `${itemId}-${JSON.stringify(
-//           orderData?.order_list?.find((i) => i.item_id === itemId)?.quote
-//         )}`
-//     ),
-//   [orderData]
-// );
 
-// In: .../VendorsSelectionSummary.tsx
-
-// --- REPLACE THE ENTIRE `getLowest` useMemo block ---
 const getLowest = useMemo(
   () =>
     memoize(
@@ -301,6 +273,7 @@ const getLowest = useMemo(
       });
 
       // 4. Show a success message to the user.
+      pr_mutate()
       toast({
         title: "Payment Terms Saved",
         description:
@@ -487,77 +460,7 @@ const generateActionSummary = useCallback(() => {
     delayedItemsTotalInclGst,
   };
 }, [orderData, getLowest, getItemEstimate, targetRatesDataMap]); 
-// IMPORTANT: Add targetRatesDataMap to the dependency array
 
-  // const generateActionSummary = useCallback(() => {
-  //   let allDelayedItems: DisplayItem[] = [];
-  //   let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
-
-  //   let approvalOverallTotalExclGst: number = 0;
-  //   let approvalOverallTotalInclGst: number = 0;
-  //   let delayedItemsTotalExclGst: number = 0;
-  //   let delayedItemsTotalInclGst: number = 0;
-
-  //   orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
-  //     const vendor = item?.vendor;
-  //     const quote = parseNumber(item.quote);
-  //     const quantity = parseNumber(item.quantity);
-  //     const taxRate = parseNumber(item.tax) / 100; // e.g., 18 -> 0.18
-
-  //     const baseItemTotal = quantity * quote;
-  //     const itemTotalInclGst = baseItemTotal * (1 + taxRate);
-
-  //     if (!vendor || !quote) {
-  //       allDelayedItems.push(item);
-  //       delayedItemsTotalExclGst += baseItemTotal;
-  //       delayedItemsTotalInclGst += itemTotalInclGst;
-  //     } else {
-  //       const targetRate = getItemEstimate(item?.item_id)?.averageRate;
-  //       // console.log(item.item_name,targetRate 
-  //       //   *0.98
-  //       // )
-  //       // console.log(item?.item_name,targetRate)
-  //       const lowestItemPrice = targetRate
-  //         ? targetRate * 0.98
-  //         : getLowest(item?.item_id);
-          
-       
-
-  //       if (!vendorWiseApprovalItems[vendor]) {
-  //         vendorWiseApprovalItems[vendor] = {
-  //           items: [],
-  //           total: 0,
-  //           totalInclGst: 0,
-  //         };
-  //       }
-
-  //       const displayItem: DisplayItem = { ...item, amount: itemTotalInclGst };
-
-  //       if (lowestItemPrice && lowestItemPrice < quote) {
-  //         displayItem.potentialLoss =
-  //           baseItemTotal - quantity * lowestItemPrice;
-  //       }
-
-  //       vendorWiseApprovalItems[vendor].items.push(displayItem);
-  //       vendorWiseApprovalItems[vendor].total += baseItemTotal;
-  //       vendorWiseApprovalItems[vendor].totalInclGst += itemTotalInclGst;
-
-  //       approvalOverallTotalExclGst += baseItemTotal;
-  //       approvalOverallTotalInclGst += itemTotalInclGst;
-  //     }
-  //   });
-
-  //   return {
-  //     allDelayedItems,
-  //     vendorWiseApprovalItems,
-  //     approvalOverallTotal: approvalOverallTotalExclGst,
-  //     approvalOverallTotalInclGst,
-  //     delayedItemsTotalInclGst,
-  //   };
-  // }, [orderData, getLowest, getItemEstimate]);
-
-
-  
   const {
     allDelayedItems,
     vendorWiseApprovalItems,
@@ -657,8 +560,9 @@ const generateActionSummary = useCallback(() => {
                                 terms={termsForVendor}
                               />
                               <Button
-                                variant="link"
+                                variant="outline"
                                 size="sm"
+                                 className="text-primary border-primary justify-start hover:text-white hover:bg-red-600"
                                 onClick={() =>
                                   setEditingVendor({
                                     id: vendor,
@@ -666,8 +570,9 @@ const generateActionSummary = useCallback(() => {
                                     total: totalInclGst,
                                   })
                                 }
-                                className="h-auto p-0 text-primary"
+                                
                               >
+                                <Pencil className="mr-2 h-4 w-4 flex-shrink-0" />{" "}
                                 Edit
                               </Button>
                             </div>
@@ -726,11 +631,7 @@ const generateActionSummary = useCallback(() => {
                           ))}
                         </ul>
 
-                        {/*
-      --- THIS IS THE NEWLY ADDED LOGIC ---
-      This block checks if payment terms have been set for the current vendor.
-      If they have, it renders our new display component.
-    */}
+                       
                         {(() => {
                           // 1. Get the payment terms for the *current* vendor in the loop.
                           const termsForThisVendor = paymentTerms[vendor];

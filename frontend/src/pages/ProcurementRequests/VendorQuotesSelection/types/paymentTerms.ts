@@ -2,6 +2,7 @@
 
 // This interface is required for the 'Term' type
 export interface PaymentTermMilestone {
+  type: 'Credit' | 'Delivery against payment';
   id: string; // For unique key in React
   name: string;
   amount: number;

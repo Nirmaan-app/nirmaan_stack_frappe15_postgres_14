@@ -1,7 +1,7 @@
 
 import frappe
 import json
-from frappe.utils import flt
+from frappe.utils import flt,getdate,nowdate
 
 @frappe.whitelist()
 def new_handle_approve(sb_id: str, selected_items: list, project_id: str, selected_vendors: dict,payment_terms: str = None):
@@ -115,17 +115,28 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                 # vendor_term_data = payment_terms_by_vendor[vendor_id]
                 milestones = payment_terms_by_vendor[vendor_id]
                 if isinstance(milestones, list):
+                    today = getdate(nowdate())
                     for milestone in milestones:
-                        # This append logic now mirrors your original code, ensuring compatibility.
+                        term_status = "Created"
+            
+                        # Get the payment type and due date from the milestone data
+                        payment_type = milestone.get('type')
+                        due_date_str = milestone.get('due_date')
+                        if payment_type == "Credit" and due_date_str:
+                    # Convert the due_date string to a proper date object for comparison
+                            due_date = getdate(due_date_str)
+                    
+                    # If the due date is today or in the past...
+                            if due_date <= today:
+                        # ...override the default status to "Scheduled"
+                                term_status = "Scheduled"
                         po_doc.append("payment_terms", {
-                            # The keys here MUST match the fieldnames in your "PO Payment Terms" Child Doctype.
-                            # Get the 'type' from the milestone itself if it exists, otherwise it will be None.
                             "payment_type": milestone.get('type'), 
                             "label": milestone.get('name'),
                             "percentage": milestone.get('percentage'),
                             "amount": milestone.get('amount'),
                             "due_date": milestone.get('due_date'),
-                            "status": "Created" # Example of setting a default status
+                            "status": term_status # Example of setting a default status
                         })
 
             # --- END OF ADDED BLOCK ---

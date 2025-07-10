@@ -20,7 +20,7 @@ export interface ProcurementItemWithVendor extends ProcurementItemBase {
 
 // The type for items in procurement_list.list
 // This could be a union if items can exist with or without vendor details yet
-export type ProcurementItem = ProcurementItemBase | ProcurementItemWithVendor;
+export type ProcurementItem =   ProcurementItemWithVendor;
 
 
 // export interface ProcurementItem {

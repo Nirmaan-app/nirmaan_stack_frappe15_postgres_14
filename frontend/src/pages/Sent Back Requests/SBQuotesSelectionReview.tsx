@@ -33,6 +33,8 @@ import {
   ListChecks,
   Undo2,
   CirclePlus,
+    Pencil,
+  
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -562,8 +564,9 @@ const generateActionSummary = useCallback(() => {
                                     terms={termsForVendor}
                                   />
                                   <Button
-                                    variant="link"
-                                    size="sm"
+                                    variant="outline"
+                                size="sm"
+                                 className="text-primary border-primary justify-start hover:text-white hover:bg-red-600"
                                     onClick={() =>
                                       setEditingVendor({
                                         id: vendor,
@@ -571,8 +574,8 @@ const generateActionSummary = useCallback(() => {
                                         total: totalInclGst,
                                       })
                                     }
-                                    className="h-auto p-0 text-primary"
                                   >
+                                    <Pencil className="mr-2 h-4 w-4 flex-shrink-0" />{" "}
                                     Edit
                                   </Button>
                                 </div>
