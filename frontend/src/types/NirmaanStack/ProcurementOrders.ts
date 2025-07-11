@@ -99,13 +99,17 @@ export interface ProcurementOrder {
 	vendor_gst?: string
 	/**	Project GST : Data	*/
 	project_gst?: string
+	total_amount?: number
+	tax_amount?: number
+
+	amount?: number
 	/**	Order List : JSON	*/
-	order_list: {
-		list: PurchaseOrderItem[]
-	}
+	// order_list: {
+	// 	list: PurchaseOrderItem[]
+	// }
 
 	items:PurchaseOrderItem[]
-	payment_terms:
+	// payment_terms:
 	/**	Category List : JSON	*/
 	category_list?: any
 	/**	Advance : Data	*/
