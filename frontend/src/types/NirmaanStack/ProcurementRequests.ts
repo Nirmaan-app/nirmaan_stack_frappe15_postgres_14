@@ -1,6 +1,4 @@
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor";
-
-
 export interface ProcurementItemBase {
 	name: string;
   item: string;
@@ -22,7 +20,7 @@ export interface ProcurementItemWithVendor extends ProcurementItemBase {
 
 // The type for items in procurement_list.list
 // This could be a union if items can exist with or without vendor details yet
-export type ProcurementItem = ProcurementItemBase | ProcurementItemWithVendor;
+export type ProcurementItem =   ProcurementItemWithVendor;
 
 
 // export interface ProcurementItem {
@@ -44,7 +42,6 @@ export interface Category {
   name: string;
   makes?: string[];
 }
-
 export interface RFQData {
 	selectedVendors: Vendor[];
 	details: {
@@ -54,6 +51,28 @@ export interface RFQData {
 			makes: string[];
 		};
 	};
+}
+
+
+export interface ProcurementRequestItemDetail {
+	name: string;
+	creation: string;
+	modified: string;
+	item_id: string;
+	item_name: string;
+	unit: string;
+	quantity: number;
+	category: string;
+	procurement_package?: string;
+	make?: string;
+	status: string;
+	tax?: number;
+	comment?: string;
+	vendor?: string;
+	quote?: number;
+	parent?: string;
+	parentfield?: string;
+	parenttype?: string;
 }
 
 
@@ -92,4 +111,5 @@ export interface ProcurementRequest {
 	/**	RFQ Data : JSON	*/
 	rfq_data: RFQData
 	workflow_state: string
+	order_list: ProcurementRequestItemDetail[]
 }

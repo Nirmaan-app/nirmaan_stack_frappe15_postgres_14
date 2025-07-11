@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ItemListTable } from './ItemListTable'; // The actual table component
-import { PRCategory, PRItem } from '../types';
+import { PRCategory, PRItemUIData as PRItem } from '../types';
 import { CirclePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -18,7 +18,6 @@ export const ItemListSection: React.FC<ItemListSectionProps> = ({ categories, it
     // if (!categories || categories.length === 0) {
     //     return null; // Don't render the card if there are no categories with added items
     // }
-
     return (
         <Card>
             <CardHeader className='flex items-center justify-between flex-row'>
@@ -36,7 +35,7 @@ export const ItemListSection: React.FC<ItemListSectionProps> = ({ categories, it
             <CardContent className="space-y-4">
                 {categories.length > 0 ? (
                     categories.map((cat) => {
-                        const itemsForCategory = items.filter(item => item.category === cat.name && item.status === (cat?.status || "Pending"));
+                          const itemsForCategory = items.filter(item => item.category === cat.name && item.status === (cat?.status || "Pending"));
                         const makes = categoryMakesMap.get(cat.name) ?? [];
                         if (itemsForCategory.length === 0) return null; // Skip category if no items match
     

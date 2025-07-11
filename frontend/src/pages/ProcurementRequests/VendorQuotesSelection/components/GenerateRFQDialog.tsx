@@ -11,7 +11,7 @@ import memoize from 'lodash/memoize';
 import { FolderPlus, MessageCircleMore } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { getCategoryListFromDocument, getItemListFromDocument, ProgressDocumentType} from '../types'
+import { getCategoryListFromDocument, getItemListFromDocument, ProgressDocumentType } from '../types'
 
 interface GenerateRFQDialogProps {
     orderData: ProgressDocumentType;
@@ -95,7 +95,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
         if (itemsInThisCategory.length === 0) return false; // Cannot be fully selected if no items
         const selectedInThisCategory = selectedItemsForRfq[categoryName] || [];
         return itemsInThisCategory.length === selectedInThisCategory.length &&
-               itemsInThisCategory.every(item => selectedInThisCategory.includes(item.name));
+            itemsInThisCategory.every(item => selectedInThisCategory.includes(item.name));
     }, [currentItemList, selectedItemsForRfq]);
 
 
@@ -122,7 +122,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                 {orderData && (
                     <div className='flex-grow space-y-4 overflow-y-auto pr-2'> {/* Make this section scrollable */}
                         {currentCategoryList.length > 0 && currentItemList.length > 0 && (
-                             <div className="flex items-center py-2 border-b">
+                            <div className="flex items-center py-2 border-b">
                                 <Checkbox
                                     id="select-all-rfq-items"
                                     checked={areAllItemsSelected}
@@ -159,7 +159,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                                                     onCheckedChange={() => handleItemSelection(category.name, item.name)}
                                                 />
                                                 <Label htmlFor={`item-rfq-${item.name}`} className="ml-2 text-xs font-normal cursor-pointer">
-                                                    {item.item}
+                                                    {item.item_name}
                                                     {item.make && <span className="text-muted-foreground text-xs italic"> - {item.make}</span>}
                                                     <span className="text-muted-foreground text-xs"> ({item.quantity} {item.unit})</span>
                                                 </Label>
@@ -267,26 +267,26 @@ const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData,
                             </tr>
                         </thead>
                         <tbody>
-                      {itemListForPdf.map((i, index) => ( // Iterate over itemListForPdf
-                          <tr key={`pdf-item-${i.name}-${index}`}> {/* More unique key */}
-                              <td className="px-6 py-2 text-xs"> {/* Smaller font for PDF table */}
-                                  {i.item}
-                                  {i.make && <div className="text-xxs font-normal">{` - ${i.make}`}</div>} {/* text-xxs if you have it */}
-                                  {i.comment && (
-                                      <div className="flex gap-1 items-start p-0.5 mt-0.5">
-                                          <MessageCircleMore className="w-3 h-3 flex-shrink-0" />
-                                          <div className="text-xxs text-gray-500">{i.comment}</div>
-                                      </div>
-                                  )}
-                              </td>
-                              <td className="px-2 py-2 text-xs whitespace-nowrap">{i.category}</td>
-                              <td className="px-2 py-2 text-xs whitespace-nowrap">{i.unit}</td>
-                              <td className="px-2 py-2 text-xs whitespace-nowrap">{i.quantity}</td>
-                              <td className="px-2 py-2 text-sm whitespace-nowrap">-</td> {/* Rate excl. GST - empty as per example */}
-                          </tr>
-                      ))}
-                      {itemListForPdf.length === 0 && <tr><td colSpan={5} className="text-center p-4">No items selected for RFQ.</td></tr>}
-                  </tbody>
+                            {itemListForPdf.map((i, index) => ( // Iterate over itemListForPdf
+                                <tr key={`pdf-item-${i.name}-${index}`}> {/* More unique key */}
+                                    <td className="px-6 py-2 text-xs"> {/* Smaller font for PDF table */}
+                                        {i.item_name}
+                                        {i.make && <div className="text-xxs font-normal">{` - ${i.make}`}</div>} {/* text-xxs if you have it */}
+                                        {i.comment && (
+                                            <div className="flex gap-1 items-start p-0.5 mt-0.5">
+                                                <MessageCircleMore className="w-3 h-3 flex-shrink-0" />
+                                                <div className="text-xxs text-gray-500">{i.comment}</div>
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="px-2 py-2 text-xs whitespace-nowrap">{i.category}</td>
+                                    <td className="px-2 py-2 text-xs whitespace-nowrap">{i.unit}</td>
+                                    <td className="px-2 py-2 text-xs whitespace-nowrap">{i.quantity}</td>
+                                    <td className="px-2 py-2 text-sm whitespace-nowrap">-</td> {/* Rate excl. GST - empty as per example */}
+                                </tr>
+                            ))}
+                            {itemListForPdf.length === 0 && <tr><td colSpan={5} className="text-center p-4">No items selected for RFQ.</td></tr>}
+                        </tbody>
                     </table>
                     <div className="pt-24">
                         <p className="text-md font-bold text-red-700 underline">Note</p>

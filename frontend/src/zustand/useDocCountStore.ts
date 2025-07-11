@@ -51,6 +51,15 @@ export interface SidebarCountsData {
         rejected: number;
         paid: number;
     };
+    credits: {
+        all: number;
+        requested: number;
+        scheduled: number;
+        approved: number;
+        paid: number;
+        return: number; // Note: 'return' is a keyword, but fine as a key.
+        rejected: number;
+    };
 }
 
 interface Store {
@@ -105,6 +114,16 @@ export const useDocCountStore = create<Store>()(
             rejected: 0,
             paid: 0,
         },
+        credits: {
+            all: 0,
+            requested: 0,
+            scheduled: 0,
+            approved: 0,
+            paid: 0,
+            return: 0,
+            rejected: 0,
+        },
+
       },
       setAll: (c) => set({ counts: c }),
     }),

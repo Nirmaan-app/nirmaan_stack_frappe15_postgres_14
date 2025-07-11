@@ -12,6 +12,20 @@ export interface WorkPackage {
 	category_list: CategoryList
 }
 
+// Child DocType: Project Work Package Category Make
+export interface ProjectWPCategoryMake {
+    name: string; // Frappe child row name
+    procurement_package: string; // Link to Procurement Packages DocName
+    category: string;            // Link to Category DocName
+    make?: string | null;          // Link to Makelist DocName (optional)
+    // Add other fields from this child doctype if needed by frontend
+}
+
+export interface ProjectGSTNumber {
+	location: string;
+	gst: string;
+}
+
 
 export interface Projects{
 	name: string
@@ -31,9 +45,9 @@ export interface Projects{
 	/**	Project Type : Link - Project Types	*/
 	project_type?: string
 	/**	Project Start Date : Date	*/
-	project_start_date?: string
+	project_start_date: string
 	/**	Project End Date : Date	*/
-	project_end_date?: string
+	project_end_date: string
 	/**	Project Address : Link - Address	*/
 	project_address?: string
 	/**	Project City : Data	*/
@@ -51,7 +65,7 @@ export interface Projects{
 	/**	Estimates Executive : Data	*/
 	estimates_exec?: string
 	/**	Status : Data	*/
-	status?: string
+	status: string
 	/**	Project Work Packages : JSON	*/
 	project_work_packages?: {
 		work_packages: WorkPackage[]
@@ -63,6 +77,11 @@ export interface Projects{
 	/**	Subdivision List : JSON	*/
 	subdivision_list?: any
 	/**	Project GST : JSON	*/
-	project_gst_number?: any
+	project_gst_number?: {
+		list: ProjectGSTNumber[]
+	}
 	project_value?: string
+
+	// NEW Child Table field
+  project_wp_category_makes?: ProjectWPCategoryMake[]; // Array of child table rows
 }

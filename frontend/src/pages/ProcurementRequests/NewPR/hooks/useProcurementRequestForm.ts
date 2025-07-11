@@ -23,11 +23,11 @@ interface UseProcurementRequestFormResult {
     undoLastDelete: () => void;
     setComment: (comment: string) => void;
     handleFuzzySearch: (input: string) => FuseResult<Items>[]; // Corrected type Item from Items
-    
+
     itemFuseOptions: IFuseOptions<ItemOption>;
 }
 
-export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>, rawItemList?: Items[], makeList?: Makelist[], allMakeOptionsFromDataHook: MakeOption[] = [], ): UseProcurementRequestFormResult => {
+export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>, rawItemList?: Items[], makeList?: Makelist[], allMakeOptionsFromDataHook: MakeOption[] = [],): UseProcurementRequestFormResult => {
     const { toast } = useToast();
 
     // --- Select state and actions individually ---
@@ -64,7 +64,7 @@ export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>
     const selectWorkPackage = useCallback((wp: string, wpSpecificMakes: CategoryMakesMap) => {
         console.log("Hook: Selecting WP", wp, "with makes:", wpSpecificMakes);
         setSelectedWP(wp, wpSpecificMakes); // Call store action with both params
-  }, [setSelectedWP]);
+    }, [setSelectedWP]);
 
 
     // Renamed for clarity: This adds NEW items or REQUESTS
@@ -98,20 +98,20 @@ export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>
 
 
     const deleteItemFromList = useCallback((itemName: string) => {
-      deleteProcItem(itemName);
-      // Optionally add a toast for deletion confirmation
-      // toast({ title: "Item Removed", variant: "info" });
-  }, [deleteProcItem]);
+        deleteProcItem(itemName);
+        // Optionally add a toast for deletion confirmation
+        // toast({ title: "Item Removed", variant: "info" });
+    }, [deleteProcItem]);
 
-  const undoLastDelete = useCallback(() => {
-      undoDelete();
-      // Optionally add a toast for undo confirmation
-      // toast({ title: "Action Undone", description: "Last deleted item restored.", variant: "info" });
-  }, [undoDelete]);
+    const undoLastDelete = useCallback(() => {
+        undoDelete();
+        // Optionally add a toast for undo confirmation
+        // toast({ title: "Action Undone", description: "Last deleted item restored.", variant: "info" });
+    }, [undoDelete]);
 
 
     const setComment = useCallback((comment: string) => {
-      setNewPRComment(comment);
+        setNewPRComment(comment);
     }, [setNewPRComment]);
 
 
@@ -132,22 +132,22 @@ export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>
     }, [fuse]);
 
     return {
-      selectedWP,
-      procList,
-      selectedCategories,
-      undoStack,
-      newPRComment,
-      isStoreInitialized,
-      selectWorkPackage,
-      addOrUpdateItem,
-      updateItemInList,
-      deleteItemFromList, // Use the memoized callback
-      undoLastDelete, // Use the memoized callback
-      setComment, // Use the memoized callback
-      handleFuzzySearch,
-      updateCategoryMakes,
-      makeListMutate: makeListMutateHook,
-      allMakeOptions: allMakeOptionsFromDataHook,
-      itemFuseOptions,          // Provide the Fuse configuration
-  };
+        selectedWP,
+        procList,
+        selectedCategories,
+        undoStack,
+        newPRComment,
+        isStoreInitialized,
+        selectWorkPackage,
+        addOrUpdateItem,
+        updateItemInList,
+        deleteItemFromList, // Use the memoized callback
+        undoLastDelete, // Use the memoized callback
+        setComment, // Use the memoized callback
+        handleFuzzySearch,
+        updateCategoryMakes,
+        makeListMutate: makeListMutateHook,
+        allMakeOptions: allMakeOptionsFromDataHook,
+        itemFuseOptions,          // Provide the Fuse configuration
+    };
 };

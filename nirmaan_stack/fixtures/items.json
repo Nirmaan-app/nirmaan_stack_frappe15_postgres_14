@@ -1,0 +1,26 @@
+[
+ {
+  "category": "Additional Charges",
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Items",
+  "image_url": null,
+  "item_name": "Loading/Unloading Charges",
+  "make_name": null,
+  "modified": "2025-06-13 15:46:00.896849",
+  "name": "ITEM-999999",
+  "unit_name": "NOS"
+ },
+ {
+  "category": "Additional Charges",
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Items",
+  "image_url": null,
+  "item_name": "Freight Charges",
+  "make_name": "",
+  "modified": "2025-06-13 15:47:38.048748",
+  "name": "ITEM-999998",
+  "unit_name": "NOS"
+ }
+]

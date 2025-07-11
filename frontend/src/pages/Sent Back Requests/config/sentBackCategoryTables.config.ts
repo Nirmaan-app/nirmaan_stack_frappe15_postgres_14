@@ -1,8 +1,8 @@
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 
-export const DEFAULT_SB_FIELDS_TO_FETCH: (keyof SentBackCategory | 'name')[] =  [
-    "name", "project", "owner", 'type', 'workflow_state'
+export const DEFAULT_SB_FIELDS_TO_FETCH: (keyof SentBackCategory | 'name')[] = [
+    "name", "project", "owner", 'type', 'workflow_state', "order_list"
 ];
 
 export const SB_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -11,10 +11,9 @@ export const SB_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     // { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
     // { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
     {
-        value: "item_list", // Field name for backend
+        value: "order_list", // Field name for backend
         label: "Item in SB",
-        placeholder: "Search by Item Name in order list...",
-        is_json: true, // Signal to backend for special JSON search logic
+        placeholder: "Search by Item Name in SBs...",
     },
 ];
 
@@ -31,11 +30,11 @@ export const getSentBackStaticFilters = (tab: string): Array<[string, string, st
     //     return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
     // }
 
-    if(tab === "All SBs") {
+    if (tab === "All SBs") {
         return [];
     }
-    if(tab) {
-      return [...base, ["type", "=", tab]]
+    if (tab) {
+        return [...base, ["type", "=", tab]]
     }
 
     return base;

@@ -1,0 +1,151 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-06-05 15:18:39.444268",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_details_section",
+  "item_id",
+  "item_name",
+  "unit",
+  "quantity",
+  "received_quantity",
+  "category",
+  "po",
+  "procurement_package",
+  "quote",
+  "amount",
+  "make",
+  "tax",
+  "tax_amount",
+  "total_amount",
+  "comment",
+  "procurement_request_item"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_details_section",
+   "fieldtype": "Section Break",
+   "label": "Item Details"
+  },
+  {
+   "fieldname": "item_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item ID"
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item Name"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Unit",
+   "reqd": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Quantity Ordered",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "received_quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Quantity Received"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Category",
+   "reqd": 1
+  },
+  {
+   "fieldname": "procurement_package",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Procurement Package",
+   "options": "Procurement Packages"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "fieldname": "make",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Selected Make",
+   "options": "Makelist"
+  },
+  {
+   "fieldname": "tax",
+   "fieldtype": "Float",
+   "label": "Tax Rate"
+  },
+  {
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tax Amount"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount (inc. Tax)"
+  },
+  {
+   "fieldname": "comment",
+   "fieldtype": "Small Text",
+   "label": "Comment"
+  },
+  {
+   "fieldname": "procurement_request_item",
+   "fieldtype": "Link",
+   "label": "Procurement Request Item",
+   "options": "Procurement Request Item Detail"
+  },
+  {
+   "fieldname": "po",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Master PO",
+   "options": "Procurement Orders"
+  },
+  {
+   "fieldname": "quote",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Quoted Rate",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-06-17 19:27:16.478689",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Purchase Order Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { toast } from "@/components/ui/use-toast";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useSentBackCategory } from "@/hooks/useSentBackCategory";
 
 export const SentBackSummary = () => {
 
@@ -25,13 +26,7 @@ export const SentBackSummary = () => {
 
     if (!id) return <div>No Sent Back Provided</div>
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading, mutate: sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category",
-        {
-            fields: ['*'],
-            filters: [["name", "=", id]]
-        },
-        id ? `Sent Back Category ${id}` : null
-    );
+    const { data: sent_back, isLoading: sent_back_loading, mutate: sent_back_mutate } = useSentBackCategory(id)
 
     useFrappeDocumentEventListener("Sent Back Category", id, (event) => {
         console.log("Sent Back document updated (real-time):", event);
@@ -39,17 +34,17 @@ export const SentBackSummary = () => {
             title: "Document Updated",
             description: `Sent Back ${event.name} has been modified.`,
         });
-        sent_back_list_mutate(); // Re-fetch this specific document
+        sent_back_mutate(); // Re-fetch this specific document
       },
       true // emitOpenCloseEventsOnMount (default)
       )
 
     const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
 
-    const { handleDeleteSB, deleteLoading } = usePRorSBDelete(sent_back_list_mutate);
+    const { handleDeleteSB, deleteLoading } = usePRorSBDelete(sent_back_mutate);
 
     const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
-        fields: ["*"],
+        fields: ["name", "comment_by", "content", "creation", "reference_name"],
         filters: [["reference_name", "=", id]],
         orderBy: { field: "creation", order: "desc" }
     },
@@ -65,13 +60,12 @@ export const SentBackSummary = () => {
     const [orderData, setOrderData] = useState<SentBackCategory | undefined>()
 
     useEffect(() => {
-        if (sent_back_list) {
-            const item = sent_back_list?.[0]
-            setOrderData(item)
+        if (sent_back) {
+            setOrderData(sent_back)
         }
-    }, [sent_back_list]);
+    }, [sent_back]);
 
-    if (sent_back_list_loading || usersListLoading || universalCommentsLoading) return <LoadingFallback />
+    if (sent_back_loading || usersListLoading || universalCommentsLoading) return <LoadingFallback />
 
     if (orderData?.workflow_state !== "Pending") {
         return (
@@ -127,11 +121,11 @@ export const SentBackSummary = () => {
                         </TableRow>
                     </TableHeader>
                     <TableBody className="bg-white divide-y divide-gray-200">
-                        {orderData?.item_list?.list.map(item => (
+                        {orderData?.order_list.map(item => (
                             <TableRow key={item.name}>
                                 <TableCell>
                                     <div className="inline items-baseline">
-                                        <span>{item.item}</span>
+                                        <span>{item.item_name}</span>
                                         {item.make && (
                                             <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
                                         )}

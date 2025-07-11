@@ -14,7 +14,7 @@ interface ProcurementActionsHeaderCardProps {
   pr?: boolean
 }
 
-export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend, pr} : ProcurementActionsHeaderCardProps) => {
+export const ProcurementActionsHeaderCard = ({ orderData, sentBack, sr, po, amend, pr }: ProcurementActionsHeaderCardProps) => {
   const [projectName, setProjectName] = useState<string | undefined>("")
   const [userName, setUserName] = useState<string | undefined>("")
   const [vendorId, setVendorId] = useState("")
@@ -88,7 +88,7 @@ export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend
                 </p>
               </div> */}
             </div>
-            <div className="mt-4">
+            {/* <div className="mt-4">
               <h4 className="text-md font-semibold text-gray-700 mb-1">Work Packages</h4>
               <div className="flex gap-2 flex-wrap">
                 {JSON.parse(projectData?.project_work_packages || "[]").work_packages?.map((item, index) => (
@@ -97,7 +97,7 @@ export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend
                   </span>
                 ))}
               </div>
-            </div>
+            </div> */}
           </HoverCardContent>
         </HoverCard>
       </div>
@@ -114,50 +114,50 @@ export const ProcurementActionsHeaderCard = ({orderData, sentBack, sr, po, amend
         </div>
       )}
 
-    {(sr || amend) && (
+      {(sr || amend) && (
         <div className="border-0 flex flex-col justify-center">
           <p className="text-left py-1 font-light text-sm text-sm text-red-700">Vendor</p>
           <HoverCard>
-          <HoverCardTrigger>
-            <p className="text-left font-bold py-1 font-bold text-base text-black underline">{vendorData?.vendor_name}</p>
-          </HoverCardTrigger>
-          <HoverCardContent className="p-4 shadow-lg rounded-lg bg-white w-72 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Vendor Information</h3>
-            <div className="flex flex-col space-y-2">
-              <div>
-                <span className="text-sm text-gray-500">Vendor Id:</span>
-                <p className="text-base font-medium text-black">{vendorData?.name}</p>
+            <HoverCardTrigger>
+              <p className="text-left font-bold py-1 font-bold text-base text-black underline">{vendorData?.vendor_name}</p>
+            </HoverCardTrigger>
+            <HoverCardContent className="p-4 shadow-lg rounded-lg bg-white w-72 border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Vendor Information</h3>
+              <div className="flex flex-col space-y-2">
+                <div>
+                  <span className="text-sm text-gray-500">Vendor Id:</span>
+                  <p className="text-base font-medium text-black">{vendorData?.name}</p>
+                </div>
+                <div>
+                  <span className="text-sm text-gray-500">Contact Person:</span>
+                  <p className="text-base font-medium text-black">{vendorData?.vendor_contact_person_name || "N/A"}</p>
+                </div>
+                <div>
+                  <span className="text-sm text-gray-500">Vendor Contact:</span>
+                  <p className="text-base font-medium text-black">{vendorData?.vendor_mobile || "N/A"}</p>
+                </div>
+                <div>
+                  <span className="text-sm text-gray-500">Vendor GST:</span>
+                  <p className="text-base font-medium text-black">{vendorData?.vendor_gst || "N/A"}</p>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-500">Location:</span>
+                  <p className="text-base font-medium tracking-tight text-black">
+                    {capitalizeFirstLetter(vendorData?.vendor_city)}, {capitalizeFirstLetter(vendorData?.vendor_state)}
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <h4 className="text-sm font-semibold text-gray-500 my-2">Offered Categories</h4>
+                  <div className="flex gap-2 flex-wrap">
+                    {JSON.parse(vendorData?.vendor_category || "[]").categories?.map((item, index) => (
+                      <span key={index} className="text-sm font-medium tracking-tight text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-sm text-gray-500">Contact Person:</span>
-                <p className="text-base font-medium text-black">{vendorData?.vendor_contact_person_name || "N/A"}</p>
-              </div>
-              <div>
-                <span className="text-sm text-gray-500">Vendor Contact:</span>
-                <p className="text-base font-medium text-black">{vendorData?.vendor_mobile || "N/A"}</p>
-              </div>
-              <div>
-                <span className="text-sm text-gray-500">Vendor GST:</span>
-                <p className="text-base font-medium text-black">{vendorData?.vendor_gst || "N/A"}</p>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-sm text-gray-500">Location:</span>
-                <p className="text-base font-medium tracking-tight text-black">
-                  {capitalizeFirstLetter(vendorData?.vendor_city)}, {capitalizeFirstLetter(vendorData?.vendor_state)}
-                </p>
-              </div>
-              <div className="mt-4">
-              <h4 className="text-sm font-semibold text-gray-500 my-2">Offered Categories</h4>
-              <div className="flex gap-2 flex-wrap">
-                {JSON.parse(vendorData?.vendor_category || "[]").categories?.map((item, index) => (
-                  <span key={index} className="text-sm font-medium tracking-tight text-green-600 bg-green-50 px-2 py-1 rounded-full">
-                    {item}
-                  </span>
-                ))}
-              </div>
-            </div>
-            </div>
-          </HoverCardContent>
+            </HoverCardContent>
           </HoverCard>
         </div>
       )}

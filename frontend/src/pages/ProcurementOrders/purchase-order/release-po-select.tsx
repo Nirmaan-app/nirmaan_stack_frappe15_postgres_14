@@ -130,7 +130,7 @@ export const ReleasePOSelect: React.FC = () => {
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
-        limit: 100000
+        limit: 0
     })
 
     const { data: poData } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
@@ -351,7 +351,7 @@ export const ReleasePOSelect: React.FC = () => {
                         ) : (
                             <p>{row.original.name}</p>
                         )}
-                        <ItemsHoverCard order_list={row.original?.order_list?.list} />
+                        <ItemsHoverCard order_list={row.original?.items} />
                     </div>
                     {row.original?.custom === "true" && (
                         <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>

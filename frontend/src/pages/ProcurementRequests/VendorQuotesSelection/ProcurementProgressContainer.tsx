@@ -6,9 +6,10 @@ import { useProcurementDocument } from './hooks/useProcurementDocument';
 import { useProcurementProgressLogic } from './hooks/useProcurementProgressLogic';
 import { ProcurementProgressView } from './ProcurementProgressView';
 import { useUserData } from '@/hooks/useUserData';
-import { ProgressDocumentType } from './types';
+import { ProgressDocument } from './types';
 import { useVendorsList } from './hooks/useVendorsList';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
+import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 
 export const ProcurementProgressContainer: React.FC = () => {
     const { prId: prIdFromParams } = useParams<{ prId?: string }>();
@@ -45,8 +46,8 @@ export const ProcurementProgressContainer: React.FC = () => {
 
     // --- Instantiate Logic Hook ---
     const logicProps = useProcurementProgressLogic({
-        prId: docId,
-        initialDocument: initialDoc as ProgressDocumentType | undefined, // Cast if necessary, or ensure types align
+        docId,
+        initialDocument: initialDoc as ProgressDocument | undefined, // Cast if necessary, or ensure types align
         allVendorsForRFQ: vendorOptionsForSelect,
         documentMutate: docMutate,
         currentUser,
@@ -96,7 +97,7 @@ export const ProcurementProgressContainer: React.FC = () => {
         } else if (initialDoc.doctype === "Sent Back Category") {
             isWorkflowStateValidForRFQ = initialDoc.workflow_state === "Pending";
             relevantWorkflowStates = "'Pending'";
-            listPagePath = `/sent-back-requests?tab=${initialDoc?.type}`;
+            listPagePath = `/sent-back-requests?tab=${(initialDoc as SentBackCategory)?.type}`;
         }
 
         if (!isWorkflowStateValidForRFQ) {

@@ -23,7 +23,7 @@ const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
 const ProjectInvoices = React.lazy(() => import("../ProjectInvoices/ProjectInvoices"));
 
 interface ProjectFinancialsTabProps {
-  projectData?: any
+  projectData?: Projects
   projectCustomer?: Customers;
   // updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
   getTotalAmountPaid: {

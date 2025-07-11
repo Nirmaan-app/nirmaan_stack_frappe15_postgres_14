@@ -1,40 +1,51 @@
-// src/features/procurement/approve-sb-quotes/hooks/useApproveSBSLogic.ts
+// Path: frontend/src/pages/Sent Back Requests/hooks/useApproveSBSLogic.ts
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useToast } from "@/components/ui/use-toast"; // Adjust path
-import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"; // Adjust path
-import { Vendors } from "@/types/NirmaanStack/Vendors"; // Adjust path
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"; // Adjust path
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations"; // Adjust path
-import { useSBQuoteApprovalApi } from './useSBQuoteApprovalApi';
+import { useToast } from "@/components/ui/use-toast";
+import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"; // Ensure SentBackCategoryItem is defined or use a generic item type
+import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests"; // Child table type
+import { Vendors } from "@/types/NirmaanStack/Vendors";
+// import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"; // Uncomment if getUserName is needed for SB flow
+import { useSBQuoteApprovalApi, ApproveSBPayload, SendBackSBPayload } from './useSBQuoteApprovalApi';
 import { v4 as uuidv4 } from "uuid";
 import { KeyedMutator } from 'swr';
-import { FrappeDoc } from 'frappe-react-sdk';
-import { SelectionState, VendorDataSourceItem, VendorItemDetails, VendorWiseData } from '@/pages/ProcurementRequests/ApproveVendorQuotes/types';
-import { ProcurementItem, RFQData } from '@/types/NirmaanStack/ProcurementRequests';
+import { FrappeDoc, useFrappeGetCall } from 'frappe-react-sdk';
+import {
+    VendorItemDetailsToDisplay, // Reused from PR types
+    VendorGroupForTable,      // Reused from PR types
+    SelectionState,           // Reused from PR types
+    TargetRateDetailFromAPI,
+    FrappeTargetRateApiResponse,
+    mapApiQuotesToApprovedQuotations,
+    ApprovedQuotationForHoverCard ,// Reused from PR types if hover card is identical
+    DynamicPaymentTerms
+} from '@/pages/ProcurementRequests/ApproveVendorQuotes/types'; // Import from PR approval types
+import { parseNumber } from '@/utils/parseNumber';
 import getLowestQuoteFilled from '@/utils/getLowestQuoteFilled';
-import getThreeMonthsLowestFiltered from '@/utils/getThreeMonthsLowest';
 
-// Define Props
+// If SentBackCategoryItem is not explicitly defined, you might use a generic or adapt ProcurementRequestItemDetail
+// For this example, assuming SentBackCategoryItem has fields compatible with ProcurementRequestItemDetail for display purposes
+// or that VendorItemDetailsToDisplay correctly maps them.
+
 interface UseApproveSBSLogicProps {
     sbId?: string;
-    initialSbData?: SentBackCategory; // Use the correct type
+    initialSbData?: FrappeDoc<SentBackCategory>; // This should contain an `order_list` of SentBackCategoryItem
     vendorList?: Vendors[];
-    quotesData?: ApprovedQuotations[];
-    usersList?: NirmaanUsers[];
-    sbMutate: KeyedMutator<FrappeDoc<SentBackCategory>>; // Mutator for SB doc
+    sbMutate: KeyedMutator<FrappeDoc<SentBackCategory>>;
+    // usersList?: NirmaanUsers[]; // Add if getUserName is needed
 }
 
-// Define Return Type (similar to PR logic return)
 export interface UseApproveSBSLogicReturn {
-    sentBackData?: SentBackCategory; // Renamed state variable
-    vendorDataSource: VendorDataSourceItem[];
+    sentBackData?: SentBackCategory; // The SB document with its order_list (pending items)
+    vendorDataSource: VendorGroupForTable[];
     selectionMap: SelectionState;
     isApproveDialogOpen: boolean;
     isSendBackDialogOpen: boolean;
     comment: string;
-    isLoading: boolean; // Combined loading state for actions
-    isSbEditable: boolean; // Can the user approve/reject?
+    isLoading: boolean;
+    isSbEditable: boolean;
+    targetRatesDataMap: Map<string, TargetRateDetailFromAPI>;
     handleSelectionChange: (newSelection: SelectionState) => void;
     handleCommentChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
     toggleApproveDialog: () => void;
@@ -42,259 +53,297 @@ export interface UseApproveSBSLogicReturn {
     handleApproveConfirm: () => Promise<void>;
     handleSendBackConfirm: () => Promise<void>;
     getVendorName: (vendorId: string | undefined) => string;
-    // getUserName: (userId: string | undefined) => string;
+      dynamicPaymentTerms: DynamicPaymentTerms; // ✨ EXPOSE state
+        setDynamicPaymentTerms: React.Dispatch<React.SetStateAction<DynamicPaymentTerms>>; //
+    // getUserName?: (userId: string | undefined) => string; // Add if needed
 }
 
 export const useApproveSBSLogic = ({
     sbId,
     initialSbData,
     vendorList = [],
-    quotesData = [],
-    usersList = [],
-    sbMutate, // Renamed prop
+    sbMutate,
+    // usersList = [], // Add if getUserName is needed
 }: UseApproveSBSLogicProps): UseApproveSBSLogicReturn => {
     const { toast } = useToast();
     const navigate = useNavigate();
-    // Use the correct API hook
     const { approveSBSelection, sendBackSBSelection, isLoading: isApiLoading } = useSBQuoteApprovalApi(sbId);
 
-    // --- State ---
-    const [sentBackData, setSentBackData] = useState<SentBackCategory | undefined>(undefined); // Renamed state
+    const [sentBackData, setSentBackData] = useState<SentBackCategory | undefined>(undefined);
     const [selectionMap, setSelectionMap] = useState<SelectionState>(new Map());
     const [isApproveDialogOpen, setApproveDialog] = useState<boolean>(false);
     const [isSendBackDialogOpen, setSendBackDialog] = useState<boolean>(false);
     const [comment, setComment] = useState<string>("");
+    const [itemIdsForTargetRateAPI, setItemIdsForTargetRateAPI] = useState<string[]>([]);
 
-    // --- Effects ---
-    // Initialize local state and parse JSON fields safely
+      // ✨ ADD state for dynamic payment terms
+        const [dynamicPaymentTerms, setDynamicPaymentTerms] = useState<DynamicPaymentTerms>({});
+
     useEffect(() => {
         if (initialSbData) {
-            try {
-                // Use item_list directly, no need to filter by status (all are pending)
-                // const items = initialSbData.item_list?.list || [];
-                const pendingItems = (typeof initialSbData.item_list === "string" ? JSON.parse(initialSbData.item_list)?.list : initialSbData.item_list?.list || [])
-                                    .filter((item: ProcurementItem) => item.status === 'Pending');
-                // Safe parsing of RFQ data
-                let parsedRfqData: RFQData = { selectedVendors: [], details: {} };
-                if (initialSbData.rfq_data && typeof initialSbData.rfq_data === 'object') {
-                    parsedRfqData = initialSbData.rfq_data;
-                } else if (typeof initialSbData.rfq_data === 'string') {
-                    parsedRfqData = JSON.parse(initialSbData.rfq_data || "{}");
-                }
+            let processedSbData = { ...initialSbData };
+            const pendingItems = processedSbData.order_list?.filter(item => item.status === 'Pending') || [];
+            processedSbData.order_list = Array.isArray(pendingItems) ? pendingItems : [];
 
-                setSentBackData({
-                    ...initialSbData,
-                    item_list: { list: pendingItems }, // Use the direct item list
-                    rfq_data: parsedRfqData,
-                });
-            } catch (error) {
-                console.error("Error processing initial Sent Back data:", error);
-                toast({ title: "Error", description: "Failed to load Sent Back details.", variant: "destructive" });
-                setSentBackData(undefined);
+            // Parse RFQData if it's a string (this RFQ data is copied from original PR to SB)
+            if (typeof initialSbData.rfq_data === 'string') {
+                try {
+                    processedSbData.rfq_data = JSON.parse(initialSbData.rfq_data || 'null') || { selectedVendors: [], details: {} };
+                } catch (e) {
+                    console.error("Error parsing SB rfq_data", e);
+                    processedSbData.rfq_data = { selectedVendors: [], details: {} };
+                }
+            } else if (!initialSbData.rfq_data) {
+                processedSbData.rfq_data = { selectedVendors: [], details: {} };
             }
+
+            setSentBackData(processedSbData);
+            const pendingItemActualIds = pendingItems.filter(item => item.item_id).map(item => item.item_id!);
+            setItemIdsForTargetRateAPI(pendingItemActualIds);
         } else {
             setSentBackData(undefined);
+            setItemIdsForTargetRateAPI([]);
         }
-    }, [initialSbData, toast]);
+    }, [initialSbData]);
 
-    // --- Memos ---
+    const {
+        data: targetRatesApiResponse,
+        isLoading: targetRatesLoading,
+        error: targetRatesError,
+    } = useFrappeGetCall<FrappeTargetRateApiResponse>(
+        'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list',
+        { item_ids_json: itemIdsForTargetRateAPI.length > 0 ? JSON.stringify(itemIdsForTargetRateAPI) : undefined },
+        itemIdsForTargetRateAPI.length > 0 ? `target_rates_for_sb_items_${sbId}_${itemIdsForTargetRateAPI.sort().join('_')}` : null,
+        { revalidateOnFocus: false }
+    );
+
+    const targetRatesDataMap = useMemo(() => {
+        const map = new Map<string, TargetRateDetailFromAPI>();
+        targetRatesApiResponse?.message?.forEach(tr => { if (tr.item_id) map.set(tr.item_id, tr); });
+        return map;
+    }, [targetRatesApiResponse]);
+
+    useEffect(() => {
+        if (targetRatesError) {
+            toast({ title: "Target Rate API Error (SB)", description: "Could not fetch target rates.", variant: "destructive" });
+        }
+    }, [targetRatesError, toast]);
+
+    const isLoadingHook = isApiLoading || targetRatesLoading;
+
     const vendorMap = useMemo(() => new Map(vendorList.map(v => [v.name, v.vendor_name])), [vendorList]);
-    const getVendorName = useCallback((id: string | undefined) => id ? vendorMap.get(id) || `Unknown (${id.substring(0, 6)})` : "N/A", [vendorMap]);
+    const getVendorName = useCallback((id?: string) => id ? vendorMap.get(id) || `Unknown (${id.substring(0, 6)})` : "N/A", [vendorMap]);
+    // const getUserName = useCallback((id?: string) => id ? usersList.find(u => u?.name === id)?.full_name || `Unknown (${id.substring(0,6)})` : "N/A", [usersList]);
 
-    // const getUserName = useCallback((id: string | undefined) => id ? usersList.find(u => u?.name === id)?.full_name || `Unknown (${id.substring(0, 6)})` : "N/A", [usersList]);
 
-    const getLowest = useCallback((itemId: string) => getLowestQuoteFilled(sentBackData, itemId), [sentBackData]); // Pass sentBackData
-    const getItemAvgRateAndAttributes = useCallback((itemId: string) => getThreeMonthsLowestFiltered(quotesData, itemId), [quotesData]);
+    const getLowestRateFromOriginalRfqForSB = useCallback((itemId: string): number => {
+        return getLowestQuoteFilled(sentBackData, itemId); // Pass currentSbDoc
+    }, [sentBackData]);
 
-    const vendorTotals = useMemo(() => {
-        const totals: { [vendorId: string]: number } = {};
-        // Use item_list here
-        sentBackData?.item_list?.list?.forEach(item => {
-            if (!item.vendor) return;
-            totals[item.vendor] = (totals[item.vendor] || 0) + (item.quote ?? 0) * (item.quantity ?? 0);
-        });
-        return totals;
-    }, [sentBackData?.item_list.list]); // Depend on item_list
+    const vendorDataSource = useMemo((): VendorGroupForTable[] => {
+        if (!sentBackData || !sentBackData.order_list) {
+            return [];
+        }
+        const vendorWiseData: Record<string, Omit<VendorGroupForTable, 'vendorId' | 'vendorName' | 'key'> & { key?: string }> = {};
 
-    const vendorDataSource = useMemo((): VendorDataSourceItem[] => {
-        const data: VendorWiseData = {};
-        // Use item_list here
-        sentBackData?.item_list?.list?.forEach(item => {
-            if (!item.vendor) return;
-            const vendorId = item.vendor;
-            const vendorName = getVendorName(vendorId);
-            const amount = (item.quote ?? 0) * (item.quantity ?? 0);
-            const threeMonthsLowest = getItemAvgRateAndAttributes(item.name)?.averageRate * 0.98;
-            const contributingQuotes = getItemAvgRateAndAttributes(item.name)?.contributingQuotes;
-            const lowestQuoted = getLowest(item.name) ?? 0;
+        sentBackData.order_list.forEach((sbItem: ProcurementRequestItemDetail) => { // Use specific type if available, else generic
+            if (!sbItem.vendor || sbItem.quote == null) {
+                console.warn(`SB item ${sbItem.item_id || sbItem.name} is missing vendor or quote. Skipping.`);
+                return;
+            }
+            const vendorId = sbItem.vendor;
+            if (!vendorWiseData[vendorId]) {
+                vendorWiseData[vendorId] = { totalAmount: 0, items: [], key: uuidv4() };
+            }
 
-            // Assert item as VendorItemDetails - might need adjustments based on SBItem vs ProcurementItem
-            const itemDetails: VendorItemDetails = {
-                ...item,
-                vendor_name: vendorName,
-                amount,
-                lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
-                // threeMonthsLowestAmount: threeMonthsLowest * (item.quantity ?? 0),
-                targetRate: threeMonthsLowest,
-                contributingQuotes,
-                targetAmount: threeMonthsLowest * (item.quantity ?? 0),
-                savingLoss: ((lowestQuoted || threeMonthsLowest) && item.quote) ? (((lowestQuoted && threeMonthsLowest) ? Math.min(lowestQuoted, threeMonthsLowest) : (lowestQuoted || threeMonthsLowest)) - (item.quote ?? 0)) * (item.quantity ?? 0) : undefined,
+            const quantity = parseNumber(sbItem.quantity);
+            const selectedRate = parseNumber(sbItem.quote);
+            const currentAmount = quantity * selectedRate;
+
+            const actualItemId = sbItem.item_id; // This is the key for target rates and RFQ lookup
+            const targetRateDetail = targetRatesDataMap.get(actualItemId);
+
+            let targetRateValue: number | undefined = undefined;
+            if (targetRateDetail?.rate) {
+                const parsedTargetRate = parseNumber(targetRateDetail.rate);
+                if (parsedTargetRate > 0) {
+                    targetRateValue = parsedTargetRate;
+                }
+            }
+
+            const lowestRateInOriginalRfqContext = getLowestRateFromOriginalRfqForSB(actualItemId);
+
+            const calculatedTargetAmount = (targetRateValue !== undefined)
+                ? targetRateValue * quantity * 0.98
+                : undefined;
+
+            const calculatedLowestQuotedAmountInRfq = (lowestRateInOriginalRfqContext !== undefined)
+                ? lowestRateInOriginalRfqContext * quantity
+                : undefined;
+
+            const displayItem: VendorItemDetailsToDisplay = {
+                // Map fields from SentBackCategoryItem to VendorItemDetailsToDisplay
+                name: sbItem.name, // Child docname, unique key for UI row
+                item_id: sbItem.item_id,
+                item_name: sbItem.item_name,
+                unit: sbItem.unit,
+                quantity: sbItem.quantity,
+                category: sbItem.category,
+                procurement_package: sbItem.procurement_package,
+                make: sbItem.make,
+                status: sbItem.status, // Should be "Pending"
+                tax: sbItem.tax,
+                comment: sbItem.comment,
+                vendor: sbItem.vendor, // The selected vendor for this SB item
+                quote: sbItem.quote,   // The selected quote for this SB item
+
+                // Fields from parent/doctype context if needed by VendorItemDetailsToDisplay, though sbItem might not have all of these.
+                // Ensure VendorItemDetailsToDisplay's non-optional fields are covered.
+                // These are standard child table fields, should be on sbItem
+                owner: sbItem.owner,
+                creation: sbItem.creation,
+                modified: sbItem.modified,
+                modified_by: sbItem.modified_by,
+                docstatus: sbItem.docstatus,
+                idx: sbItem.idx,
+                parent: sbItem.parent,
+                parentfield: sbItem.parentfield,
+                parenttype: sbItem.parenttype,
+                doctype: sbItem.doctype, // doctype of the child item itself
+
+                // Augmented fields for UI
+                vendor_name: getVendorName(vendorId),
+                amount: currentAmount,
+                lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
+                targetRate: targetRateValue,
+                targetAmount: calculatedTargetAmount,
+                contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+                savingLoss: undefined, // Initialize
             };
 
-            if (!data[vendorId]) {
-                data[vendorId] = {
-                    totalAmount: vendorTotals[vendorId] || 0,
-                    key: uuidv4(),
-                    items: [],
-                };
+            let benchmarkAmount: number | undefined = undefined;
+            if (displayItem.targetAmount !== undefined && displayItem.lowestQuotedAmountForItem !== undefined) {
+                benchmarkAmount = Math.min(displayItem.targetAmount, displayItem.lowestQuotedAmountForItem);
+            } else if (displayItem.targetAmount !== undefined) {
+                benchmarkAmount = displayItem.targetAmount;
+            } else if (displayItem.lowestQuotedAmountForItem !== undefined) {
+                benchmarkAmount = displayItem.lowestQuotedAmountForItem;
             }
-            data[vendorId].items.push(itemDetails);
+
+            if (benchmarkAmount !== undefined && !isNaN(currentAmount)) {
+                displayItem.savingLoss = benchmarkAmount - currentAmount;
+            }
+
+            vendorWiseData[vendorId].items.push(displayItem);
+            vendorWiseData[vendorId].totalAmount += currentAmount;
         });
 
-         Object.values(data).forEach(vendorGroup => {
-             vendorGroup.potentialSavingLoss = vendorGroup.items.reduce((sum, item) => sum + (item.savingLoss ?? 0), 0);
-         });
-
-        return Object.entries(data)
-            .sort(([idA], [idB]) => (getVendorName(idA)).localeCompare(getVendorName(idB)))
+        return Object.entries(vendorWiseData)
             .map(([vendorId, groupData]) => ({
-                key: groupData.key,
                 vendorId,
                 vendorName: getVendorName(vendorId),
                 totalAmount: groupData.totalAmount,
                 items: groupData.items,
-                potentialSavingLoss: groupData.potentialSavingLoss,
-            }));
-    }, [sentBackData?.item_list.list, getVendorName, getLowest, getItemAvgRateAndAttributes, vendorTotals]); // Depend on item_list
+                key: groupData.key || uuidv4(), // Ensure key is present
+                potentialSavingLossForVendor: groupData.items.reduce((sum, item) => sum + (item.savingLoss || 0), 0),
+            }))
+            .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+    }, [sentBackData, getVendorName, targetRatesDataMap, vendorMap, getLowestRateFromOriginalRfqForSB]);
 
-    // --- Callbacks ---
-    const handleSelectionChange = useCallback((newSelection: SelectionState) => {
-        setSelectionMap(newSelection);
-    }, []);
-
-    const handleCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setComment(e.target.value);
-    }, []);
-
+    const handleSelectionChange = useCallback((newSelection: SelectionState) => setSelectionMap(newSelection), []);
+    const handleCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => setComment(e.target.value), []);
     const toggleApproveDialog = useCallback(() => setApproveDialog(prev => !prev), []);
     const toggleSendBackDialog = useCallback(() => setSendBackDialog(prev => !prev), []);
 
-    // --- Approve Confirmation ---
     const handleApproveConfirm = useCallback(async () => {
         if (!sentBackData || selectionMap.size === 0) {
-            toast({ title: "No Selection", description: "Please select items to approve.", variant: "destructive" });
+            toast({ title: "No Selection", description: "Please select items to approve from SB.", variant: "destructive" });
             return;
         }
+        const selectedItemsForPayload: string[] = []; // Should contain item_id
+        const vendorSelectionMapForPayload: { [itemId: string]: string } = {};
 
-        const selectedItemNames: string[] = [];
-        const vendorSelectionMap: { [itemName: string]: string } = {};
-        selectionMap.forEach((itemSet, vendorId) => {
-            itemSet.forEach(itemName => {
-                selectedItemNames.push(itemName);
-                vendorSelectionMap[itemName] = vendorId;
+        selectionMap.forEach((itemIdsSet, vendorId) => {
+            itemIdsSet.forEach(itemIdValue => {
+                selectedItemsForPayload.push(itemIdValue);
+                vendorSelectionMapForPayload[itemIdValue] = vendorId;
             });
         });
 
-        if (selectedItemNames.length === 0) {
-             toast({ title: "No Selection", description: "No valid items found in selection.", variant: "destructive" });
-             return;
+        if (selectedItemsForPayload.length === 0) {
+            toast({ title: "No Selection", description: "No valid items found in selection for SB.", variant: "destructive" });
+            return;
         }
 
         try {
-            const payload = {
-                project_id: sentBackData.project, // Get project from SB data
-                sb_id: sentBackData.name, // Use SB ID
-                selected_items: selectedItemNames,
-                selected_vendors: vendorSelectionMap,
+            const payload: ApproveSBPayload = {
+                project_id: sentBackData.project, // Project from SB document
+                sb_id: sentBackData.name,
+                selected_items: selectedItemsForPayload, // These are actual item_ids
+                selected_vendors: vendorSelectionMapForPayload, // Keys are actual item_ids
+                  // ✨ ADD dynamic payment terms to the payload
+                payment_terms: JSON.stringify(dynamicPaymentTerms),
             };
-
-            const response = await approveSBSelection(payload); // Use SB API function
-
+            const response = await approveSBSelection(payload);
+            console.log("Response from backend:", response);
             if (response?.message?.status === 200) {
-                toast({ title: "Success!", description: response.message.message || "Items approved successfully.", variant: "success" });
-                setSelectionMap(new Map());
-                toggleApproveDialog();
-                await sbMutate(); // Use SB mutate
-                const allItems = sentBackData.item_list.list.map(i => i.name);
-                if (selectedItemNames.length === allItems.length) {
-                     navigate('/purchase-orders?tab=Approve Sent Back PO'); // Adjust navigation
-                 }
-            } else {
-                 throw new Error(response?.message?.error || "Approval failed.");
-             }
+                toast({ title: "Success!", description: response.message.message || "Items approved from SB.", variant: "success" });
+                setSelectionMap(new Map()); toggleApproveDialog(); await sbMutate();
+                const allPendingInSBData = (sentBackData.order_list || []).map(i => i.item_id!);
+                if (selectedItemsForPayload.length === allPendingInSBData.length) {
+                    navigate('/purchase-orders?tab=Approve Sent Back PO'); // Adjust as needed
+                }
+            } else { throw new Error(response?.message?.error || "SB Approval failed."); }
         } catch (error: any) {
-            console.error("Error approving Sent Back selection:", error);
-            toast({ title: "Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
+            console.error("Error approving SB selection:", error);
+            toast({ title: "SB Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
-    }, [sentBackData, selectionMap, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast]);
+    }, [sentBackData, selectionMap, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast,dynamicPaymentTerms]);
 
-    // --- Send Back Confirmation ---
     const handleSendBackConfirm = useCallback(async () => {
         if (!sentBackData || selectionMap.size === 0) {
-             toast({ title: "No Selection", description: "Please select items to send back.", variant: "destructive" });
-             return;
-         }
+            toast({ title: "No Selection", description: "Please select items to send back from SB.", variant: "destructive" });
+            return;
+        }
+        const selectedItemsForPayload: string[] = []; // Should contain item_id
+        selectionMap.forEach(itemIdsSet => itemIdsSet.forEach(itemId => selectedItemsForPayload.push(itemId)));
 
-        const selectedItemNames: string[] = [];
-        selectionMap.forEach((itemSet) => {
-            itemSet.forEach(itemName => selectedItemNames.push(itemName));
-        });
-
-        if (selectedItemNames.length === 0) {
-             toast({ title: "No Selection", description: "No valid items found.", variant: "destructive" });
-             return;
-         }
+        if (selectedItemsForPayload.length === 0) {
+            toast({ title: "No Selection", description: "No valid items found in SB selection.", variant: "destructive" });
+            return;
+        }
 
         try {
-             const payload = {
-                 sb_id: sentBackData.name, // Use SB ID
-                 selected_items: selectedItemNames,
-                 comment: comment || undefined,
-             };
-
-             const response = await sendBackSBSelection(payload); // Use SB API function
-
-             if (response?.message?.status === 200) {
-                  toast({ title: "Success!", description: response.message.message || "Selected items sent back.", variant: "success" });
-                  setSelectionMap(new Map());
-                  toggleSendBackDialog();
-                  setComment("");
-                  await sbMutate(); // Use SB mutate
-                  const allItems = sentBackData.item_list.list.map(i => i.name);
-                  if (selectedItemNames.length === allItems.length) {
-                      navigate('/purchase-orders?tab=Approve Sent Back PO'); // Adjust navigation
-                  }
-              } else {
-                  throw new Error(response?.message?.error || "Send back failed.");
-              }
-         } catch (error: any) {
-             console.error("Error sending back Sent Back items:", error);
-             toast({ title: "Send Back Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
-         }
+            const payload: SendBackSBPayload = {
+                sb_id: sentBackData.name,
+                selected_items: selectedItemsForPayload,
+                comment: comment || undefined,
+            };
+            console.log("Sending back SB payload:", payload);
+            const response = await sendBackSBSelection(payload);
+            console.log("Send back SB response:", response);
+            if (response?.message?.status === 200) {
+                toast({ title: "Success!", description: response.message.message || "Items sent back from SB.", variant: "success" });
+                setSelectionMap(new Map()); toggleSendBackDialog(); setComment(""); await sbMutate();
+                const allPendingInSBData = (sentBackData.order_list || []).map(i => i.item_id!);
+                if (selectedItemsForPayload.length === allPendingInSBData.length) {
+                    navigate('/purchase-orders?tab=Approve Sent Back PO'); // Adjust as needed
+                }
+            } else { throw new Error(response?.message?.error || "SB Send back failed."); }
+        } catch (error: any) {
+            console.error("Error sending back SB items:", error);
+            toast({ title: "SB Send Back Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
+        }
     }, [sentBackData, selectionMap, comment, sendBackSBSelection, sbMutate, navigate, toggleSendBackDialog, toast]);
 
-     // Determine if actions should be enabled based on SB workflow state
-     const isSbEditable = useMemo(() => {
-         return ["Vendor Selected", "Partially Approved"].includes(sentBackData?.workflow_state || "");
-     }, [sentBackData?.workflow_state]);
+    const isSbEditable = useMemo(() => ["Vendor Selected", "Partially Approved"].includes(sentBackData?.workflow_state || ""), [sentBackData?.workflow_state]);
 
-    // --- Return ---
     return {
-        sentBackData, // Renamed state
-        vendorDataSource,
-        selectionMap,
-        isApproveDialogOpen,
-        isSendBackDialogOpen,
-        comment,
-        isLoading: isApiLoading,
-        isSbEditable, // Renamed state
-        handleSelectionChange,
-        handleCommentChange,
-        toggleApproveDialog,
-        toggleSendBackDialog,
-        handleApproveConfirm,
-        handleSendBackConfirm,
-        getVendorName,
-        // getUserName
+        sentBackData, vendorDataSource, selectionMap, isApproveDialogOpen, isSendBackDialogOpen,
+        comment, isLoading: isLoadingHook, isSbEditable, targetRatesDataMap,
+        handleSelectionChange, handleCommentChange, toggleApproveDialog, toggleSendBackDialog,
+        handleApproveConfirm, handleSendBackConfirm, getVendorName,
+          dynamicPaymentTerms, setDynamicPaymentTerms, // ✨ EXPORT state and setter
+        // getUserName // Add if implemented
     };
 };

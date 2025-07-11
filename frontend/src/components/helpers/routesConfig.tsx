@@ -49,6 +49,7 @@ import Profile from "@/pages/users/user-profile";
 import Users from "@/pages/users/users";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import Vendors from "@/pages/vendors/VendorsPage";
+import  CreditsPage  from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
@@ -286,6 +287,13 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <RenderProjectPaymentsComponent /> },
               { path: ":id", element: <OrderPaymentSummary /> } // Consider :paymentId or :orderId for clarity
             ]
+          },
+           // --- Project Payments ---
+          {
+            path: "credits",
+            children: [
+              { index: true, element: <CreditsPage /> },
+            ] 
           },
           {
             path: "in-flow-payments",
