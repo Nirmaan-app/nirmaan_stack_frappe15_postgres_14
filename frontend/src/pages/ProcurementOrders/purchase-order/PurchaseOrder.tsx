@@ -845,12 +845,11 @@ export const PurchaseOrder = ({
     [poPayments]
   );
 
-  const getUserName = useMemo(
-    () => (id: string | undefined) => {
-      return usersList?.find((user) => user?.name === id)?.full_name || "";
-    },
-    [usersList]
-  );
+
+  const getUserName = useMemo(() => (id: string | undefined) => {
+    return usersList?.find((user) => user?.name === id)?.full_name || ""
+  }, [usersList]);
+  
 
   const MERGEPOVALIDATIONS = useMemo(
     () =>
@@ -879,9 +878,6 @@ export const PurchaseOrder = ({
 
   const totalInvoiceAmount = useMemo(() => getTotalInvoiceAmount((PO?.invoice_data || [])), [PO]);
 
-  const getUserName = useMemo(() => (id: string | undefined) => {
-    return usersList?.find((user) => user?.name === id)?.full_name || ""
-  }, [usersList]);
   const AMENDPOVALIDATION = useMemo(
     () =>
       !summaryPage &&
