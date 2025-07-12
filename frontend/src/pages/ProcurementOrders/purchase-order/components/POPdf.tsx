@@ -3,6 +3,7 @@ import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import {
   ProcurementOrder,
   PurchaseOrderItem,
+  PaymentTerm,POTotals
 } from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
@@ -19,13 +20,9 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 interface POPdfProps {
   po: ProcurementOrder | null;
   orderData?: PurchaseOrderItem[];
-
+paymentTerms?: PaymentTerm[];
   // includeComments: boolean
-  getTotal: {
-    total: number;
-    totalAmt: number;
-    totalGst: number;
-  };
+  POTotals?:POTotals;
   // advance: number
   // materialReadiness: number
   // afterDelivery: number
@@ -41,13 +38,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 export const POPdf: React.FC<POPdfProps> = ({
   po,
   orderData,
-  getTotal,
+  POTotals,
+  paymentTerms,
   poPdfSheet,
   togglePoPdfSheet,
 }) => {
   if (!po) return <div>No PO ID Provided</div>;
   const componentRef = useRef<HTMLDivElement>(null);
 
+   const finalPaymentTerms = paymentTerms && paymentTerms.length > 0 ? paymentTerms : po?.payment_terms;
+  
   const { data: attachmentsData } = useFrappeGetDocList(
     "Nirmaan Attachments",
     {
@@ -396,34 +396,34 @@ export const POPdf: React.FC<POPdfProps> = ({
 
                     <td className="space-y-4 py-4 text-sm font-bold whitespace-nowrap">
                       <div className="ml-4">
-                      {formatToIndianRupee(po?.amount)}
+                      {formatToIndianRupee(POTotals?.totalBase)}
                     </div>
                       <div className="ml-4">
-                        {formatToIndianRupee(po?.tax_amount)}
+                        {formatToIndianRupee(POTotals?.totalTax)}
                       </div>
                       <div className="ml-4">
                         {" "}
                         {formatToIndianRupee(
-                          (getTotal?.totalAmt -
-                            Math.round(getTotal?.totalAmt)) *
+                          (POTotals?.grandTotal -
+                            Math.round(POTotals?.grandTotal)) *
                             -1
                         )}
                       </div>
                       <div className="ml-4">
-                        {formatToIndianRupee(Math.round(po?.total_amount))}
+                        {formatToIndianRupee(Math.round(POTotals?.grandTotal))}
                       </div>
                     </td>
                   </tr>
                   <tr className="">
                     <td colSpan={6}>
-                      {po?.payment_terms.length > 0 && (
+                      {finalPaymentTerms.length > 0 && (
                         <div className="mb-4">
                           <div className="text-gray-600 font-bold text-sm py-2">
                             Payment
                           </div>
                           <ul className="list-disc list-inside space-y-1 text-sm text-gray-900">
                             <li>
-                              {po?.payment_terms
+                              {finalPaymentTerms
                                 // 1. (Optional but Recommended) Filter out terms with no value
                                 .filter(
                                   (term) => parseFloat(term.percentage) > 0

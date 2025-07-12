@@ -74,7 +74,12 @@ import {
 } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
+import {
+  getPOTotal,
+  getTotalAmountPaid,
+  getTotalInvoiceAmount,
+  getPreviewTotal,
+} from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
 import {
@@ -106,7 +111,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import DeliveryHistory from "@/pages/DeliveryNotes/components/DeliveryHistory";
+import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
@@ -116,6 +121,9 @@ import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
+import {safeJsonParse} from "@/pages/DeliveryNotes/constants";
+
+import { PaymentTerm ,POTotals,DeliveryDataType} from "@/types/NirmaanStack/ProcurementOrders";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -138,7 +146,7 @@ export const PurchaseOrder = ({
   const params = useParams();
   const id = summaryPage ? params.poId : params.id;
 
-  if (!id) return <div>No PO ID Provided</div>
+  if (!id) return <div>No PO ID Provided</div>;
 
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
@@ -154,7 +162,6 @@ export const PurchaseOrder = ({
   } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
   //  const { data: pos } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
 
-  // console.log("POs",po)
 
   // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
   const { triggerHistoryPrint, PrintableHistoryComponent } =
@@ -181,6 +188,8 @@ export const PurchaseOrder = ({
       const doc = po;
       setPO(doc);
       setOrderData(doc?.items || []);
+      // --- NEW: Initialize payment terms with the current PO's terms ---
+      setMergedPaymentTerms(doc?.payment_terms || []);
     }
   }, [po]);
 
@@ -194,6 +203,11 @@ export const PurchaseOrder = ({
   const [mergeablePOs, setMergeablePOs] = useState<ProcurementOrder[]>([]);
   const [mergedItems, setMergedItems] = useState<ProcurementOrder[]>([]);
   const [prevMergedPOs, setPrevMergedPos] = useState<ProcurementOrder[]>([]);
+
+  // --- NEW: State for merged payment terms ---
+  const [mergedPaymentTerms, setMergedPaymentTerms] = useState<PaymentTerm[]>(
+    []
+  );
 
   const [loadingFuncName, setLoadingFuncName] = useState<string>("");
 
@@ -295,14 +309,33 @@ export const PurchaseOrder = ({
       "nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos"
     );
 
-  const {
-    data: associated_po_list,
-    error: associated_po_list_error,
-    isLoading: associated_po_list_loading,
-  } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-    fields: ["*"],
-    limit: 100000,
-  });
+  const { data: potentialMergePOsList, isLoading: listIsLoading } =
+    useFrappeGetDocList<ProcurementOrder>(
+      "Procurement Orders",
+      // This is the key: The query only runs if `po` exists.
+      po
+        ? {
+            // We only need fields for the final client-side filtering steps.
+            // We CANNOT get `items` or `payment_terms` here.
+            fields: ["name", "custom"],
+
+            // These filters are now run efficiently on the backend database!
+            filters: [
+              ["project", "=", po.project],
+              ["vendor", "=", po.vendor],
+              ["status", "=", "PO Approved"],
+              ["docstatus", "!=", 2],
+              ["name", "!=", poId],
+            ],
+            limit: 1000,
+          }
+        : null // This `null` is what pauses the hook, preventing the error.
+    );
+
+  const { call: fetchFullPoDetails, loading: fullPoDetailsLoading } =
+    useFrappePostCall(
+      "nirmaan_stack.api.po_merge_and_unmerge.get_full_po_details" // This path looks correct based on your Python file
+    );
 
   const {
     data: usersList,
@@ -339,29 +372,76 @@ export const PurchaseOrder = ({
       limit: 1000,
     });
 
+  // +++ ADD THE FOLLOWING NEW CODE +++
+
+  // ---
+  // STEP 2.3: The NEW useEffect that connects everything together.
+  // ---
   useEffect(() => {
-    if (associated_po_list && associated_po_list?.length > 0) {
-      if (PO?.status === "PO Approved") {
-        const mergeablePOs = associated_po_list.filter(
-          (item) =>
-            item.project === PO?.project &&
-            item.vendor === PO?.vendor &&
-            item.status === "PO Approved" &&
-            item.name !== poId &&
-            item?.custom != "true" &&
-            !AllPoPaymentsList?.some((j) => j?.document_name === item.name)
-          // item.merged !== "true" &&
-        );
-        setMergeablePOs(mergeablePOs);
-        if (PO?.merged === "true") {
-          const mergedPOs = associated_po_list.filter(
-            (po) => po?.merged === poId
-          );
-          setPrevMergedPos(mergedPOs);
-        }
-      }
+    console.log("STEP 1: Initial list from database:", potentialMergePOsList);
+
+    // Wait until the main PO and the efficient list of names are ready.
+    if (!potentialMergePOsList || !po || !AllPoPaymentsList) return;
+
+    // A. Perform the final filtering that MUST be done on the frontend.
+    //    (Checking against the AllPoPaymentsList is easier here).
+    const mergeablePoNames = potentialMergePOsList
+      .filter(
+        (item) =>
+          item.custom !== "true" &&
+          !AllPoPaymentsList.some((j) => j.document_name === item.name)
+      )
+      .map((item) => item.name); // We only need the names for the next step.
+
+    // B. If we have names, call our backend function to get the FULL documents.
+    console.log("STEP 2: Names after client-side filter:", mergeablePoNames);
+    if (mergeablePoNames.length > 0) {
+      fetchFullPoDetails({ po_names: mergeablePoNames })
+        .then((fullDocs) => {
+          // `fullDocs` is now an array of POs WITH `items` and `payment_terms`.
+
+          // Now we can do the final payment type check on the full data.
+
+          // +++ REPLACE WITH THIS +++
+          const mainPoPaymentType = po.payment_terms?.[0]?.payment_type;
+
+          // If the main PO has no payment terms, then nothing is mergeable.
+          if (!mainPoPaymentType) {
+            console.log(
+              "Final Filter: Main PO has no payment terms. Result is an empty list."
+            );
+            setMergeablePOs([]);
+          } else {
+            console.log("fullDocs:", fullDocs);
+            const finalMergeablePOs = fullDocs.message?.filter((doc) => {
+              const docPaymentType = doc.payment_terms?.[0]?.payment_type;
+
+              // This check is now explicit:
+              // 1. The other PO must HAVE a payment type.
+              // 2. That type must MATCH the main PO's type.
+              return docPaymentType && docPaymentType === mainPoPaymentType;
+            });
+
+            console.log(
+              "Final Filter: The final list of mergeable POs is:",
+              finalMergeablePOs
+            );
+            setMergeablePOs(finalMergeablePOs);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to fetch full PO details:", err);
+          toast({ variant: "destructive", title: "Error fetching PO details" });
+        });
+    } else {
+      setMergeablePOs([]); // No POs matched all criteria.
     }
-  }, [associated_po_list, PO, AllPoPaymentsList]);
+  }, [potentialMergePOsList, po, AllPoPaymentsList, fetchFullPoDetails]);
+
+  const deliveryHistory = useMemo(() =>
+      safeJsonParse<{ data: DeliveryDataType }>(PO?.delivery_data, { data: {} }),
+      [PO?.delivery_data]
+    );
 
   useEffect(() => {
     if (!mergeSheet) {
@@ -372,33 +452,87 @@ export const PurchaseOrder = ({
   const getTotal = useMemo(() => {
     return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
   }, [PO]);
+  // --- NEW: Helper function to calculate merged terms ---
+  // --- REPLACE with this corrected function ---
+  // PurchaseOrder.tsx
 
+  const previewTotal=useMemo<POTotals>(()=>{
+    return getPreviewTotal(orderData);
+  },[orderData,setOrderData,PO])
+// --- REPLACE with this corrected function ---
+const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPOs: ProcurementOrder[]) => {
+  const allPOs = [basePO, ...additionalPOs];
+  const combinedTerms: { [label: string]: PaymentTerm } = {};
+
+  allPOs.forEach(p => {
+    (p.payment_terms || []).forEach(term => {
+      // Ensure the amount from the API is a number
+      const termAmount = parseFloat(String(term.amount)) || 0;
+
+      if (combinedTerms[term.label]) {
+        // --- THE FIX IS HERE ---
+        // Ensure we are doing MATH (number + number), not joining strings.
+        combinedTerms[term.label].amount = (combinedTerms[term.label].amount || 0) + termAmount;
+
+        // The rest of your logic for due_date is fine
+        if (
+          term.payment_type === 'Credit' && 
+          combinedTerms[term.label].payment_type === 'Credit' && 
+          term.due_date && 
+          combinedTerms[term.label].due_date
+        ) {
+          if (new Date(term.due_date) > new Date(combinedTerms[term.label].due_date!)) {
+            combinedTerms[term.label].due_date = term.due_date;
+          }
+        }
+      } else {
+        // When adding a new term, also ensure its amount is a number
+        combinedTerms[term.label] = { ...term, amount: termAmount };
+      }
+    });
+  });
+
+  return Object.values(combinedTerms);
+}, []);
+
+  // --- UPDATE: handleMerge function ---
   const handleMerge = (poToMerge: ProcurementOrder) => {
-    // Get the items array directly from the PO to be merged.
-    const itemsToMerge = poToMerge.items || [];
-
-    // Tag each item with its original PO name for tracking, same as the old logic.
-    const taggedItems = itemsToMerge.map((item) => ({
+    // Merge items (existing logic)
+    const taggedItems = (poToMerge.items || []).map((item) => ({
       ...item,
       po: poToMerge.name,
     }));
-
-    // Correctly append the new items to the existing orderData ARRAY.
     setOrderData((currentOrderData) => [...currentOrderData, ...taggedItems]);
 
-    setMergedItems((prev) => [...prev, poToMerge]);
+    const newMergedItems = [...mergedItems, poToMerge];
+    setMergedItems(newMergedItems);
+
+    console.log("handleMerge: Tagged Items", taggedItems, orderData);
+    console.log("newMergedItems", newMergedItems);
+    // --- NEW: Recalculate and set merged payment terms ---
+    if (PO) {
+      const newMergedPaymentTerms = calculateMergedTerms(PO, newMergedItems);
+      setMergedPaymentTerms(newMergedPaymentTerms);
+    }
   };
 
+  // --- UPDATE: handleUnmerge function ---
   const handleUnmerge = (poToUnmerge: ProcurementOrder) => {
-    // Directly filter the orderData ARRAY, removing items that match the unmerged PO's name.
+    // Unmerge items (existing logic)
     setOrderData((currentOrderData) =>
       currentOrderData.filter((item) => item.po !== poToUnmerge.name)
     );
 
-    // Remove the PO from the list of merged items.
-    setMergedItems((prev) =>
-      prev.filter((mergedPo) => mergedPo.name !== poToUnmerge.name)
+    const newMergedItems = mergedItems.filter(
+      (mergedPo) => mergedPo.name !== poToUnmerge.name
     );
+    setMergedItems(newMergedItems);
+
+    // --- NEW: Recalculate and set merged payment terms ---
+    if (PO) {
+      const newMergedPaymentTerms = calculateMergedTerms(PO, newMergedItems);
+      setMergedPaymentTerms(newMergedPaymentTerms);
+    }
   };
 
   const handleUnmergeAll = () => {
@@ -410,16 +544,23 @@ export const PurchaseOrder = ({
       );
 
       setMergedItems([]);
+      // --- NEW: Reset payment terms back to the original PO's terms ---
+      setMergedPaymentTerms(PO?.payment_terms || []);
     }
   };
 
   const handleMergePOs = async () => {
     try {
+      const sanitizedOrderData = orderData.map(
+        ({ po, ...restOfItem }) => restOfItem
+      );
       // Call the backend API for merging POs
+      console.log("payload",poId,mergedItems,sanitizedOrderData,mergedPaymentTerms)
       const response = await mergePOCall({
         po_id: poId,
         merged_items: mergedItems,
-        order_data: orderData,
+        order_data: sanitizedOrderData, // Use the sanitized list
+        payment_terms: mergedPaymentTerms,
       });
 
       if (response.message.status === 200) {
@@ -461,34 +602,32 @@ export const PurchaseOrder = ({
     }
   };
 
-  const handleUnmergePOs = async () => {
+ const handleUnmergePOs = async () => {
     try {
-      // Call the backend API for unmerging POs
+      // The payload is simple: just the ID of the master PO.
+      // The backend will handle the rest.
       const response = await unMergePOCall({
         po_id: poId,
-        prev_merged_pos: prevMergedPOs,
       });
 
+      // Handle the success or error response from the backend
       if (response.message.status === 200) {
         toggleUnMergeDialog();
-
         toast({
           title: "Success!",
           description: response.message.message,
           variant: "success",
         });
-
-        setIsRedirecting(true); // Show overlay
-
+        setIsRedirecting(true);
         setTimeout(() => {
           setIsRedirecting(false);
           navigate(`/purchase-orders?tab=Approved%20PO`);
           window.location.reload();
-        }, 1000); // Small delay ensures UI has time to update
+        }, 1000);
       } else if (response.message.status === 400) {
         toast({
           title: "Error!",
-          description: response.message.error,
+          description: response.message.error, // Display the error from the backend
           variant: "destructive",
         });
       }
@@ -845,11 +984,12 @@ export const PurchaseOrder = ({
     [poPayments]
   );
 
-
-  const getUserName = useMemo(() => (id: string | undefined) => {
-    return usersList?.find((user) => user?.name === id)?.full_name || ""
-  }, [usersList]);
-  
+  const getUserName = useMemo(
+    () => (id: string | undefined) => {
+      return usersList?.find((user) => user?.name === id)?.full_name || "";
+    },
+    [usersList]
+  );
 
   const MERGEPOVALIDATIONS = useMemo(
     () =>
@@ -876,7 +1016,10 @@ export const PurchaseOrder = ({
     [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
   );
 
-  const totalInvoiceAmount = useMemo(() => getTotalInvoiceAmount((PO?.invoice_data || [])), [PO]);
+  const totalInvoiceAmount = useMemo(
+    () => getTotalInvoiceAmount(PO?.invoice_data || []),
+    [PO]
+  );
 
   const AMENDPOVALIDATION = useMemo(
     () =>
@@ -884,7 +1027,8 @@ export const PurchaseOrder = ({
       !accountsPage &&
       !estimatesViewing &&
       ["PO Approved"].includes(PO?.status) &&
-      PO?.merged !== "true" && [ // !((poPayments || [])?.length > 0),
+      PO?.merged !== "true" && [
+        // !((poPayments || [])?.length > 0),
         PO,
         poPayments,
         summaryPage,
@@ -918,12 +1062,14 @@ export const PurchaseOrder = ({
     // vendor_address_loading ||
     // project_address_loading ||
     usersListLoading ||
-    associated_po_list_loading ||
+    // associated_po_list_loading ||
+    listIsLoading || // Use the new loading state from our list hook
+    fullPoDetailsLoading || // Use the loading state from our full details hook
     poPaymentsLoading
   )
     return <LoadingFallback />;
   if (
-    associated_po_list_error ||
+    // associated_po_list_error ||
     // vendor_address_error ||
     // project_address_error ||
     usersListError ||
@@ -933,7 +1079,7 @@ export const PurchaseOrder = ({
     return (
       <AlertDestructive
         error={
-          associated_po_list_error ||
+        
           usersListError ||
           poError ||
           poPaymentsError
@@ -1066,27 +1212,21 @@ export const PurchaseOrder = ({
                                 {poId?.slice(3, 6)}/
                                 {PO?.procurement_request?.slice(9)}
                               </TableCell>
-                              <TableCell>
-                                {orderData?.list?.filter((i) => !i?.po)?.length}
-                              </TableCell>
+                              <TableCell>{PO?.items?.length}</TableCell>
                               <TableCell>
                                 <ul className="list-disc">
-                                  {orderData?.list
-                                    ?.filter((i) => !i?.po)
-                                    ?.map((j) => (
-                                      <li key={j?.item}>
-                                        {j?.item}{" "}
-                                        <span>(Qty-{j?.quantity})</span>
-                                        <p className="text-primary text-sm">
-                                          Make:{" "}
-                                          <span className="text-xs text-gray-500 italic">
-                                            {j?.makes?.list?.find(
-                                              (k) => k?.enabled === "true"
-                                            )?.make || "--"}
-                                          </span>
-                                        </p>
-                                      </li>
-                                    ))}
+                                  {PO?.items?.map((j) => (
+                                    <li key={j?.name}>
+                                      {j?.item_name}{" "}
+                                      <span>(Qty-{j?.quantity})</span>
+                                      <p className="text-primary text-sm">
+                                        Make:{" "}
+                                        <span className="text-xs text-gray-500 italic">
+                                          {j?.make || "--"}
+                                        </span>
+                                      </p>
+                                    </li>
+                                  ))}
                                 </ul>
                               </TableCell>
                               <TableCell>
@@ -1101,13 +1241,13 @@ export const PurchaseOrder = ({
                               </TableCell>
                             </TableRow>
                             {mergeablePOs.map((po) => {
-                              // Helper function to check if merge should be disabled
-                              const isMergeDisabled = po.order_list?.list.some(
+                              // CORRECTED: Helper function now uses .items
+                              const isMergeDisabled = po.items.some(
                                 (poItem) => {
-                                  // Check if any item in orderData has the same name but different rate
-                                  return orderData?.list?.some(
+                                  return orderData?.some(
                                     (currentItem) =>
-                                      currentItem.name === poItem.name &&
+                                      currentItem.item_name ===
+                                        poItem.item_name &&
                                       currentItem.quote !== poItem.quote
                                   );
                                 }
@@ -1119,21 +1259,17 @@ export const PurchaseOrder = ({
                                     {po?.name?.slice(3, 6)}/
                                     {po?.procurement_request?.slice(9)}
                                   </TableCell>
-                                  <TableCell>
-                                    {po.order_list?.list.length}
-                                  </TableCell>
+                                  <TableCell>{po.items.length}</TableCell>
                                   <TableCell>
                                     <ul className="list-disc">
-                                      {po?.order_list?.list?.map((i) => (
-                                        <li key={i?.item}>
-                                          {i?.item}{" "}
+                                      {po?.items?.map((i) => (
+                                        <li key={i?.name}>
+                                          {i?.item_name}{" "}
                                           <span>(Qty-{i?.quantity})</span>
                                           <p className="text-primary text-sm">
                                             Make:{" "}
                                             <span className="text-xs text-gray-500 italic">
-                                              {i?.makes?.list?.find(
-                                                (k) => k?.enabled === "true"
-                                              )?.make || "--"}
+                                              {i?.make || "--"}
                                             </span>
                                           </p>
                                         </li>
@@ -1402,7 +1538,9 @@ export const PurchaseOrder = ({
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
+                  {["Partially Delivered", "Delivered"].includes(
+                    PO?.status
+                  ) && <col className="w-[5%]" />}
                 </colgroup>
                 <thead className="bg-red-100">
                   <tr className="text-sm font-semibold text-gray-700">
@@ -1430,7 +1568,9 @@ export const PurchaseOrder = ({
                     <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
                       Amount (incl.GST)
                     </th>
-                    {["Partially Delivered", "Delivered"].includes(PO?.status) && (
+                    {["Partially Delivered", "Delivered"].includes(
+                      PO?.status
+                    ) && (
                       <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
                         Delivered Quantity
                       </th>
@@ -1458,7 +1598,9 @@ export const PurchaseOrder = ({
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
+                  {["Partially Delivered", "Delivered"].includes(
+                    PO?.status
+                  ) && <col className="w-[5%]" />}
                 </colgroup>
                 <tbody className="divide-y divide-gray-200">
                   {PO?.items?.map((item, index) => (
@@ -1472,17 +1614,10 @@ export const PurchaseOrder = ({
                       {/* Item Name */}
                       <td className="pl-2 py-2 align-top">
                         <div className="flex flex-col gap-1">
-                          <span className="font-medium text-gray-700 truncate">
-                            {item.item_name}
-                            {item?.makes?.list?.length > 0 && (
-                              <span className="ml-1 text-xs italic font-semibold text-gray-500">
-                                -{" "}
-                                {item.makes.list.find(
-                                  (i) => i?.enabled === "true"
-                                )?.make || "N/A"}
-                              </span>
-                            )}
-                          </span>
+                              {item.item_name}
+                          <small className="font-medium text-red-700 truncate">
+                            {item?.make}
+                          </small>
                           {item.comment && (
                             <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5">
                               <MessageCircleMore className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
@@ -1521,16 +1656,23 @@ export const PurchaseOrder = ({
 
                       {/* Amount (Incl GST) */}
                       <td className="pr-4 text-center py-2 align-top font-medium">
-                        {formatToIndianRupee((item?.quote * item?.quantity) * (1 + item?.tax / 100))}
+                        {formatToIndianRupee(
+                          item?.quote * item?.quantity * (1 + item?.tax / 100)
+                        )}
                       </td>
 
                       {/* OD (Conditional) */}
-                      {["Partially Delivered", "Delivered"].includes(PO?.status) && (
-                        <td className={`text-center py-2 align-top ${item?.received === item?.quantity
-                          ? 'text-green-600'
-                          : 'text-red-700'
-                          }`}>
-                          {item?.received || 0}
+                      {["Partially Delivered", "Delivered"].includes(
+                        PO?.status
+                      ) && (
+                        <td
+                          className={`text-center py-2 align-top ${
+                            item?.received_quantity === item?.quantity
+                              ? "text-green-600"
+                              : "text-red-700"
+                          }`}
+                        >
+                          {item?.received_quantity || 0}
                         </td>
                       )}
                     </tr>
@@ -2096,9 +2238,9 @@ export const PurchaseOrder = ({
       </div>
       {/* Delivery History */}
       {["Delivered", "Partially Delivered"].includes(PO?.status) && (
-        <DeliveryHistory
-          deliveryData={PO?.delivery_data?.data || null}
-          onPrintHistory={triggerHistoryPrint}
+        <DeliveryHistoryTable
+          deliveryData={deliveryHistory.data}
+            onPrintHistory={triggerHistoryPrint}
         />
       )}
       {/* PO Pdf  */}
@@ -2108,7 +2250,9 @@ export const PurchaseOrder = ({
         po={PO}
         orderData={orderData}
         includeComments={includeComments}
-        getTotal={getTotal}
+        paymentTerms={mergedPaymentTerms} // make set term state
+        // getTotal={getTotal}
+        POTotals={previewTotal}
         advance={advance}
         materialReadiness={materialReadiness}
         afterDelivery={afterDelivery}
