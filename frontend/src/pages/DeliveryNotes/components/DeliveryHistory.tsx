@@ -38,6 +38,9 @@ interface ExpandableRowProps {
 
 const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpanded, onToggle, onPrint }) => {
 
+
+  console.log("DeliveryHistoryTable", JSON.stringify(data));
+
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       onToggle(date);

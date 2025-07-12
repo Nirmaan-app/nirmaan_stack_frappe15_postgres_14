@@ -160,6 +160,7 @@ export default function DeliveryNote() {
       : 'Delivery_Note',
   });
 
+  console.log("deliveryNoteData", deliveryNoteData)
   // Use the history printing hook (this is correct)
   const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
   // console.log("deliveryNoteData", deliveryNoteData)

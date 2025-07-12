@@ -20,13 +20,16 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
 
         # Get original procurement order
         po = frappe.get_doc("Procurement Orders", po_id)
-        original_order = po.get("order_list", {}).get("list", [])
+        original_order = po.get("items")
 
         # Update received quantities in original order
+        print("DEBUGUPDATEDNITEMS: --- Function Start ---")
+        print(f"DEBUGUPDATEDNITEMS: Original Order: {original_order}")
+        print(f"DEBUGUPDATEDNITEMS: Modified Items: {modified_items}")
         updated_order = update_order_items(original_order, modified_items)
         
         # Update order list and status
-        po.order_list = {"list": updated_order}
+        po.items =  updated_order
         po.status = calculate_order_status(updated_order)
 
         # Handle delivery challan attachment
@@ -65,19 +68,42 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
             "error": frappe.get_traceback()
         }
 
+# in apps/nirmaan_stack/nirmaan_stack/api/delivery_notes/update_delivery_note.py
+
+# --- BEFORE (Your current code that causes the error) ---
+# def update_order_items(original: list, modified: dict) -> list:
+#     """Safely merge modified items into original order"""
+#     return [
+#         {**item.as_dict(), "received_quantity": modified.get(item.name, item.received_quantity or 0)}
+#         for item in original
+#     ]
+
+
+# --- AFTER (The Corrected Code) ---
 def update_order_items(original: list, modified: dict) -> list:
-    """Safely merge modified items into original order"""
-    return [
-        {**item, "received": modified.get(item["name"], item.get("received", 0))}
-        for item in original
-    ]
+    """
+    Safely updates the 'received_quantity' on the original Document objects in-place.
+    'original' is a list of Frappe Document objects for the child table.
+    """
+    # Iterate through the actual Document objects
+    for item_object in original:
+        # Get the new value from the 'modified' dictionary, using the object's name as the key.
+        # If the item wasn't modified, it will default to its existing value.
+        new_value = modified.get(item_object.name, item_object.received_quantity or 0)
+        
+        # Directly set the attribute on the Document object.
+        # This is the key change. We are not creating a new dictionary.
+        item_object.received_quantity = new_value
+        
+    # Return the original list, which now contains the modified objects.
+    return original
 
 def calculate_order_status(order: list) -> str:
     """Determine order status based on received quantities"""
     total_items = len(order)
     delivered_items = sum(
         1 for item in order 
-        if item.get("quantity", 0) <= item.get("received", 0)
+        if item.get("quantity", 0) <= item.get("received_quantity", 0)
     )
     
     if delivered_items == total_items:

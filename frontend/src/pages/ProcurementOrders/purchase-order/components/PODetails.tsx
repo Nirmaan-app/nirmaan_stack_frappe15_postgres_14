@@ -2,10 +2,18 @@ import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
-import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder,DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
+import { useDeliveryNoteData } from "../../../DeliveryNotes/hooks/useDeliveryNoteData";
+import {  ROUTE_PATHS,
+  STATUS_BADGE_VARIANT,
+  DOCUMENT_PREFIX,
+  encodeFrappeId,
+  formatDisplayId,
+  safeJsonParse,
+  deriveDnIdFromPoId} from "@/pages/DeliveryNotes/constants";
 import formatToIndianRupee, {
   formatToRoundedIndianRupee,
 } from "@/utils/FormatPrice";
@@ -29,7 +37,7 @@ import {
   TriangleAlert,
   Undo2,
 } from "lucide-react";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useRef, useState ,useMemo} from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
@@ -72,7 +80,6 @@ import { ValidationIndicator } from "@/components/validations/ValidationIndicato
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import { DeliveryNotePrintLayout } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
 import { useReactToPrint } from "react-to-print";
-import { deriveDnIdFromPoId } from "@/pages/DeliveryNotes/constants";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 
 interface PODetailsProps {
@@ -270,9 +277,20 @@ export const PODetails: React.FC<PODetailsProps> = ({
     }
   };
 
+
+  const {
+      deliveryNoteId,
+      poId,
+      data: deliveryNoteData,
+      isLoading,
+      error,
+      mutate: refetchDeliveryNoteData
+    } = useDeliveryNoteData();
+
+    
   // --- (Indicator) STEP 1: Implement the print logic hooks ---
   const printComponentRef = useRef<HTMLDivElement>(null);
-  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(po);
+  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
 
   // The main print handler is for the overall DN/PO Summary, which you might already have a version of.
   const handlePrint = useReactToPrint({
@@ -284,6 +302,16 @@ export const PODetails: React.FC<PODetailsProps> = ({
     // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
   });
 
+  const deliveryHistory = useMemo(() =>
+      safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData?.delivery_data, { data: {} }),
+      [deliveryNoteData?.delivery_data]
+    );
+    const displayDnId = useMemo(() =>
+        formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE),
+        [deliveryNoteId]
+      );
+
+      
   const downloadurl =
     "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf";
 
@@ -320,6 +348,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
     window.open(url, "_blank");
     // window.open(view, '_blank');
   };
+
+
 
   return (
     <div>
@@ -376,7 +406,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 {/* --- All Existing Button Logic is Preserved and Moved Here --- */}
 
                 {/* Request Payment Button */}
-                {!accountsPage && !estimatesViewing && !summaryPage && (
+                {/* {!accountsPage && !estimatesViewing && !summaryPage && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -402,7 +432,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       </TooltipContent>
                     )}
                   </Tooltip>
-                )}
+                )} */}
 
                 {/* Add Invoice Button */}
                 {po?.status !== "PO Approved" && (
@@ -493,13 +523,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     </SheetHeader>
                     <div className="space-y-4">
                       <DeliveryNoteItemsDisplay
-                        data={po}
-                        poMutate={poMutate}
-                        toggleDeliveryNoteSheet={toggleDeliveryNoteSheet}
+                              data={deliveryNoteData}
+            poMutate={refetchDeliveryNoteData}
                       />
 
                       <DeliveryHistoryTable
-                        deliveryData={po?.delivery_data?.data || null}
+                         deliveryData={deliveryHistory.data}
+            onPrintHistory={triggerHistoryPrint}
                       />
                     </div>
                   </SheetContent>

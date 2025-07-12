@@ -17,16 +17,26 @@ interface UseDeliveryNoteDataResult {
 
 export function useDeliveryNoteData(): UseDeliveryNoteDataResult {
   const { dnId: encodedDnId } = useParams<{ dnId: string }>();
+  const {id:encodedDnId2} = useParams<{ id: string }>();
+  console.log("dnId", encodedDnId,encodedDnId2)
 
   const deliveryNoteId = useMemo(() => {
-    if (!encodedDnId) return null;
+    if (!encodedDnId && !encodedDnId2) return null;
     try {
+      
+      if(encodedDnId){
         return decodeFrappeId(encodedDnId);
+      }
+      if(encodedDnId2){
+        return decodeFrappeId(encodedDnId2);
+      }
     } catch (e) {
         console.error("Error decoding DN ID:", e);
         return null; // Or handle error appropriately
     }
-  }, [encodedDnId]);
+  }, [encodedDnId,encodedDnId2]);
+
+  console.log("deliveryNoteId", deliveryNoteId)
 
   const poId = useMemo(() => {
     if (!deliveryNoteId) return null;

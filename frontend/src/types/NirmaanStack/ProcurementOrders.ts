@@ -5,6 +5,12 @@ export interface NotePoint {
   // This is a temporary client-side ID, so it's optional
   clientId?: number; 
 }
+// --- ADD THIS NEW TYPE DEFINITION ---
+export interface POTotals {
+  grandTotal: number;
+  totalBase: number;
+  totalTax: number;
+}
 
 export interface PurchaseOrderItem {
 	name: string;
@@ -35,11 +41,16 @@ export interface DeliveryItem {
 	to: number;
 }
 export interface PaymentTerm {
+	payment_type?: string;
 	name: string;
 	label: string;
 	percentage: number;
 	amount: number;
-	status: 'Created' | 'Requested' |'Scheduled'|'Approved'| 'Paid'; 
+	status?:string;
+	due_date?:string;
+
+	// status: 'Created' | 'Requested' |'Scheduled'|'Approved'| 'Paid'; 
+
 }
 
 export interface DeliveryDataType {

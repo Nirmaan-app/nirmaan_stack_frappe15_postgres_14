@@ -94,29 +94,26 @@ def on_update(doc, method):
     if old_doc and old_doc.status == 'PO Approved' and doc.status=="Dispatched":
         try:
             vendor = frappe.get_doc("Vendors", doc.vendor)
-            orders = doc.order_list
+            orders = doc.get("items")
 
             delete_existing_aq_docs(doc)
 
-            for order in orders['list']:
+            for order in orders:
                 aq = frappe.new_doc('Approved Quotations')
+                print(f"order: {order}")
                 try:
                     if not custom:
-                        aq.item_id=order['name']
+                        aq.item_id=order.item_id
                     aq.vendor=doc.vendor
                     aq.procurement_order=doc.name
-                    aq.item_name=order['item']
-                    aq.unit=order['unit']
-                    aq.quantity=order['quantity']
-                    aq.quote=order['quote']
-                    aq.tax=order['tax']
+                    aq.item_name=order.item_name
+                    aq.unit=order.unit
+                    aq.quantity=order.quantity
+                    aq.quote=order.quote
+                    aq.tax=order.tax
                     
-                    if "makes" in order and 'list' in order['makes']:
-                        enabled_make = next(
-                            (make['make'] for make in order['makes']['list'] if make['enabled'] == "true"), 
-                            None
-                        )
-                        aq.make = enabled_make
+                 
+                    aq.make = order.make
                     aq.city=vendor.vendor_city
                     aq.state=vendor.vendor_state
                     aq.insert()
