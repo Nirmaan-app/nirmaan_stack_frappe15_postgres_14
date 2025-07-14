@@ -7,7 +7,7 @@ import { useFrappeGetDoc, FrappeDoc } from "frappe-react-sdk"; // Import useFrap
 
 
 interface ItemsHoverCardProps {
-  parentDocId: string;          // e.g., PR-00001
+  parentDoc: FrappeDoc<any>;          // e.g., PR-00001
   parentDoctype: string;        // e.g., "Procurement Requests"
   childTableName: string;       // e.g., "order_list" or "procurement_list"
   isSR?: boolean
@@ -35,9 +35,10 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
   const [isOpen, setIsOpen] = useState(false);
 
   // Fetch the parent document when the card is open
-  const { data: parentDocData, isLoading, error } = useFrappeGetDoc<ParentWithChildTable>(
+
+  const { data: parentDocData, isLoading, error } = useFrappeGetDoc(
     parentDoctype,
-    parentDocId,
+    parentDocId?.name,
     // SWR key - make it unique per document
     isOpen ? `${parentDoctype}-${parentDocId}` : null,
     {
@@ -46,8 +47,22 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
     }
   );
 
+  console.log(parentDoctype, parentDocId?.name,parentDocData)
   // Extract the child table items once the parent data is loaded
-  const itemsToDisplay: any[] | undefined = parentDocData?.[childTableName];
+let itemsToDisplay:any;
+  if(parentDoctype === "Service Requests"){
+    console.log(parentDocData)
+    itemsToDisplay = Array.isArray(parentDocId?.service_order_list?.list)
+  ? parentDocId[childTableName].list // If true, use the dynamic childTableName
+  : []; // If false, default to an empty array
+
+    console.log(itemsToDisplay)
+  }else{
+   itemsToDisplay = parentDocData?.[childTableName];
+
+  }
+
+
 
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
@@ -89,7 +104,7 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {itemsToDisplay.map((item: any) => (
+              {itemsToDisplay?.map((item: any) => (
                 <TableRow key={item?.name || item?.id}> {/* Child table rows have a 'name' */}
                   <TableCell>{isSR ? item.category : item.item_name}</TableCell>
                   {isSR && <TableCell className="truncate max-w-[100px]">{item.description}</TableCell>}

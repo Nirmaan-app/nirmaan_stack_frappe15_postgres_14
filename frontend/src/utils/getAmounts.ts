@@ -7,45 +7,31 @@ import { parseNumber } from "./parseNumber";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 
+export const getPOTotal = (orders:any) => {
 
-export const getPOTotal = memoize(
-  (
-    order: any,
-    loadingCharges = 0,
-    freightCharges = 0
-  ) => {
-    if (!order) return { total: 0, totalGst: 0, totalAmt: 0 };
+  // console.log("orders",orders)
+  // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
+  if (!Array.isArray(orders) || orders.length === 0) {
+    return { total: 0, totalGst: 0, totalAmt: 0 };
+  }
 
-    let orderData: PurchaseOrderItem[] = [];
-    if (typeof order.order_list === "string") {
-      orderData = JSON.parse(order.order_list)?.list || [];
-    } else {
-      orderData = order.order_list?.list || [];
-    }
+  // 2. Use Array.reduce() to iterate and accumulate the totals.
+  const grandTotals = orders.reduce(
+    (accumulator, currentOrder) => {
+      // For each order in the array, add its values to the accumulator
+      accumulator.total += parseNumber(currentOrder.amount);
+      accumulator.totalGst += parseNumber(currentOrder.tax_amount);
+      accumulator.totalAmt += parseNumber(currentOrder.total_amount);
+      
+      // Return the updated accumulator for the next iteration
+      return accumulator;
+    },
+    // 3. The initial value for our accumulator object
+    { total: 0, totalGst: 0, totalAmt: 0 }
+  );
 
-    const { total, totalGst } = orderData.reduce(
-      (acc, item) => {
-        const price = parseNumber(item.quote);
-        const quantity = item.quantity || 1;
-        const gst = price * quantity * (item.tax / 100);
-        return {
-          total: acc.total + price * quantity,
-          totalGst: acc.totalGst + parseNumber(gst)
-        };
-      },
-      { total: 0, totalGst: 0 }
-    );
-
-    const additionalCharges = parseNumber(loadingCharges) + parseNumber(freightCharges);
-    const additionalGst =
-      parseNumber(loadingCharges) * 0.18 + parseNumber(freightCharges) * 0.18;
-
-    return {
-      total: total + additionalCharges,
-      totalGst: totalGst + additionalGst,
-      totalAmt: total + totalGst + additionalCharges + additionalGst
-    };
-  }, (order: any, loadingCharges = 0, freightCharges = 0) => JSON.stringify(order) + loadingCharges + freightCharges);
+  return grandTotals;
+};
 
 
 export const getSRTotal = memoize(

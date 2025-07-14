@@ -119,7 +119,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
     // Fetch POs related to the current project for status and total calculations
     const { data: po_data, isLoading: poDataLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
         "Procurement Orders", {
-        fields: ["name", "procurement_request", "order_list", "status"],
+        fields: ["name", "procurement_request", "status"],
         filters: projectId ? [["project", "=", projectId]] : [],
         limit: 10000,
     }, !!projectId ? `POsForPRSummary_${projectId}` : null
@@ -205,12 +205,13 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
             accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="PR ID" />,
             cell: ({ row }) => {
                 const data = row.original;
+                // console.log("data", data.name)
                 return (
                     <div className="flex items-center gap-1">
                         <Link className="text-blue-600 hover:underline whitespace-nowrap" to={`${data.name}`}>
                             {data.name?.slice(-6)} {/* Example: Show last 6 chars */}
                         </Link>
-                        <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                        <ItemsHoverCard parentDocId={data} parentDoctype={DOCTYPE} childTableName="order_list" isPR />
                     </div>
                 );
             }, size: 150,

@@ -35,8 +35,8 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 
 // Fields to fetch for the PO Summary table list view
 export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (keyof ProcurementOrder | 'name')[] = [
-    "name", "creation", "modified", "owner", "project", "project_name",
-    "vendor", "vendor_name", "procurement_request", "status", "order_list",
+    "name", "creation", "modified", "owner", "project", "project_name","total_amount","amount",
+    "vendor", "vendor_name", "procurement_request", "status",
     "loading_charges", "freight_charges", "custom", // Add custom if used for badge
     // Add invoice_data if needed for a column in this specific summary table
 ];
@@ -118,6 +118,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
     } = useFrappePostCall<{ message: POAggregatesResponse }>('nirmaan_stack.api.projects.project_aggregates.get_project_po_summary_aggregates');
 
     useEffect(() => {
+        console.log("HEys")
         if (projectId) {
             fetchPOAggregates({ project_id: projectId })
                 .then(data => {
@@ -194,7 +195,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
                             {po.name}
                         </Link>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ItemsHoverCard order_list={Array.isArray(po.order_list?.list) ? po.order_list.list : []} />
+                            <ItemsHoverCard parentDocId={po} parentDoctype={DOCTYPE} childTableName="items" />
                         </div>
                         {po.custom === "true" && <Badge variant="outline" className="text-xs">Custom</Badge>}
                     </div>
@@ -260,7 +261,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({ pr
         },
         {
             id: "po_value_inc_gst", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value (inc. GST)" />,
-            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(poAmountsDict?.[row.original.name]?.total_incl_gst)}</div>,
+            // cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(poAmountsDict?.[row.original.name]?.total_incl_gst)}</div>,
+                 cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.total_amount)}</div>,
             size: 160, enableSorting: false,
             meta: {
                 exportHeaderName: "PO Value (inc. GST)",

@@ -297,20 +297,20 @@ const uniqueProcurementPackageDisplayNames = useMemo(() => {
             </ul>
           </CardDescription>
 
-          <CardDescription className="space-y-2 max-md:text-end">
+          {/* <CardDescription className="space-y-2 max-md:text-end">
             <span>Total Amount Received</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee(totalAmountReceived)}</p>
-          </CardDescription>
+          </CardDescription> */}
 
-          <CardDescription className="space-y-2 md:text-center">
+          {/* <CardDescription className="space-y-2 md:text-center">
             <span>Total Amount Paid</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}</p>
-          </CardDescription>
-
+          </CardDescription> */}
+{/* 
           <CardDescription className="space-y-2 text-end">
             <span>Total Amount Due</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee((totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
-          </CardDescription>
+          </CardDescription> */}
 
           <div className="col-span-3 max-md:col-span-2 flex justify-between">
             <CardDescription className="space-y-2">

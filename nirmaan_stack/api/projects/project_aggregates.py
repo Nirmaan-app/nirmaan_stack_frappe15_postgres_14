@@ -342,7 +342,7 @@ def get_project_po_summary_aggregates(project_id: str):
     purchase_orders_data = frappe.get_all(
         "Procurement Orders",
         filters=po_filters,
-        fields=["name", "order_list", "loading_charges", "freight_charges"] # Fields needed for total calculation
+        fields=["name", "total_amount","amount","tax_amount", "loading_charges", "freight_charges"] # Fields needed for total calculation
     )
 
     total_po_value_inc_gst = 0.0
@@ -351,17 +351,21 @@ def get_project_po_summary_aggregates(project_id: str):
     final_total_gst = 0.0
     po_amounts_dict = {}
     for po_data_item in purchase_orders_data:
-        po_as_dict = frappe._dict(po_data_item)
-        totals = _calculate_po_totals_for_doc(po_as_dict)
-        po_amounts_dict[po_data_item.get("name")] = {
-            "total_incl_gst": totals.get("total_incl_gst", 0.0), 
-            "total_excl_gst": totals.get("total_excl_gst", 0.0)
-            }
+        # po_as_dict = frappe._dict(po_data_item)
+        # totals = _calculate_po_totals_for_doc(po_as_dict)
+        # po_amounts_dict[po_data_item.get("name")] = {
+        #     "total_incl_gst": totals.get("total_incl_gst", 0.0), 
+        #     "total_excl_gst": totals.get("total_excl_gst", 0.0)
+        #     }
         
-        total_po_value_inc_gst += totals.get("total_incl_gst", 0.0)
-        total_po_value_excl_gst += totals.get("total_excl_gst", 0.0)
-        total_gst_on_items += totals.get("total_gst_on_items", 0.0)
-        final_total_gst += totals.get("final_total_gst", 0.0)
+        # total_po_value_inc_gst += totals.get("total_incl_gst", 0.0)
+        # total_po_value_excl_gst += totals.get("total_excl_gst", 0.0)
+        # total_gst_on_items += totals.get("total_gst_on_items", 0.0)
+        # final_total_gst += totals.get("final_total_gst", 0.0)
+        total_po_value_inc_gst += po_data_item.get("total_amount", 0.0)
+        total_po_value_excl_gst += po_data_item.get("amount", 0.0)
+        total_gst_on_items += po_data_item.get("tax_amount", 0.0)
+        final_total_gst += po_data_item.get("tax_amount", 0.0)
 
     po_names = po_amounts_dict.keys()
     total_amount_paid_for_pos = 0.0

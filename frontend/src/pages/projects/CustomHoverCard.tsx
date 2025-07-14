@@ -23,6 +23,12 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
   categorizedData,
   workPackageTotalAmounts,
 }) => {
+
+  //    console.log("CustomHoverCard DATA", totalPosRaised,
+  // totalServiceOrdersAmt,
+  // categorizedData,
+  // workPackageTotalAmounts,)
+  
   // Generate tree data for the Tree component
   const generateTreeData = () => {
     const treeData =

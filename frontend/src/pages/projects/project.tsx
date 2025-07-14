@@ -180,6 +180,11 @@ const Project: React.FC = () => {
     return <LoadingFallback />
   }
 
+  if (isLoading || projectCustomerLoading ) {
+    return <LoadingFallback />
+  }
+
+
   return (
     data && (
       <ProjectView
@@ -477,7 +482,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
-      fields: ["order_list", "name", "procurement_request", "status"],
+      fields: ["name","procurement_request", "status","amount","tax_amount","total_amount" ,"invoice_data"] as const,
       filters: [
         ["project", "=", projectId],
         ["status", "!=", "Merged"],
@@ -486,6 +491,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       orderBy: { field: "creation", order: "desc" },
     }
   );
+
+  // console.log("ProjectOverView DATA", po_data)
 
   const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
     fields: ["gst", "name", "service_order_list"],
@@ -520,18 +527,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     return { poAmount, srAmount, projectExpensesAmount, totalAmount: poAmount + srAmount + projectExpensesAmount };
   }, [projectPayments, projectExpenses]);
 
-  const totalPosRaised = useMemo(() => {
-    if (!po_data || po_data.length === 0) {
-      return 0;
-    }
+const totalPosRaised = useMemo(() => {
+  // 1. Guard Clause: This part is correct and should be kept.
+  if (!po_data || po_data.length === 0) {
+    return 0;
+  }
 
-    return po_data.reduce((acc, po) => {
-      if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
-        return acc + po.order_list.list.reduce((itemAcc, item) => itemAcc + parseNumber(item.quote * item.quantity), 0);
-      }
-      return acc;
-    }, 0);
-  }, [po_data]);
+  // 2. Corrected `reduce` implementation
+  return po_data.reduce((accumulator, currentOrder) => {
+    // For each order, add its 'amount' to the running total (accumulator).
+    // The parseNumber helper gracefully handles cases where 'amount' might be null or not a number.
+    return accumulator + parseNumber(currentOrder.amount);
+  }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
+
+}, [po_data]);
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
 
