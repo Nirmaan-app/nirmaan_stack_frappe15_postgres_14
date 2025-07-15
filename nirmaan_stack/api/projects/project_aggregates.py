@@ -353,10 +353,10 @@ def get_project_po_summary_aggregates(project_id: str):
     for po_data_item in purchase_orders_data:
         # po_as_dict = frappe._dict(po_data_item)
         # totals = _calculate_po_totals_for_doc(po_as_dict)
-        # po_amounts_dict[po_data_item.get("name")] = {
-        #     "total_incl_gst": totals.get("total_incl_gst", 0.0), 
-        #     "total_excl_gst": totals.get("total_excl_gst", 0.0)
-        #     }
+        po_amounts_dict[po_data_item.get("name")] = {
+            "total_incl_gst": po_data_item.get("total_amount", 0.0), 
+            "total_excl_gst": po_data_item.get("amount", 0.0)
+            }
         
         # total_po_value_inc_gst += totals.get("total_incl_gst", 0.0)
         # total_po_value_excl_gst += totals.get("total_excl_gst", 0.0)

@@ -112,7 +112,7 @@ export interface po_item_data_item {
   item_id: string
   quote: number
   quantity: number
-  received: number
+  received_quantity: number
   category: string
   tax: number
   unit: string

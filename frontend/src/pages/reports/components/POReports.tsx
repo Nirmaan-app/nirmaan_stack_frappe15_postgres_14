@@ -113,6 +113,8 @@ export default function POReports() {
     }, [allPOsForReports, selectedReportType, delta]);
 
     // 4. Initialize useServerDataTable in clientData mode
+    // console.log("currentDisplayData", currentDisplayData);
+    
     const {
         table,
         isLoading: isTableHookLoading,

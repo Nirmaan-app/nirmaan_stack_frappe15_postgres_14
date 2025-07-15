@@ -26,6 +26,9 @@ import { Textarea } from "../../components/ui/textarea";
 import { toast } from "../../components/ui/use-toast";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
+import { safeJsonParse } from "../DeliveryNotes/constants";
+
+
 
 const chartConfig = {
     visitors: {
@@ -271,7 +274,8 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
 
     useEffect(() => {
         if (project_data) {
-            const wpList = JSON.parse(project_data.project_work_packages)?.work_packages
+            // const wpList = JSON.parse(project_data.project_work_packages)?.work_packages
+            const wpList = safeJsonParse(project_data.project_work_packages||[])
             // wpList?.push({ work_package_name: "Tool & Equipments" })
             wpList?.push({ work_package_name: "Services" })
             setAllWorkPackages(wpList)

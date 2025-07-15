@@ -146,7 +146,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
     // Fetch related POs and SRs for "PO Value" calculation
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
-        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "order_list", "loading_charges", "freight_charges"], limit: 0 }, 'POs_AllPay'
+        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name","total_amount", "loading_charges", "freight_charges"], limit: 0 }, 'POs_AllPay'
     );
     const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
         DOC_TYPES.SERVICE_REQUESTS, { fields: ["name", "service_order_list", "gst"], limit: 0 }, 'SRs_AllPay'
@@ -163,7 +163,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         if (!docName || !docType) return 0;
         if (docType === DOC_TYPES.PROCUREMENT_ORDERS) {
             const order = purchaseOrders?.find(po => po.name === docName);
-            return order ? getPOTotal(order, parseNumber(order.loading_charges), parseNumber(order.freight_charges))?.totalAmt || 0 : 0;
+            return order?.total_amount||0;
         } else if (docType === DOC_TYPES.SERVICE_REQUESTS) {
             const order = serviceOrders?.find(sr => sr.name === docName);
             if (!order || !order.service_order_list?.list) return 0;

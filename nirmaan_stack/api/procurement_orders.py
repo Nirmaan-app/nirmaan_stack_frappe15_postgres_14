@@ -51,7 +51,7 @@ def generate_po_summary(project_id: str):
                 "item_id": item.get("item_id"),
                 "quote": flt(item.get("quote")),
                 "quantity": flt(item.get("quantity")),
-                "received": flt(item.get("received_quantity")),
+                "received_quantity": flt(item.get("received_quantity")),
                 "category": item.get("category"),
                 "tax": item.get("tax"),
                 "unit": item.get("unit"),

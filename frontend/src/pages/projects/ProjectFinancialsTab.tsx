@@ -77,6 +77,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
 
+  // console.log("totalInflowAmount", projectInflows)
+
   const { data: projectInvoiceData, isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>("Project Invoices", {
     fields: ["*"],
     filters: [["project", "=", projectData?.name]],
@@ -92,22 +94,27 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       style: "text-green-600 underline",
       onClick: () => toggleInflowPaymentsDialog()
     },
-    {
-      label: "Total Amount Paid",
-      value: getTotalAmountPaid.totalAmount,
-      style: "text-red-600",
-      // --- (Indicator) NEW: Add breakdown data for hover card ---
-      breakdown: {
-        poAmount: getTotalAmountPaid.poAmount,
-        srAmount: getTotalAmountPaid.srAmount,
-        projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
-      }
+     {
+      label: "Total Invoiced Value",
+      value: totalProjectInvoiceAmount,
+      style: ""
     },
-    {
-      label: "Total Amount Due",
-      value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
-      style: "text-red-600"
-    },
+    // {
+    //   label: "Total Amount Paid",
+    //   value: getTotalAmountPaid.totalAmount,
+    //   style: "text-red-600",
+    //   // --- (Indicator) NEW: Add breakdown data for hover card ---
+    //   breakdown: {
+    //     poAmount: getTotalAmountPaid.poAmount,
+    //     srAmount: getTotalAmountPaid.srAmount,
+    //     projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
+    //   }
+    // },
+    // {
+    //   label: "Total Amount Due",
+    //   value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
+    //   style: "text-red-600"
+    // },
     {
       label: "Total PO Amount",
       value: totalPOAmountWithGST,
@@ -123,11 +130,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       value: projectData?.project_value,
       style: ""
     },
-    {
-      label: "Total Invoiced Value",
-      value: totalProjectInvoiceAmount,
-      style: ""
-    },
+   
   ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value])
 
 

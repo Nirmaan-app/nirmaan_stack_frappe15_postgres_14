@@ -120,7 +120,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
       }
 
       const currentOrdered = (currentItemUsage?.orderedQuantity || 0) + safeParseFloat(poItem.quantity);
-      const currentDelivered = (currentItemUsage?.deliveredQuantity || 0) + safeParseFloat(poItem.received);
+      const currentDelivered = (currentItemUsage?.deliveredQuantity || 0) + safeParseFloat(poItem.received_quantity);
 
       const deliveryStatusInfo = determineDeliveryStatus(currentDelivered, currentOrdered);
       const poPaymentStatusInfo = determineOverallItemPOStatus(individualPOsForItem);
@@ -133,7 +133,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           itemName: poItem.item_name || estimate?.item_name,
           unit: poItem.unit || estimate?.uom,
           orderedQuantity: safeParseFloat(poItem.quantity),
-          deliveredQuantity: safeParseFloat(poItem.received),
+          deliveredQuantity: safeParseFloat(poItem.received_quantity),
           estimatedQuantity: safeParseFloat(estimate?.quantity_estimate),
           // === ADDED: Initialize total amount ===
           totalAmount: amountWithGst,

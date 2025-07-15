@@ -47,16 +47,16 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
     }
   );
 
-  console.log(parentDoctype, parentDocId?.name,parentDocData)
+  // console.log(parentDoctype, parentDocId?.name,parentDocData)
   // Extract the child table items once the parent data is loaded
 let itemsToDisplay:any;
   if(parentDoctype === "Service Requests"){
-    console.log(parentDocData)
+    // console.log(parentDocData)
     itemsToDisplay = Array.isArray(parentDocId?.service_order_list?.list)
   ? parentDocId[childTableName].list // If true, use the dynamic childTableName
   : []; // If false, default to an empty array
 
-    console.log(itemsToDisplay)
+    // console.log(itemsToDisplay)
   }else{
    itemsToDisplay = parentDocData?.[childTableName];
 
