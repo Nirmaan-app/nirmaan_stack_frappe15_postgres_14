@@ -89,8 +89,12 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                     # Add other relevant fields needed by Sent Back Category
                 })
                 # Add item details to new_rfq_details for the Sent Back doc
-                if item.item_id in rfq_details:
-                    new_rfq_details[item.item_id] = rfq_details[item.item_id]
+                # if item.item_id in rfq_details:
+                #     new_rfq_details[item.item_id] = rfq_details[item.item_id]
+                print(f"DEBUGRFQ: Adding rfq_details for item {item}")
+                if item["name"] in rfq_details:
+                    new_rfq_details[item["name"]] = rfq_details[item["name"]]
+                    print(f"DEBUGRFQ: Adding rfq_details for item {rfq_details}")
             else:
                 # Item has a vendor, potentially ready for approval/PO
                 items_with_vendors.append(item)

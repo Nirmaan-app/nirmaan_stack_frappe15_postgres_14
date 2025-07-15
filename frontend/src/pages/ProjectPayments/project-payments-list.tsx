@@ -320,7 +320,8 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                             <Link to={projectId ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
                                 {id}
                             </Link>
-                            <ItemsHoverCard isSR={!isPO} order_list={isPO ?  data?.order_list.list : data?.service_order_list.list} />
+                            {isPO?(<ItemsHoverCard parentDocId={data} parentDoctype={"Procurement Orders"} childTableName="items" />):( <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />)}
+                            
                             </div>
                         </div>
                     );
@@ -391,7 +392,9 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                 cell: ({ row }) => {
                     const amount = getTotalAmount(row.original.name, row.original.type)
                     return <div className="font-medium">
-                        {formatToRoundedIndianRupee(amount?.totalWithTax)}
+                        {/* {formatToRoundedIndianRupee(amount?.totalWithTax)} */}
+                        {formatToRoundedIndianRupee(row.original.total_amount)}
+
                     </div>
                 },
             },

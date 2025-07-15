@@ -38,7 +38,7 @@ export default function CustomersPage() {
             accessorKey: "company_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Company Name" />,
             cell: ({ row }) => (
-                <Link className="hover:underline font-medium whitespace-nowrap"
+                <Link className="hover:underline font-medium "
                     to={`/customers/${row.original.name}`}> {/* Adjust route */}
                     {row.getValue("company_name")}
                 </Link>
@@ -104,8 +104,8 @@ export default function CustomersPage() {
         },
         {
             accessorKey: "creation",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Customer Creation Date" />,
-            cell: ({ row }) => <div className="font-medium text-center whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Creation Date" />,
+            cell: ({ row }) => <div className="font-medium text-center">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
             meta: {
                 exportHeaderName: "Customer Creation Date",

@@ -219,10 +219,10 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     // 4. Sort the final list alphabetically by label for consistent display
     potentialMakeOptions.sort((a, b) => a.label.localeCompare(b.label));
 
-    console.log(
-      "ISC useMemo: Final potentialMakeOptions (before return):",
-      JSON.stringify(potentialMakeOptions)
-    );
+    // console.log(
+    //   "ISC useMemo: Final potentialMakeOptions (before return):",
+    //   JSON.stringify(potentialMakeOptions)
+    // );
     console.log("--- ISC useMemo End ---");
     return potentialMakeOptions;
   }, [

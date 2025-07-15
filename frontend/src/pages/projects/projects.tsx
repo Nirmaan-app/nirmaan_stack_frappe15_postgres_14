@@ -126,7 +126,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   // );
 
   const { data: poData, isLoading: poDataLoading, error: poDataError } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders", { fields: ["name", "project", "status", "order_list", "invoice_data", "loading_charges", "freight_charges"], filters: [["status", "!=", "Merged"]], limit: 100000 }, "POs_For_ProjectsList"
+    "Procurement Orders", { fields: ["name", "project", "status","amount","tax_amount","total_amount" ,"invoice_data"], filters: [["status", "!=", "Merged"]], limit: 100000 }, "POs_For_ProjectsList"
   );
   const { data: srData, isLoading: srDataLoading, error: srDataError } = useFrappeGetDocList<ServiceRequests>(
     "Service Requests", { fields: ["name", "project", "status", "service_order_list", "gst"], filters: [["status", "=", "Approved"]], limit: 100000 }, "SRs_For_ProjectsList"
@@ -161,8 +161,13 @@ export const Projects: React.FC<ProjectsProps> = ({
       const relatedPayments = paymentsByProject(projectId);
       const relatedExpenses = expensesByProject(projectId);
 
-      let totalInvoiced = 0;
-      relatedPOs.forEach(po => totalInvoiced += getPOTotal(po, parseNumber(po.loading_charges), parseNumber(po.freight_charges))?.totalAmt || 0);
+      // let totalInvoiced = 0;
+
+      // console.log("realatedPO", relatedPOs);
+
+      // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
+  let totalInvoiced=getPOTotal(relatedPOs)?.totalAmt || 0;
+
       relatedSRs.forEach(sr => {
         const srVal = getSRTotal(sr); // Assuming getSRTotal returns value without GST
         totalInvoiced += sr.gst === "true" ? srVal * 1.18 : srVal;

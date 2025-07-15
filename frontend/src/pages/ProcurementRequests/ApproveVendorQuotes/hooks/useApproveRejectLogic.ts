@@ -64,6 +64,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
 
     // ... (useEffect for processing initialPrData is unchanged) ...
     useEffect(() => {
+        console.log("initialPrData", initialPrData)
         if (initialPrData) {
             let processedPrData = { ...initialPrData };
             const pendingItems = processedPrData.order_list?.filter(item => item.status === 'Pending') || [];
@@ -119,63 +120,132 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
     const getUserName = useCallback((id?: string) => id ? usersList.find(u => u?.name === id)?.full_name || `Unknown (${id.substring(0, 6)})` : "N/A", [usersList]);
     const getLowestRateFromOriginalRfq = useCallback((itemId: string) => getLowestQuoteFilled(orderData, itemId), [orderData]);
 
+ 
+
     const vendorDataSource = useMemo((): VendorGroupForTable[] => {
-        if (!orderData || !orderData.order_list) return [];
-        const vendorWiseData: Record<string, Omit<VendorGroupForTable, 'vendorId' | 'vendorName' | 'key'>> = {};
-        orderData.order_list.forEach((prItem) => {
-             if (!prItem.vendor || prItem.quote == null) return;
-             const vendorId = prItem.vendor;
-             if (!vendorWiseData[vendorId]) {
-                 vendorWiseData[vendorId] = { totalAmount: 0, items: [], key: uuidv4() };
-             }
-             const quantity = parseNumber(prItem.quantity);
-             const selectedRate = parseNumber(prItem.quote);
-             const currentAmount = quantity * selectedRate;
-             const actualItemId = prItem.item_id;
-             const targetRateDetail = targetRatesDataMap.get(actualItemId);
-             let targetRateValue: number | undefined = undefined;
-             if (targetRateDetail?.rate) {
-                 const parsedTargetRate = parseNumber(targetRateDetail.rate);
-                 if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
-             }
-             const lowestRateInRfqContext = getLowestRateFromOriginalRfq(actualItemId);
-             const calculatedTargetAmount = (targetRateValue !== undefined) ? targetRateValue * quantity * 0.98 : undefined;
-             const calculatedLowestQuotedAmountInRfq = (lowestRateInRfqContext !== undefined) ? lowestRateInRfqContext * quantity : undefined;
-             const displayItem: VendorItemDetailsToDisplay = {
-                 ...prItem,
-                 vendor_name: getVendorName(vendorId),
-                 amount: currentAmount,
-                 lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
-                 targetRate: targetRateValue,
-                 targetAmount: calculatedTargetAmount,
-                 contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
-                 savingLoss: undefined,
-             };
-             let benchmarkAmount: number | undefined = undefined;
-             if (displayItem.targetAmount !== undefined && displayItem.lowestQuotedAmountForItem !== undefined) {
-                 benchmarkAmount = Math.min(displayItem.targetAmount, displayItem.lowestQuotedAmountForItem);
-             } else if (displayItem.targetAmount !== undefined) {
-                 benchmarkAmount = displayItem.targetAmount;
-             } else if (displayItem.lowestQuotedAmountForItem !== undefined) {
-                 benchmarkAmount = displayItem.lowestQuotedAmountForItem;
-             }
-             if (benchmarkAmount !== undefined && !isNaN(currentAmount)) {
-                 displayItem.savingLoss = benchmarkAmount - currentAmount;
-             }
-             vendorWiseData[vendorId].items.push(displayItem);
-             vendorWiseData[vendorId].totalAmount += currentAmount;
-        });
-        return Object.entries(vendorWiseData)
-            .map(([vendorId, groupData]) => {
-                const totalPotentialSavingLoss = groupData.items.reduce((sum, item) => sum + (item.savingLoss || 0), 0);
-                return {
-                    vendorId, vendorName: getVendorName(vendorId), totalAmount: groupData.totalAmount,
-                    items: groupData.items, key: groupData.key || uuidv4(),
-                    potentialSavingLossForVendor: totalPotentialSavingLoss,
-                };
-            })
-            .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
-    }, [orderData, getVendorName, targetRatesDataMap, vendorMap, getLowestRateFromOriginalRfq]);
+    if (!orderData || !orderData.order_list) return [];
+
+    const vendorWiseData: Record<string, Omit<VendorGroupForTable, 'vendorId' | 'vendorName' | 'key'>> = {};
+
+    orderData.order_list.forEach((prItem) => {
+        if (!prItem.vendor || prItem.quote == null) return;
+
+        const vendorId = prItem.vendor;
+        if (!vendorWiseData[vendorId]) {
+            vendorWiseData[vendorId] = { totalAmount: 0, items: [], key: uuidv4() };
+        }
+
+        const quantity = parseNumber(prItem.quantity);
+        const selectedRate = parseNumber(prItem.quote);
+        const currentAmount = quantity * selectedRate;
+        const actualItemId = prItem.item_id;
+
+        // Rule 1: Check if the individual item's category is 'Additional Charges'.
+        const isAdditionalChargeItem = prItem.category === 'Additional Charges';
+        
+        // Fetch benchmark data for the item
+        const targetRateDetail = targetRatesDataMap.get(actualItemId);
+        const lowestRateInRfqContext = getLowestRateFromOriginalRfq(actualItemId);
+
+        console.log("DEBUGRFQ: lowestRateInRfqContext", lowestRateInRfqContext);
+
+        // --- NEW: Determine if this item is "custom" because it has no RFQ data ---
+        // An item is considered custom if we couldn't find a lowest rate from any RFQ.
+        const isCustomItem = lowestRateInRfqContext === 0;
+        console.log("DEBUGRFQ: isCustomItem", isCustomItem);
+        // --------------------------------------------------------------------------
+
+        // Calculate Target Amount
+        let targetRateValue: number | undefined;
+        if (targetRateDetail?.rate) {
+            const parsedTargetRate = parseNumber(targetRateDetail.rate);
+            if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
+        }
+        const calculatedTargetAmount = (targetRateValue !== undefined) ? targetRateValue * quantity * 0.98 : undefined;
+
+        // Calculate Lowest Quoted Amount (it's already calculated)
+        const calculatedLowestQuotedAmountInRfq = (lowestRateInRfqContext !== undefined) ? lowestRateInRfqContext * quantity : undefined;
+
+        // Rule 2: Check if at least one benchmark amount exists.
+        const hasBenchmark = calculatedTargetAmount !== undefined || calculatedLowestQuotedAmountInRfq !== undefined;
+
+        const displayItem: VendorItemDetailsToDisplay = {
+            ...prItem,
+            vendor_name: getVendorName(vendorId),
+            amount: currentAmount,
+            lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
+            targetRate: targetRateValue,
+            targetAmount: calculatedTargetAmount,
+            contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+            savingLoss: undefined,
+        };
+        
+        // --- FINAL LOGIC: Apply all rules ---
+        // The item must NOT be custom (i.e., must have RFQ data),
+        // must NOT be an additional charge,
+        // and must have at least one benchmark to compare against.
+        if (!isCustomItem && !isAdditionalChargeItem && hasBenchmark) {
+            let benchmarkAmount: number;
+
+            if (displayItem.targetAmount !== undefined && displayItem.lowestQuotedAmountForItem !== undefined) {
+                benchmarkAmount = Math.min(displayItem.targetAmount, displayItem.lowestQuotedAmountForItem);
+            } else {
+                benchmarkAmount = displayItem.targetAmount || displayItem.lowestQuotedAmountForItem!;
+            }
+            
+            if (!isNaN(currentAmount)) {
+                displayItem.savingLoss = benchmarkAmount - currentAmount;
+            }
+        }
+        // If conditions are false, savingLoss remains undefined.
+
+        vendorWiseData[vendorId].items.push(displayItem);
+        vendorWiseData[vendorId].totalAmount += currentAmount;
+    });
+
+    // The rest of the function remains the same...
+    return Object.entries(vendorWiseData)
+        .map(([vendorId, groupData]) => {
+                        // 1. Calculate ONLY the positive values (savings)
+            const totalSavings = groupData.items.reduce((sum, item) => {
+                // If savingLoss exists AND is greater than 0, add it to the sum.
+                if (item.savingLoss && item.savingLoss > 0) {
+                    return sum + item.savingLoss;
+                }
+                return sum; // Otherwise, do not add it.
+            }, 0);
+             const totalLoss = groupData.items.reduce((sum, item) => {
+                // If savingLoss exists AND is less than 0, add it to the sum.
+                if (item.savingLoss && item.savingLoss < 0) {
+                    return sum + item.savingLoss;
+                }
+                return sum; // Otherwise, do not add it.
+            }, 0);
+            
+            // The existing calculation for the NET total (Savings - Losses)
+            const netSavingLoss = groupData.items.reduce((sum, item) => sum + (item.savingLoss || 0), 0);
+
+            return {
+                vendorId,
+                vendorName: getVendorName(vendorId),
+                totalAmount: groupData.totalAmount,
+                items: groupData.items,
+                key: groupData.key || uuidv4(),
+                // --- UPDATE THE RETURN OBJECT ---
+                // Keep the original for net value
+                potentialSavingLossForVendor: netSavingLoss,
+                
+                // Add the new, specific values
+                potentialSavings: totalSavings,
+                potentialLoss: totalLoss, // This will be a negative number or 0
+            };
+        })
+        .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+}, [orderData, getVendorName, targetRatesDataMap, vendorMap, getLowestRateFromOriginalRfq]);
+
+
+
+
 
     const handleSelectionChange = useCallback((newSelection: SelectionState) => setSelectionMap(newSelection), []);
     const handleCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => setComment(e.target.value), []);
@@ -188,6 +258,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             return;
         }
 
+        console.log("DEBUGRFQ: orderData", orderData,selectionMap);
         const selectedItemsForPayload: string[] = []; 
         const vendorSelectionMapForPayload: { [childDocName: string]: string } = {};
 
@@ -227,6 +298,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             console.error("Error approving selection:", error);
             toast({ title: "Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
+        
     }, [orderData, selectionMap, approveSelection, prMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms]); // ✨ ADD dependency
 
     // ... (handleSendBackConfirm and isPrEditable are unchanged) ...

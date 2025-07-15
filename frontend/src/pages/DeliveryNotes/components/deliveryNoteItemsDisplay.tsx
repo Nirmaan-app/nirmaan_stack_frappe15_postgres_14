@@ -42,6 +42,9 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   const { toast } = useToast();
   const { mutate } = useSWRConfig();
 
+  console.log("updateDN Data", data,data?.items?.length)
+  // console.log("updateDN Data",JSON.parse(data?.deliveryDate))
+
   // State management
   const [originalOrder, setOriginalOrder] = useState<PurchaseOrderItem[]>([]);
   // --- (Indicator) NEW STATE: Tracks only the values entered in the "Newly Delivered" input boxes ---
@@ -65,11 +68,9 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 
   // Initialize original order
   useEffect(() => {
-    if (data?.order_list) {
-      const parsedOrder = typeof data.order_list === "string"
-        ? JSON.parse(data.order_list)
-        : data.order_list;
-      setOriginalOrder(parsedOrder.list);
+    if (data?.items.length>0) {
+      // const parsedOrder = data?.items;
+      setOriginalOrder(data?.items);
     }
   }, [data]);
 
@@ -81,24 +82,54 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
     }
   }, [showEdit]);
 
-  // --- (Indicator) MODIFIED HANDLER: Updates the new state for newly delivered quantities ---
-  const handleNewlyDeliveredChange = useCallback(
-    (item: PurchaseOrderItem, value: string) => {
-      // Allow empty string to clear input, but only add to state if it's a valid number
-      const parsedValue = parseNumber(value);
 
+// --- BEFORE ---
+/*
+const handleNewlyDeliveredChange = useCallback(
+  (item: PurchaseOrderItem, value: string) => {
+    const MAX_ALLOWED_QUANTITY = 20; // Static value
+    // ...
+  },
+  []
+);
+*/
+
+// --- AFTER (The New Dynamic Logic) ---
+const handleNewlyDeliveredChange = useCallback(
+  (item: PurchaseOrderItem, value: string) => {
+    // 1. Calculate the remaining quantity for this specific item.
+    const alreadyDelivered = item.received_quantity ?? 0;
+    const remainingQuantity = item.quantity - alreadyDelivered;
+
+    // 2. Determine the maximum allowed input. If remaining is negative (over-delivered), max is 0.
+    //    Math.max is a clean way to handle this.
+    const maxAllowed = Math.max(0, remainingQuantity);
+
+    // 3. Handle the user clearing the input (no changes needed here)
+    if (value === '') {
       setNewlyDeliveredQuantities((prev) => {
         const updated = { ...prev };
-        if (value === '' || parsedValue === 0) {
-          delete updated[item.name]; // Remove from state if cleared or zero
-        } else {
-          updated[item.name] = value; // Store the raw string value
-        }
+        delete updated[item.name];
         return updated;
       });
-    },
-    []
-  );
+      return;
+    }
+
+    // 4. Parse the input value (no changes needed here)
+    const numericValue = parseNumber(value);
+
+    // 5. Enforce the DYNAMIC maximum limit.
+    const cappedValue = Math.min(numericValue, maxAllowed);
+
+    // 6. Update the state with the capped value (no changes needed here)
+    setNewlyDeliveredQuantities((prev) => ({
+      ...prev,
+      [item.name]: String(cappedValue),
+    }));
+  },
+  [] // No dependencies needed as 'item' is passed directly
+);
+
 
   // --- (Indicator) MODIFIED LOGIC: This now builds the history log based on the new input state ---
   const transformChangesToDeliveryData = useCallback(() => {
@@ -116,12 +147,12 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       const originalItem = originalOrder.find(item => item.name === itemId);
       if (!originalItem) return;
 
-      const alreadyDelivered = originalItem.received ?? 0;
+      const alreadyDelivered = originalItem.received_quantity ?? 0;
       const newTotal = alreadyDelivered + newlyDeliveredQty;
 
       deliveryData[deliveryDate].items.push({
         item_id: itemId,
-        item_name: originalItem.item,
+        item_name: originalItem.item_name,
         unit: originalItem.unit,
         from: alreadyDelivered, // The quantity before this update
         to: newTotal,           // The new total quantity
@@ -171,7 +202,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       const originalItem = originalOrder.find(item => item.name === itemId);
       if (!originalItem) return;
 
-      const alreadyDelivered = originalItem.received ?? 0;
+      const alreadyDelivered = originalItem.received_quantity ?? 0;
       const newTotalReceived = alreadyDelivered + newlyDeliveredQty;
 
       // Optional: Add a check for over-delivery if needed, for now we allow it.
@@ -307,14 +338,17 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
               </TableHeader>
               <TableBody>
                 {originalOrder.map((item) => {
-                  const alreadyDelivered = item.received ?? 0;
+                  const alreadyDelivered = item.received_quantity ?? 0;
                   const isFullyDelivered = alreadyDelivered >= item.quantity;
+                    const remainingQuantity = item.quantity - alreadyDelivered;
+  const maxInput = Math.max(0, remainingQuantity);
+
 
                   return (
                     <TableRow key={item.name}>
                       <TableCell>
                         <div className="inline items-baseline">
-                          <p>{item.item}</p>
+                          <p>{item.item_name}</p>
                           {item.comment && (
                             <HoverCard><HoverCardTrigger><MessageCircleMore className="text-blue-400 w-4 h-4 inline-block ml-1" /></HoverCardTrigger><HoverCardContent><div className="pb-4"><span className="block">{item.comment}</span><span className="text-xs italic text-gray-600">- Comment by PL</span></div></HoverCardContent></HoverCard>
                           )}
@@ -357,7 +391,11 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                               onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
                               placeholder="0"
                               className="w-24"
-                              min={0}
+                                min={0}
+                             max={maxInput}
+                                            disabled={isFullyDelivered}
+
+                                
                             />
                           </TableCell>
                         </>
@@ -380,14 +418,16 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
           <div className="block sm:hidden">
             <div className="divide-y">
               {originalOrder.map(item => {
-                const alreadyDelivered = item.received ?? 0;
+                const alreadyDelivered = item.received_quantity ?? 0;
                 const isFullyDelivered = alreadyDelivered >= item.quantity;
+                 const remainingQuantity = item.quantity - alreadyDelivered;
+  const maxInput = Math.max(0, remainingQuantity);
 
                 return (
                   <div key={`mobile-card-${item.name}`} className="p-4">
                     {/* Item Name and Unit */}
                     <div className="mb-3">
-                      <p className="font-semibold text-gray-800">{item.item}</p>
+                      <p className="font-semibold text-gray-800">{item.item_name}</p>
                       <p className="text-sm text-gray-500">Unit: {item.unit}</p>
                     </div>
 
@@ -439,6 +479,8 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                                   placeholder="0"
                                   className="w-full h-9 p-1 text-center"
                                   min={0}
+                                            max={maxInput} 
+                                            disabled={isFullyDelivered}
                                 />
                               </TableCell>
                             </>

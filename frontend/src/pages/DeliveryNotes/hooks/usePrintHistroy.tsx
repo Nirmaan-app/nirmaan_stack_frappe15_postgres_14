@@ -51,6 +51,28 @@ export const usePrintHistory = (baseDocumentData: ProcurementOrder | null) => {
     if (!historyEntryToPrint || !baseDocumentData) {
       return null;
     }
+    
+     const historicalItemsForPrint = historyEntryToPrint.items.map(histItem => ({
+    // These fields are required by the PurchaseOrderItem type and the print layout.
+    name: histItem.item_id,         // Use the unique ID for the key
+    item: histItem.item_name,       // The item name
+    item_name: histItem.item_name,  // The item name
+    unit: histItem.unit,
+    
+    // For a historical print, "Ordered" is not relevant, but we need the field.
+    // "Received" should be the amount delivered IN THIS TRANSACTION.
+    quantity: 0, // Or you could use the original quantity if you fetch it, but that's complex.
+    received_quantity: histItem.to - histItem.from, // This is the key value for history print.
+    
+    // Add other optional fields from the type as null/undefined to satisfy TypeScript
+    comment: undefined,
+    // Add any other fields from PurchaseOrderItem if they are accessed by the print layout
+  }));
+
+  const printData = {
+    ...baseDocumentData,
+    items: historicalItemsForPrint, // <-- THE FIX: Overwrite `items` with our transformed history
+  };
 
     // This component is hidden from the screen but visible to the print handler
     return (
@@ -59,10 +81,7 @@ export const usePrintHistory = (baseDocumentData: ProcurementOrder | null) => {
           ref={historyPrintComponentRef}
           // We spread the base document data but override the item list
           // with the items from the specific historical entry.
-          data={{
-            ...baseDocumentData,
-            delivery_list: { list: historyEntryToPrint.items },
-          }}
+          data={printData}
         />
       </div>
     );

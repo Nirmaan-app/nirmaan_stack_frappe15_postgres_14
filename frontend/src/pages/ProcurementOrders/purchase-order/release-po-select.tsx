@@ -166,27 +166,29 @@ export const ReleasePOSelect: React.FC = () => {
 
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    // const getAmountPaid = useMemo(() => memoize((id: string) => {
-    //     const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
-    //     return getTotalAmountPaid(payments);
-    // }, (id: string) => id), [projectPayments])
+    const getAmountPaid = useMemo(() => memoize((id: string) => {
+        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
+        const total =payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
+        // console.log("getAmountPaid", id, payments, total)
+        return total;
+    }, (id: string) => id), [projectPayments])
 
     // --- Memoized Calculation Functions ---
     // Define these outside the main component body or ensure dependencies are stable
     // Using useMemo ensures they are stable if dependencies don't change.
-    const getAmountPaid = useMemo(() => {
-        if (!projectPayments) return () => 0; // Return a function that returns 0 if data not ready
-        // Create a map for faster lookups
-        const paymentsMap = new Map<string, number>();
-        projectPayments.forEach(p => {
-            if (p.document_name && p.status === "Paid") {
-                const currentTotal = paymentsMap.get(p.document_name) || 0;
-                paymentsMap.set(p.document_name, currentTotal + parseNumber(p.amount));
-            }
-        });
-        // Return the memoized lookup function
-        return memoize((id: string) => paymentsMap.get(id) || 0);
-    }, [projectPayments]); // Recalculate only when projectPayments changes
+    // const getAmountPaid = useMemo(() => {
+    //     if (!projectPayments) return () => 0; // Return a function that returns 0 if data not ready
+    //     // Create a map for faster lookups
+    //     const paymentsMap = new Map<string, number>();
+    //     projectPayments.forEach(p => {
+    //         if (p.document_name && p.status === "Paid") {
+    //             const currentTotal = paymentsMap.get(p.document_name) || 0;
+    //             paymentsMap.set(p.document_name, currentTotal + parseNumber(p.amount));
+    //         }
+    //     });
+    //     // Return the memoized lookup function
+    //     return memoize((id: string) => paymentsMap.get(id) || 0);
+    // }, [projectPayments]); // Recalculate only when projectPayments changes
 
     const { counts } = useDocCountStore()
 
@@ -199,7 +201,7 @@ export const ReleasePOSelect: React.FC = () => {
         ...DEFAULT_PO_FIELDS_TO_FETCH,     // spread keeps array flat
         "creation",
         "modified",
-        "order_list",
+        "amount",
         "loading_charges",
         "freight_charges",
         "invoice_data",
@@ -351,7 +353,7 @@ export const ReleasePOSelect: React.FC = () => {
                         ) : (
                             <p>{row.original.name}</p>
                         )}
-                        <ItemsHoverCard order_list={row.original?.items} />
+                        <ItemsHoverCard parentDocId={row.original} parentDoctype={"Procurement Orders"} childTableName="items" />
                     </div>
                     {row.original?.custom === "true" && (
                         <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
@@ -481,33 +483,24 @@ export const ReleasePOSelect: React.FC = () => {
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
         {
-            id: "po_amount",
+           accessorKey: "amount",
             header: ({ column }) => {
                 return (
                     <DataTableColumnHeader column={column} title="PO Amt" />
                 )
             },
             cell: ({ row }) => {
-                const orderData = Array.isArray(row.original?.order_list?.list) ? row.original.order_list.list : [];
-                const loading = parseNumber(row.original?.loading_charges);
-                const freight = parseNumber(row.original?.freight_charges);
 
-                const poTotal = getPOTotal({ order_list: { list: orderData } }, loading, freight);
-                return (<div className="font-medium pr-2">{formatToRoundedIndianRupee(poTotal?.totalAmt)}</div>);
+                return (<div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original?.amount)}</div>);
 
             },
             size: 200,
-            enableSorting: false,
             // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
                 exportHeaderName: "PO Amount",
                 exportValue: (row) => {
-                    const orderData = Array.isArray(row.order_list?.list) ? row.order_list.list : [];
-                    const loading = parseNumber(row.loading_charges);
-                    const freight = parseNumber(row.freight_charges);
-
-                    const poTotal = getPOTotal({ order_list: { list: orderData } }, loading, freight);
-                    return formatForReport(poTotal?.totalAmt);
+                    
+                    return formatForReport(row.original?.amount);
                 }
             }
         },
@@ -570,7 +563,7 @@ export const ReleasePOSelect: React.FC = () => {
                 meta: {
                     exportHeaderName: "Amount Paid",
                     exportValue: (row) => {
-                        const amountPaid = getAmountPaid(row.name);
+                        const amountPaid = getAmountPaid(row.original?.name);
                         return formatForReport(amountPaid || 0);
                     }
                 }

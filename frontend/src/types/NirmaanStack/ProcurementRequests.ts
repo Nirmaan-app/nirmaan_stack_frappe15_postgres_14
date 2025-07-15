@@ -112,4 +112,5 @@ export interface ProcurementRequest {
 	rfq_data: RFQData
 	workflow_state: string
 	order_list: ProcurementRequestItemDetail[]
+	custom?:string
 }

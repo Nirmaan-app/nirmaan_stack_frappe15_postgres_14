@@ -425,7 +425,7 @@ const generateActionSummary = useCallback(() => {
         amount: itemTotalInclGst,
         targetRateValue: lowestItemPrice, // Store the calculated value
       };
-      console.log("displayItem",displayItem)
+      // console.log("displayItem",displayItem)
 
       if(displayItem?.category === "Additional Charges"){
         displayItem.potentialLoss = 0;
