@@ -15,6 +15,7 @@ export const PR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
         value: "order_list",
         label: "Item in PR",
         placeholder: "Search by Item Name in PRs...",
+        is_json: true, // Signal to backend for special JSON search logic
 
     },
 ];

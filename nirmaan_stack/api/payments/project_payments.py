@@ -144,6 +144,10 @@ def _fulfil_payment(pay, args):
     if file_url:
         _attach_file(pay, file_url)
 
+    po_doc = frappe.get_doc(pay.document_type, pay.document_name)
+    po_doc.latest_payment_date = args.get("pay_date") or nowdate()
+    po_doc.save()
+
 
 def _attach_file(pay, file_url: str):
     pay.payment_attachment = file_url

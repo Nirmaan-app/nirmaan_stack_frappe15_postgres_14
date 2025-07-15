@@ -38,7 +38,9 @@
   "delivery_contact",
   "delivery_data",
   "invoice_data",
-  "dispatch_date"
+  "dispatch_date",
+  "latest_delivery_date",
+  "latest_payment_date"
  ],
  "fields": [
   {
@@ -247,12 +249,22 @@
    "fieldname": "note_points",
    "fieldtype": "JSON",
    "label": "Note Points"
+  },
+  {
+   "fieldname": "latest_delivery_date",
+   "fieldtype": "Datetime",
+   "label": "Latest Delivery Date"
+  },
+  {
+   "fieldname": "latest_payment_date",
+   "fieldtype": "Datetime",
+   "label": "Latest Payment Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-03 20:05:37.346434",
+ "modified": "2025-07-14 18:39:14.567680",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

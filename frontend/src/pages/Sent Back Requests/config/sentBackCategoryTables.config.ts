@@ -14,6 +14,7 @@ export const SB_SEARCHABLE_FIELDS: SearchFieldOption[] = [
         value: "order_list", // Field name for backend
         label: "Item in SB",
         placeholder: "Search by Item Name in SBs...",
+        is_json: true, // Signal to backend for special JSON search logic
     },
 ];
 
