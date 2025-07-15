@@ -867,16 +867,16 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 
   const isReadOnly = accountsPage || estimatesViewing || summaryPage;
 
-  const isPaymentTermsEditable = useMemo(() => {
-    if (
-      !PO.payment_terms ||
-      !Array.isArray(PO.payment_terms) ||
-      PO.payment_terms.length === 0
-    ) {
-      return true;
-    }
-    return PO.payment_terms.every((term) => term.status === "Created");
-  }, [PO.payment_terms]);
+  // const isPaymentTermsEditable = useMemo(() => {
+  //   if (
+  //     !PO.payment_terms ||
+  //     !Array.isArray(PO.payment_terms) ||
+  //     PO.payment_terms.length === 0
+  //   ) {
+  //     return true;
+  //   }
+  //   return PO.payment_terms.every((term) => term.status === "Created");
+  // }, [PO.payment_terms]);
 
   const processedPaymentTerms = useMemo(() => {
     const terms = Array.isArray(PO.payment_terms) ? PO.payment_terms : [];

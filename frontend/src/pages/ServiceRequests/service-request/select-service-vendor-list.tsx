@@ -90,7 +90,7 @@ export const SelectServiceVendorList: React.FC = () => {
                         </Link>
                         {/* Adapt ItemsHoverCard or create ServiceItemsHoverCard if structure differs significantly */}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
+                             <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
                         </div>
                     </div>
                 );

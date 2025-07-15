@@ -170,7 +170,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
     );
   }
 
-  console.log('selection Items ',dataSource)
+  // console.log('selection Items ',dataSource)
   return (
     <div className="space-y-3">
       <Accordion

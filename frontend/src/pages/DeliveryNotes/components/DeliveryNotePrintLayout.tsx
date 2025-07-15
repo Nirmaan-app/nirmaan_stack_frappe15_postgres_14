@@ -42,7 +42,7 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
   ({ data }, ref) => {
 
 
-    console.log("PrintOverallData", data);
+    // console.log("PrintOverallData", data);
     // --- FIX: Normalize both historical and current data into a single, type-safe structure ---
     const itemsToRender: NormalizedPrintItem[] = (() => {
       // Case 1: Printing a specific historical delivery.

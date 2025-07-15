@@ -110,7 +110,7 @@ let itemsToDisplay:any;
                   {isSR && <TableCell className="truncate max-w-[100px]">{item.description}</TableCell>}
                   <TableCell>{isSR ? item.uom : item.unit}</TableCell>
                   <TableCell>{item.quantity}</TableCell>
-                  <TableCell>{formatToIndianRupee(isSR ? item?.rate : item.quote)}</TableCell>
+                  <TableCell>{formatToIndianRupee(isSR ? item?.rate : item?.quote)}</TableCell>
                   {(!isSR && (isPR || isSB)) && (
                     <TableCell>{item?.make || "--"}</TableCell>
                   )}

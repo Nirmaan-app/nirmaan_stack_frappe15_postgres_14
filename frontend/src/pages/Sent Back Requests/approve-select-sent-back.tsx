@@ -103,7 +103,11 @@ export const ApproveSelectSentBack: React.FC = () => {
                         <Badge variant="secondary" className="text-xs">{data.type || 'Unknown Type'}</Badge>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             {/* Pass correct item structure to hover card */}
-                            <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
+                            <ItemsHoverCard 
+                                parentDocId={data}
+                                parentDoctype={DOCTYPE} 
+                                childTableName={"order_list"} 
+                            isSB />
                         </div>
                     </div>
                 );

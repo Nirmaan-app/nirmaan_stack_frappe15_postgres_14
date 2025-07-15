@@ -274,10 +274,25 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
 
     useEffect(() => {
         if (project_data) {
+
+                    type WorkPackagesStructure = {
+            work_packages?: {
+                list?: { work_package_name: string }[]
+            }
+        };
+
+        const parsedData = safeJsonParse<WorkPackagesStructure>(
+            project_data.project_work_packages, 
+            { work_packages: { list: [] } }
+        );
+
+        const mutableWpList = parsedData?.work_packages?.list || [];
             // const wpList = JSON.parse(project_data.project_work_packages)?.work_packages
-            const wpList = safeJsonParse(project_data.project_work_packages||[])
             // wpList?.push({ work_package_name: "Tool & Equipments" })
-            wpList?.push({ work_package_name: "Services" })
+          
+        const wpList = [...mutableWpList];
+        wpList.push({ work_package_name: "Services" });
+            
             setAllWorkPackages(wpList)
             const list: string[] = wpList?.map((wp) => wp.work_package_name)
             setDefaultValues(list)

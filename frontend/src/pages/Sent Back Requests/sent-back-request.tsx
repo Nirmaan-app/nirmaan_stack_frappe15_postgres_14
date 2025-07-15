@@ -199,7 +199,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                         )}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
-                                parentDocId={sbId}
+                                parentDocId={data}
                                 parentDoctype={DOCTYPE} // 'Sent Back Requests'
                                 childTableName={"order_list"} // Or "procurement_list" - check your DocType
                                 isSB={true} // Pass relevant flags

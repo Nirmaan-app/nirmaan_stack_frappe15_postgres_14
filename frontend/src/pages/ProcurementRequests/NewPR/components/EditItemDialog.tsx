@@ -119,9 +119,9 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     const availableMakeOptions = useMemo(() => {
         // --- Logging Start ---
         console.log("--- ISC useMemo Start ---");
-        console.log("currentItemCategoryName:", currentItemCategoryName);
-        console.log("selectedCategories (prop):", JSON.stringify(selectedCategories));
-        console.log("initialCategoryMakes (prop):", JSON.stringify(initialCategoryMakes));
+        // console.log("currentItemCategoryName:", currentItemCategoryName);
+        // console.log("selectedCategories (prop):", JSON.stringify(selectedCategories));
+        // console.log("initialCategoryMakes (prop):", JSON.stringify(initialCategoryMakes));
         // --- Logging End ---
 
         if (!currentItemCategoryName) {

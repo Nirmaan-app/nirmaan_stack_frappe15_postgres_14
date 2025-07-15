@@ -18,7 +18,7 @@ interface UseDeliveryNoteDataResult {
 export function useDeliveryNoteData(): UseDeliveryNoteDataResult {
   const { dnId: encodedDnId } = useParams<{ dnId: string }>();
   const {id:encodedDnId2} = useParams<{ id: string }>();
-  console.log("dnId", encodedDnId,encodedDnId2)
+  // console.log("dnId", encodedDnId,encodedDnId2)
 
   const deliveryNoteId = useMemo(() => {
     if (!encodedDnId && !encodedDnId2) return null;
@@ -36,7 +36,7 @@ export function useDeliveryNoteData(): UseDeliveryNoteDataResult {
     }
   }, [encodedDnId,encodedDnId2]);
 
-  console.log("deliveryNoteId", deliveryNoteId)
+  // console.log("deliveryNoteId", deliveryNoteId)
 
   const poId = useMemo(() => {
     if (!deliveryNoteId) return null;

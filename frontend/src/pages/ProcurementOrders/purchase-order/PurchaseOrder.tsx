@@ -2124,7 +2124,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                     </DialogDescription>
                     <DialogDescription className="flex justify-end">
                       <div className="flex gap-2">
-                        {orderData?.length === 1 ? (
+                        {orderData?.filter((item)=>item.category!=="Additional Charges").length === 1 ? (
                           <Button className="flex items-center gap-1" disabled>
                             <Trash2 className="h-4 w-4" />
                             Delete
