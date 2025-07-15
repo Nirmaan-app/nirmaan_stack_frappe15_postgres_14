@@ -32,7 +32,7 @@ const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "status", label: "Status" },
     { value: "procurement_request", label: "PR ID" },
     {
-        value: "order_list", // Field name for backend
+        value: "items", // Field name for backend
         label: "Item in PO",
         placeholder: "Search by Item Name in order list...",
         is_json: true, // Signal to backend for special JSON search logic
@@ -56,10 +56,10 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
 
 
     const facetFilterOptions = useMemo(() => ({
-            // Use the 'accessorKey' or 'id' of the column
-            project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
-            status: { title: "Status", options: PO_STATUS_OPTIONS },
-        }), [projectOptions]);
+        // Use the 'accessorKey' or 'id' of the column
+        project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
+        status: { title: "Status", options: PO_STATUS_OPTIONS },
+    }), [projectOptions]);
 
     const getCategoriesFromOrderList = useCallback((orderListJson?: { list: PurchaseOrderItem[] } | string) => {
         let items: PurchaseOrderItem[] = [];
@@ -104,24 +104,24 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
             size: 170,
         },
         {
-        accessorKey: "procurement_request",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader
-              column={column}
-              title="PR ID"
-            />
-          );
+            accessorKey: "procurement_request",
+            header: ({ column }) => {
+                return (
+                    <DataTableColumnHeader
+                        column={column}
+                        title="PR ID"
+                    />
+                );
+            },
+            cell: ({ row }) => {
+                return (
+                    <div className="min-w-[160px]">
+                        {row.getValue("procurement_request")}
+                    </div>
+                );
+            },
+            size: 180,
         },
-        cell: ({ row }) => {
-          return (
-            <div className="min-w-[160px]">
-              {row.getValue("procurement_request")}
-            </div>
-          );
-        },
-        size: 180,
-      },
         {
             accessorKey: "project_name",
             header: "Project",

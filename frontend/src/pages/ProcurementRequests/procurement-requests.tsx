@@ -206,7 +206,7 @@ export const ProcurementRequests: React.FC = () => {
     //     "work_package", "procurement_list", "category_list", "workflow_state",
     // ], []);
 
-    const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'procurement_list', 'category_list']), [])
+    const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'category_list', 'order_list']), [])
 
     const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Created By", placeholder: "Search by Created By..." },
     ...(tab === "All PRs" ? [

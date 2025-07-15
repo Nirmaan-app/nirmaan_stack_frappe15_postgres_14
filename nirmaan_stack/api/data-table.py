@@ -20,7 +20,7 @@ MAX_PAGE_LENGTH = 10000
 CACHE_EXPIRY = 300 # 5 minutes
 JSON_ITEM_SEARCH_DOCTYPE_MAP = {
     # Renamed item_path to item_path_parts for clarity
-    "Procurement Orders": {"json_field": "order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
+    # "Procurement Orders": {"json_field": "order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
     # "Procurement Requests": {"json_field": "procurement_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
     # --- NEW ENTRY ---
     # "Sent Back Category": {"json_field": "item_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "item"},
@@ -45,6 +45,13 @@ CHILD_TABLE_ITEM_SEARCH_MAP = {
             "link_field_to_parent": "parent",
             "searchable_child_fields": ["item_name", "item_id"], # Or equivalent fields
             "status_field": "status" # Or equivalent status field
+        }
+    },
+    "Procurement Orders": {
+        "items": {
+            "child_doctype": "Purchase Order Item",
+            "link_field_to_parent": "parent",
+            "searchable_child_fields": ["item_name", "item_id"], # Fields to search within the child table
         }
     }
 }
@@ -454,6 +461,7 @@ def get_list_with_count_enhanced(
             doctype in CHILD_TABLE_ITEM_SEARCH_MAP and
             target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]
         )
+        print(f"DEBUG: use_child_table_item_search = {use_child_table_item_search} for doctype '{doctype}' with target field '{target_search_field_name}, is_item_search_bool={is_item_search_bool}, search_term='{search_term}'")
 
         # Strategy 2: Child Table Pending Items Filter (no item search_term, but require_pending_items_bool is true)
         # This is active if require_pending_items_bool is true AND the doctype is configured for child table status checks.
@@ -512,25 +520,43 @@ def get_list_with_count_enhanced(
                 searchable_child_fields = search_config["searchable_child_fields"]
                 child_status_field = search_config.get("status_field") # Get status field for optional pending check
 
+                # --- FIX START: Use positional placeholders for robust LIKE search ---
                 search_term_like = f"%{search_term}%"
-                child_item_search_conditions_sql = " OR ".join([f"`tab{child_doctype_name}`.`{field}` LIKE %(search_term)s" for field in searchable_child_fields])
+
+                # 1. Generate OR conditions with positional placeholders (%s)
+                #    and collect the search term parameter for each condition.
+                child_item_search_conditions = []
+                child_item_search_params = []
+                for field in searchable_child_fields:
+                    child_item_search_conditions.append(f"`tab{child_doctype_name}`.`{field}` ILIKE %s")
+                    child_item_search_params.append(search_term_like)
+
+                child_item_search_conditions_sql = " OR ".join(child_item_search_conditions)
                 
+                # 2. Build the final SQL string and parameter tuple using positional placeholders.
                 sql_where_parts = [
-                    f"`tab{child_doctype_name}`.`{child_link_field}` IN %(names_tuple)s",
-                    f"`tab{child_doctype_name}`.`parenttype` = %(parent_doctype)s",
+                    f"`tab{child_doctype_name}`.`{child_link_field}` IN %s",
+                    f"`tab{child_doctype_name}`.`parenttype` = %s",
                     f"({child_item_search_conditions_sql})"
                 ]
 
-                # If require_pending_items is ALSO true during an item search, add that filter
+                # Optional: Add pending status filter
                 if require_pending_items_bool and child_status_field:
                     sql_where_parts.append(f"`tab{child_doctype_name}`.`{child_status_field}` = 'Pending'")
 
                 sql_where_clause = " AND ".join(sql_where_parts)
                 sql = f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` FROM `tab{child_doctype_name}` WHERE {sql_where_clause}"
+
+                # 3. The parameter tuple must be in the exact order of the %s placeholders.
+                sql_params_tuple = (
+                    tuple(potential_parent_names), # For `IN %s`
+                    doctype,                      # For `parenttype = %s`
+                    *child_item_search_params     # For `LIKE %s OR LIKE %s ...`
+                )
                 
-                sql_params = {"names_tuple": tuple(potential_parent_names), "parent_doctype": doctype, "search_term": search_term_like}
-                
-                final_matching_names_result = frappe.db.sql(sql, sql_params, as_list=True)
+                # 4. Use the tuple for parameters
+                final_matching_names_result = frappe.db.sql(sql, sql_params_tuple, as_list=True)
+                # --- FIX END ---
                 final_matching_names = [r[0] for r in final_matching_names_result if r and r[0]]
                 total_records = len(final_matching_names)
 

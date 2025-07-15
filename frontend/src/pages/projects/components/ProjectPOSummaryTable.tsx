@@ -49,7 +49,7 @@ export const PO_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "status", label: "Status", placeholder: "Search by Status..." },
     { value: "procurement_request", label: "PR ID", placeholder: "Search by PR ID" },
     {
-        value: "order_list",
+        value: "items",
         label: "Item in PO",
         placeholder: "Search by Item in PO...",
         is_json: true,
