@@ -34,6 +34,8 @@ interface POAttachmentsProps {
 
 export const POAttachments: React.FC<POAttachmentsProps> = ({ PO, poMutate }) => {
 
+  console.log("Invoicedata",PO)
+
   const { toggleNewInvoiceDialog } = useDialogStore()
 
   const {data: attachmentsData, isLoading: attachmentsLoading} = useFrappeGetDocList<NirmaanAttachment>("Nirmaan Attachments", {
@@ -116,6 +118,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO, poMutate }) =>
               </CardTitle>
             </CardHeader>
             <CardContent>
+             
                 <Table>
                       <TableHeader className="bg-red-100">
                         <TableRow>

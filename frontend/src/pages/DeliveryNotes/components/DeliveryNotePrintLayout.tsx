@@ -25,7 +25,7 @@ interface NormalizedPrintItem {
 }
 
 interface PrintData extends ProcurementOrder {
-  delivery_list?: { list: HistoricalDeliveryItem[] };
+  delivery_data?: { data: HistoricalDeliveryItem[] };
 }
 
 interface DeliveryNotePrintLayoutProps {
@@ -39,22 +39,24 @@ const getCompanyAddress = (gst: string | undefined): string => {
 // ======================= THE COMPONENT =======================
 
 export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePrintLayoutProps>(
-  ({ data }, ref) => {
-
-
+  ({ data, }, ref) => {
     // console.log("PrintOverallData", data);
     // --- FIX: Normalize both historical and current data into a single, type-safe structure ---
+    console.log("DeliveryNotePrintLayoutProps", data);
     const itemsToRender: NormalizedPrintItem[] = (() => {
       // Case 1: Printing a specific historical delivery.
       if (data.delivery_data?.data) {
+        console.log("DeliveryNotePrintLayoutProps22", data.delivery_data?.data)
         return data.delivery_data?.ldatamap(item => ({
           name: item.item_name,
           unit: item.unit,
           quantity: parseFloat(item.to) - parseFloat(item.from) || 0,
           comment: null,
         }));
+        
       }
 
+     
       // Case 2: Printing the current state.
       const currentOrderList = data.items || [];
       return currentOrderList.map(item => ({
@@ -67,7 +69,13 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
 
     const totalQuantity = itemsToRender.reduce((acc, item) => acc + item.quantity, 0);
 
-    const deliveryNoteNumber = deriveDnIdFromPoId(data.name).toUpperCase();
+    const PO_ID = deriveDnIdFromPoId(data.name).toUpperCase();
+    const Note_no=data?.Note_no
+
+    console.log("Note_no",Note_no)
+    const deliveryNoteNumber =Note_no?`${PO_ID}/${Note_no}` : `${PO_ID}/M`;
+
+
     const companyAddress = getCompanyAddress(data.project_gst);
     const creationDate = data.creation ? format(new Date(data.creation.split(" ")[0]), 'dd-MMM-yyyy') : 'N/A';
 
@@ -85,7 +93,8 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
                     </div>
                     <div className="text-right mt-2">
                       <div className="text-lg text-gray-700 font-semibold">Delivery Note No.</div>
-                      <div className="text-base font-bold text-black">{deliveryNoteNumber}</div>
+                      <div className="text-base font-bold text-black">{`${deliveryNoteNumber}`}</div>
+                      {/* ${data?.note_no} */}
                     </div>
                   </div>
                   <div className="flex justify-between items-start text-xs text-gray-600 font-normal border-b-2 border-black py-1 mb-2">

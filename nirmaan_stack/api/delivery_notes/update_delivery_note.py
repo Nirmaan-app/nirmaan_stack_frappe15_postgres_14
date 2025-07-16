@@ -31,6 +31,8 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
         # Update order list and status
         po.items =  updated_order
         po.status = calculate_order_status(updated_order)
+        po.latest_delivery_date = datetime.now()
+        
 
         # Handle delivery challan attachment
         if delivery_challan_attachment:

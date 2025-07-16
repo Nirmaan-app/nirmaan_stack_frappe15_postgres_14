@@ -29,6 +29,7 @@ export interface POReportRowData {
     invoiceAmount: number;
     amountPaid: number;
     originalDoc: ProcurementOrder; //| ServiceRequests;
+    
 }
 
 interface UsePOReportsDataResult {

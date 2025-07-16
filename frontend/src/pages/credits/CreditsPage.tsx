@@ -24,7 +24,7 @@ const CreditsPage = () => {
 
 
   
-  console.log("totalCount", totalCount);
+  // console.log("totalCount", totalCount);
 
   // 2. Render the UI. The component is now declarative.
   return (

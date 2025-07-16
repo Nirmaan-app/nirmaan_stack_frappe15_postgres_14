@@ -45,7 +45,7 @@ export const useCredits = () => {
     return filters;
   }, [currentStatus]);
 
-  const { table, ...tableProps } = useServerDataTable<PoPaymentTermRow>({
+  const { table,data,...tableProps } = useServerDataTable<PoPaymentTermRow>({
     doctype: PO_PAYMENT_TERM_DOCTYPE,
   columns: useMemo(() => getCreditsColumns(navigate), [navigate]), 
     fetchFields: TERM_LIST_FIELDS_TO_FETCH,
@@ -66,8 +66,11 @@ export const useCredits = () => {
     });
   }, [creditsCounts]);
 
+  // console.log("paymentTermStatusOptionsWithCounts", data);
+
   return {
     table,
+data,
     currentStatus,
     handleStatusChange,
     TERM_SEARCHABLE_FIELDS,

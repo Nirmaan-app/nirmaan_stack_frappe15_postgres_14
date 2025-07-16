@@ -122,7 +122,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 import {safeJsonParse} from "@/pages/DeliveryNotes/constants";
-
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm ,POTotals,DeliveryDataType} from "@/types/NirmaanStack/ProcurementOrders";
 
 interface PurchaseOrderProps {
@@ -192,6 +192,15 @@ export const PurchaseOrder = ({
       setMergedPaymentTerms(doc?.payment_terms || []);
     }
   }, [po]);
+
+  const [invoicePO,setInvoicePO] = useState<ProcurementOrder | null>(null);
+
+   useEffect(() => {
+          if (po) {
+              const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data),delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }           
+              setInvoicePO(data);          
+          }
+      }, [po])
 
   const [advance, setAdvance] = useState(0);
   const [materialReadiness, setMaterialReadiness] = useState(0);
@@ -350,6 +359,8 @@ export const PurchaseOrder = ({
     `Nirmaan Users`
   );
 
+    const { data: project, isLoading: project_loading } = useFrappeGetDoc<Projects>("Projects", PO?.project, PO?.project ? `Projects ${PO?.project}` : null)
+  
   const {
     data: poPayments,
     isLoading: poPaymentsLoading,
@@ -1490,10 +1501,12 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
               <AccordionContent>
                 <DocumentAttachments
                   docType="Procurement Orders"
-                  docName={poId}
-                  documentData={PO}
+                  docName={PO?.name}
+                  documentData={invoicePO}
                   docMutate={poMutate}
+                  project={project}
                 />
+
                 {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
               </AccordionContent>
             </AccordionItem>
@@ -2237,7 +2250,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
         </div>
       </div>
       {/* Delivery History */}
-      {["Delivered", "Partially Delivered"].includes(PO?.status) && (
+      {["Delivered", "Partially Delivered","Approved"].includes(PO?.status) && (
         <DeliveryHistoryTable
           deliveryData={deliveryHistory.data}
             onPrintHistory={triggerHistoryPrint}

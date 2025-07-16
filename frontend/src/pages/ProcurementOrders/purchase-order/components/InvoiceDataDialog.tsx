@@ -21,6 +21,8 @@ interface InvoiceDataDialogProps {
 }
 
 const getInvoiceDetails = (data: {data : InvoiceDataType} | undefined) => {
+
+  // console.log("Invoicedata",data)
   try {
     if(!data) return { isValid: false, items: [] };
     const parsedData = typeof data === 'string' ? JSON.parse(data)?.data : data?.data;

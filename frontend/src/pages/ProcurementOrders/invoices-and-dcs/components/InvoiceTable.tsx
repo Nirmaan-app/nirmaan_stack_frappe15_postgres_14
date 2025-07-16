@@ -38,6 +38,8 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
 }) => {
     const invoiceEntries = items ? Object.entries(items) : [];
 
+    // console.log("Invoicedata",items,invoiceEntries)
+
     // Determine if the delete column should be shown at all
     const showDeleteColumn = onDeleteEntry && canDeleteEntry && invoiceEntries.some(([_, item]) => canDeleteEntry(item));
 
@@ -68,6 +70,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                 {invoiceEntries.length > 0 ? (
                     invoiceEntries.map(([dateKey, invoice]) => {
                         const showDeleteButton = showDeleteColumn && canDeleteEntry?.(invoice);
+                        
                         const displayDate = dateKey.includes('_') ? dateKey.split('_')[0] : dateKey; // Show only date part if timestamp exists
 
                         return (

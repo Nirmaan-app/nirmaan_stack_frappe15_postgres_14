@@ -55,6 +55,7 @@ export interface PaymentTerm {
 
 export interface DeliveryDataType {
 	[date: string]: {
+		note_no:string;
 		items: DeliveryItem[];
 		updated_by: string;
 		dc_attachment_id?: string;
@@ -139,4 +140,6 @@ export interface ProcurementOrder {
 	delivery_data?: { data: DeliveryDataType }
 	invoice_data?: { data: InvoiceDataType }
 	dispatch_date?: string | null;
+	latest_delivery_date?:string|null;
+	latest_payment_date?:string|null;
 }
