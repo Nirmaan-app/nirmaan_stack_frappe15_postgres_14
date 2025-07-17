@@ -491,7 +491,7 @@ export const ReleasePOSelect: React.FC = () => {
             },
             cell: ({ row }) => {
 
-                return (<div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original?.amount)}</div>);
+                return (<div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original?.total_amount)}</div>);
 
             },
             size: 200,
@@ -500,7 +500,7 @@ export const ReleasePOSelect: React.FC = () => {
                 exportHeaderName: "PO Amount",
                 exportValue: (row) => {
                     
-                    return formatForReport(row.original?.amount);
+                    return formatForReport(row.original?.total_amount);
                 }
             }
         },

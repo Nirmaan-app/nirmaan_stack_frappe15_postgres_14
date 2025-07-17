@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TailSpin } from "react-loader-spinner";
 import { CustomAttachment } from "../../../components/helpers/CustomAttachment";
 import { KeyedMutator } from 'swr';
+import { safeJsonParse } from "../constants";
 
 interface DeliveryNoteItemsDisplayProps {
   poMutate: KeyedMutator<FrappeDoc<ProcurementOrder>>;
@@ -133,8 +134,27 @@ const handleNewlyDeliveredChange = useCallback(
 
   // --- (Indicator) MODIFIED LOGIC: This now builds the history log based on the new input state ---
   const transformChangesToDeliveryData = useCallback(() => {
+
+
+  // 1. First, parse the 'delivery_data' string into a JavaScript object.
+  const deliveryDataString = data?.delivery_data; 
+const parsedDeliveryObject = safeJsonParse(data.delivery_data, {}); 
+// This will turn "{\"data\":{...}}" into { data: {...} }
+
+// 2. Now you can safely access the 'data' property on the newly parsed object.
+const deliveryHistory = parsedDeliveryObject.data || {};
+// This will give you the object you actually want: { "2025-07-16": {...} }
+
+// 3. Now you can count the keys as intended.
+const numberOfPreviousDeliveries = Object.keys(deliveryHistory).length;
+const newNoteNumber = numberOfPreviousDeliveries + 1;
+
+console.log('Final delivery history object:', deliveryHistory);
+console.log('Number of previous deliveries:', numberOfPreviousDeliveries);
+
     const deliveryData: DeliveryDataType = {
       [deliveryDate]: {
+        note_no:String(newNoteNumber),
         items: [],
         updated_by: userData?.user_id,
       }
@@ -150,6 +170,8 @@ const handleNewlyDeliveredChange = useCallback(
       const alreadyDelivered = originalItem.received_quantity ?? 0;
       const newTotal = alreadyDelivered + newlyDeliveredQty;
 
+      
+
       deliveryData[deliveryDate].items.push({
         item_id: itemId,
         item_name: originalItem.item_name,
@@ -160,7 +182,7 @@ const handleNewlyDeliveredChange = useCallback(
     });
 
     return deliveryData;
-  }, [newlyDeliveredQuantities, originalOrder, userData, deliveryDate]);
+  }, [newlyDeliveredQuantities, originalOrder, userData, deliveryDate,data]);
 
   // Handle file upload
   const uploadAttachment = useCallback(async () => {

@@ -1,6 +1,7 @@
 export interface PoPaymentTermRow {
     name: string;         // The PO name (from parent)
     project_name: string;
+    project:?string;
     vendor_name: string;
     status: string;       // The payment term's status
     label: string;

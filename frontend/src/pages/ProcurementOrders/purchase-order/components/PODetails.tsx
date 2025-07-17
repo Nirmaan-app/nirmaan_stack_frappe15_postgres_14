@@ -126,6 +126,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
     );
   const navigate = useNavigate();
 
+  console.log("po", po);
   const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
     "Procurement Requests",
     po?.procurement_request,
@@ -1002,7 +1003,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
           </div>
         </CardHeader>
 
-        <CardContent className="max-sm:text-xs">
+        {/* <CardContent className="max-sm:text-xs">
           <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <Label className=" text-red-700">Vendor</Label>
@@ -1033,6 +1034,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
               </span>
             </div>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <Label className=" text-red-700">Total Invoiced Amount</Label>
+              <span>{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</span>
+            </div>
             <div className="flex flex-col gap-2 items-end">
               {po?.status !== "PO Approved" && (
                 <>
@@ -1041,16 +1046,112 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </>
               )}
             </div>
+            <div className="flex flex-col gap-2 items-end">
+              {po?.status !== "PO Approved" && (
+                <>
+                  <Label className=" text-red-700">Lastest Delivery Date</Label>
+                  <span>{formatDate(po?.latest_delivery_date || "--")}</span>
+                </>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 items-end">
+              {po?.status !== "PO Approved" && (
+                <>
+                  <Label className=" text-red-700">Lastest Delivery Date</Label>
+                  <span>{formatDate(po?.lastest_delivery_date || "--")}</span>
+                </>
+              )}
+            </div>
             <div className="flex flex-col gap-2 max-sm:items-end">
               <Label className=" text-red-700">Total (Incl. GST)</Label>
               <span>{formatToRoundedIndianRupee(po?.total_amount)}</span>
             </div>
-            <div className="flex flex-col gap-2 sm:items-center">
-              <Label className=" text-red-700">Total Invoiced Amount</Label>
-              <span>{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</span>
-            </div>
+            
           </div>
-        </CardContent>
+        </CardContent> */}
+
+        <CardContent className="max-sm:text-xs p-4"> {/* Added padding for better spacing */}
+    {/*
+        - Default (mobile): A 2-column grid.
+        - `sm` screens and up: A 3-column grid.
+        - `gap-x-4`: Horizontal space between columns.
+        - `gap-y-4`: Vertical space between rows.
+    */}
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-4">
+
+        {/* --- Column 1 Items --- */}
+        <div className="flex flex-col gap-2">
+            <Label className="text-red-700">Vendor</Label>
+            <div>
+                <VendorHoverCard vendor_id={po?.vendor} />
+                {hasVendorIssues && (
+                    <ValidationIndicator
+                        error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
+                    />
+                )}
+            </div>
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
+       <Label className="text-red-700">Total (Incl. GST)</Label>
+            <span>{formatToRoundedIndianRupee(po?.total_amount)}</span>
+            
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
+           
+             <Label className="text-red-700">Date Created</Label>
+           <span>{po?.creation?formatDate(po?.creation):"--"}</span>
+        </div>
+        
+        {/* --- Column 2 Items --- */}
+        <div className="flex flex-col gap-2">
+            <Label className="text-red-700">Package</Label>
+            <span>{pr?.work_package || "Custom"}</span>
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
+            <Label className="text-red-700">Total Invoiced Amount</Label>
+            <span>{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</span>
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
+          <Label className="text-red-700">Date Dispatched</Label>
+            <span>{po?.dispatch_date?formatDate(po?.dispatch_date):"--"}</span>
+           
+        </div>
+
+         {/* --- Column 3 Items --- */}
+        <div className="flex flex-col gap-2">
+     <Label className="text-red-700">Total (Excl. GST)</Label>
+            <span>{formatToRoundedIndianRupee(po?.amount)}</span>
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
+             <Label className="text-red-700">Total Amount Paid</Label>
+            <span className="text-green-600"> {/* Added color for consistency */}
+                {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
+            </span>
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
+            <Label className="text-red-700">Latest Delivery Date</Label>
+           <span>{po?.latest_delivery_date?formatDate(po?.latest_delivery_date):"--"}</span>
+        </div>
+
+        {/* --- Column 4 Items --- */}
+        <div className="flex flex-col gap-2">
+            {/* <Label className="text-red-700">Date Created</Label>
+           <span>{formatDate(po?.creation || "--")}</span> */}
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
+            {/* <Label className="text-red-700">Date Dispatched</Label>
+            <span>{formatDate(po?.dispatch_date || "--")}</span> */}
+        </div>
+        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
+            <Label className="text-red-700">Latest Payment Date</Label>
+           <span>{po?.latest_payment_date?formatDate(po?.latest_payment_date):"--"}</span>
+        </div>
+        
+       
+    </div>
+</CardContent>
+
+       
       </Card>
 
       {/* --- (Indicator) STEP 3: Add the hidden printable components to the JSX --- */}

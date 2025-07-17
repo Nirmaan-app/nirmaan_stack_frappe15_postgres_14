@@ -6,7 +6,7 @@ export const PO_PAYMENT_TERM_DOCTYPE = 'Procurement Orders';
 
 // Define exactly what fields to pull. Use dot notation for parent fields.
 export const TERM_LIST_FIELDS_TO_FETCH = [
-    'name',"total_amount","project_name", "vendor_name", '`tabPO Payment Terms`.status', '`tabPO Payment Terms`.label', '`tabPO Payment Terms`.amount', '`tabPO Payment Terms`.due_date', '`tabPO Payment Terms`.payment_type'
+    'name',"total_amount","project","project_name", "vendor_name", '`tabPO Payment Terms`.status', '`tabPO Payment Terms`.label', '`tabPO Payment Terms`.amount', '`tabPO Payment Terms`.due_date', '`tabPO Payment Terms`.payment_type'
 ];
 
 // Define what the user can search for.

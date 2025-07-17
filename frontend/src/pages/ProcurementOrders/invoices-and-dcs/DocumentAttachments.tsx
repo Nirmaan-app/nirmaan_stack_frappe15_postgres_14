@@ -56,6 +56,8 @@ export const DocumentAttachments = <T extends DocumentType>({
     project
 }: DocumentAttachmentsProps<T>) => {
 
+    console.log("DocumentAttachments", project,documentData)
+
     const { toggleNewInvoiceDialog } = useDialogStore();
     const { toast } = useToast();
 

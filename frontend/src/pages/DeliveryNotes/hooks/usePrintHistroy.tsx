@@ -71,6 +71,7 @@ export const usePrintHistory = (baseDocumentData: ProcurementOrder | null) => {
 
   const printData = {
     ...baseDocumentData,
+    Note_no:historyEntryToPrint.note_no,
     items: historicalItemsForPrint, // <-- THE FIX: Overwrite `items` with our transformed history
   };
 
