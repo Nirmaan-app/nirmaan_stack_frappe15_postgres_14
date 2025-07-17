@@ -75,7 +75,9 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
         const errors: Partial<InvoiceFormState> = {};
         if (!invoiceData.project) errors.project = "Project is required.";
         if (!invoiceData.invoice_no.trim()) errors.invoice_no = "Invoice number is required.";
-        if (!invoiceData.amount || parseNumber(invoiceData.amount) <= 0) errors.amount = "A valid amount is required.";
+        if (invoiceData.amount.trim() === '' || isNaN(parseNumber(invoiceData.amount))) {
+            errors.amount = "A valid amount is required.";
+        }
         if (!invoiceData.date) errors.date = "Invoice date is required.";
         if (!selectedAttachment) errors.project = "Invoice attachment is required."; // Generic error, or attach to a specific field for attachment
 
@@ -178,7 +180,7 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                         <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-3 sm:items-center sm:gap-4">
                             <Label htmlFor="invoice_amount_new_proj_inv" className="sm:text-left">Amount (Incl. GST)<sup className="text-red-500 ml-1">*</sup>:</Label>
                             <Input id="invoice_amount_new_proj_inv" type="text" inputMode="decimal" value={invoiceData.amount}
-                                onChange={(e) => { const val = e.target.value; if (/^\d*\.?\d*$/.test(val)) setInvoiceData(prev => ({ ...prev, amount: val })); }}
+                                onChange={(e) => { const val = e.target.value; if (/^-?\d*\.?\d*$/.test(val)) setInvoiceData(prev => ({ ...prev, amount: val })); }}
                                 className="sm:col-span-2" disabled={isLoading} />
                             {formErrors.amount && <p className="col-span-1 sm:col-span-3 sm:col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                         </div>

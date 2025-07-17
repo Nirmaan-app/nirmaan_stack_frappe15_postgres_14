@@ -9,8 +9,8 @@ import { toast } from "@/components/ui/use-toast";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useFrappeCreateDoc,useFrappeDeleteDoc ,useFrappeFileUpload } from "frappe-react-sdk";
-import React, { useCallback, useState, useEffect,useContext } from "react";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload } from "frappe-react-sdk";
+import React, { useCallback, useState, useEffect, useContext } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { KeyedMutator } from 'swr';
 
@@ -25,9 +25,9 @@ interface ProjectInvoiceDialogProps {
 
 export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDialogProps) {
     const { toggleNewProjectInvoiceDialog, newProjectInvoiceDialog } = useDialogStore();
- const {selectedProject, setSelectedProject} = useContext(UserContext)
+    const { selectedProject, setSelectedProject } = useContext(UserContext)
 
-  
+
     // Define the initial state for the form fields
     const getInitialState = () => ({
         invoice_no: "",
@@ -40,7 +40,7 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
     const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
 
     const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
-    
+
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
     // Effect to reset the form state when the dialog is closed
@@ -55,7 +55,7 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
     const handleSubmitInvoice = useCallback(async (event?: React.FormEvent) => {
         if (event) event.preventDefault(); // Prevent default form submission
 
-        if (!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || !invoiceData.project ) {
+        if (!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || !invoiceData.project) {
             toast({ title: "Validation Error", description: "Please fill all required fields.", variant: "destructive" });
             return;
         }
@@ -76,7 +76,7 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
                 amount: parseNumber(invoiceData.amount),
                 invoice_date: invoiceData.date,
                 attachment: uploadedFile.file_url,
-                project: invoiceData.project||ProjectId
+                project: invoiceData.project || ProjectId
             };
 
             await createDoc("Project Invoices", newInvoicePayload);
@@ -117,22 +117,22 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
     // Derived state to check if the form is valid for submission
     const isFormInvalid = !invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || !selectedAttachment;
 
-const handleChange = (selectedItem: any) => {
-    setSelectedProject(selectedItem ? selectedItem.value : null);
-    if(selectedItem) {
-      sessionStorage.setItem(
-        "selectedProject",
-        JSON.stringify(selectedItem.value)
-      );
-      setInvoiceData(prev => ({
-            ...prev,
-            project: selectedItem ? selectedItem.value : ""
-        }));
+    const handleChange = (selectedItem: any) => {
+        setSelectedProject(selectedItem ? selectedItem.value : null);
+        if (selectedItem) {
+            sessionStorage.setItem(
+                "selectedProject",
+                JSON.stringify(selectedItem.value)
+            );
+            setInvoiceData(prev => ({
+                ...prev,
+                project: selectedItem ? selectedItem.value : ""
+            }));
 
-    } else {
-      sessionStorage.removeItem("selectedProject");
-    }
-};
+        } else {
+            sessionStorage.removeItem("selectedProject");
+        }
+    };
     return (
         <AlertDialog open={newProjectInvoiceDialog} onOpenChange={!isLoading ? toggleNewProjectInvoiceDialog : undefined}>
             <AlertDialogContent className="sm:max-w-lg">
@@ -142,16 +142,16 @@ const handleChange = (selectedItem: any) => {
 
                 {/* Use a form for semantic correctness and better event handling */}
                 <form onSubmit={handleSubmitInvoice} className="space-y-6 pt-4">
-                    
+
                     {/* Responsive grid for form fields */}
                     <div className="space-y-4">
                         {/* Invoice No. Field */}
-                        {!ProjectId &&(<div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-3 sm:items-center sm:gap-4">
+                        {!ProjectId && (<div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-3 sm:items-center sm:gap-4">
                             <Label htmlFor="invoice_no" className="sm:text-left">
                                 Project Select<sup className="text-red-500 ml-1">* </sup>:
                             </Label>
                             <div className="sm:col-span-2">
-                              <ProjectSelect onChange={handleChange} />
+                                <ProjectSelect onChange={handleChange} />
 
                             </div>
                         </div>)}
@@ -198,7 +198,7 @@ const handleChange = (selectedItem: any) => {
                                 onChange={(e) => {
                                     const value = e.target.value;
                                     // Regex to allow only numbers and a single decimal point
-                                    if (/^\d*\.?\d*$/.test(value)) {
+                                    if (/^-?\d*\.?\d*$/.test(value)) {
                                         setInvoiceData((prev) => ({ ...prev, amount: value }));
                                     }
                                 }}

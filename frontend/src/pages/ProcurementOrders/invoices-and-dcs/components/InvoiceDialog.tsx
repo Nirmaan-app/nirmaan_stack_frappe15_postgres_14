@@ -39,7 +39,7 @@
 
 //   const uploadInvoice = useCallback(async () => {
 //       if (!selectedAttachment) return null;
-  
+
 //       try {
 //         const result = await upload(selectedAttachment, {
 //           doctype: sr ? "Service Requests" : "Procurement Orders",
@@ -61,21 +61,21 @@
 //   const handleUpdateInvoiceData = useCallback(async () => {
 //         try {
 //           const attachmentId = await uploadInvoice();
-          
+
 //           const modifiedInvoiceData = {...invoiceData, 
 //             // invoice_attachment_id: attachmentId,
 //             updated_by: userData?.user_id
 //           };
-    
+
 //           const payload = {
 //             po_id: po?.name || sr?.name,
 //             invoice_data: modifiedInvoiceData,
 //             invoice_attachment: attachmentId,
 //             isSR: sr ? true : false
 //           };
-    
+
 //           const response = await InvoiceUpdateCall(JSON.stringify(payload));
-    
+
 //           if (response.message.status === 200) {
 //             await poMutate();
 //             await mutate(`Nirmaan Attachments-${po?.name || sr?.name}`)
@@ -86,13 +86,13 @@
 //               date: "",
 //             });
 //             setSelectedAttachment(null);
-    
+
 //             toast({
 //               title: "Success!",
 //               description: response.message.message,
 //               variant: "success"
 //             });
-    
+
 //           } else if (response.message.status === 400) {
 //             toast({
 //               title: "Failed!",
@@ -109,9 +109,9 @@
 //           });
 //         }
 //       }, [po, sr, userData, InvoiceUpdateCall, poMutate, toggleNewInvoiceDialog, toast, uploadInvoice]);
-    
 
-  
+
+
 //   return (
 //     <AlertDialog open={newInvoiceDialog} onOpenChange={toggleNewInvoiceDialog}>
 //     <AlertDialogContent className="max-w-xs">
@@ -149,7 +149,7 @@
 //                                       />
 //                                   </div>
 //                               </div>
-      
+
 //                                         <CustomAttachment
 //                                               maxFileSize={20 * 1024 * 1024} // 20MB
 //                                               selectedFile={selectedAttachment}
@@ -157,9 +157,9 @@
 //                                               label="Attach Invoice"
 //                                               className="w-full"
 //                                             />
-      
+
 //                               <div className="flex gap-2 items-start pt-4 justify-center">
-      
+
 //                                   {uploadLoading || InvoiceUpdateCallLoading ? <TailSpin color="red" width={40} height={40} /> : (
 //                                       <>
 //                                           <AlertDialogCancel className="flex-1" asChild>
@@ -266,12 +266,12 @@ export function InvoiceDialog<T extends DocumentType>({
 
   const handleUpdateInvoiceData = useCallback(async () => {
     if (!docName) {
-        toast({ title: "Error", description: "Document name is missing.", variant: "destructive" });
-        return;
+      toast({ title: "Error", description: "Document name is missing.", variant: "destructive" });
+      return;
     }
     if (!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount) {
-        toast({ title: "Validation Error", description: "Please fill all required fields (Invoice No, Date, Amount).", variant: "destructive" });
-        return;
+      toast({ title: "Validation Error", description: "Please fill all required fields (Invoice No, Date, Amount).", variant: "destructive" });
+      return;
     }
 
     try {
@@ -329,18 +329,18 @@ export function InvoiceDialog<T extends DocumentType>({
       });
     }
   }, [
-      docName,
-      docType,
-      userData?.user_id,
-      invoiceData,
-      selectedAttachment,
-      uploadInvoice,
-      updateInvoiceApiCall,
-      docMutate,
-      globalMutate,
-      toggleNewInvoiceDialog,
-      toast
-    ]);
+    docName,
+    docType,
+    userData?.user_id,
+    invoiceData,
+    selectedAttachment,
+    uploadInvoice,
+    updateInvoiceApiCall,
+    docMutate,
+    globalMutate,
+    toggleNewInvoiceDialog,
+    toast
+  ]);
 
   // Combine loading states for the UI
   const isLoading = uploadLoading || updateInvoiceApiCallLoading;
@@ -388,11 +388,11 @@ export function InvoiceDialog<T extends DocumentType>({
               placeholder="Enter Amount"
               value={invoiceData.amount}
               onChange={(e) => {
-                 // Allow only numbers and one decimal point
-                 const value = e.target.value;
-                 if (/^\d*\.?\d*$/.test(value)) {
-                    setInvoiceData((prev) => ({ ...prev, amount: value }));
-                 }
+                // Allow only numbers and one decimal point
+                const value = e.target.value;
+                if (/^-?\d*\.?\d*$/.test(value)) {
+                  setInvoiceData((prev) => ({ ...prev, amount: value }));
+                }
               }}
               className="col-span-2"
               disabled={isLoading}
@@ -412,7 +412,7 @@ export function InvoiceDialog<T extends DocumentType>({
         <div className="flex gap-2 items-center pt-6 justify-end">
           {isLoading ? (
             <div className='flex justify-center w-full'> <TailSpin color="red" width={30} height={30} /> </div>
-             ) : (
+          ) : (
             <>
               <AlertDialogCancel asChild>
                 <Button variant={"outline"} disabled={isLoading}>Cancel</Button>

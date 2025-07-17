@@ -117,56 +117,56 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             accessorKey: "payment_date",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />,
             cell: ({ row }) => <div className="font-medium ">{row.original.payment_date ? formatDate(row.original.payment_date) : '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Payment Date", exportValue: (row) => row.payment_date ? formatDate(row.payment_date) : '--' }
         },
         {
             accessorKey: "invoice_date",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
             cell: ({ row }) => <div className="font-medium ">{row.original.invoice_date ? formatDate(row.original.invoice_date) : '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Invoice Date", exportValue: (row) => row.invoice_date ? formatDate(row.invoice_date) : '--' }
         },
         {
             accessorKey: "type",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Expense Type" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.type}>{row.original.type}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Expense Type", exportValue: (row) => row.type }
         },
         {
             accessorKey: "description",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.description}>{row.original.description || '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Description", exportValue: (row) => row.description || '--' }
         },
         {
             accessorKey: "comment",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Comment" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.comment}>{row.original.comment || '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Comment", exportValue: (row) => row.comment || '--' }
         },
         {
             accessorKey: "amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-end" />,
             cell: ({ row }) => <div className="font-medium ">{formatToRoundedIndianRupee(row.original.amount)}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Amount", exportValue: (row) => formatForReport(row.amount) }
         },
         {
             accessorKey: "payment_ref",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Ref" />,
             cell: ({ row }) => <div className="font-medium">{row.original.payment_ref || '--'}</div>,
-            size: 60,
+
             meta: { exportHeaderName: "Payment Ref", exportValue: (row) => row.payment_ref || '--' }
         },
         {
             accessorKey: "invoice_ref",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Ref" />,
             cell: ({ row }) => <div className="font-medium">{row.original.invoice_ref || '--'}</div>,
-            size: 60,
+
             meta: { exportHeaderName: "Invoice Ref", exportValue: (row) => row.invoice_ref || '--' }
         },
         {
@@ -192,7 +192,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                     </div>
                 )
             },
-            size: 60,
+
             enableSorting: false,
             meta: { excludeFromExport: true }
         },
@@ -236,7 +236,6 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                     </div>
                 );
             },
-            size: 60,
             meta: { excludeFromExport: true }
         },
     ], [handleOpenPaymentUpdateDialog, handleOpenInvoiceUpdateDialog, handleOpenEditDialog, handleOpenDeleteConfirmation]);

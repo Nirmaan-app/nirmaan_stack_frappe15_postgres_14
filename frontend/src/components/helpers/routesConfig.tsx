@@ -49,7 +49,7 @@ import Profile from "@/pages/users/user-profile";
 import Users from "@/pages/users/users";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import Vendors from "@/pages/vendors/VendorsPage";
-import  CreditsPage  from "@/pages/credits/CreditsPage";
+import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
@@ -62,6 +62,7 @@ import ReportsContainer from "@/pages/reports/ReportsContainer";
 import ItemsPage from "@/pages/Items/itemsPage";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
+import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -231,6 +232,10 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <EstimatedPriceOverview /> },
             ],
           },
+          {
+            path: "project-expenses",
+            element: <AllProjectExpensesPage />
+          },
 
 
           // --- Projects Section ---
@@ -288,12 +293,12 @@ export const appRoutes: RouteObject[] = [
               { path: ":id", element: <OrderPaymentSummary /> } // Consider :paymentId or :orderId for clarity
             ]
           },
-           // --- Project Payments ---
+          // --- Project Payments ---
           {
             path: "credits",
             children: [
               { index: true, element: <CreditsPage /> },
-            ] 
+            ]
           },
           {
             path: "in-flow-payments",
