@@ -7,7 +7,7 @@ import { useFrappeDeleteDoc, useFrappeGetDocList, FrappeDoc, GetDocListArgs } fr
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
-import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useServerDataTable, AggregationConfig } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import memoize from 'lodash/memoize';
@@ -32,11 +32,36 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Edit2, MoreHorizontal, PlusCircle, Trash2 } from "lucide-react";
-import { TableSkeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TailSpin } from 'react-loader-spinner';
 
 interface ProjectExpensesListProps {
     projectId?: string; // Optional: To filter by a specific project
 }
+
+// NEW: Configuration for the summary card aggregations
+const PE_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' }
+];
+
+// NEW: Helper component to display active filters in the summary card
+const AppliedFiltersDisplay = ({ filters, search }) => {
+    const hasFilters = filters.length > 0 || !!search;
+    if (!hasFilters) {
+        return <p className="text-sm text-gray-500">Overview of all project expenses.</p>;
+    }
+    return (
+        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
+            <span className="font-medium">Filtered by:</span>
+            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
+            {filters.map(filter => (
+                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
+                    {filter.id.replace(/_/g, ' ')}
+                </span>
+            ))}
+        </div>
+    );
+};
 
 export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projectId }) => {
     const { toggleNewProjectExpenseDialog, setEditProjectExpenseDialog } = useDialogStore();
@@ -115,14 +140,22 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
     ], [projectId, getProjectName, getVendorName, getUserName, getExpenseTypeName, handleOpenEditDialog, handleOpenDeleteDialog]);
 
     // --- Data Table Hook ---
-    const { table, data, totalCount, isLoading, error, refetch, ...rest } = useServerDataTable<ProjectExpenses>({
+    const { table, data, totalCount, isLoading, error, refetch, searchTerm,                // <-- Destructure this
+        setSearchTerm,             // <-- Destructure this
+        selectedSearchField,       // <-- Destructure this
+        setSelectedSearchField,     // <-- Destructure this 
+        aggregates, // NEW
+        isAggregatesLoading, // NEW
+        columnFilters // NEW
+    } = useServerDataTable<ProjectExpenses>({
         doctype: DOCTYPE,
         columns: columns,
         fetchFields: [...DEFAULT_PE_FIELDS_TO_FETCH, "type.expense_name as expense_type_name"], // Ensure display name is fetched
         searchableFields: PE_SEARCHABLE_FIELDS,
         urlSyncKey: `project_expenses_list_${projectId || 'all'}`,
         // --- (Indicator) Static filter is now conditional ---
-        additionalFilters: projectId ? [["projects", "=", projectId]] : []
+        additionalFilters: projectId ? [["projects", "=", projectId]] : [],
+        aggregatesConfig: PE_AGGREGATES_CONFIG, // NEW: Pass the aggregation config
     });
 
     const isLoadingLookups = vendorsLoading || usersLoading || expenseTypesLoading || (!projectId && projectsLoading);
@@ -140,13 +173,53 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                 dateFilterColumns={PE_DATE_COLUMNS}
                 showExportButton={true}
                 onExport="default"
-                exportFileName={`Project_Expenses_${projectId}`}
+                exportFileName={`Project_Expenses_${projectId || 'All'}`}
                 toolbarActions={
                     (role === "Nirmaan Admin Profile" || role === "Nirmaan Accountant Profile") &&
                     <Button onClick={toggleNewProjectExpenseDialog} size="sm"><PlusCircle className="mr-2 h-4 w-4" />Add Project Expense</Button>
                 }
-                emptyStateMessage="No project expenses have been recorded yet."
-                {...rest}
+                // --- (Indicator) FIX: Explicitly pass the required props with the correct names ---
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                // NEW: Pass the fully constructed summary card as a prop
+                summaryCard={
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardTitle className="text-lg">Project Expenses Summary</CardTitle>
+                            <CardDescription>
+                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            {isAggregatesLoading ? (
+                                <div className="flex justify-center items-center h-16">
+                                    <TailSpin height={24} width={24} color="#4f46e5" />
+                                </div>
+                            ) : aggregates ? (
+                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
+                                    <div className="justify-between sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Expense Amount</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                        </dd>
+                                    </div>
+                                    <div className="justify-between sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Entries</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {totalCount}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            ) : (
+                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                    No summary data available.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                }
             />
             <NewProjectExpenseDialog projectId={projectId} onSuccess={refetch} />
             {expenseToEdit && (

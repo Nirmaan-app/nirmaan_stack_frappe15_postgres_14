@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Download, Edit2, FileText, PlusCircle, MoreHorizontal, Trash2, DollarSign } from "lucide-react";
+import { TailSpin } from 'react-loader-spinner'; // Assuming this is your spinner
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -10,6 +11,14 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
 
 import { useFrappeDeleteDoc } from "frappe-react-sdk"; // For delete
 import { useToast } from "@/components/ui/use-toast"; // For delete feedback
@@ -27,7 +36,7 @@ import {
 } from "@/components/ui/alert-dialog"; // For delete confirmation
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from '@/hooks/useServerDataTable'; // Your hook
+import { useServerDataTable, AggregationConfig } from '@/hooks/useServerDataTable'; // Your hook
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -50,6 +59,30 @@ import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDia
 import { useUserData } from "@/hooks/useUserData";
 
 const DOCTYPE = 'Non Project Expenses';
+
+// NEW: Configuration for the summary card aggregations
+const NPE_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' }
+];
+
+// NEW: Helper component to display active filters in the summary card
+const AppliedFiltersDisplay = ({ filters, search }) => {
+    const hasFilters = filters.length > 0 || !!search;
+    if (!hasFilters) {
+        return <p className="text-sm text-gray-500">Overview of all non-project expenses.</p>;
+    }
+    return (
+        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
+            <span className="font-medium">Filtered by:</span>
+            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
+            {filters.map(filter => (
+                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
+                    {filter.id.replace(/_/g, ' ')}
+                </span>
+            ))}
+        </div>
+    );
+};
 
 interface NonProjectExpensesPageProps {
     urlContext?: string;
@@ -245,6 +278,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         table, data, totalCount, isLoading, error,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
         refetch,
+        aggregates, // NEW
+        isAggregatesLoading, // NEW
+        columnFilters // NEW: To display applied filters
     } = useServerDataTable<NonProjectExpensesType>({
         doctype: DOCTYPE,
         columns: columnsDefinition, // *** PASS THE DEFINED COLUMNS HERE ***
@@ -253,6 +289,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         urlSyncKey: urlSyncKey,
         defaultSort: 'payment_date desc',
         enableRowSelection: false, // Or true if actions on rows are needed
+        aggregatesConfig: NPE_AGGREGATES_CONFIG, // NEW: Pass the config
     });
 
 
@@ -278,6 +315,43 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                 showExportButton={true}
                 onExport={'default'}
                 exportFileName={`Non_Project_Expenses_${urlContext}`}
+                // NEW: Pass the fully constructed summary card as a prop
+                summaryCard={
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardTitle className="text-lg">Non Project Expenses Summary</CardTitle>
+                            <CardDescription>
+                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            {isAggregatesLoading ? (
+                                <div className="flex justify-center items-center h-16">
+                                    <TailSpin height={24} width={24} color="#4f46e5" />
+                                </div>
+                            ) : aggregates ? (
+                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
+                                    <div className="justify-center sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Amount</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                        </dd>
+                                    </div>
+                                    <div className="justify-center sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Entries</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {totalCount}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            ) : (
+                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                    No summary data available.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                }
             // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
             />
             <NewNonProjectExpense refetchList={refetch} />
