@@ -73,7 +73,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const {data:CreditData}=useCredits()
 
-  const creditsByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status!=="Paid"));
+  const creditsByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status==="Created"));
      const dueByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status!=="Paid" && cr.status!=="Created"));
 
      const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
@@ -150,7 +150,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       style: ""
     },
     {
-      label: "Total Due Credit",
+      label: "Total Due Not Paid",
       value: relatedTotalDue,
       style: ""
     },

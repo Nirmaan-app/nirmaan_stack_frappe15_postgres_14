@@ -164,11 +164,11 @@ export const Projects: React.FC<ProjectsProps> = ({
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
-    const creditsByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status!=="Paid"));
+    const creditsByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status==="Created"));
    const dueByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status!=="Paid" && cr.status!=="Created"));
 
     return memoize((projectId: string) => {
-      console.log("projectId",projectId);
+      // console.log("projectId",projectId);
       const relatedPOs = posByProject(projectId);
       const relatedSRs = srsByProject(projectId);
       const relatedInflows = inflowsByProject(projectId);
@@ -179,7 +179,7 @@ export const Projects: React.FC<ProjectsProps> = ({
 
       // let totalInvoiced = 0;
 
-      console.log("DueByProject",relatedTotalBalanceCredit,relatedTotalDue);
+      // console.log("DueByProject",relatedTotalBalanceCredit,relatedTotalDue);
 
       // console.log("realatedPO", relatedPOs);
 
@@ -303,7 +303,7 @@ export const Projects: React.FC<ProjectsProps> = ({
             <div className="flex justify-between"><span>Inflow:</span> <span className="text-green-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L</span></div>
             <div className="flex justify-between"><span>Outflow:</span> <span className="text-red-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L</span></div>
             <div className="flex justify-between"><span>Total Balance Credit:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span></div>
-            <div className="flex justify-between"><span>Total Due:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span></div>
+            <div className="flex justify-between"><span>Total Due Not Paid:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span></div>
           </div>
         );
       },

@@ -9,7 +9,7 @@ export const useOrderTotals = () => {
   const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
     'Procurement Orders',
     {
-      fields: ['name', "order_list", 'loading_charges', 'freight_charges'],
+      fields: ['name', "total_amount", 'loading_charges', 'freight_charges'],
       filters: [['status', 'not in', ['Cancelled', 'Merged']]],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
@@ -32,8 +32,8 @@ export const useOrderTotals = () => {
     () => memoize((orderId: string, type: string) => {
       if (['Procurement Orders', 'Purchase Order'].includes(type)) {
         const order = purchaseOrders?.find(i => i?.name === orderId);
-        const { total, totalGst } = getPOTotal(order, order?.loading_charges, order?.freight_charges);
-        return { total, totalWithTax: totalGst + total, totalGst };
+        
+        return { total: order?.total_amount||0, totalWithTax: 0, totalGst: 0  };order?.total_amount||0;
       }
       if (['Service Requests', 'Service Order'].includes(type)) {
         const order = serviceOrders?.find(i => i?.name === orderId);

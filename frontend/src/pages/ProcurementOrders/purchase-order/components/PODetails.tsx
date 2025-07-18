@@ -126,7 +126,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
     );
   const navigate = useNavigate();
 
-  console.log("po", po);
+  // console.log("po", po);
+  
   const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
     "Procurement Requests",
     po?.procurement_request,
@@ -500,7 +501,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     variant="outline"
                     className="flex items-center gap-1 border-primary text-primary"
                   >
-                    Update DN
+                    Update Delivery
                   </Button>
                 )}
                 <Sheet

@@ -132,15 +132,15 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
 
   return (
     <Card>
-      <CardHeader className="border-b"><CardTitle>Delivery History</CardTitle></CardHeader>
-      <CardContent className="p-0 sm:p-6"> {/* Remove padding on mobile, add it back for desktop table */}
+      <CardHeader className="font-semibold text-lg text-red-600 pl-6"><CardTitle>Delivery History</CardTitle></CardHeader>
+      <CardContent className="p-0"> {/* Remove padding on mobile, add it back for desktop table */}
         {/* For Desktop */}
         <div className="overflow-auto hidden sm:block">
           <Table>
             <TableHeader className="bg-red-100">
               <TableRow>
                 <TableHead>Date</TableHead>
-                <TableHead>No</TableHead>
+                <TableHead>DN ID</TableHead>
                 <TableHead>No. of Items</TableHead>
                 <TableHead>Change Type</TableHead>
                 <TableHead>Updated By</TableHead>

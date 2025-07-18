@@ -38,10 +38,10 @@ export const ApprovePRContainer: React.FC = () => {
     // );
 
     useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
-          console.log("Procurement Requests document updated (real-time):", event);
+          console.log("Procurement Requests document updated (real-time):", event?.name);
           toast({
               title: "Document Updated",
-              description: `Procurement Requests ${event.name} has been modified.`,
+              description: `Procurement Requests ${event?.name} has been modified.`,
           });
           prMutate(); // Re-fetch this specific document
         },

@@ -39,6 +39,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Button } from "@/components/ui/button";
 
+import { StatusBadge } from "../credits/components/CreditsTableColumns.tsx";
+
 interface SelectOption { label: string; value: string; }
 
 interface AllPaymentsProps {
@@ -360,11 +362,23 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 meta: { excludeFromExport: true }
             }
         ] as ColumnDef<ProjectPayments>[] : []),
+
         ...(["Payments Pending", "All Payments"].includes(tab) ? [{
             accessorKey: "status", header: "Status",
-            cell: ({ row }) => <Badge variant={row.original.status === PAYMENT_STATUS.APPROVED ? "default" : row.original.status === PAYMENT_STATUS.PAID ? "green" : "outline"}>{row.original.status}</Badge>,
+             cell: ({ row }) => {
+                        // 2. Get the status from the row
+                        const status = row.original.status as string;
+            
+                        // 3. Render the StatusBadge component in a centered div
+                        return (
+                            <div className="flex justify-start">
+                                <StatusBadge status={status} />
+                            </div>
+                        );
+                    },
             enableColumnFilter: true, size: 120
         } as ColumnDef<ProjectPayments>] : []),
+
     ], [tab, projectId, notifications, projectOptions, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification, isAdmin, handleOpenEditDialog]);
 
     // --- Faceted Filter Options ---

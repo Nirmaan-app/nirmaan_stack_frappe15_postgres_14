@@ -1,4 +1,3 @@
-// src/features/credits/credits.constants.ts
 
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 
@@ -11,13 +10,13 @@ export const TERM_LIST_FIELDS_TO_FETCH = [
 
 // Define what the user can search for.
 export const TERM_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "PO", label: "PO Number", default: true },
+    { value: "name", label: "PO Number", default: true },
     { value: "vendor_name", label: "Vendor" },
     { value: "project_name", label: "Project" },
 ];
 
 // Define which columns should have a date range filter.
-export const TERM_DATE_COLUMNS = ["`tabPO Payment Terms`.due_date"];
+export const TERM_DATE_COLUMNS = ["due_date"];
 
 // Define the options for the high-level status filter.
 export const PAYMENT_TERM_STATUS_OPTIONS = [
@@ -31,3 +30,16 @@ export const PAYMENT_TERM_STATUS_OPTIONS = [
     // { label:"Rejected", value:"Rejected"},
    
 ];
+
+export const CREDIT_FACET_FILTER_OPTIONS = {
+    "status": {
+        title: "Status",
+        options: [
+            { label: "Due", value: "Scheduled" },
+            { label: "Requested", value: "Requested" },
+            { label: "Approved", value: "Approved" },
+            { label: "Paid", value: "Paid" },
+            { label: "Created", value: "Created" },
+        ],
+    },
+};
