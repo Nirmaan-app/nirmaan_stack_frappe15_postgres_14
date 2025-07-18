@@ -192,6 +192,7 @@ export const PurchaseOrder = ({
       setOrderData(doc?.items || []);
       // --- NEW: Initialize payment terms with the current PO's terms ---
       setMergedPaymentTerms(doc?.payment_terms || []);
+    }
     if (po) {
               const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data),delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }           
               setInvoicePO(data);          
