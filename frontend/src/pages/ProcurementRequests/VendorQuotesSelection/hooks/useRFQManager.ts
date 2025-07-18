@@ -150,7 +150,7 @@ export const useRFQFormManager = (
     }, [setRfqFormData]);
 
     const handleVendorQuoteSelectionForItem = useCallback((itemId: string, vendorId: string | null) => {
-        console.log("VendorId Delayed Item Id",vendorId,"jiu",itemId)
+        // console.log("VendorId Delayed Item Id",vendorId,"jiu",itemId)
         setFinalSelectedQuotes(prevMap => {
             const newMap = new Map(prevMap);
             if (vendorId === null || newMap.get(itemId) === vendorId) {
@@ -158,7 +158,7 @@ export const useRFQFormManager = (
             } else {
                 newMap.set(itemId, vendorId);
             }
-            console.log("New Map",newMap)
+            // console.log("New Map",newMap)
             return newMap;
         });
     }, []);
@@ -175,7 +175,7 @@ export const useRFQFormManager = (
         setRfqFormData(prev => {
             const existingCharges = prev.chargesByVendor?.[vendorId] || [];
             const existingChargeIds = new Set(existingCharges.map(c => c.item_id));
-console.log("chargesToAdd",chargesToAdd)
+// console.log("chargesToAdd",chargesToAdd)
             const newCharges: ChargeItem[] = chargesToAdd
                 .filter(chargeTemplate => !existingChargeIds.has(chargeTemplate.item_id)) // Prevent adding duplicates
                 .map(chargeTemplate => ({ 

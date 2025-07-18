@@ -190,7 +190,7 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
         const allProductItems = getItemListFromDocument(currentDoc)
             .filter(item => item.category !== 'Additional Charges');
 
-            console.log("allProductItems",allProductItems)
+            // console.log("allProductItems",allProductItems)
 
         // 1. Loop through all product items to determine their fate
         allProductItems.forEach(docItem => {

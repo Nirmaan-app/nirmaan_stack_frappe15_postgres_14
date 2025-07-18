@@ -43,7 +43,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   const { toast } = useToast();
   const { mutate } = useSWRConfig();
 
-  console.log("updateDN Data", data,data?.items?.length)
+  // console.log("updateDN Data", data,data?.items?.length)
   // console.log("updateDN Data",JSON.parse(data?.deliveryDate))
 
   // State management
@@ -149,8 +149,8 @@ const deliveryHistory = parsedDeliveryObject.data || {};
 const numberOfPreviousDeliveries = Object.keys(deliveryHistory).length;
 const newNoteNumber = numberOfPreviousDeliveries + 1;
 
-console.log('Final delivery history object:', deliveryHistory);
-console.log('Number of previous deliveries:', numberOfPreviousDeliveries);
+// console.log('Final delivery history object:', deliveryHistory);
+// console.log('Number of previous deliveries:', numberOfPreviousDeliveries);
 
     const deliveryData: DeliveryDataType = {
       [deliveryDate]: {

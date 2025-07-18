@@ -285,7 +285,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
 
   const handleFinalConfirm = () => {
     if (type && isFormValid) {
-      console.log("DEBUG: handleFinalConfirm",milestones),
+      // console.log("DEBUG: handleFinalConfirm",milestones),
       onConfirm({
         type,
         total_po_amount: poAmount,
