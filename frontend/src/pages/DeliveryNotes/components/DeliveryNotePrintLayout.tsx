@@ -42,11 +42,12 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
   ({ data, }, ref) => {
     // console.log("PrintOverallData", data);
     // --- FIX: Normalize both historical and current data into a single, type-safe structure ---
-    console.log("DeliveryNotePrintLayoutProps", data);
+    // console.log("DeliveryNotePrintLayoutProps", data);
+
     const itemsToRender: NormalizedPrintItem[] = (() => {
       // Case 1: Printing a specific historical delivery.
       if (data.delivery_data?.data) {
-        console.log("DeliveryNotePrintLayoutProps22", data.delivery_data?.data)
+        // console.log("DeliveryNotePrintLayoutProps22", data.delivery_data?.data)
         return data.delivery_data?.ldatamap(item => ({
           name: item.item_name,
           unit: item.unit,
@@ -72,7 +73,7 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
     const PO_ID = deriveDnIdFromPoId(data.name).toUpperCase();
     const Note_no=data?.Note_no
 
-    console.log("Note_no",Note_no)
+    // console.log("Note_no",Note_no)
     const deliveryNoteNumber =Note_no?`${PO_ID}/${Note_no}` : `${PO_ID}/M`;
 
 

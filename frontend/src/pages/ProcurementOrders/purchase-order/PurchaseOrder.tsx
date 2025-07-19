@@ -153,6 +153,7 @@ export const PurchaseOrder = ({
 
   const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
   const [PO, setPO] = useState<ProcurementOrder | null>(null);
+  
 
   const {
     data: po,
@@ -182,6 +183,7 @@ export const PurchaseOrder = ({
   );
 
   const { errors, isValid } = usePOValidation(PO);
+  const [invoicePO,setInvoicePO] = useState<ProcurementOrder | null>(null);
 
   useEffect(() => {
     if (po) {
@@ -191,16 +193,16 @@ export const PurchaseOrder = ({
       // --- NEW: Initialize payment terms with the current PO's terms ---
       setMergedPaymentTerms(doc?.payment_terms || []);
     }
-  }, [po]);
-
-  const [invoicePO,setInvoicePO] = useState<ProcurementOrder | null>(null);
-
-   useEffect(() => {
-          if (po) {
+    if (po) {
               const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data),delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }           
               setInvoicePO(data);          
           }
-      }, [po])
+          
+
+  }, [po]);//po add
+
+
+ 
 
   const [advance, setAdvance] = useState(0);
   const [materialReadiness, setMaterialReadiness] = useState(0);
@@ -381,15 +383,12 @@ export const PurchaseOrder = ({
       fields: ["*"],
       filters: [["document_type", "=", "Procurement Orders"]],
       limit: 1000,
+      order: 'desc'
     });
 
-  // +++ ADD THE FOLLOWING NEW CODE +++
 
-  // ---
-  // STEP 2.3: The NEW useEffect that connects everything together.
-  // ---
   useEffect(() => {
-    console.log("STEP 1: Initial list from database:", potentialMergePOsList);
+    // console.log("STEP 1: Initial list from database:", potentialMergePOsList);
 
     // Wait until the main PO and the efficient list of names are ready.
     if (!potentialMergePOsList || !po || !AllPoPaymentsList) return;
@@ -405,7 +404,7 @@ export const PurchaseOrder = ({
       .map((item) => item.name); // We only need the names for the next step.
 
     // B. If we have names, call our backend function to get the FULL documents.
-    console.log("STEP 2: Names after client-side filter:", mergeablePoNames);
+    // console.log("STEP 2: Names after client-side filter:", mergeablePoNames);
     if (mergeablePoNames.length > 0) {
       fetchFullPoDetails({ po_names: mergeablePoNames })
         .then((fullDocs) => {
@@ -423,7 +422,7 @@ export const PurchaseOrder = ({
             );
             setMergeablePOs([]);
           } else {
-            console.log("fullDocs:", fullDocs);
+            // console.log("fullDocs:", fullDocs);
             const finalMergeablePOs = fullDocs.message?.filter((doc) => {
               const docPaymentType = doc.payment_terms?.[0]?.payment_type;
 
@@ -433,10 +432,11 @@ export const PurchaseOrder = ({
               return docPaymentType && docPaymentType === mainPoPaymentType;
             });
 
-            console.log(
-              "Final Filter: The final list of mergeable POs is:",
-              finalMergeablePOs
-            );
+            // console.log(
+            //   "Final Filter: The final list of mergeable POs is:",
+            //   finalMergeablePOs
+            // );
+
             setMergeablePOs(finalMergeablePOs);
           }
         })
@@ -449,6 +449,8 @@ export const PurchaseOrder = ({
     }
   }, [potentialMergePOsList, po, AllPoPaymentsList, fetchFullPoDetails]);
 
+
+ 
   const deliveryHistory = useMemo(() =>
       safeJsonParse<{ data: DeliveryDataType }>(PO?.delivery_data, { data: {} }),
       [PO?.delivery_data]
@@ -461,7 +463,7 @@ export const PurchaseOrder = ({
   }, [mergeSheet]);
 
   const getTotal = useMemo(() => {
-    return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
+    return getPOTotal(PO);
   }, [PO]);
   // --- NEW: Helper function to calculate merged terms ---
   // --- REPLACE with this corrected function ---
@@ -518,8 +520,8 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
     const newMergedItems = [...mergedItems, poToMerge];
     setMergedItems(newMergedItems);
 
-    console.log("handleMerge: Tagged Items", taggedItems, orderData);
-    console.log("newMergedItems", newMergedItems);
+    // console.log("handleMerge: Tagged Items", mergedItems,taggedItems, orderData);
+    // console.log("newMergedItems", newMergedItems);
     // --- NEW: Recalculate and set merged payment terms ---
     if (PO) {
       const newMergedPaymentTerms = calculateMergedTerms(PO, newMergedItems);
@@ -566,7 +568,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
         ({ po, ...restOfItem }) => restOfItem
       );
       // Call the backend API for merging POs
-      console.log("payload",poId,mergedItems,sanitizedOrderData,mergedPaymentTerms)
+      // console.log("payload",poId,mergedItems,sanitizedOrderData,mergedPaymentTerms)
       const response = await mergePOCall({
         po_id: poId,
         merged_items: mergedItems,
@@ -718,15 +720,13 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
         .filter((term) => ["Created", "Scheduled"].includes(term.status))
         .reduce((sum, term) => sum + (term.amount || 0), 0);
 
-      console.log("DEBUG: Reduction Amount:", reductionAmount);
-      console.log("DEBUG: Modifiable Amount:", modifiableAmount);
+      // console.log("DEBUG: Reduction Amount:", reductionAmount);
+      // console.log("DEBUG: Modifiable Amount:", modifiableAmount);
       // Block if the user is trying to reduce more than is available to be reduced.
       if (reductionAmount > modifiableAmount) {
         toast({
           title: "Amendment Blocked: Invalid Reduction",
-          description: `Cannot reduce total by ${reductionAmount.toFixed(
-            2
-          )}. There is only ${modifiableAmount} available in 'Created' & 'Scheduled' payment terms.`,
+          description: `Cannot reduce total by ${reductionAmount}. There is only ${modifiableAmount} available in 'Created' & 'Scheduled' payment terms.`,
           variant: "destructive",
           duration: 8000,
         });
@@ -959,23 +959,28 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
     setStack(newStack); // Update the stack
   }, [orderData, stack]);
 
-  const treeData = useMemo(
-    () => [
-      {
-        title: PO?.name,
-        key: "mainPO",
-        children: prevMergedPOs?.map((po, idx) => ({
-          title: po?.name,
-          key: `po-${idx}`,
-          children: po?.order_list?.list?.map((item, itemIdx) => ({
-            title: item?.item,
-            key: `item-${idx}-${itemIdx}`,
-          })),
-        })),
-      },
-    ],
-    [prevMergedPOs, PO]
-  );
+ const treeData = useMemo(() => {
+  if (!PO?.items) {
+    return [{ title: PO?.name, key: "mainPO", children: [] }];
+  }
+
+  const allSourcePoNames = PO.items.map(item => item.po).filter(Boolean);
+  const uniqueSourcePoNames = [...new Set(allSourcePoNames)];
+  
+  const childrenNodes = uniqueSourcePoNames.map((poName, idx) => ({
+    title: poName,
+    key: `po-${idx}-${poName}`,
+    isLeaf: true,
+  }));
+
+  return [
+    {
+      title: PO?.name,
+      key: "mainPO",
+      children: childrenNodes,
+    },
+  ];
+}, [PO]);
 
   const amountPaid = useMemo(
     () =>
@@ -1483,7 +1488,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
       </Card>
       {/* PO Attachments Accordion */}
 
-      {PO?.status !== "PO Approved" && (
+      {PO?.status && (
         <Card className="rounded-sm  md:col-span-3 p-2">
           <Accordion
             type="multiple"
@@ -1499,6 +1504,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
               </AccordionTrigger>
               {/* )} */}
               <AccordionContent>
+                
                 <DocumentAttachments
                   docType="Procurement Orders"
                   docName={PO?.name}
@@ -2051,7 +2057,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                             value={String(tax) || ""}
                             onValueChange={(value) => {
                               // console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
-                              console.log("tax", value);
+                              // console.log("tax", value);
                               setTax(Number(value));
                               // onTaxChange(amendEditItem.item_id, value);
                             }}
@@ -2250,12 +2256,19 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
         </div>
       </div>
       {/* Delivery History */}
-      {["Delivered", "Partially Delivered","Approved"].includes(PO?.status) && (
+      {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (
         <DeliveryHistoryTable
           deliveryData={deliveryHistory.data}
             onPrintHistory={triggerHistoryPrint}
         />
       )}
+
+      {/* {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (
+        <DeliveryHistoryTable
+          deliveryData={deliveryHistory.data}
+            onPrintHistory={triggerHistoryPrint}
+        />
+      )} */}
       {/* PO Pdf  */}
       <POPdf
         poPdfSheet={poPdfSheet}

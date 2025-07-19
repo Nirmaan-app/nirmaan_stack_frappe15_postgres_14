@@ -329,7 +329,7 @@ export const useApproveSBSLogic = ({
                 if (selectedItemsForPayload.length === allPendingInSBData.length) {
                     navigate('/purchase-orders?tab=Approve Sent Back PO'); // Adjust as needed
                 }
-            } else { throw new Error(response?.message?.error || "SB Send back failed."); }
+            } else {  toast({ title: "SB Send Back Failed!", description: "An error occurred.", variant: "destructive" }); }
         } catch (error: any) {
             console.error("Error sending back SB items:", error);
             toast({ title: "SB Send Back Failed!", description: error?.message || "An error occurred.", variant: "destructive" });

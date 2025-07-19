@@ -64,7 +64,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
 
     // ... (useEffect for processing initialPrData is unchanged) ...
     useEffect(() => {
-        console.log("initialPrData", initialPrData)
+        // console.log("initialPrData", initialPrData)
         if (initialPrData) {
             let processedPrData = { ...initialPrData };
             const pendingItems = processedPrData.order_list?.filter(item => item.status === 'Pending') || [];
@@ -147,12 +147,12 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
         const targetRateDetail = targetRatesDataMap.get(actualItemId);
         const lowestRateInRfqContext = getLowestRateFromOriginalRfq(actualItemId);
 
-        console.log("DEBUGRFQ: lowestRateInRfqContext", lowestRateInRfqContext);
+        // console.log("DEBUGRFQ: lowestRateInRfqContext", lowestRateInRfqContext);
 
         // --- NEW: Determine if this item is "custom" because it has no RFQ data ---
         // An item is considered custom if we couldn't find a lowest rate from any RFQ.
         const isCustomItem = lowestRateInRfqContext === 0;
-        console.log("DEBUGRFQ: isCustomItem", isCustomItem);
+        // console.log("DEBUGRFQ: isCustomItem", isCustomItem);
         // --------------------------------------------------------------------------
 
         // Calculate Target Amount
@@ -258,7 +258,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             return;
         }
 
-        console.log("DEBUGRFQ: orderData", orderData,selectionMap);
+        // console.log("DEBUGRFQ: orderData", orderData,selectionMap);
         const selectedItemsForPayload: string[] = []; 
         const vendorSelectionMapForPayload: { [childDocName: string]: string } = {};
 
@@ -286,6 +286,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             };
             
             const response = await approveSelection(payload);
+            console.log("response",response)
             if (response?.message?.status === 200) {
                 toast({ title: "Success!", description: response.message.message || "Items approved.", variant: "success" });
                 setSelectionMap(new Map()); toggleApproveDialog(); await prMutate();

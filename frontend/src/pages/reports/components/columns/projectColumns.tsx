@@ -136,7 +136,7 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   },
   {
     id: "totalDue", // A unique ID for the column
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Due" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Due Not Paid" />,
     // Pass the correct accessor string
     cell: (props) => <CalculatedCell {...props} accessor="totalDue" formatter={formatValueToLakhsString} />,
     meta: { 
@@ -146,12 +146,6 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   },
   // --- END OF FIX ---
   
-  {
-    id: "totalCredit",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Credit Outstanding" />,
-    cell: (props) => { return "placeholder" }//<CalculatedCell {...props} accessor="totalCredit" formatter={formatDisplayValueToLakhs} />,
-    // meta: { exportHeaderName: "Credit Outstanding", isNumeric: true }
-  },
   {
     accessorKey: "creation",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Creation Date" />,

@@ -115,10 +115,12 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                     # for milestone in milestones.get('terms'):
                       
                         term_status = "Created"
+                        due_date=""
                         print(f"DEBUGPP3term: milestones.terms: {milestone}")
                         # Get the payment type and due date from the milestone data
                         payment_type = milestone.get('type')
-                        due_date_str = milestone.get('due_date')
+                        if payment_type == "Credit":
+                            due_date_str = milestone.get('due_date')
                             # This append logic now mirrors your original code, ensuring compatibility.
                         if payment_type == "Credit" and due_date_str:
                     # Convert the due_date string to a proper date object for comparison
@@ -137,13 +139,15 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                             "percentage": milestone.get('percentage'),
                             "amount": milestone.get('amount'),
                             "due_date": milestone.get('due_date'),
-                           "status": term_status # Example of setting a default status
+                            "status": term_status # Example of setting a default status
                         })
                         print(f"DEBUGPP3ifend: milestone: {milestone}")
                 else:
                     print(f"DEBUGPP3else: milestones is empty: {milestones}")
 
             # --- Step 4.2: Populate the Items Child Table (no change) ---
+            print(f"DEBUGPP4: po_items_list_for_vendor: {po_items_list_for_vendor}")
+
             for po_item_entry in po_items_list_for_vendor:
                 po_doc.append("items", po_item_entry)
             
@@ -151,6 +155,8 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
             # --- Step 4.3: Calculate Totals and Save PO (no change) ---
             po_header_amount = sum(item.get("amount", 0) for item in po_doc.items)
             po_header_tax_amount = sum(item.get("tax_amount", 0) for item in po_doc.items)
+            print(f"DEBUGPP4: po_header_amount: {po_header_amount}")
+            
             po_doc.amount = po_header_amount
             po_doc.tax_amount = po_header_tax_amount
             po_doc.total_amount = po_header_amount + po_header_tax_amount

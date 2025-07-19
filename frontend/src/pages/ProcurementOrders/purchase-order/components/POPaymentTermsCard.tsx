@@ -920,7 +920,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         amount: termToRequest.amount,
         ptname: termToRequest.name,
       });
-      console.log("message", result);
+      // console.log("message", result);
       if (result && result.message && result.message.status === 200) {
         toast({
           title: "Success!",
@@ -978,7 +978,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         const dueDate = new Date(term.due_date);
 
         // Using date-fns, check if the due date is today or in the past.
-        console.log("dueDate", !isToday(dueDate), !isPast(dueDate));
+        // console.log("dueDate", !isToday(dueDate), !isPast(dueDate));
 
         if (!isToday(dueDate) && !isPast(dueDate)) {
           // If it is, update the status of this term.
@@ -1049,7 +1049,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
           <div className="pb-6">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-lg font-bold text-red-600">
-                Project Payment
+                PO Payment Terms
               </h3>
               {!isReadOnly && (
                 <Button

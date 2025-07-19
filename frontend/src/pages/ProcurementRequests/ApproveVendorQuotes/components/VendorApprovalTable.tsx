@@ -194,7 +194,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
           const displayPaymentTerms = calcs?.displayPaymentTerms;
 
 
-          console.log("displayPaymentTerms dydt", calcs);
+          // console.log("displayPaymentTerms dydt", calcs);
 
           return (
             <AccordionItem

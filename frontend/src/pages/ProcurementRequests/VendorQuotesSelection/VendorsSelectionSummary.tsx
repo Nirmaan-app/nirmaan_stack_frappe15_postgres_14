@@ -148,7 +148,7 @@ export const VendorsSelectionSummary: React.FC = () => {
     "Procurement Requests",
     prId,
     (event) => {
-      console.log("Procurement Request document updated (real-time):", event);
+      console.log("Procurement Request document updated (real-time):", event?.name);
       toast({
         title: "Document Updated",
         description: `Procurement Request ${event.name} has been modified.`,
@@ -265,8 +265,8 @@ const getLowest = useMemo(
 
     // 2. Use a try/catch block to handle potential errors from the API call.
     try {
-      console.log("Saving payment terms to PR:", prId);
-      console.log("Data for Payments_terms", paymentTermsJsonString);
+      // console.log("Saving payment terms to PR:", prId);
+      // console.log("Data for Payments_terms", paymentTermsJsonString);
 
       await updateDoc("Procurement Requests", prId, {
         payment_terms: paymentTermsJsonString,

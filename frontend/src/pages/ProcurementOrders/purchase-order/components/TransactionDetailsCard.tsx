@@ -368,7 +368,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       }
-                      <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={payment} onDeleteSuccess={() => poPaymentsMutate()} />
+                      <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => poPaymentsMutate()} />
                     </TableCell>
                   </TableRow>
                 );

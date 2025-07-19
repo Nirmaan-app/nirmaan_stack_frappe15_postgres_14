@@ -164,7 +164,7 @@ def sidebar_counts(user: str) -> str:
     # This filter is for the PARENT doctype (Procurement Orders).
     # We apply user permissions at the PO level.
     credit_po_filters = {} if is_admin else {"project": ["in", _get_projects(user)]}
-    
+    credit_po_filters["status"] = ["!=", "Merged"]
     # We query the child table 'PO Payment Terms' but filter it based on which
     # parent documents ('Procurement Orders') the user is allowed to see.
     credit_counts_raw = frappe.get_all(

@@ -1,6 +1,6 @@
 
-
 import { useState, useEffect, useMemo, useCallback } from "react";
+// ✅ 1. Import ColumnFiltersState type from TanStack Table
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
@@ -13,7 +13,11 @@ import {
   TERM_SEARCHABLE_FIELDS,
   TERM_DATE_COLUMNS,
   PAYMENT_TERM_STATUS_OPTIONS,
+  CREDIT_FACET_FILTER_OPTIONS,
+
 } from "../credits.constant";
+
+
 
 export const useCredits = () => {
   const creditsCounts = useDocCountStore(state => state.counts.credits);
@@ -22,7 +26,7 @@ export const useCredits = () => {
     () => urlStateManager.getParam("status") || "All"
   );
 
-  console.log("creditsCounts", creditsCounts);
+  // console.log("creditsCounts", creditsCounts);
 
   useEffect(() => {
     const handleUrlChange = (_key: string, value: string | null) => setCurrentStatus(value || "All");
@@ -34,14 +38,19 @@ export const useCredits = () => {
     urlStateManager.updateParam("status", newStatus === "All" ? null : newStatus);
   }, []);
 
+   // ✅ 2. Create state to hold the column filters from the data table
+
   const additionalFilters = useMemo(() => {
 
-    const filters = [['PO Payment Terms', 'payment_type', '=', 'Credit']];
+    const filters = [['status', '!=', 'Merged'],['PO Payment Terms', 'payment_type', '=', 'Credit']
+    ];
 
     if (currentStatus !== "All") {
-      filters.push(['PO Payment Terms', 'status', '=', currentStatus]);
+      filters.push(['status', '!=', 'Merged'],['PO Payment Terms', 'status', '=', currentStatus],);
     }
-
+     // --- NEW LOGIC ---
+    // Translate TanStack column filters into Frappe API filters
+// console.log()
     return filters;
   }, [currentStatus]);
 
@@ -51,12 +60,14 @@ export const useCredits = () => {
     fetchFields: TERM_LIST_FIELDS_TO_FETCH,
     searchableFields: TERM_SEARCHABLE_FIELDS,
     dateFilterColumns: TERM_DATE_COLUMNS,
-    defaultSort: "`tabPO Payment Terms`.due_date asc",
+    defaultSort: "due_date asc",
     urlSyncKey: "credits_terms_list",
     additionalFilters: additionalFilters,
   });
 
-  const paymentTermStatusOptionsWithCounts = useMemo(() => {
+  // console.log("CreditsTable",tableProps)
+
+const paymentTermStatusOptionsWithCounts = useMemo(() => {
     return PAYMENT_TERM_STATUS_OPTIONS.map(option => {
       const count = creditsCounts[option.value.toLowerCase() as keyof typeof creditsCounts] || 0;
       return {
@@ -70,12 +81,13 @@ export const useCredits = () => {
 
   return {
     table,
-data,
+    data,
     currentStatus,
     handleStatusChange,
     TERM_SEARCHABLE_FIELDS,
     TERM_DATE_COLUMNS,
     PAYMENT_TERM_STATUS_OPTIONS: paymentTermStatusOptionsWithCounts,
+    facetFilterOptions: CREDIT_FACET_FILTER_OPTIONS,
     ...tableProps,
   };
 };

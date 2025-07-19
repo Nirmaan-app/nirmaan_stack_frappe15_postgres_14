@@ -22,6 +22,7 @@ import { formatDate } from "@/utils/FormatDate";
 import TextArea from "antd/es/input/TextArea";
 import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc ,useFrappePostCall} from "frappe-react-sdk";
 import { CheckCheck, Undo2, X } from 'lucide-react';
+import { version } from "os";
 import { useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
@@ -49,6 +50,7 @@ const ApproveAmendPO = () => {
     }, true);
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useUsersList();
+
     const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList<NirmaanVersionsType>("Nirmaan Versions", {
         fields: ["data"],
         filters: [["ref_doctype", "=", "Procurement Orders"], ["docname", "=", orderId]],
@@ -75,18 +77,19 @@ const ApproveAmendPO = () => {
         );
     }
 
-    return <ApproveAmendPOPage po_data={po_data} versionsData={versions} usersList={usersList} />;
+    return <ApproveAmendPOPage po_data={po_data} versionsData={versions} usersList={usersList}  />;
 };
 
 
 // --- Page Component with Updated Logic ---
 interface ApproveAmendPOPageProps {
     po_data: any;
+    po_mutate:any;
     versionsData?: NirmaanVersionsType[];
     usersList?: NirmaanUsersType[];
 }
 
-const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPOPageProps) => {
+const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: ApproveAmendPOPageProps) => {
     const navigate = useNavigate();
     const userData = useUserData();
     const { toast } = useToast();
@@ -103,6 +106,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
     });
 
     const { call: approveAmendItemsCall, loading: approveAmendLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_amend_po.approve_amend_po_with_payment_terms");
+     const { call: revertFromAmendCall, loading: revert_loading } = useFrappePostCall('nirmaan_stack.api.approve_amend_po.revert_from_amend_po');
 
 
 
@@ -118,10 +122,24 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
         
         const latestVersion = versionsData[0];
         if (!latestVersion.data) return { originalItems: [], originalItemsMap: new Map(), allItemNames: new Set() };
+
         
         const parsedVersionData = JSON.parse(latestVersion.data);
+        console.log("Amended Po version data",parsedVersionData.remove)
         
-        let reconstructedItems = [...po_data.items];
+        let reconstructedItems = [...po_data.items,];
+
+                // 2. Add back the items that were removed.
+        if (parsedVersionData.removed && Array.isArray(parsedVersionData.removed)) {
+            const removedItemRows = parsedVersionData.removed.filter(([tableName]: any) => tableName === 'items');
+            removedItemRows.forEach(([, itemData]: any) => {
+                reconstructedItems.push(itemData);
+            });
+        }
+        
+        console.log("Amended Po version data",reconstructedItems)
+
+        
         if (parsedVersionData.row_changed) {
             const rowChanges = parsedVersionData.row_changed.filter(([tableName]: any) => tableName === 'items');
             reconstructedItems = reconstructedItems.map((item, index) => {
@@ -142,9 +160,14 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
         const originalNames = reconstructedItems.map((item:any) => item.name);
         const combinedNames = new Set([...currentNames, ...originalNames]);
 
+        console.log("Amended PORe",reconstructedItems)
+        console.log("Amended POOR",originalMap)
+        console.log("Amended POCo",combinedNames)
+
         return { originalItems: reconstructedItems, originalItemsMap: originalMap, allItemNames: combinedNames };
 
-    }, [versionsData, po_data]);
+    }, [versionsData]);
+
 
     const handleAction = async () => {
         try {
@@ -152,17 +175,38 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
                 // await updateDoc("Procurement Orders", po_data.name, { status: "PO Approved" });
                 const {message:result}=await approveAmendItemsCall({po_name: po_data.name})
                 if(result.status===200){
-
             toast({ title: "Success", description: `Amende PO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`, variant: "success" });
                 }else{
                     toast({ title: "Error", description: `An error occurred while processing the action ${result.message}.`, variant: "destructive" });
                 }
                 
             } else {
-                await updateDoc("Procurement Orders", po_data.name, {
+
+                console.log("Reverting Amended PO",originalItems)
+                
+                // await updateDoc("Procurement Orders", po_data.name, {
+                //     status: "PO Approved",
+                //     items: [...originalItems], // Revert using the reconstructed list
+                // });
+                const {message:result} = await revertFromAmendCall({
+                    po_name: po_data.name,
                     status: "PO Approved",
-                    items: originalItems, // Revert using the reconstructed list
+                    items: originalItems
                 });
+
+                console.log("result",result)
+                if (result.status !== 200) {
+                    toast({
+                        title: "Revert Failed",
+                        description: result.message.message || "An error occurred while reverting.",
+                        variant: "destructive",
+                    });
+                }else{
+                    toast({ title: "Error Revert", description: `An error occurred while processing the action ${result.message}.`, variant: "destructive" });
+                }
+
+                
+
             }
 
             if (comment.length) {
@@ -211,11 +255,14 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
                     <TableBody>
                         {Array.from(allItemNames).map((itemName, index) => {
                             const originalItem = originalItemsMap.get(itemName);
-                            const currentItem = po_data.items.find((i: any) => i.name === itemName);
+                            const currentItem = po_data.items.find((i: any) => i.name == itemName);
                             
                             // Determine item status: Added, Deleted, or Modified/Unchanged
                             const isAdded = !originalItem && currentItem;
                             const isDeleted = originalItem && !currentItem;
+
+                            // console.log("Amended PO ALL",allItemNames)
+                            // console.log("Amended PObbb",originalItem,currentItem)
 
                             return (
                                 <TableRow key={index} className={isAdded ? "bg-green-50" : isDeleted ? "bg-red-50" : ""}>
@@ -272,10 +319,10 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList }: ApproveAmendPO
             </div>
 
             <div className="flex justify-end space-x-4 my-4">
-                <Button variant="outline" onClick={() => { setActionType('revert'); setIsDialogOpen(true); }} className="flex items-center">
+                <Button variant="outline" onClick={() => { setActionType('revert'); setIsDialogOpen(true); }} className="flex items-center" disabled={revert_loading}>
                     <Undo2 className="mr-2 h-4 w-4" /> Revert to Original
                 </Button>
-                <Button onClick={() => { setActionType('approve'); setIsDialogOpen(true); }} className="flex items-center">
+                <Button onClick={() => { setActionType('approve'); setIsDialogOpen(true); }} className="flex items-center" disabled={approveAmendLoading}>
                     <CheckCheck className="mr-2 h-4 w-4" /> Approve Amendments
                 </Button>
             </div>

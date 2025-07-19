@@ -1,4 +1,4 @@
-// src/features/credits/CreditsPage.tsx
+
 
 import { Radio } from "antd";
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -19,8 +19,11 @@ const CreditsPage = () => {
     currentStatus,
     handleStatusChange,
     PAYMENT_TERM_STATUS_OPTIONS,
-    TERM_SEARCHABLE_FIELDS,TERM_DATE_COLUMNS
+    facetFilterOptions,
+    TERM_SEARCHABLE_FIELDS,TERM_DATE_COLUMNS,
+  
   } = useCredits();
+
 
 
   
@@ -54,6 +57,7 @@ const CreditsPage = () => {
         onSearchTermChange={setSearchTerm}
         selectedSearchField={selectedSearchField}
         onSelectedSearchFieldChange={setSelectedSearchField}
+        facetFilterOptions={facetFilterOptions}
         
         // This was the missing prop you identified. Now it's correctly passed.
         searchFieldOptions={TERM_SEARCHABLE_FIELDS} 
@@ -61,7 +65,7 @@ const CreditsPage = () => {
         dateFilterColumns={TERM_DATE_COLUMNS}
         showExportButton={true}
         onExport="default"
-        exportFileName={`payment_terms_${currentStatus.toLowerCase()}`}
+        exportFileName={`Credit_payment_terms_${currentStatus.toLowerCase()}`}
       />
     </div>
   );
