@@ -334,7 +334,8 @@ def get_list_with_count_enhanced(
     current_search_fields: str | None = None, # Now a JSON string of a single field, e.g., '["name"]' or '["order_list"]'
     is_item_search: bool | str = False,
     require_pending_items: bool | str = False, # Flag for PR filtering
-    to_cache: bool = False # Flag for caching
+    to_cache: bool = False, # Flag for caching
+    aggregates_config: str | None = None # NEW: For summary card
 ) -> dict:
 
     """
@@ -414,7 +415,7 @@ def get_list_with_count_enhanced(
 
     # --- Caching Key ---
     cache_key_params = {
-        "v_api": "4.0", # Incremented version
+        "v_api": "5.0", # Incremented version
         "doctype": doctype, 
         "fields": json.dumps(sorted(parsed_select_fields_str_list)),
         # "filters": json.dumps(parsed_base_filters_list), 
@@ -427,6 +428,7 @@ def get_list_with_count_enhanced(
         "is_item_search": is_item_search_bool,
         "require_pending_items": require_pending_items_bool,
         # "global_search_fields": json.dumps(sorted(parsed_global_search_fields_for_standard_search)) if not is_item_search_bool and parsed_global_search_fields_for_standard_search else None
+        "aggregates_config": aggregates_config # NEW: Add to cache key
     }
     cache_key_string = json.dumps(cache_key_params, sort_keys=True, default=str)
     cache_key = f"dt_target_search_{doctype}_{hashlib.sha1(cache_key_string.encode()).hexdigest()}"
@@ -444,6 +446,8 @@ def get_list_with_count_enhanced(
 
     data = []
     total_records = 0
+    # MODIFIED: Initialize a unified list for all matching parent names
+    final_matching_parent_names = [] 
 
     # final_and_filters are the parent DocType filters (facets, static, and potentially standard targeted search if not item search)
     final_and_filters = list(processed_base_filters)
@@ -560,6 +564,9 @@ def get_list_with_count_enhanced(
                 final_matching_names = [r[0] for r in final_matching_names_result if r and r[0]]
                 total_records = len(final_matching_names)
 
+                # MODIFIED: Populate our unified list
+                final_matching_parent_names = final_matching_names
+
                 if total_records > 0:
                     data_args = frappe._dict({
                         "doctype": doctype, "fields": parsed_select_fields_str_list,
@@ -609,6 +616,9 @@ def get_list_with_count_enhanced(
                     final_matching_names = [r[0] for r in final_matching_names_result if r and r[0]]
                     total_records = len(final_matching_names)
 
+                    # MODIFIED: Populate our unified list
+                    final_matching_parent_names = final_matching_names
+
                     if total_records > 0:
                         data_args = frappe._dict({
                             "doctype": doctype, "fields": parsed_select_fields_str_list,
@@ -649,6 +659,10 @@ def get_list_with_count_enhanced(
                     if total_records > 0:
                         data_names_sql = f"SELECT DISTINCT name FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_search_sql_where_part})"
                         final_matching_names = [r[0] for r in frappe.db.sql(data_names_sql, sql_params, as_list=True) if r and r[0]]
+
+                        # MODIFIED: Populate our unified list
+                        final_matching_parent_names = final_matching_names
+
                         if final_matching_names:
                             data_args = frappe._dict({
                                 "doctype": doctype, "fields": parsed_select_fields_str_list,
@@ -714,15 +728,81 @@ def get_list_with_count_enhanced(
                 count_fetch_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
                 all_matching_docs_for_count = reportview_execute(**count_fetch_args)
                 total_records = len(all_matching_docs_for_count)
+
+                # MODIFIED: Populate our unified list from the standard search result
+                final_matching_parent_names = [d.get("name") for d in all_matching_docs_for_count if d.get("name")]
                 
                 if total_records > 0 : # Only fetch paginated data if there are records
+                    data_args = frappe._dict({
+                        "doctype": doctype, "fields": parsed_select_fields_str_list,
+                        "filters": final_and_filters, "order_by": _formatted_order_by,
+                        "limit_start": start, "limit_page_length": page_length,
+                    })
                     data = reportview_execute(**data_args)
                 else:
                     data = [] # Ensure data is empty if no records
                 print(f"--- Finished Standard Targeted Search / Fetch (Ultimate Fallback) ---")
 
+        # ==================== MODIFIED AGGREGATION LOGIC ====================
+        aggregates_result = None
+        if aggregates_config and isinstance(aggregates_config, str):
+            try:
+                config = json.loads(aggregates_config)
+                
+                # MODIFIED: Use the unified `final_matching_parent_names` list
+                if isinstance(config, list) and config and final_matching_parent_names:
+                    print(f"DEBUG: Processing aggregates_config: {config} for doctype '{doctype}', final_matching_parent_names: {final_matching_parent_names}")
+                    select_expressions = []
+                    valid_functions = {"SUM", "AVG", "COUNT", "MIN", "MAX"}
+                    meta = frappe.get_meta(doctype)
+                    valid_fields = {f.fieldname for f in meta.fields if f.fieldtype in ['Data','Currency', 'Int', 'Float', 'Percent']} | {"name"}
 
-        final_result = {"data": data, "total_count": total_records}
+                    for agg_item in config:
+                        field = agg_item.get("field")
+                        func = agg_item.get("function", "").upper()
+                        
+                        if field in valid_fields and func in valid_functions:
+                            alias = f"`{func.lower()}_of_{field}`"
+                            # MODIFIED: Apply cast for SUM and AVG functions to handle text-based number columns in PostgreSQL
+                            if func in ["SUM", "AVG"]:
+                                # FIX: Use CAST for PostgreSQL compatibility. DECIMAL(21, 9) is a safe default for currency.
+                                # This is harmless for columns that are already numeric.
+                                expression = f"{func}(CAST(`{field}` AS DECIMAL(21, 9))) AS {alias}"
+                            elif func == "COUNT":
+                                # COUNT doesn't need a cast on the field itself
+                                expression = f"COUNT(`{field}`) AS {alias}"
+                            else:
+                                # MIN/MAX might also need a cast if the column is text
+                                expression = f"{func}(CAST(`{field}` AS DECIMAL(21, 9))) AS {alias}"
+
+                            select_expressions.append(expression)
+                    
+                    if select_expressions:
+                        query = f"""
+                            SELECT {', '.join(select_expressions)}
+                            FROM `tab{doctype}`
+                            WHERE name IN %(names)s
+                        """
+                        # MODIFIED: Pass the unified list to the query
+                        result = frappe.db.sql(query, {"names": tuple(final_matching_parent_names)}, as_dict=True)
+                        if result:
+                            aggregates_result = result[0]
+                        print(f"DEBUG: Aggregation successful. Result: {aggregates_result}")
+
+            except Exception as e:
+                print(f"WARNING: Could not process aggregates_config. Error: {e}")
+                aggregates_result = None
+        # ================== END OF MODIFIED AGGREGATION LOGIC ==================
+
+
+        final_result = {
+            "data": data,
+            "total_count": total_records,
+            "aggregates": aggregates_result # NEW KEY
+        }
+
+        # print(f"DEBUG: Final Result: {final_result}")
+
         if to_cache:
             frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)
             # print(f"DEBUG: Result stored in cache with key: {cache_key}")

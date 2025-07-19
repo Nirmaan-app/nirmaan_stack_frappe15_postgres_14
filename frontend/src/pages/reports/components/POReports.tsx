@@ -115,7 +115,7 @@ export default function POReports() {
 
     // 4. Initialize useServerDataTable in clientData mode
     // console.log("currentDisplayData", currentDisplayData);
-    
+
     const {
         table,
         isLoading: isTableHookLoading,
@@ -187,7 +187,7 @@ export default function POReports() {
             amt_paid: formatForReport(row.amountPaid),
             dispatch_date: row.originalDoc.dispatch_date ? formatDate(row.originalDoc.dispatch_date) : "N/A",
             latest_delivery_date: row.originalDoc.latest_delivery_date ? formatDate(row.originalDoc.latest_delivery_date) : "N/A",
-            latest_payment_date: row.originalDoc.latest_payment_date ? formatDate(row.originalDoc.latest_payment_date) : "N/A", 
+            latest_payment_date: row.originalDoc.latest_payment_date ? formatDate(row.originalDoc.latest_payment_date) : "N/A",
             status: row.originalDoc.status,
         }));
 

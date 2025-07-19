@@ -9,6 +9,65 @@ from frappe.utils import flt, nowdate
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 
 @frappe.whitelist()
+def create_payment_request_for_service(data: str) -> str:
+    """
+    Create a new Project Payments doc in a single transaction.
+
+    Args:
+        data (json str) = {
+            "doctype" : "Procurement Orders" | "Service Requests",
+            "docname": "<PO/000/00000/25-26>",
+            "amount" : 12345.67
+        }
+    Returns: JSON string { "name": "<PAY-00042-087>" }
+    """
+    payload = frappe.parse_json(data)
+    doctype = payload.get("doctype")
+    docname = payload.get("docname")
+    amount  = flt(payload.get("amount"))
+
+    if doctype not in ALLOWED_DOCS:
+        frappe.throw(_("Not allowed for doctype {0}").format(doctype))
+
+    if amount <= 0:
+        frappe.throw(_("Amount must be greater than zero"))
+
+    # ── fetch source document inside the txn ───────────────────────
+    src = frappe.get_doc(doctype, docname)
+
+    # ── calculate financials --------------------------------------
+    from nirmaan_stack.services.finance import (
+        get_source_document_financials,        # returns grand_total, grand_total_excl_gst
+        get_total_paid,   # returns sum of approved+paid Project Payments
+        get_total_pending # returns sum of Requested (pending) Payments
+    )
+    totals = get_source_document_financials(src)
+    paid         = get_total_paid(src)
+    pending      = get_total_pending(src)
+    available    = totals.get("payable_total") - paid - pending
+    print(f"paid: {paid}, pending: {pending}, available: {available}, grand: {totals}")
+
+    if amount > (available + 10):
+        frappe.throw(_(
+            "Maximum amount you can request is {0} (available balance)"
+        ).format(frappe.format_value(available, "Currency")))
+
+    # ── create payment doc  (ACID wrapper) ─────────────────────────
+    pay = frappe.new_doc("Project Payments")
+    pay.update({
+        "document_type" : doctype,
+        "document_name" : docname,
+        "project"       : src.project,
+        "vendor"        : src.vendor,
+        "amount"        : round(amount),
+        "status"        : "Requested",
+    })
+    pay.insert()
+    frappe.db.commit()
+
+    return frappe.as_json({"name": pay.name})
+
+@frappe.whitelist()
 def create_project_payment(doctype: str, docname: str, vendor: str, amount: float, project: str, ptname: str):
     """
     Creates a new "Project Payments" doc AND updates the source PO Payment Term row

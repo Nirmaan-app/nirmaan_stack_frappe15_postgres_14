@@ -7,7 +7,7 @@ import { useFrappeDeleteDoc, useFrappeGetDocList, FrappeDoc, GetDocListArgs } fr
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
-import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useServerDataTable, AggregationConfig } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import memoize from 'lodash/memoize';
@@ -32,11 +32,36 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Edit2, MoreHorizontal, PlusCircle, Trash2 } from "lucide-react";
-import { TableSkeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TailSpin } from 'react-loader-spinner';
 
 interface ProjectExpensesListProps {
     projectId?: string; // Optional: To filter by a specific project
 }
+
+// NEW: Configuration for the summary card aggregations
+const PE_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' }
+];
+
+// NEW: Helper component to display active filters in the summary card
+const AppliedFiltersDisplay = ({ filters, search }) => {
+    const hasFilters = filters.length > 0 || !!search;
+    if (!hasFilters) {
+        return <p className="text-sm text-gray-500">Overview of all project expenses.</p>;
+    }
+    return (
+        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
+            <span className="font-medium">Filtered by:</span>
+            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
+            {filters.map(filter => (
+                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
+                    {filter.id.replace(/_/g, ' ')}
+                </span>
+            ))}
+        </div>
+    );
+};
 
 export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projectId }) => {
     const { toggleNewProjectExpenseDialog, setEditProjectExpenseDialog } = useDialogStore();
@@ -49,15 +74,36 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     // --- Supporting Data for Lookups ---
-    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", { fields: ["name", "project_name"], limit: 0 });
-    const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 0 });
-    const { data: users, isLoading: usersLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], limit: 0 });
-    const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", { fields: ["name", "expense_name"], limit: 0 });
+    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", { fields: ["name", "project_name"], orderBy: { field: "project_name", order: "asc" }, limit: 0 });
+    const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], orderBy: { field: "vendor_name", order: "asc" }, limit: 0 });
+    const { data: users, isLoading: usersLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], orderBy: { field: "full_name", order: "asc" }, limit: 0 });
+    const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", { fields: ["name", "expense_name"], orderBy: { field: "expense_name", order: "asc" }, filters: [["project", "=", "1"]], limit: 0 });
 
     const getProjectName = useCallback(memoize((id?: string) => projects?.find(p => p.name === id)?.project_name || id || '--'), [projects]);
     const getVendorName = useCallback(memoize((id?: string) => vendors?.find(v => v.name === id)?.vendor_name || id || 'Others'), [vendors]);
     const getUserName = useCallback(memoize((id?: string) => users?.find(u => u.name === id)?.full_name || id || '--'), [users]);
     const getExpenseTypeName = useCallback(memoize((id?: string) => expenseTypes?.find(et => et.name === id)?.expense_name || id || '--'), [expenseTypes]);
+
+    // --- (1) NEW: Prepare options for the faceted filters ---
+    const projectOptions = useMemo(() =>
+        projects?.map(p => ({ label: p.project_name, value: p.name })) || [],
+        [projects]
+    );
+
+    const userOptions = useMemo(() =>
+        users?.map(u => ({ label: u.full_name, value: u.name })) || [],
+        [users]
+    );
+
+    const vendorOptions = useMemo(() =>
+        vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [],
+        [vendors]
+    );
+
+    const expenseTypeOptions = useMemo(() =>
+        expenseTypes?.map(et => ({ label: et.expense_name, value: et.name })) || [],
+        [expenseTypes]
+    );
 
     // --- Handlers for Actions ---
     const handleOpenEditDialog = useCallback((expense: ProjectExpenses) => { setExpenseToEdit(expense); setEditProjectExpenseDialog(true); }, [setEditProjectExpenseDialog]);
@@ -86,12 +132,12 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
             enableColumnFilter: true,
         } as ColumnDef<ProjectExpenses>] : []),
         { accessorKey: "payment_date", header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />, cell: ({ row }) => <div className="font-medium">{formatDate(row.original.payment_date)}</div> },
-        { accessorKey: "type", header: "Expense Type", cell: ({ row }) => <div className="truncate" title={row.original.expense_type_name || row.original.type}>{row.original.expense_type_name || row.original.type}</div>, meta: { exportValue: (row) => row.expense_type_name || row.type } },
+        { accessorKey: "type", header: "Expense Type", cell: ({ row }) => <div className="truncate" title={row.original.expense_type_name || row.original.type}>{row.original.expense_type_name || row.original.type}</div>, meta: { exportValue: (row) => row.expense_type_name || row.type }, enableColumnFilter: true, },
         { accessorKey: "description", header: "Description", cell: ({ row }) => <div className="truncate max-w-xs" title={row.original.description}>{row.original.description}</div> },
         { accessorKey: "comment", header: "Comment", cell: ({ row }) => <div className="truncate max-w-xs" title={row.original.comment}>{row.original.comment}</div> },
-        { accessorKey: "vendor", header: "Vendor", cell: ({ row }) => <div className="truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>, meta: { exportValue: (row) => getVendorName(row.vendor) } },
+        { accessorKey: "vendor", header: "Vendor", cell: ({ row }) => <div className="truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>, meta: { exportValue: (row) => getVendorName(row.vendor) }, enableColumnFilter: true },
         { accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-center" />, cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>, meta: { exportValue: (row) => formatForReport(row.amount) } },
-        { accessorKey: "payment_by", header: "Requested By", cell: ({ row }) => <div className="truncate" title={getUserName(row.original.payment_by)}>{getUserName(row.original.payment_by)}</div>, meta: { exportValue: (row) => getUserName(row.payment_by) } },
+        { accessorKey: "payment_by", header: "Requested By", cell: ({ row }) => <div className="truncate" title={getUserName(row.original.payment_by)}>{getUserName(row.original.payment_by)}</div>, meta: { exportValue: (row) => getUserName(row.payment_by) }, enableColumnFilter: true, },
 
         {
             id: "actions",
@@ -114,15 +160,39 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
         }
     ], [projectId, getProjectName, getVendorName, getUserName, getExpenseTypeName, handleOpenEditDialog, handleOpenDeleteDialog]);
 
+    // --- (2) NEW: Define the facet filter configurations ---
+    const facetFilterOptions = useMemo(() => {
+        const filters: any = {
+            payment_by: { title: "Requested By", options: userOptions },
+            vendor: { title: "Vendor", options: vendorOptions },
+            type: { title: "Expense Type", options: expenseTypeOptions }
+        };
+
+        // Conditionally add the project filter only if we are on the main list view
+        if (!projectId) {
+            filters.projects = { title: "Project", options: projectOptions };
+        }
+
+        return filters;
+    }, [userOptions, projectOptions, vendorOptions, expenseTypeOptions, projectId]);
+
     // --- Data Table Hook ---
-    const { table, data, totalCount, isLoading, error, refetch, ...rest } = useServerDataTable<ProjectExpenses>({
+    const { table, data, totalCount, isLoading, error, refetch, searchTerm,                // <-- Destructure this
+        setSearchTerm,             // <-- Destructure this
+        selectedSearchField,       // <-- Destructure this
+        setSelectedSearchField,     // <-- Destructure this 
+        aggregates, // NEW
+        isAggregatesLoading, // NEW
+        columnFilters // NEW
+    } = useServerDataTable<ProjectExpenses>({
         doctype: DOCTYPE,
         columns: columns,
         fetchFields: [...DEFAULT_PE_FIELDS_TO_FETCH, "type.expense_name as expense_type_name"], // Ensure display name is fetched
         searchableFields: PE_SEARCHABLE_FIELDS,
         urlSyncKey: `project_expenses_list_${projectId || 'all'}`,
         // --- (Indicator) Static filter is now conditional ---
-        additionalFilters: projectId ? [["projects", "=", projectId]] : []
+        additionalFilters: projectId ? [["projects", "=", projectId]] : [],
+        aggregatesConfig: PE_AGGREGATES_CONFIG, // NEW: Pass the aggregation config
     });
 
     const isLoadingLookups = vendorsLoading || usersLoading || expenseTypesLoading || (!projectId && projectsLoading);
@@ -138,15 +208,56 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                 totalCount={totalCount}
                 searchFieldOptions={PE_SEARCHABLE_FIELDS}
                 dateFilterColumns={PE_DATE_COLUMNS}
+                facetFilterOptions={facetFilterOptions}
                 showExportButton={true}
                 onExport="default"
-                exportFileName={`Project_Expenses_${projectId}`}
+                exportFileName={`Project_Expenses_${projectId || 'All'}`}
                 toolbarActions={
                     (role === "Nirmaan Admin Profile" || role === "Nirmaan Accountant Profile") &&
                     <Button onClick={toggleNewProjectExpenseDialog} size="sm"><PlusCircle className="mr-2 h-4 w-4" />Add Project Expense</Button>
                 }
-                emptyStateMessage="No project expenses have been recorded yet."
-                {...rest}
+                // --- (Indicator) FIX: Explicitly pass the required props with the correct names ---
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                // NEW: Pass the fully constructed summary card as a prop
+                summaryCard={
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardTitle className="text-lg">Project Expenses Summary</CardTitle>
+                            <CardDescription>
+                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            {isAggregatesLoading ? (
+                                <div className="flex justify-center items-center h-16">
+                                    <TailSpin height={24} width={24} color="#4f46e5" />
+                                </div>
+                            ) : aggregates ? (
+                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
+                                    <div className="justify-between sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Expense Amount</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                        </dd>
+                                    </div>
+                                    <div className="justify-between sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Entries</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {totalCount}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            ) : (
+                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                    No summary data available.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                }
             />
             <NewProjectExpenseDialog projectId={projectId} onSuccess={refetch} />
             {expenseToEdit && (

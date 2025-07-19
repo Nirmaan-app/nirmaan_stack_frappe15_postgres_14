@@ -1,4 +1,4 @@
-import { InvoiceDataType, PurchaseOrderItem,POTotals } from "@/types/NirmaanStack/ProcurementOrders";
+import { InvoiceDataType, PurchaseOrderItem, POTotals, ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceItemType, ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -7,30 +7,22 @@ import { parseNumber } from "./parseNumber";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 
-export const getPOTotal = (orders:any) => {
+export const getPOTotal = (order: ProcurementOrder): { total: number, totalGst: number, totalWithTax: number } => {
 
   // console.log("orders",orders)
   // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
-  if (!Array.isArray(orders) || orders.length === 0) {
-    return { total: 0, totalGst: 0, totalAmt: 0 };
+  if (!order) {
+    return { total: 0, totalGst: 0, totalWithTax: 0 };
   }
 
-  // 2. Use Array.reduce() to iterate and accumulate the totals.
-  const grandTotals = orders.reduce(
-    (accumulator, currentOrder) => {
-      // For each order in the array, add its values to the accumulator
-      accumulator.total += parseNumber(currentOrder.amount);
-      accumulator.totalGst += parseNumber(currentOrder.tax_amount);
-      accumulator.totalAmt += parseNumber(currentOrder.total_amount);
-      
-      // Return the updated accumulator for the next iteration
-      return accumulator;
-    },
-    // 3. The initial value for our accumulator object
-    { total: 0, totalGst: 0, totalAmt: 0 }
-  );
 
-  return grandTotals;
+  // 2. Directly access the pre-calculated fields from the document, using parseNumber for safety.
+  const total = parseNumber(order.amount);
+  const totalGst = parseNumber(order.tax_amount);
+  const totalWithTax = parseNumber(order.total_amount);
+
+  // 3. Return the extracted totals.
+  return { total, totalGst, totalWithTax };
 };
 
 
@@ -180,7 +172,7 @@ export const getPreviewTotal = (orderData: PurchaseOrderItem[]): POTotals => {
   }
 
   // Determine the correct list of items to use
-  
+
   // Calculate totals from the items list
   const totals = orderData?.reduce(
     (acc, item) => {
@@ -193,7 +185,7 @@ export const getPreviewTotal = (orderData: PurchaseOrderItem[]): POTotals => {
 
       acc.totalBase += itemBaseAmount;
       acc.totalTax += itemTaxAmount;
-      
+
       return acc;
     },
     { totalBase: 0, totalTax: 0 }

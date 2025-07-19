@@ -203,9 +203,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
               className="border rounded-md overflow-hidden bg-white shadow-sm"
             >
               <AccordionTrigger
-                className={`!py-0 !px-0 hover:!no-underline focus-visible:!ring-1 focus-visible:!ring-ring focus-visible:!ring-offset-1 rounded-t-md ${
-                  vendorState.isFullySelected ? "bg-primary/10" : ""
-                }`}
+                className={`!py-0 !px-0 hover:!no-underline focus-visible:!ring-1 focus-visible:!ring-ring focus-visible:!ring-offset-1 rounded-t-md ${vendorState.isFullySelected ? "bg-primary/10" : ""
+                  }`}
               >
                 <CardHeader className="flex flex-row items-center justify-between p-3 w-full cursor-pointer hover:bg-muted/50 transition-colors">
                   <div className="flex items-center gap-3">
@@ -237,8 +236,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                             potentialSavingLossForVendor > 0
                               ? "text-green-600"
                               : potentialSavingLossForVendor < 0
-                              ? "text-red-600"
-                              : "text-gray-600"
+                                ? "text-red-600"
+                                : "text-gray-600"
                           )}
                         >
                           {formatToIndianRupee(
@@ -247,8 +246,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                           {potentialSavingLossForVendor > 0
                             ? "(S)"
                             : potentialSavingLossForVendor < 0
-                            ? "(L)"
-                            : ""}
+                              ? "(L)"
+                              : ""}
                         </span>
                       </div>
                     )}
@@ -371,7 +370,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                             </TableCell>
                             <TableCell className="text-right">
                               {formatToIndianRupee(
-                                parseNumber(item?.targetAmount) * 0.98 || "N/A"
+                                parseNumber(item?.targetAmount) || "N/A"
                               )}
                             </TableCell>
                             <TableCell
@@ -380,16 +379,16 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                 itemSavingLoss > 0
                                   ? "text-green-600"
                                   : itemSavingLoss < 0
-                                  ? "text-red-600"
-                                  : "text-gray-600"
+                                    ? "text-red-600"
+                                    : "text-gray-600"
                               )}
                             >
                               {formatToIndianRupee(itemSavingLoss || "N/A")}
                               {itemSavingLoss > 0
                                 ? " (S)"
                                 : itemSavingLoss < 0
-                                ? " (L)"
-                                : ""}
+                                  ? " (L)"
+                                  : ""}
                             </TableCell>
                             <TableCell className="text-right">
                               {formatToIndianRupee(itemTotalInclGst)}
@@ -406,9 +405,9 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                         <span className="text-primary pr-2">{displayPaymentTerms[0].type}:</span>
                         {selectedItemsTotalInclGst > 0
                           ? `Payment Terms (Based on Selected Value: ${formatToRoundedIndianRupee(
-                              selectedItemsTotalInclGst
-                            )})`
-                          : "Original Payment Terms"} 
+                            selectedItemsTotalInclGst
+                          )})`
+                          : "Original Payment Terms"}
                       </h4>
                       <Table className="bg-white">
                         <TableHeader>
