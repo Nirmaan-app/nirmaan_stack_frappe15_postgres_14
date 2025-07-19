@@ -49,7 +49,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     filterFn: dateFilterFn,
   },
   {
-    id: "project", // Using id for faceted filter key
+    id: "project_name", // Using id for faceted filter key
     accessorFn: (row) => row.projectName || row.project, // For sorting/filtering if values are just IDs
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Project" />
@@ -81,14 +81,14 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
   {
     accessorKey: "totalAmount", // This is pre-calculated in POReportRowData
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} 
-      title={
-         
-         <div className="text-center whitespace-normal">
-                    Total PO Amt (incl. GST)
-                </div>
+      <DataTableColumnHeader column={column}
+        title={
 
-        }  />
+          <div className="text-center whitespace-normal">
+            Total PO Amt (incl. GST)
+          </div>
+
+        } />
     ),
     cell: ({ row }) => (
       <div className="tabular-nums">
@@ -140,17 +140,17 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     // accessorKey: "latest_delivery_date",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title={
-         
-         <div className="text-left whitespace-normal">
-                    Latest Delivery Date
-                </div>
 
-        }  />
+        <div className="text-left whitespace-normal">
+          Latest Delivery Date
+        </div>
+
+      } />
     ),
     cell: ({ row }) => {
       // We can now use row.getValue() which is cleaner, as it uses the accessorFn
-    //   console.log("row.getValue('latest_delivery_date')", row);
-     const latest_delivery_date = row.getValue("latest_delivery_date") as string| undefined;
+      //   console.log("row.getValue('latest_delivery_date')", row);
+      const latest_delivery_date = row.getValue("latest_delivery_date") as string | undefined;
       return (
         <div>
           {latest_delivery_date ? formatDate(latest_delivery_date) : "N/A"}
@@ -173,17 +173,17 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
 
     accessorFn: (row) => row.originalDoc.latest_payment_date, // Explicitly tell the table
     header: ({ column }) => (
-<DataTableColumnHeader column={column} title={
-         
-         <div className="text-left whitespace-normal">
-                    Latest Payment Date
-                </div>
+      <DataTableColumnHeader column={column} title={
 
-        }  />
+        <div className="text-left whitespace-normal">
+          Latest Payment Date
+        </div>
+
+      } />
     ),
     cell: ({ row }) => {
       // We can now use row.getValue() which is cleaner, as it uses the accessorFn
-      const latest_payment_date = row.getValue("latest_payment_date") as string| undefined;
+      const latest_payment_date = row.getValue("latest_payment_date") as string | undefined;
       return (
         <div>
           {latest_payment_date ? formatDate(latest_payment_date) : "N/A"}
@@ -413,10 +413,10 @@ export const getPOReportColumns = (
       : [...basePOColumns];
   console.log("reportType", reportType);
 
-// if (reportType === 'Dispatched for 3 days'|| reportType === 'Pending Invoices') {
-//         columnsToDisplay.push(latestDeliveryDateColumn);
-//         columnsToDisplay.push(latestPaymentDateColumn);
-//     }
+  // if (reportType === 'Dispatched for 3 days'|| reportType === 'Pending Invoices') {
+  //         columnsToDisplay.push(latestDeliveryDateColumn);
+  //         columnsToDisplay.push(latestPaymentDateColumn);
+  //     }
   if (reportType === "Dispatched for 3 days") {
     columnsToDisplay.push(dispatchedDateColumn);
   }

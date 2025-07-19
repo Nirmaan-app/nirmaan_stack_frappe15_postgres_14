@@ -20,7 +20,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 
-import { useFrappeDeleteDoc } from "frappe-react-sdk"; // For delete
+import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk"; // For delete
 import { useToast } from "@/components/ui/use-toast"; // For delete feedback
 
 // --- UI Components ---
@@ -43,6 +43,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 
 // --- Types ---
 import { NonProjectExpenses as NonProjectExpensesType } from "@/types/NirmaanStack/NonProjectExpenses";
+import { ExpenseType } from "@/types/NirmaanStack/ExpenseType"; // Import the type
 
 // --- Config ---
 import {
@@ -100,6 +101,15 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
     const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // For delete operation
 
     const urlSyncKey = useMemo(() => `npe_${urlContext}`, [urlContext]);
+    // --- (2) NEW: Fetch data for the Expense Type filter ---
+    const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
+        'Expense Type',
+        {
+            fields: ['name', 'expense_name'], // Fetch name for value, expense_name for label
+            filters: [["non_project", "=", "1"]], // Assuming non project filter is needed
+            limit: 0 // Fetch all records
+        }
+    );
 
     // State for update dialogs (define these first as handlers depend on them)
     const [isPaymentUpdateDialogOpen, setIsPaymentUpdateDialogOpen] = useState(false);
@@ -143,6 +153,23 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         }
     };
 
+    // --- (3) NEW: Prepare options for the faceted filter ---
+    const expenseTypeOptions = useMemo(() =>
+        expenseTypes?.map(et => ({
+            label: et.expense_name || et.name, // Use the display name, fallback to the raw name
+            value: et.name,                    // The value must be the raw name used in the main data
+        })) || [],
+        [expenseTypes]
+    );
+
+    // --- (4) NEW: Define the facet filter configuration object ---
+    const facetFilterOptions = useMemo(() => ({
+        type: { // This key 'type' MUST match the column's accessorKey
+            title: "Expense Type",
+            options: expenseTypeOptions,
+        },
+    }), [expenseTypeOptions]);
+
     // Now define columns, using the handlers
     // This `columnsDefinition` will be passed to both useServerDataTable and DataTable
     const columnsDefinition = useMemo<ColumnDef<NonProjectExpensesType>[]>(() => [
@@ -164,7 +191,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             accessorKey: "type",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Expense Type" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.type}>{row.original.type}</div>,
-
+            enableColumnFilter: true, // UPDATED: Explicitly enable filtering for clarity
             meta: { exportHeaderName: "Expense Type", exportValue: (row) => row.type }
         },
         {
@@ -302,7 +329,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             <DataTable<NonProjectExpensesType>
                 table={table} // This table instance is now created with columns
                 columns={columnsDefinition} // Pass the same columns definition for export/etc.
-                isLoading={isLoading}
+                isLoading={isLoading || expenseTypesLoading}
                 error={error}
                 totalCount={totalCount}
                 searchFieldOptions={NPE_SEARCHABLE_FIELDS} // Make sure this is an array of SearchFieldOption
@@ -311,6 +338,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
                 // facetFilterOptions={facetFilterOptions} // Define if needed
+                facetFilterOptions={facetFilterOptions}
                 dateFilterColumns={NPE_DATE_COLUMNS}
                 showExportButton={true}
                 onExport={'default'}

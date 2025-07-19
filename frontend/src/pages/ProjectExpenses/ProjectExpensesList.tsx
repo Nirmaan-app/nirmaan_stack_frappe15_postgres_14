@@ -74,15 +74,36 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     // --- Supporting Data for Lookups ---
-    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", { fields: ["name", "project_name"], limit: 0 });
-    const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 0 });
-    const { data: users, isLoading: usersLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], limit: 0 });
-    const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", { fields: ["name", "expense_name"], limit: 0 });
+    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", { fields: ["name", "project_name"], orderBy: { field: "project_name", order: "asc" }, limit: 0 });
+    const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], orderBy: { field: "vendor_name", order: "asc" }, limit: 0 });
+    const { data: users, isLoading: usersLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], orderBy: { field: "full_name", order: "asc" }, limit: 0 });
+    const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", { fields: ["name", "expense_name"], orderBy: { field: "expense_name", order: "asc" }, filters: [["project", "=", "1"]], limit: 0 });
 
     const getProjectName = useCallback(memoize((id?: string) => projects?.find(p => p.name === id)?.project_name || id || '--'), [projects]);
     const getVendorName = useCallback(memoize((id?: string) => vendors?.find(v => v.name === id)?.vendor_name || id || 'Others'), [vendors]);
     const getUserName = useCallback(memoize((id?: string) => users?.find(u => u.name === id)?.full_name || id || '--'), [users]);
     const getExpenseTypeName = useCallback(memoize((id?: string) => expenseTypes?.find(et => et.name === id)?.expense_name || id || '--'), [expenseTypes]);
+
+    // --- (1) NEW: Prepare options for the faceted filters ---
+    const projectOptions = useMemo(() =>
+        projects?.map(p => ({ label: p.project_name, value: p.name })) || [],
+        [projects]
+    );
+
+    const userOptions = useMemo(() =>
+        users?.map(u => ({ label: u.full_name, value: u.name })) || [],
+        [users]
+    );
+
+    const vendorOptions = useMemo(() =>
+        vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [],
+        [vendors]
+    );
+
+    const expenseTypeOptions = useMemo(() =>
+        expenseTypes?.map(et => ({ label: et.expense_name, value: et.name })) || [],
+        [expenseTypes]
+    );
 
     // --- Handlers for Actions ---
     const handleOpenEditDialog = useCallback((expense: ProjectExpenses) => { setExpenseToEdit(expense); setEditProjectExpenseDialog(true); }, [setEditProjectExpenseDialog]);
@@ -111,12 +132,12 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
             enableColumnFilter: true,
         } as ColumnDef<ProjectExpenses>] : []),
         { accessorKey: "payment_date", header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />, cell: ({ row }) => <div className="font-medium">{formatDate(row.original.payment_date)}</div> },
-        { accessorKey: "type", header: "Expense Type", cell: ({ row }) => <div className="truncate" title={row.original.expense_type_name || row.original.type}>{row.original.expense_type_name || row.original.type}</div>, meta: { exportValue: (row) => row.expense_type_name || row.type } },
+        { accessorKey: "type", header: "Expense Type", cell: ({ row }) => <div className="truncate" title={row.original.expense_type_name || row.original.type}>{row.original.expense_type_name || row.original.type}</div>, meta: { exportValue: (row) => row.expense_type_name || row.type }, enableColumnFilter: true, },
         { accessorKey: "description", header: "Description", cell: ({ row }) => <div className="truncate max-w-xs" title={row.original.description}>{row.original.description}</div> },
         { accessorKey: "comment", header: "Comment", cell: ({ row }) => <div className="truncate max-w-xs" title={row.original.comment}>{row.original.comment}</div> },
-        { accessorKey: "vendor", header: "Vendor", cell: ({ row }) => <div className="truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>, meta: { exportValue: (row) => getVendorName(row.vendor) } },
+        { accessorKey: "vendor", header: "Vendor", cell: ({ row }) => <div className="truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>, meta: { exportValue: (row) => getVendorName(row.vendor) }, enableColumnFilter: true },
         { accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-center" />, cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>, meta: { exportValue: (row) => formatForReport(row.amount) } },
-        { accessorKey: "payment_by", header: "Requested By", cell: ({ row }) => <div className="truncate" title={getUserName(row.original.payment_by)}>{getUserName(row.original.payment_by)}</div>, meta: { exportValue: (row) => getUserName(row.payment_by) } },
+        { accessorKey: "payment_by", header: "Requested By", cell: ({ row }) => <div className="truncate" title={getUserName(row.original.payment_by)}>{getUserName(row.original.payment_by)}</div>, meta: { exportValue: (row) => getUserName(row.payment_by) }, enableColumnFilter: true, },
 
         {
             id: "actions",
@@ -138,6 +159,22 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
             }
         }
     ], [projectId, getProjectName, getVendorName, getUserName, getExpenseTypeName, handleOpenEditDialog, handleOpenDeleteDialog]);
+
+    // --- (2) NEW: Define the facet filter configurations ---
+    const facetFilterOptions = useMemo(() => {
+        const filters: any = {
+            payment_by: { title: "Requested By", options: userOptions },
+            vendor: { title: "Vendor", options: vendorOptions },
+            type: { title: "Expense Type", options: expenseTypeOptions }
+        };
+
+        // Conditionally add the project filter only if we are on the main list view
+        if (!projectId) {
+            filters.projects = { title: "Project", options: projectOptions };
+        }
+
+        return filters;
+    }, [userOptions, projectOptions, vendorOptions, expenseTypeOptions, projectId]);
 
     // --- Data Table Hook ---
     const { table, data, totalCount, isLoading, error, refetch, searchTerm,                // <-- Destructure this
@@ -171,6 +208,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                 totalCount={totalCount}
                 searchFieldOptions={PE_SEARCHABLE_FIELDS}
                 dateFilterColumns={PE_DATE_COLUMNS}
+                facetFilterOptions={facetFilterOptions}
                 showExportButton={true}
                 onExport="default"
                 exportFileName={`Project_Expenses_${projectId || 'All'}`}
