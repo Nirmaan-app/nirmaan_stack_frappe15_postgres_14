@@ -1,188 +1,378 @@
 
+# import frappe
+# import json
+# from frappe.utils import flt,getdate,nowdate
+
+# @frappe.whitelist()
+# def new_handle_approve(sb_id: str, selected_items: list, project_id: str, selected_vendors: dict,payment_terms: str = None):
+#     """
+#     Approves selected items from a Sent Back Category, creates Procurement Orders with a child table for items,
+#     and updates the Sent Back Category document.
+#     """
+#     try:
+#         sb_doc = frappe.get_doc("Sent Back Category", sb_id, for_update=True) # Lock for update
+#         pr_doc = frappe.get_doc("Procurement Requests", sb_doc.procurement_request, for_update=True) # Lock PR for update
+#         if not sb_doc:
+#             raise frappe.ValidationError(f"Sent Back Category {sb_id} not found.")
+#         if not pr_doc:
+#             raise frappe.ValidationError(f"Associated Procurement Request {sb_doc.procurement_request} not found.")
+
+#         # ====================================================================
+#         # --- ADDED BLOCK: Prepare Payment Terms Data ---
+#         # ====================================================================
+#         payment_terms_by_vendor = {}
+#         # Safely get the 'payment_terms' field from the document.
+#         # Use your actual fieldname if it's different (e.g., "custom_payment_terms").
+
+#         if payment_terms:
+#             try:
+#                 parsed_terms = json.loads(payment_terms)
+#                 if isinstance(parsed_terms, dict):
+#                     payment_terms_by_vendor = parsed_terms
+#             except (json.JSONDecodeError, TypeError):
+#                 frappe.log_error(f"Could not parse dynamic payment_terms JSON from payload for PR {sb_id}", "generate_pos_from_selection")
+#         # --- END OF ADDED BLOCK ---
+
+#         # Ensure payloads are Python objects
+#         if isinstance(selected_items, str):
+#             selected_items = json.loads(selected_items)
+#         if isinstance(selected_vendors, str):
+#             selected_vendors = json.loads(selected_vendors)
+
+#         # Read from the child table 'order_list' of Sent Back Category
+#         source_sb_order_list = sb_doc.get("order_list", []) # List of child document objects
+
+#         # --- Group selected SB child items by vendor for PO creation ---
+#         vendor_po_items_for_child_table = {}
+#         processed_sb_child_item_names_for_status_update = set() # Store child_doc.name for status update
+       
+#          # ✅ This set will store unique (item_id, vendor_name) pairs.
+#         approved_item_vendor_pairs = {}
+        
+
+#         selected_item_ids_set = set(selected_items) # For efficient lookup
+
+#         project_doc_for_po = None
+#         if sb_doc.project:
+#             project_doc_for_po = frappe.get_doc("Projects", sb_doc.project)
+
+#         for sb_child_item in source_sb_order_list: # sb_child_item is a child document object
+#             if sb_child_item.name in selected_item_ids_set:
+#                 vendor_id_for_po = selected_vendors.get(sb_child_item.name)
+#                 if not vendor_id_for_po:
+#                     frappe.log_error(f"Vendor not found in payload for selected SB item {sb_child_item.name} from SB Doc {sb_id}", "new_handle_approve")
+#                     continue # Skip if no vendor assigned in payload for this approved item
+
+#                 if sb_child_item.quote is None: # Quote should be present on the SB item
+#                     frappe.throw(f"Quote not found for item {sb_child_item.name} in SB Doc {sb_id}.")
+#                  # ✅ Collect the composite key for updating the PR later.
+#                 approved_item_vendor_pairs.add((sb_child_item.item_id, vendor_id_for_po))
+#                 processed_sb_child_item_names_for_status_update.add(sb_child_item.name)
+#                 print(f"DEBUGSBAPPROVE PRV: vendor and ITEM id :{approved_item_vendor_pairs}")
+#                 print(f"DEBUGSBAPPROVE PRV: Child PO .name :{processed_sb_child_item_names_for_status_update}")
+
+#                 item_quote_rate = flt(sb_child_item.quote)
+#                 item_quantity = flt(sb_child_item.quantity)
+#                 item_tax_percentage = flt(sb_child_item.tax)
+#                 base_amount = item_quantity * item_quote_rate
+#                 calculated_tax_amount = base_amount * (item_tax_percentage / 100.0)
+#                 final_total_amount = base_amount + calculated_tax_amount
+                
+#                 po_item_dict = {
+#                     "item_id": sb_child_item.item_id, "item_name": sb_child_item.item_name,
+#                     "unit": sb_child_item.unit, "quantity": item_quantity,
+#                     "category": sb_child_item.category, "procurement_package": sb_child_item.procurement_package,
+#                     "quote": item_quote_rate, "amount": base_amount, "make": sb_child_item.make,
+#                     "tax": item_tax_percentage, "tax_amount": calculated_tax_amount,
+#                     "total_amount": final_total_amount, "comment": sb_child_item.comment,
+#                     "procurement_request_item": sb_child_item.name
+#                 }
+
+#                 if vendor_id_for_po not in vendor_po_items_for_child_table:
+#                     vendor_po_items_for_child_table[vendor_id_for_po] = []
+#                 vendor_po_items_for_child_table[vendor_id_for_po].append(po_item_dict)
+#                 processed_sb_child_item_names_for_status_update.add(sb_child_item.name)
+
+#         latest_po_name = None
+#         created_po_names = []
+
+#         # --- Create Procurement Orders (one per vendor) ---
+#         if not vendor_po_items_for_child_table and selected_items:
+#              frappe.msgprint(f"Warning: No processable items found for PO creation from SB {sb_id} despite selections.", indicator="orange")
+        
+#         for vendor_id, po_items_list in vendor_po_items_for_child_table.items():
+#             vendor_doc_for_po = frappe.get_doc("Vendors", vendor_id)
+            
+#             po_doc = frappe.new_doc("Procurement Orders")
+#             po_doc.procurement_request = sb_doc.procurement_request 
+#             po_doc.project = sb_doc.project
+#             if project_doc_for_po:
+#                 po_doc.project_name = project_doc_for_po.project_name
+#                 po_doc.project_address = project_doc_for_po.project_address
+
+#             po_doc.vendor = vendor_id
+#             po_doc.vendor_name = vendor_doc_for_po.vendor_name
+#             po_doc.vendor_address = vendor_doc_for_po.vendor_address
+#             po_doc.vendor_gst = vendor_doc_for_po.vendor_gst
+            
+            
+#             original_pr_is_custom = not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package")
+#             if original_pr_is_custom:
+#                  po_doc.custom = "true"
+
+#             # ====================================================================
+#             # --- ADDED BLOCK: Populate the Payment Terms Child Table ---
+#             # ====================================================================
+#             if vendor_id in payment_terms_by_vendor:
+#                 # vendor_term_data = payment_terms_by_vendor[vendor_id]
+#                 milestones = payment_terms_by_vendor[vendor_id]
+#                 if isinstance(milestones, list):
+#                     today = getdate(nowdate())
+#                     for milestone in milestones:
+#                         term_status = "Created"
+            
+#                         # Get the payment type and due date from the milestone data
+#                         payment_type = milestone.get('type')
+#                         due_date_str = milestone.get('due_date')
+#                         if payment_type == "Credit" and due_date_str:
+#                     # Convert the due_date string to a proper date object for comparison
+#                             due_date = getdate(due_date_str)
+                    
+#                     # If the due date is today or in the past...
+#                             if due_date <= today:
+#                         # ...override the default status to "Scheduled"
+#                                 term_status = "Scheduled"
+#                         po_doc.append("payment_terms", {
+#                             "payment_type": milestone.get('type'), 
+#                             "label": milestone.get('name'),
+#                             "percentage": milestone.get('percentage'),
+#                             "amount": milestone.get('amount'),
+#                             "due_date": milestone.get('due_date'),
+#                             "status": term_status # Example of setting a default status
+#                         })
+
+#             # --- END OF ADDED BLOCK ---
+
+#             # Populate the 'items' child table of the PO
+#             for po_item_data_dict in po_items_list:
+#                 po_doc.append("items", po_item_data_dict)
+
+#             # Calculate PO header totals
+#             po_doc.amount = sum(item.get("amount", 0) for item in po_doc.items)
+#             po_doc.tax_amount = sum(item.get("tax_amount", 0) for item in po_doc.items)
+#             po_doc.total_amount = po_doc.amount + po_doc.tax_amount
+
+#             po_doc.insert(ignore_permissions=True)
+#             latest_po_name = po_doc.name
+#             created_po_names.append(po_doc.name)
+
+      
+#         # --- Update Sent Back Category's child items' statuses and workflow state ---
+#         sb_state_changed = False
+#         pr_state_changed = False
+
+#         if processed_sb_child_item_names_for_status_update:
+#             for sb_child_doc in sb_doc.order_list:
+#                 if sb_child_doc.name in processed_sb_child_item_names_for_status_update:
+#                     if sb_child_doc.status != "Approved":
+#                         sb_child_doc.status = "Approved"
+#                         print(f"DEBUGSBAPPROVE PR: sb_child_doc.status {sb_child_doc.item_id}:{sb_child_doc.vendor}")
+#                         sb_state_changed = True
+
+
+#         if approved_item_vendor_pairs:
+#             for pr_item_row in pr_doc.order_list:
+#                 # The 'vendor' field in the PR's child table should hold the vendor's name.
+#                 if (pr_item_row.item_id, pr_item_row.vendor) in approved_item_vendor_pairs:
+#                     if pr_item_row.status != "Approved":
+#                         pr_item_row.status = "Approved"
+#                         pr_state_changed = True
+
+#         if sb_state_changed:
+#             total_items_in_sb = len(sb_doc.order_list)
+#             approved_items_in_sb = sum(1 for item_cd in sb_doc.order_list if item_cd.status == "Approved")
+#             if approved_items_in_sb == total_items_in_sb:
+#                 sb_doc.workflow_state = "Approved"
+#             elif approved_items_in_sb > 0:
+#                 sb_doc.workflow_state = "Partially Approved"
+            
+#             sb_doc.save(ignore_permissions=True)
+        
+#         if pr_state_changed:
+#             pr_doc.save(ignore_permissions=True)
+
+#         message = f"Procurement Order(s): {', '.join(created_po_names)} created from SB {sb_id}." if created_po_names else f"No POs created from SB {sb_id}."
+#         if sb_state_changed:
+#             message += f" Sent Back Category {sb_id} updated."
+#         print(f"DEBUGSBAPPROVE PR: message {sb_id}")
+#         return {"message": message.strip(), "status": 200, "po": latest_po_name, "created_pos": created_po_names}
+
+#     except Exception as e:
+#         frappe.log_error(message=frappe.get_traceback(), title="new_handle_approve_sb_error")
+#         frappe.db.rollback()
+#         return {"error": str(e), "status": 400}
+
 import frappe
 import json
-from frappe.utils import flt,getdate,nowdate
+from frappe.utils import flt, getdate, nowdate
 
 @frappe.whitelist()
-def new_handle_approve(sb_id: str, selected_items: list, project_id: str, selected_vendors: dict,payment_terms: str = None):
+def new_handle_approve(sb_id: str, selected_items: list, project_id: str, selected_vendors: dict, payment_terms: str = None):
     """
-    Approves selected items from a Sent Back Category, creates Procurement Orders with a child table for items,
-    and updates the Sent Back Category document.
+    Approves selected items, creates POs, and precisely updates the PR and SB docs
+    using a list of tuples instead of a set.
     """
     try:
-        sb_doc = frappe.get_doc("Sent Back Category", sb_id, for_update=True) # Lock for update
-        if not sb_doc:
-            raise frappe.ValidationError(f"Sent Back Category {sb_id} not found.")
+        sb_doc = frappe.get_doc("Sent Back Category", sb_id, for_update=True)
+        pr_doc = frappe.get_doc("Procurement Requests", sb_doc.procurement_request, for_update=True)
+        
+        if not sb_doc or not pr_doc:
+            raise frappe.ValidationError("Could not find the Sent Back Category or its associated Procurement Request.")
 
-        # ====================================================================
-        # --- ADDED BLOCK: Prepare Payment Terms Data ---
-        # ====================================================================
+        # ... (setup logic) ...
         payment_terms_by_vendor = {}
-        # Safely get the 'payment_terms' field from the document.
-        # Use your actual fieldname if it's different (e.g., "custom_payment_terms").
-
         if payment_terms:
             try:
                 parsed_terms = json.loads(payment_terms)
                 if isinstance(parsed_terms, dict):
                     payment_terms_by_vendor = parsed_terms
             except (json.JSONDecodeError, TypeError):
-                frappe.log_error(f"Could not parse dynamic payment_terms JSON from payload for PR {sb_id}", "generate_pos_from_selection")
-        # --- END OF ADDED BLOCK ---
-
-        # Ensure payloads are Python objects
+                frappe.log_error(f"Could not parse payment_terms JSON for PR {sb_id}", "new_handle_approve")
+        
         if isinstance(selected_items, str):
             selected_items = json.loads(selected_items)
         if isinstance(selected_vendors, str):
             selected_vendors = json.loads(selected_vendors)
 
-        # Read from the child table 'order_list' of Sent Back Category
-        source_sb_order_list = sb_doc.get("order_list", []) # List of child document objects
+        source_sb_order_list = sb_doc.get("order_list", [])
+        
+        # --- Data collection and PO grouping ---
+        vendor_po_items = {}
+        
+        # ✅ Using a list to store unique (item_id, vendor_name) pairs.
+        approved_item_vendor_pairs = []
+        
+        processed_sb_row_names = set() # A set is still best for this, for fast lookups.
 
-        # --- Group selected SB child items by vendor for PO creation ---
-        vendor_po_items_for_child_table = {}
-        processed_sb_child_item_names_for_status_update = set() # Store child_doc.name for status update
-
-        selected_item_ids_set = set(selected_items) # For efficient lookup
-
+        selected_items_set = set(selected_items)
         project_doc_for_po = None
         if sb_doc.project:
             project_doc_for_po = frappe.get_doc("Projects", sb_doc.project)
 
-        for sb_child_item in source_sb_order_list: # sb_child_item is a child document object
-            if sb_child_item.name in selected_item_ids_set:
-                vendor_id_for_po = selected_vendors.get(sb_child_item.name)
-                if not vendor_id_for_po:
-                    frappe.log_error(f"Vendor not found in payload for selected SB item {sb_child_item.name} from SB Doc {sb_id}", "new_handle_approve")
-                    continue # Skip if no vendor assigned in payload for this approved item
+        for sb_row in source_sb_order_list:
+            if sb_row.name in selected_items_set:
+                vendor_name = selected_vendors.get(sb_row.name)
+                if not vendor_name:
+                    continue
+                if sb_row.quote is None:
+                    frappe.throw(f"Quote not found for item {sb_row.item_name}.")
 
-                if sb_child_item.quote is None: # Quote should be present on the SB item
-                    frappe.throw(f"Quote not found for item {sb_child_item.name} in SB Doc {sb_id}.")
-
-                item_quote_rate = flt(sb_child_item.quote)
-                item_quantity = flt(sb_child_item.quantity)
-                item_tax_percentage = flt(sb_child_item.tax)
-                base_amount = item_quantity * item_quote_rate
-                calculated_tax_amount = base_amount * (item_tax_percentage / 100.0)
-                final_total_amount = base_amount + calculated_tax_amount
+                # ✅ Collect data for updates
+                processed_sb_row_names.add(sb_row.name)
                 
-                po_item_dict = {
-                    "item_id": sb_child_item.item_id, "item_name": sb_child_item.item_name,
-                    "unit": sb_child_item.unit, "quantity": item_quantity,
-                    "category": sb_child_item.category, "procurement_package": sb_child_item.procurement_package,
-                    "quote": item_quote_rate, "amount": base_amount, "make": sb_child_item.make,
-                    "tax": item_tax_percentage, "tax_amount": calculated_tax_amount,
-                    "total_amount": final_total_amount, "comment": sb_child_item.comment,
-                    "procurement_request_item": sb_child_item.name
+                # Create the pair we want to add
+                current_pair = (sb_row.item_id, vendor_name)
+                
+                # Manually ensure the pair is not already in the list to avoid duplicates
+                if current_pair not in approved_item_vendor_pairs:
+                    approved_item_vendor_pairs.append(current_pair)
+                
+                # --- (Rest of the item processing logic is unchanged) ---
+                base_amount = flt(sb_row.quantity) * flt(sb_row.quote)
+                tax_amount = base_amount * (flt(sb_row.tax) / 100.0)
+                po_item = {
+                    "item_id": sb_row.item_id, "item_name": sb_row.item_name,
+                    "unit": sb_row.unit, "quantity": sb_row.quantity,
+                    "category": sb_row.category, "procurement_package": sb_row.procurement_package,
+                    "quote": sb_row.quote, "amount": base_amount, "make": sb_row.make,
+                    "tax": sb_row.tax, "tax_amount": tax_amount,
+                    "total_amount": base_amount + tax_amount, "comment": sb_row.comment,
+                    "procurement_request_item": sb_row.name
                 }
-
-                if vendor_id_for_po not in vendor_po_items_for_child_table:
-                    vendor_po_items_for_child_table[vendor_id_for_po] = []
-                vendor_po_items_for_child_table[vendor_id_for_po].append(po_item_dict)
-                processed_sb_child_item_names_for_status_update.add(sb_child_item.name)
-
-        latest_po_name = None
-        created_po_names = []
-
-        # --- Create Procurement Orders (one per vendor) ---
-        if not vendor_po_items_for_child_table and selected_items:
-             frappe.msgprint(f"Warning: No processable items found for PO creation from SB {sb_id} despite selections.", indicator="orange")
+                if vendor_name not in vendor_po_items:
+                    vendor_po_items[vendor_name] = []
+                vendor_po_items[vendor_name].append(po_item)
         
-        for vendor_id, po_items_list in vendor_po_items_for_child_table.items():
-            vendor_doc_for_po = frappe.get_doc("Vendors", vendor_id)
-            
+        # ... (The rest of the function remains identical) ...
+        # --- Create Procurement Orders ---
+        created_po_names = []
+        if not vendor_po_items and selected_items:
+             frappe.msgprint(f"Warning: No processable items found for PO creation from SB {sb_id}.", indicator="orange")
+        for vendor_name, items_list in vendor_po_items.items():
+            vendor_doc = frappe.get_doc("Vendors", vendor_name)
             po_doc = frappe.new_doc("Procurement Orders")
             po_doc.procurement_request = sb_doc.procurement_request 
             po_doc.project = sb_doc.project
             if project_doc_for_po:
                 po_doc.project_name = project_doc_for_po.project_name
                 po_doc.project_address = project_doc_for_po.project_address
-
-            po_doc.vendor = vendor_id
-            po_doc.vendor_name = vendor_doc_for_po.vendor_name
-            po_doc.vendor_address = vendor_doc_for_po.vendor_address
-            po_doc.vendor_gst = vendor_doc_for_po.vendor_gst
-            
-            
-            original_pr_is_custom = not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package")
-            if original_pr_is_custom:
+            po_doc.vendor = vendor_name
+            po_doc.vendor_name = vendor_doc.vendor_name
+            po_doc.vendor_address = vendor_doc.vendor_address
+            po_doc.vendor_gst = vendor_doc.vendor_gst
+            if not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package"):
                  po_doc.custom = "true"
-
-            # ====================================================================
-            # --- ADDED BLOCK: Populate the Payment Terms Child Table ---
-            # ====================================================================
-            if vendor_id in payment_terms_by_vendor:
-                # vendor_term_data = payment_terms_by_vendor[vendor_id]
-                milestones = payment_terms_by_vendor[vendor_id]
+            if vendor_name in payment_terms_by_vendor:
+                milestones = payment_terms_by_vendor[vendor_name]
                 if isinstance(milestones, list):
                     today = getdate(nowdate())
                     for milestone in milestones:
                         term_status = "Created"
-            
-                        # Get the payment type and due date from the milestone data
-                        payment_type = milestone.get('type')
-                        due_date_str = milestone.get('due_date')
-                        if payment_type == "Credit" and due_date_str:
-                    # Convert the due_date string to a proper date object for comparison
-                            due_date = getdate(due_date_str)
-                    
-                    # If the due date is today or in the past...
-                            if due_date <= today:
-                        # ...override the default status to "Scheduled"
+                        if milestone.get('type') == "Credit" and milestone.get('due_date'):
+                            if getdate(milestone.get('due_date')) <= today:
                                 term_status = "Scheduled"
-                        po_doc.append("payment_terms", {
-                            "payment_type": milestone.get('type'), 
-                            "label": milestone.get('name'),
-                            "percentage": milestone.get('percentage'),
-                            "amount": milestone.get('amount'),
-                            "due_date": milestone.get('due_date'),
-                            "status": term_status # Example of setting a default status
-                        })
-
-            # --- END OF ADDED BLOCK ---
-
-            # Populate the 'items' child table of the PO
-            for po_item_data_dict in po_items_list:
-                po_doc.append("items", po_item_data_dict)
-
-            # Calculate PO header totals
+                        po_doc.append("payment_terms", {"payment_type": milestone.get('type'), "label": milestone.get('name'), "percentage": milestone.get('percentage'), "amount": milestone.get('amount'), "due_date": milestone.get('due_date'), "status": term_status})
+            for item_dict in items_list:
+                po_doc.append("items", item_dict)
             po_doc.amount = sum(item.get("amount", 0) for item in po_doc.items)
             po_doc.tax_amount = sum(item.get("tax_amount", 0) for item in po_doc.items)
             po_doc.total_amount = po_doc.amount + po_doc.tax_amount
-
             po_doc.insert(ignore_permissions=True)
-            latest_po_name = po_doc.name
             created_po_names.append(po_doc.name)
 
-        # --- Update Sent Back Category's child items' statuses and workflow state ---
+        # --- Update statuses for SB and PR documents ---
         sb_state_changed = False
-        if processed_sb_child_item_names_for_status_update:
-            for sb_child_doc in sb_doc.order_list:
-                if sb_child_doc.name in processed_sb_child_item_names_for_status_update:
-                    if sb_child_doc.status != "Approved":
-                        sb_child_doc.status = "Approved"
+        pr_state_changed = False
+        if processed_sb_row_names:
+            for sb_row in sb_doc.order_list:
+                if sb_row.name in processed_sb_row_names:
+                    if sb_row.status != "Approved":
+                        sb_row.status = "Approved"
                         sb_state_changed = True
         
+        # ✅ This check now works on the list of tuples.
+        if approved_item_vendor_pairs:
+            for pr_row in pr_doc.order_list:
+                if (pr_row.item_id, pr_row.vendor) in approved_item_vendor_pairs:
+                    if pr_row.status != "Approved":
+                        pr_row.status = "Approved"
+                        pr_state_changed = True
+        
+        # --- Save documents and update workflow states ---
         if sb_state_changed:
             total_items_in_sb = len(sb_doc.order_list)
-            approved_items_in_sb = sum(1 for item_cd in sb_doc.order_list if item_cd.status == "Approved")
+            approved_items_in_sb = sum(1 for item in sb_doc.order_list if item.status == "Approved")
             if approved_items_in_sb == total_items_in_sb:
                 sb_doc.workflow_state = "Approved"
             elif approved_items_in_sb > 0:
                 sb_doc.workflow_state = "Partially Approved"
-            
             sb_doc.save(ignore_permissions=True)
+        if pr_state_changed:
+            pr_doc.save(ignore_permissions=True)
         
-        message = f"Procurement Order(s): {', '.join(created_po_names)} created from SB {sb_id}." if created_po_names else f"No POs created from SB {sb_id}."
+        # --- Construct final success message ---
+        message = f"Procurement Order(s): {', '.join(created_po_names)} created." if created_po_names else "No POs created."
         if sb_state_changed:
             message += f" Sent Back Category {sb_id} updated."
-
-        return {"message": message.strip(), "status": 200, "po": latest_po_name, "created_pos": created_po_names}
+        if pr_state_changed:
+            message += f" Procurement Request {pr_doc.name} updated."
+        
+        return {"message": message.strip(), "status": 200, "created_pos": created_po_names}
 
     except Exception as e:
         frappe.log_error(message=frappe.get_traceback(), title="new_handle_approve_sb_error")
+        frappe.db.rollback()
         return {"error": str(e), "status": 400}
-
 
 @frappe.whitelist()
 def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
@@ -222,11 +412,14 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         if isinstance(selected_items, str):
             selected_items = json.loads(selected_items)
 
+       
+
         for selected_item_id in selected_items:
             # Find the item in the source_item_list (list of child doc objects)
             item_in_source_sb = next((child_doc for child_doc in source_item_list if child_doc.name == selected_item_id), None)
             
-            if item_in_source_sb:
+            if item_in_source_sb and item_in_source_sb.category != "Additional Charges":
+
                 items_for_new_sb_doc.append({
                     "item_name": item_in_source_sb.item_name,
                     "item_id": item_in_source_sb.item_id,
@@ -253,8 +446,12 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                 if selected_item_id in rfq_details_sb:
                     rfq_details_for_new_sb_doc[selected_item_id] = rfq_details_sb[selected_item_id]
             else:
-                frappe.log_warning(f"Item ID '{selected_item_id}' not found in Sent Back Category '{sb_id}' order_list.", "new_handle_sent_back")
+                if not item_in_source_sb:
+                    frappe.log_error(f"Item ID '{selected_item_id}' not found in Sent Back Category '{sb_id}' order_list.", "new_handle_sent_back")
 
+                else:
+                    print(f"INFO: Skipping item '{selected_item_id}' with category 'Additional Charges'.")
+                
 
         newly_created_sb_doc_name = None
         if items_for_new_sb_doc:

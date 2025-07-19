@@ -286,6 +286,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             };
             
             const response = await approveSelection(payload);
+            console.log("response",response)
             if (response?.message?.status === 200) {
                 toast({ title: "Success!", description: response.message.message || "Items approved.", variant: "success" });
                 setSelectionMap(new Map()); toggleApproveDialog(); await prMutate();

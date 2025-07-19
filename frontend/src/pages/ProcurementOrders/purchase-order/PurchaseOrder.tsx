@@ -726,9 +726,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
       if (reductionAmount > modifiableAmount) {
         toast({
           title: "Amendment Blocked: Invalid Reduction",
-          description: `Cannot reduce total by ${reductionAmount.toFixed(
-            2
-          )}. There is only ${modifiableAmount} available in 'Created' & 'Scheduled' payment terms.`,
+          description: `Cannot reduce total by ${reductionAmount}. There is only ${modifiableAmount} available in 'Created' & 'Scheduled' payment terms.`,
           variant: "destructive",
           duration: 8000,
         });

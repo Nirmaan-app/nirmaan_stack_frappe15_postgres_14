@@ -57,7 +57,7 @@ const CreditsPage = () => {
         onSearchTermChange={setSearchTerm}
         selectedSearchField={selectedSearchField}
         onSelectedSearchFieldChange={setSelectedSearchField}
-        // facetFilterOptions={facetFilterOptions}
+        facetFilterOptions={facetFilterOptions}
         
         // This was the missing prop you identified. Now it's correctly passed.
         searchFieldOptions={TERM_SEARCHABLE_FIELDS} 

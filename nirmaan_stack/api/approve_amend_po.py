@@ -113,3 +113,188 @@ def approve_amend_po_with_payment_terms(po_name: str):
         frappe.log_error(frappe.get_traceback(), "PO Amend/Approval Failed")
         frappe.db.rollback()
         return {"status": 400, "message": str(e)}
+
+import frappe
+from frappe.utils import flt
+import json
+
+@frappe.whitelist()
+def revert_from_amend_po(po_name: str, status: str, items: list):
+    """
+    Reverts a Procurement Order by re-adding items from a previous state.
+    This is the definitive, robust version.
+    """
+    print("\n" + "="*80)
+    print(f"--- [API revert_from_amend_po] STARTING for PO: {po_name} ---")
+
+    try:
+        po_doc = frappe.get_doc("Procurement Orders", po_name, for_update=True)
+
+        # --- STEP 1: Clear existing items and RE-ADD the reverted items ---
+        print("--- [API revert_from_amend_po] STEP 1: Clearing existing items...")
+        po_doc.set("items", [])  # Clear the current child table
+        
+        print(f"--- [API revert_from_amend_po] STEP 1: Appending {len(items)} items from payload...")
+        
+        # THIS IS THE CORRECT, ROBUST LOOP
+        for item_from_frontend in items:
+            # Create a new, blank row in the 'items' child table
+            new_row = po_doc.append("items", {})
+            
+            # Explicitly set the fields on the new row from the frontend data.
+            # This is safe and ignores any extra fields the frontend might send.
+            # Use .get() to avoid errors if a key is missing.
+            new_row.item_id = item_from_frontend.get("item_id")
+            new_row.item_name = item_from_frontend.get("item_name")
+            new_row.quantity = flt(item_from_frontend.get("quantity"))
+            new_row.quote = flt(item_from_frontend.get("quote"))
+            new_row.unit = item_from_frontend.get("unit")
+            new_row.tax = flt(item_from_frontend.get("tax"))
+            new_row.category = item_from_frontend.get("category")
+            new_row.make = item_from_frontend.get("make")
+            # IMPORTANT: If your "Purchase Order Item" child table has other mandatory
+            # fields, add them here. For example:
+            # new_row.procurement_request_item = item_from_frontend.get("procurement_request_item")
+            
+            print(f"    -> Appended item: {new_row.item_name} with quantity {new_row.quantity}")
+
+        print(f"--- [API revert_from_amend_po] STEP 1 COMPLETE: PO in memory now has {len(po_doc.items)} item(s).")
+        print("-" * 40)
+
+        # --- STEP 2: Recalculate Totals ---
+        print("--- [API revert_from_amend_po] STEP 2: Recalculating totals...")
+        # If you have a 'recalculate' method in your Procurement Orders doctype python class, use it.
+        # It's a best practice to centralize calculation logic.
+        if hasattr(po_doc, "recalculate"):
+             po_doc.run_method("recalculate")
+        else:
+            # Otherwise, do it manually
+            new_header_amount = 0
+            new_header_tax_amount = 0
+            for item in po_doc.items:
+                item.amount = flt(item.quote) * flt(item.quantity)
+                item.tax_amount = item.amount * (flt(item.tax) / 100.0)
+                item.total_amount = item.amount + item.tax_amount
+                new_header_amount += item.amount
+                new_header_tax_amount += item.tax_amount
+            po_doc.amount = new_header_amount
+            po_doc.tax_amount = new_header_tax_amount
+            po_doc.total_amount = new_header_amount + new_header_tax_amount
+
+        print("--- [API revert_from_amend_po] STEP 2 COMPLETE.")
+        print("-" * 40)
+
+        # --- STEP 3: Finalize and Save ---
+        print(f"--- [API revert_from_amend_po] STEP 3: Setting status to '{status}' and saving...")
+        po_doc.status = status
+        po_doc._from_revert = True # Set the temporary flag for the hook
+        po_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        print("--- [API revert_from_amend_po] STEP 3 COMPLETE: Document saved and committed.")
+        
+        return {"status": 200, "message": f"PO {po_name} has been successfully reverted."}
+
+    except Exception as e:
+        print("\n" + "!"*80)
+        print(f"--- [API revert_from_amend_po] CRITICAL ERROR for PO: {po_name}")
+        frappe.log_error(frappe.get_traceback(), "PO Revert from Amend Failed")
+        frappe.db.rollback()
+        print("--- [API revert_from_amend_po] Database transaction has been rolled back.")
+        print("!"*80 + "\n")
+        return {"status": 400, "message": str(e)}
+
+# import frappe
+# from frappe.utils import flt, today, add_days
+# import json # Import the json library for pretty-printing
+
+# @frappe.whitelist()
+# def revert_from_amend_po(po_name: str, status: str, items: list):
+#     """
+#     Reverts a Procurement Order from an amendment back to a previous state.
+
+#     This function replaces the existing 'items' child table with a new list of items
+#     provided in the payload, recalculates all totals based on the new item list,
+#     updates the document status, and saves it.
+
+#     This is typically used to undo an amendment and restore the PO to its last
+#     "PO Approved" state.
+
+#     :param po_name: The name (ID) of the Procurement Order to revert.
+#     :param status: The new status to set for the PO (e.g., "PO Approved").
+#     :param items: A list of item dictionaries representing the state to revert to.
+#     """
+#     print("\n" + "="*80)
+#     print(f"--- [REVERT PO] Starting revert_from_amend_po for PO: {po_name} ---")
+#     print(f"--- [REVERT PO] Target Status: {status}")
+#     print(f"--- [REVERT PO] Incoming items payload (pretty-printed): {json.dumps(items, indent=2)}")
+#     print("="*80 + "\n")
+
+#     try:
+#         po_doc = frappe.get_doc("Procurement Orders", po_name, for_update=True)
+#         original_total = po_doc.total_amount
+
+#         # --- STEP 1: Replace Items in Document ---
+#         print("--- [REVERT PO] STEP 1: Clearing existing items and appending reverted items...")
+#         po_doc.set("items", [])  # Clear the current child table
+#         # po_doc.append("items", items)
+#         print(f"OUT-items: {items}")
+#         for item_data in items:
+#             print(f"IN-item_data: {item_data}")
+#             po_doc.append("items", item_data)
+        
+#         print(f"--- [REVERT PO] STEP 1 COMPLETE: Successfully replaced {len(po_doc.items)} item(s) in the document.")
+#         print("-" * 40)
+
+#         # --- STEP 2: Recalculate Totals ---
+#         print("--- [REVERT PO] STEP 2: Recalculating totals based on new item list...")
+#         new_header_amount = 0
+#         new_header_tax_amount = 0
+        
+#         for item in po_doc.items:
+#             item.amount = flt(item.quote) * flt(item.quantity)
+#             item.tax_amount = item.amount * (flt(item.tax) / 100.0)
+#             item.total_amount = item.amount + item.tax_amount
+#             new_header_amount += item.amount
+#             new_header_tax_amount += item.tax_amount
+#             print(f"    - Recalculated item '{item.item_id}': Amount={item.amount}, Tax={item.tax_amount}, Total={item.total_amount}")
+
+#         po_doc.amount = new_header_amount
+#         po_doc.tax_amount = new_header_tax_amount
+#         po_doc.total_amount = new_header_amount + new_header_tax_amount
+        
+#         print("--- [REVERT PO] STEP 2 COMPLETE: Totals recalculated.")
+#         print(f"    - Original Total Amount: {original_total}")
+#         print(f"    - New Total Amount: {po_doc.total_amount}")
+#         print("-" * 40)
+        
+#         # Note: We are NOT adjusting payment terms here. Reverting implies
+#         # restoring the previous state, including its associated payment terms.
+#         # The `approve` function is responsible for complex payment term logic.
+
+#         # --- STEP 3: Finalize and Save ---
+#         print(f"--- [REVERT PO] STEP 3: Setting status to '{status}' and saving the document...")
+#         po_doc.status = status
+#         po_doc._from_revert = True
+#         po_doc.save(ignore_permissions=True)
+#         print(f"DEBUG-After save: {po_doc.status}:{po_doc}")
+#         frappe.db.commit()
+
+#         print("--- [REVERT PO] STEP 3 COMPLETE: Document saved and transaction committed.")
+#         print("-" * 40)
+
+#         success_message = f"PO {po_doc.items} has been successfully reverted and approved."
+#         print(f"--- [REVERT PO] SUCCESS: {success_message}")
+#         print("="*80 + "\n")
+#         return {"status": 200, "message": success_message}
+
+#     except Exception as e:
+#         print("\n" + "!"*80)
+#         print("--- [REVERT PO] ERROR: An exception occurred during the revert process.")
+#         frappe.log_error(frappe.get_traceback(), "PO Revert from Amend Failed")
+#         frappe.db.rollback()
+#         print("--- [REVERT PO] ERROR: Database transaction has been rolled back.")
+#         print("!"*80 + "\n")
+        
+#         # Ensure the error message is passed to the frontend
+#         return {"status": 400, "message": str(e)}
+

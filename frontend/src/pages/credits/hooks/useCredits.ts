@@ -1,5 +1,4 @@
 
-
 import { useState, useEffect, useMemo, useCallback } from "react";
 // ✅ 1. Import ColumnFiltersState type from TanStack Table
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -43,14 +42,15 @@ export const useCredits = () => {
 
   const additionalFilters = useMemo(() => {
 
-    const filters = [['PO Payment Terms', 'payment_type', '=', 'Credit']];
+    const filters = [['status', '!=', 'Merged'],['PO Payment Terms', 'payment_type', '=', 'Credit']
+    ];
 
     if (currentStatus !== "All") {
-      filters.push(['PO Payment Terms', 'status', '=', currentStatus]);
+      filters.push(['status', '!=', 'Merged'],['PO Payment Terms', 'status', '=', currentStatus],);
     }
      // --- NEW LOGIC ---
     // Translate TanStack column filters into Frappe API filters
-
+// console.log()
     return filters;
   }, [currentStatus]);
 
@@ -65,7 +65,9 @@ export const useCredits = () => {
     additionalFilters: additionalFilters,
   });
 
-  const paymentTermStatusOptionsWithCounts = useMemo(() => {
+  // console.log("CreditsTable",tableProps)
+
+const paymentTermStatusOptionsWithCounts = useMemo(() => {
     return PAYMENT_TERM_STATUS_OPTIONS.map(option => {
       const count = creditsCounts[option.value.toLowerCase() as keyof typeof creditsCounts] || 0;
       return {
