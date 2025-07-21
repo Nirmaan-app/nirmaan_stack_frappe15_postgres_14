@@ -155,6 +155,7 @@ def create_project_with_address(values: dict):
         project_doc.customer = values.get("customer")
         project_doc.project_type = values.get("project_type")
         project_doc.project_value = frappe.utils.flt(values.get("project_value")) # Use flt for safe conversion
+        project_doc.project_value_gst = frappe.utils.flt(values.get("project_value_gst")) 
         
         # Assuming project_gst_number is still a JSON field as per your Projects.json
         project_gst_number_data = values.get("project_gst_number")
@@ -181,8 +182,8 @@ def create_project_with_address(values: dict):
         
         # Other JSON fields (if they remain JSON)
         project_doc.project_scopes = values.get("project_scopes") 
-        project_doc.subdivisions = values.get("subdivisions")
-        project_doc.subdivision_list = {"list":  values.get("areaNames", [])}
+        # project_doc.subdivisions = values.get("subdivisions")
+        # project_doc.subdivision_list = {"list":  values.get("areaNames", [])}
         
         project_doc.status = "Created"
 

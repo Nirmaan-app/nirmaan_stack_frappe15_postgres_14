@@ -57,8 +57,11 @@ const projectFormSchema = z.object({
     project_value: z
         .string()
         .optional(),
-    subdivisions: z
-        .string(),
+    project_value_gst: z
+        .string()
+        .optional(),
+    // subdivisions: z
+    //     .string(),
     address_line_1: z
         .string({
             required_error: "Address Line 1 Required"
@@ -201,6 +204,7 @@ export const ProjectForm = () => {
     const defaultValues: ProjectFormValues = {
         project_name: "",
         project_value: "",
+        project_value_gst: "",
         project_start_date: new Date(),
         project_end_date: undefined,
         project_work_packages: {
@@ -235,7 +239,7 @@ export const ProjectForm = () => {
         design_lead: "",
         project_manager: "",
         accountant: "",
-        subdivisions: "",
+        // subdivisions: "",
     };
 
     const form = useForm<ProjectFormValues>({
@@ -480,7 +484,7 @@ export const ProjectForm = () => {
     const getFieldsForSection = (sectionName: string) => {
         switch (sectionName) {
             case "projectDetails":
-                return ["project_name", "customer", "project_type", "subdivisions", "project_value"];
+                return ["project_name", "customer", "project_type", "subdivisions", "project_value", "project_value_gst"];
             case "projectAddressDetails":
                 return ["address_line_1", "address_line_2", "project_city", "project_state", "pin", 'email', 'phone'];
             case "projectTimeline":
@@ -622,7 +626,22 @@ export const ProjectForm = () => {
                                             <FormLabel className="md:basis-2/12">Project Value (excl. GST)</FormLabel>
                                             <div className="flex flex-col items-start md:basis-2/4">
                                                 <FormControl className="">
-                                                    <Input placeholder="Project Value" {...field} />
+                                                    <Input placeholder="Enter Project Value without GST" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </div>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="project_value_gst"
+                                    render={({ field }) => (
+                                        <FormItem className="lg:flex lg:items-center gap-4">
+                                            <FormLabel className="md:basis-2/12">Project Value (incl. GST)</FormLabel>
+                                            <div className="flex flex-col items-start md:basis-2/4">
+                                                <FormControl className="">
+                                                    <Input placeholder="Enter Project Value with GST" {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </div>
@@ -715,7 +734,7 @@ export const ProjectForm = () => {
                                         </FormItem>
                                     )}
                                 />
-                                <FormField
+                                {/* <FormField
                                     control={form.control}
                                     name="subdivisions"
                                     render={({ field }) => {
@@ -753,8 +772,8 @@ export const ProjectForm = () => {
                                             </FormItem>
                                         )
                                     }}
-                                />
-                                {Array.from({ length: Number(form.getValues().subdivisions) }).map((_, index) => {
+                                /> */}
+                                {/* {Array.from({ length: Number(form.getValues().subdivisions) }).map((_, index) => {
                                     return <FormItem className="lg:flex lg:items-center gap-4">
                                         <FormLabel className="md:basis-2/12">Area {index + 1}:</FormLabel>
                                         <div className="md:basis-2/4">
@@ -766,7 +785,7 @@ export const ProjectForm = () => {
                                             />
                                         </div>
                                     </FormItem>
-                                })}
+                                })} */}
                                 <div className="flex items-center justify-end">
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
@@ -1146,7 +1165,7 @@ export const ProjectForm = () => {
                                     )}
                                 />
 
-                                <FormField
+                                {/* <FormField
                                     control={form.control}
                                     name="design_lead"
                                     render={({ field }) => (
@@ -1176,7 +1195,7 @@ export const ProjectForm = () => {
                                             </FormDescription>
                                         </FormItem>
                                     )}
-                                />
+                                /> */}
 
                                 <FormField
                                     control={form.control}
@@ -1295,7 +1314,7 @@ interface WorkPackageSelection {
     form: any;
     wp_list: wpType[];
 }
-const WorkPackageSelection: React.FC<WorkPackageSelection> = ({ form , wp_list }) => {
+const WorkPackageSelection: React.FC<WorkPackageSelection> = ({ form, wp_list }) => {
 
     const [openValue, setOpenValue] = useState(null);
     const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList<Category>("Category", {
@@ -1526,7 +1545,8 @@ const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, 
                     <Detail label="Project Name" value={form.getValues("project_name")} />
                     <Detail label="Project Type" value={form.getValues("project_type")} />
                     <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
-                    <Detail label="Project Value" value={form.getValues("project_value")} />
+                    <Detail label="Project Value(excl. GST)" value={form.getValues("project_value")} />
+                    <Detail label="Project Value(incl. GST)" value={form.getValues("project_value_gst")} />
                 </Section>
 
                 <Section sectionKey="projectAddressDetails">
@@ -1560,7 +1580,7 @@ const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, 
                     <Detail label="Project Manager" value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""} />
                     {/* <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} /> */}
                     <Detail label="Accountant" value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""} />
-                    <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} />
+                    {/* <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} /> */}
                 </Section>
 
                 <div>

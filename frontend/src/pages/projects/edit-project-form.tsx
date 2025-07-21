@@ -94,6 +94,7 @@ const projectFormSchema = z.object({
   }),
   project_type: z.string().optional(),
   project_value: z.string().optional(),
+  project_value_gst: z.string().optional(),
   address_line_1: z
     .string({
       required_error: "Address Line 1 Required",
@@ -181,69 +182,69 @@ interface SelectOption {
 
 const formatWorkPackagesForForm = (data: ProjectsType | undefined): ProjectFormValues['project_work_packages']['work_packages'] => {
 
-  if(!data) return [];
+  if (!data) return [];
   // Transform `project_wp_category_makes` (child table) to frontend's nested structure
-      const transformedWpConfigForForm: ProjectFormValues['project_work_packages']['work_packages'] = [];
-      const wpCategoryMap: Record<string, Record<string, { name: string; makes: SelectOption[] }>> = {};
+  const transformedWpConfigForForm: ProjectFormValues['project_work_packages']['work_packages'] = [];
+  const wpCategoryMap: Record<string, Record<string, { name: string; makes: SelectOption[] }>> = {};
 
 
-      // const reformattedWorkPackages = JSON.parse(data?.project_work_packages || "{}")?.work_packages?.map((workPackage) => {
-      //   const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
-      //     name: category.name,
-      //     makes: category.makes.map((make) => ({ label: make, value: make })), // Extract only the labels
-      //   }));
+  // const reformattedWorkPackages = JSON.parse(data?.project_work_packages || "{}")?.work_packages?.map((workPackage) => {
+  //   const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
+  //     name: category.name,
+  //     makes: category.makes.map((make) => ({ label: make, value: make })), // Extract only the labels
+  //   }));
 
-      //   return {
-      //     ...workPackage,
-      //     category_list: {
-      //       list: updatedCategoriesList,
-      //     },
-      //   };
-      // });
+  //   return {
+  //     ...workPackage,
+  //     category_list: {
+  //       list: updatedCategoriesList,
+  //     },
+  //   };
+  // });
 
 
-      if (data.project_wp_category_makes && Array.isArray(data.project_wp_category_makes)) {
-        data.project_wp_category_makes.forEach(childRow => {
-          if (!childRow.procurement_package || !childRow.category) return;
+  if (data.project_wp_category_makes && Array.isArray(data.project_wp_category_makes)) {
+    data.project_wp_category_makes.forEach(childRow => {
+      if (!childRow.procurement_package || !childRow.category) return;
 
-          if (!wpCategoryMap[childRow.procurement_package]) {
-            wpCategoryMap[childRow.procurement_package] = {};
-          }
-          if (!wpCategoryMap[childRow.procurement_package][childRow.category]) {
-            wpCategoryMap[childRow.procurement_package][childRow.category] = {
-              name: childRow.category, // This should be category DocName
-              makes: [],
-            };
-          }
-          if (childRow.make) { // Make is optional
-            // We need make label for ReactSelect. Assuming Make DocName is also its label for now,
-            // or you might need to fetch MakeList to map make DocName to make_name (label).
-            // For simplicity, if make DocName is sufficient for display in ReactSelect, use it.
-            // If your original JSON stored make labels, and your ReactSelect expects {label, value},
-            // you'll need to fetch Makelist to get make_name for the label.
-            // The current form Zod schema expects makes as {label, value}.
-            // Let's assume 'childRow.make' is the Make DocName (value) and we need to find its label.
-            // This part might require fetching all makes if not already available.
-            // For now, to match Zod schema, let's assume make DocName is used for both label and value if label isn't readily available.
-            // A better approach would be to fetch make_list and find the label.
-            wpCategoryMap[childRow.procurement_package][childRow.category].makes.push({
-              label: childRow.make, // Placeholder: Ideally, fetch actual make_name (label) from Makelist
-              value: childRow.make,
-            });
-          }
+      if (!wpCategoryMap[childRow.procurement_package]) {
+        wpCategoryMap[childRow.procurement_package] = {};
+      }
+      if (!wpCategoryMap[childRow.procurement_package][childRow.category]) {
+        wpCategoryMap[childRow.procurement_package][childRow.category] = {
+          name: childRow.category, // This should be category DocName
+          makes: [],
+        };
+      }
+      if (childRow.make) { // Make is optional
+        // We need make label for ReactSelect. Assuming Make DocName is also its label for now,
+        // or you might need to fetch MakeList to map make DocName to make_name (label).
+        // For simplicity, if make DocName is sufficient for display in ReactSelect, use it.
+        // If your original JSON stored make labels, and your ReactSelect expects {label, value},
+        // you'll need to fetch Makelist to get make_name for the label.
+        // The current form Zod schema expects makes as {label, value}.
+        // Let's assume 'childRow.make' is the Make DocName (value) and we need to find its label.
+        // This part might require fetching all makes if not already available.
+        // For now, to match Zod schema, let's assume make DocName is used for both label and value if label isn't readily available.
+        // A better approach would be to fetch make_list and find the label.
+        wpCategoryMap[childRow.procurement_package][childRow.category].makes.push({
+          label: childRow.make, // Placeholder: Ideally, fetch actual make_name (label) from Makelist
+          value: childRow.make,
         });
       }
+    });
+  }
 
-      Object.keys(wpCategoryMap).forEach(wpName => {
-        transformedWpConfigForForm.push({
-          work_package_name: wpName,
-          category_list: {
-            list: Object.values(wpCategoryMap[wpName]),
-          },
-        });
-      });
-    
-      return transformedWpConfigForForm;
+  Object.keys(wpCategoryMap).forEach(wpName => {
+    transformedWpConfigForForm.push({
+      work_package_name: wpName,
+      category_list: {
+        list: Object.values(wpCategoryMap[wpName]),
+      },
+    });
+  });
+
+  return transformedWpConfigForForm;
 }
 
 interface EditProjectFormProps {
@@ -251,7 +252,7 @@ interface EditProjectFormProps {
   // projectMutate: KeyedMutatator<FrappeDoc<Projects>>;
 }
 
-export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
+export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
   const { projectId } = useParams<{ projectId: string }>();
 
   const { data, mutate: projectMutate } = useFrappeGetDoc<ProjectsType>(
@@ -311,6 +312,7 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
       customer: data?.customer || "",
       project_type: data?.project_type || "",
       project_value: data?.project_value || "",
+      project_value_gst: data?.project_value_gst || "",
       address_line_1: project_address?.address_line1 || "",
       address_line_2: project_address?.address_line2 || "",
       pin: project_address?.pincode || "",
@@ -323,8 +325,8 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         ? new Date(data?.project_end_date)
         : new Date(),
       project_work_packages: {
-          work_packages: formatWorkPackagesForForm(data),
-        },
+        work_packages: formatWorkPackagesForForm(data),
+      },
       project_gst_number: data?.project_gst_number
         ? (typeof data?.project_gst_number === "string" ? JSON.parse(data?.project_gst_number) : data?.project_gst_number)
         : {
@@ -355,6 +357,7 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         customer: data?.customer || "",
         project_type: data?.project_type || "",
         project_value: data?.project_value?.toString() || "",
+        project_value_gst: data?.project_value_gst?.toString() || "",
         address_line_1: project_address?.address_line1 || "",
         address_line_2: project_address?.address_line2 || "",
         pin: project_address?.pincode || "",
@@ -446,8 +449,8 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
       }
 
       if (!values.project_start_date || !values.project_end_date) {
-          toast({ title: "Validation Error", description: "Start and End dates are required.", variant: "destructive" });
-          return;
+        toast({ title: "Validation Error", description: "Start and End dates are required.", variant: "destructive" });
+        return;
       }
       const formatted_start_date = formatToLocalDateTimeString(
         values.project_start_date
@@ -540,7 +543,7 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         customer: values.customer,
         project_type: values.project_type,
         project_value: parseNumber(values.project_value).toString(), // Frappe might expect string for Data/Currency
-        
+        project_value_gst: parseNumber(values.project_value_gst).toString(),
         // GST and Scopes: Assuming they are still JSON fields and frontend sends them correctly
         project_gst_number: typeof values.project_gst_number === 'string' ? values.project_gst_number : JSON.stringify(values.project_gst_number),
         project_scopes: typeof values.project_scopes === 'string' ? values.project_scopes : JSON.stringify(values.project_scopes),
@@ -549,7 +552,7 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         project_end_date: formatted_end_date,
         // project_city and project_state in Projects are usually read-only, fetched from Address.
         // If you need to update them directly on Project, ensure they are not read-only.
-        project_city: city, 
+        project_city: city,
         project_state: state,
 
         // NEW: Assign the transformed child table data
@@ -558,7 +561,7 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         // OLD JSON field should be cleared or not sent if removed from DocType
         // project_work_packages: null, // Explicitly clear if field still exists but unused
       };
-      
+
       // If project_work_packages field is fully removed from Projects DocType, remove it from payload:
       // delete projectUpdatePayload.project_work_packages;
 
@@ -717,7 +720,27 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
                 return (
                   <FormItem className="lg:flex lg:items-center gap-4">
                     <FormLabel className="md:basis-3/12">
-                      Project Value
+                      Project Value (excl.GST)
+                    </FormLabel>
+                    <div className="flex flex-col items-start md:basis-2/4">
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </div>
+                  </FormItem>
+                );
+              }}
+            />
+
+            <FormField
+              control={form.control}
+              name="project_value_gst"
+              render={({ field }) => {
+                return (
+                  <FormItem className="lg:flex lg:items-center gap-4">
+                    <FormLabel className="md:basis-3/12">
+                      Project Value (incl. GST)
                     </FormLabel>
                     <div className="flex flex-col items-start md:basis-2/4">
                       <FormControl>

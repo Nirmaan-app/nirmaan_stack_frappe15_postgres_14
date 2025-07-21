@@ -90,7 +90,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
     projectData?.name ? `User Permission, filters(for_value),=,${projectData?.name}` : null
   );
 
-  const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate,} = useUsersList()
+  const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate, } = useUsersList()
 
   // Grouping functionality
   const groupedAssignees: { [key: string]: string[] } = useMemo(() => {
@@ -188,9 +188,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   };
 
   // --- You can compute this within your component or use a useMemo hook for performance ---
-const uniqueProcurementPackageDisplayNames = useMemo(() => {
+  const uniqueProcurementPackageDisplayNames = useMemo(() => {
     if (!projectData?.project_wp_category_makes) {
-        return [];
+      return [];
     }
 
     // Create a map of Procurement Package DocName -> Display Name
@@ -198,16 +198,16 @@ const uniqueProcurementPackageDisplayNames = useMemo(() => {
 
     const uniqueWPDocNames = new Set<string>();
     projectData.project_wp_category_makes.forEach(item => {
-        if (item.procurement_package) {
-            uniqueWPDocNames.add(item.procurement_package);
-        }
+      if (item.procurement_package) {
+        uniqueWPDocNames.add(item.procurement_package);
+      }
     });
 
     return Array.from(uniqueWPDocNames)
-        .map(docName => wpNameMap.get(docName) || docName) // Get display name, fallback to DocName
-        .sort((a, b) => a.localeCompare(b)); // Optional: sort them alphabetically
+      .map(docName => wpNameMap.get(docName) || docName) // Get display name, fallback to DocName
+      .sort((a, b) => a.localeCompare(b)); // Optional: sort them alphabetically
 
-}, [projectData]);
+  }, [projectData]);
 
   if (usersListLoading || projectAssigneesLoading || projectTypeLoading || projectInflowsLoading) {
     return <div className="flex items-center h-[40vh] w-full justify-center">
@@ -260,11 +260,9 @@ const uniqueProcurementPackageDisplayNames = useMemo(() => {
 
             </p>
           </CardDescription>
-          <CardDescription className="space-y-2 md:text-center">
-            <span>Location</span>
-            <p className="font-bold text-black">
-              {projectData?.project_city}, {projectData?.project_state}
-            </p>
+          <CardDescription className="space-y-2 text-center">
+            <span>Project Value (incl. GST)</span>
+            <p className="font-bold text-black">{formatToRoundedIndianRupee(projectData?.project_value_gst)}</p>
           </CardDescription>
 
           <CardDescription className="space-y-2 text-end">
@@ -286,16 +284,14 @@ const uniqueProcurementPackageDisplayNames = useMemo(() => {
             <p className="font-bold text-black">{formatToRoundedIndianRupee(projectData?.project_value)}</p>
           </CardDescription>
 
-          <CardDescription className="space-y-2 md:text-end">
-            <span>Project GST(s)</span>
-            <ul className="list-disc list-inside space-y-1">
-              {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
-                <li key={item?.location}>
-                  <span className="font-bold">{item?.location}</span>
-                </li>
-              ))}
-            </ul>
+          <CardDescription className="space-y-2 text-end">
+            <span>Location</span>
+            <p className="font-bold text-black">
+              {projectData?.project_city}, {projectData?.project_state}
+            </p>
           </CardDescription>
+
+
 
           {/* <CardDescription className="space-y-2 max-md:text-end">
             <span>Total Amount Received</span>
@@ -306,7 +302,7 @@ const uniqueProcurementPackageDisplayNames = useMemo(() => {
             <span>Total Amount Paid</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}</p>
           </CardDescription> */}
-{/* 
+          {/* 
           <CardDescription className="space-y-2 text-end">
             <span>Total Amount Due</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee((totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
@@ -317,25 +313,35 @@ const uniqueProcurementPackageDisplayNames = useMemo(() => {
               <span>Work Package</span>
               <div className="flex gap-1 flex-wrap">
                 {uniqueProcurementPackageDisplayNames.length > 0 ? (
-                    uniqueProcurementPackageDisplayNames.map((displayName, index) => (
-                        <div 
-                            key={`${displayName}-${index}`} // Using index if displayNames could somehow not be unique, otherwise displayName is fine
-                            className="flex items-center justify-center rounded-3xl p-1 px-3 text-xs bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]"
-                        >
-                            {displayName}
-                        </div>
-                    ))
+                  uniqueProcurementPackageDisplayNames.map((displayName, index) => (
+                    <div
+                      key={`${displayName}-${index}`} // Using index if displayNames could somehow not be unique, otherwise displayName is fine
+                      className="flex items-center justify-center rounded-3xl p-1 px-3 text-xs bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]"
+                    >
+                      {displayName}
+                    </div>
+                  ))
                 ) : (
-                    <p className="text-sm text-gray-500">No work packages assigned.</p> // Or some other placeholder
+                  <p className="text-sm text-gray-500">No work packages assigned.</p> // Or some other placeholder
                 )}
-            </div>
+              </div>
             </CardDescription>
 
-            <CardDescription className="space-y-2">
+            {/* <CardDescription className="space-y-2">
               <span>No. of sections in layout</span>
               <p className="font-bold text-black text-end">
                 {projectData?.subdivisions || 1}
               </p>
+            </CardDescription> */}
+            <CardDescription className="space-y-2 md:text-end">
+              <span>Project GST(s)</span>
+              <ul className="list-disc list-inside space-y-1">
+                {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
+                  <li key={item?.location}>
+                    <span className="font-bold">{item?.location}</span>
+                  </li>
+                ))}
+              </ul>
             </CardDescription>
           </div>
         </CardContent>
