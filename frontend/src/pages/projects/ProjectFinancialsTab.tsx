@@ -19,7 +19,7 @@ import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"
-import {useCredits} from "../credits/hooks/useCredits";
+import { useCredits } from "../credits/hooks/useCredits";
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
@@ -71,14 +71,14 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     return unsubscribe; // Cleanup subscription
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
-  const {data:CreditData}=useCredits()
+  const { data: CreditData } = useCredits()
 
-  const creditsByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status==="Created"));
-     const dueByProject=memoize((projId: string)=>CreditData.filter(cr=>cr.project==projId && cr.status!=="Paid" && cr.status!=="Created"));
+  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status === "Created"));
+  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
 
-     const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
-           const relatedTotalDue = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
-           
+  const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+  const relatedTotalDue = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
 
   const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
     fields: ["*"],
@@ -108,11 +108,12 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       style: "text-green-600 underline",
       onClick: () => toggleInflowPaymentsDialog()
     },
-     {
-      label: "Total Invoiced Value",
-      value: totalProjectInvoiceAmount,
+    {
+      label: "Total SR Amount (Incl. GST)",
+      value: getAllSRsTotalWithGST,
       style: ""
     },
+
     // {
     //   label: "Total Amount Paid",
     //   value: getTotalAmountPaid.totalAmount,
@@ -130,23 +131,13 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     //   style: "text-red-600"
     // },
     {
-      label: "Total PO Amount",
+      label: "Total PO Amount (Incl. GST)",
       value: totalPOAmountWithGST,
       style: ""
     },
     {
-      label: "Total SR Amount",
-      value: getAllSRsTotalWithGST,
-      style: ""
-    },
-    {
-      label: "Project Value",
-      value: projectData?.project_value,
-      style: ""
-    },
-     {
-      label: "Total Balance Credit",
-      value: relatedTotalBalanceCredit,
+      label: "Total Client Invoiced Value",
+      value: totalProjectInvoiceAmount,
       style: ""
     },
     {
@@ -154,8 +145,19 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       value: relatedTotalDue,
       style: ""
     },
-   
-  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value,CreditData])
+    {
+      label: "Total Balance Credit",
+      value: relatedTotalBalanceCredit,
+      style: ""
+    },
+    {
+      label: "Project Value (Excl. GST)",
+      value: `${projectData?.project_value}`,
+      style: ""
+    },
+
+
+  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, CreditData])
 
 
   const tabs = useMemo(() => [

@@ -29,6 +29,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // For paid amounts
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"; // For WP lookup
+import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -207,6 +208,9 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
             [],
         [vendors]
     );
+
+    // Create user options for the "Approved By" filter
+    const userOptions = useMemo(() => userList?.map(u => ({ label: u.full_name, value: (u.full_name === "Administrator" ? "Administrator" : u.name) })) || [], [userList]);
 
     // --- Memoized Lookups ---
     const getVendorName = useCallback(
@@ -387,6 +391,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                         </div>
                     );
                 },
+                enableColumnFilter: true,
                 size: 180,
                 meta: {
                     exportHeaderName: "Approved By",
@@ -494,6 +499,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         () => ({
             vendor: { title: "Vendor", options: vendorOptions },
             status: { title: "Status", options: PO_SUMMARY_STATUS_OPTIONS },
+            owner: { title: "Approved By", options: userOptions }, // NEW server-side filter
             // Add work_package facet if you create options for it
         }),
         [vendorOptions]

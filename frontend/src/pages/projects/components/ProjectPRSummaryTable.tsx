@@ -8,6 +8,7 @@ import memoize from 'lodash/memoize';
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { SimpleFacetedFilter } from "./SimpleFacetedFilter";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +29,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
+import { USER_ROLE_PROFILE_OPTIONS } from "@/pages/users/users";
 
 const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] = [
     "name", "creation", "modified", "owner", "project",
@@ -37,7 +39,6 @@ const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] = [
 export const PR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "PR ID", placeholder: "Search by PR ID...", default: true },
     { value: "work_package", label: "Package", placeholder: "Search by Package..." },
-    { value: "owner", label: "Created By", placeholder: "Search by Creator..." },
     {
         value: "procurement_list", // For item search within PR
         label: "Item in PR",
@@ -91,6 +92,8 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
     const [statusCounts, setStatusCounts] = useState<PRStatusCounts>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
     const [prStatuses, setPrStatuses] = useState<{ [key: string]: string }>({});
 
+    const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
+
     // --- Supporting Data Fetches ---
 
     // --- API Call for Aggregated Status Counts ---
@@ -131,6 +134,16 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
         // Consider adding project filter here if quotes are project-specific and it improves performance
         "AllQuotesForPRSummary"
     );
+
+    const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
+        "Procurement Packages", {
+        fields: ["work_package_name"],
+        orderBy: { field: "work_package_name", order: "asc" },
+        limit: 0,
+    },
+        "All_Work_Packages"
+    );
+
     const { data: userList, isLoading: userListLoading } = useUsersList();
 
     // --- Memoized Helper Functions from original component ---
@@ -187,6 +200,18 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
         (pr: ProcurementRequest | undefined, derivedStatus: string, projectPOs: ProcurementOrder[] | undefined) => (pr?.name || 'none') + derivedStatus + (projectPOs ? projectPOs.map(p => p.name).join(',') : '')
     ), [getThreeMonthsLowestFiltered]);
 
+    // Create user options for the filter
+    const userOptions = useMemo(() => userList?.map(u => ({ label: u.full_name, value: (u.full_name === "Administrator" ? "Administrator" : u.name) })) || [], [userList]);
+
+
+    const workPackageOptions = useMemo(() => {
+        if (!wp_list) return [];
+        const packages = wp_list.map(wp => ({ label: wp.work_package_name!, value: wp.work_package_name! }));
+        // Add the "Custom" option. Its value is an empty string to match the data.
+        packages.unshift({ label: "Custom", value: "" });
+        return packages;
+    }, [wp_list]);
+
 
     // --- Static Filters for `useServerDataTable` ---
     const staticFilters = useMemo(() => {
@@ -233,6 +258,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
                 const ownerUser = userList?.find((user) => user.name === row.original.owner);
                 return <div className="font-medium truncate">{ownerUser?.full_name || row.original.owner}</div>;
             }, size: 180,
+            enableColumnFilter: true,
             meta: {
                 exportHeaderName: "Created By",
                 exportValue: (row: ProcurementRequest) => {
@@ -243,7 +269,19 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
         },
         {
             accessorKey: "derived_status", // Use the processed status
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            header: ({ column }) => (
+                <div className="flex items-center gap-1">
+                    {/* --- (7) NEW: Add the client-side filter UI --- */}
+                    {/* <SimpleFacetedFilter
+                        title="Status"
+                        options={PR_SUMMARY_STATUS_OPTIONS}
+                        selectedValues={statusFilter}
+                        onSelectedValuesChange={setStatusFilter}
+                    /> */}
+                    <DataTableColumnHeader column={column} title="Status" />
+                </div>
+            ),
+            accessorFn: (row) => prStatuses[row.name] || "New PR", // For sorting
             cell: ({ row }) => {
                 // const derived_status = statusRender(row.original, po_data);
                 const derived_status = prStatuses[row.original.name];
@@ -271,6 +309,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "Custom"}</div>,
             size: 150,
+            enableColumnFilter: true,
             meta: {
                 exportHeaderName: "Package",
                 exportValue: (row: ProcurementRequest) => {
@@ -311,7 +350,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
             }
 
         },
-    ], [userList, prStatuses, getPREstimatedTotal, quote_data, po_data]);
+    ], [userList, prStatuses, getPREstimatedTotal, quote_data, po_data, statusFilter]);
 
 
     // --- useServerDataTable Hook ---
@@ -330,6 +369,16 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
         additionalFilters: staticFilters,
         // requirePendingItems: true, // Apply the special filter if needed for this view
     });
+
+
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        // Facet for the DERIVED status
+        // derived_status: { title: "Status", options: PR_SUMMARY_STATUS_OPTIONS },
+        owner: { title: "Created By", options: userOptions },
+        work_package: { title: "Work Package", options: workPackageOptions },
+    }), [USER_ROLE_PROFILE_OPTIONS, workPackageOptions]);
 
     // --- Process fetched PR data to include derived status and total ---
     // const processedPRDataForTable = useMemo<ProcessedPR[]>(() => {
@@ -363,27 +412,9 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
     //     }
     // }, [pr_data_from_hook]);
 
-    const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
-        "Procurement Packages", {
-        fields: ["work_package_name"],
-        orderBy: { field: "work_package_name", order: "asc" },
-        limit: 0,
-    },
-        "All_Work_Packages"
-    );
-
-    const workPackageOptions = useMemo(() => {
-        if (!wp_list) return [];
-        return wp_list.map(wp => ({ label: wp.work_package_name!, value: wp.work_package_name! }));
-    }, [wp_list]);
 
 
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => ({
-        // Facet for the DERIVED status
-        // derived_status: { title: "Status", options: PR_SUMMARY_STATUS_OPTIONS },
-        work_package: { title: "Work Package", options: workPackageOptions },
-    }), []);
+
 
 
     // --- Combined Loading & Error States ---
@@ -412,6 +443,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
             ) : (
                 <DataTable<ProcurementRequest> // Use ProcessedPR type here
                     table={table}
+                    // clientData={processedAndFilteredData} // But tell it to render our client-filtered data
                     columns={columns} // For rendering
                     isLoading={listIsLoading}
                     error={listError}
