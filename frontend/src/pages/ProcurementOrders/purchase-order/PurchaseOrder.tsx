@@ -121,9 +121,9 @@ import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
-import {safeJsonParse} from "@/pages/DeliveryNotes/constants";
+import { safeJsonParse } from "@/pages/DeliveryNotes/constants";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { PaymentTerm ,POTotals,DeliveryDataType} from "@/types/NirmaanStack/ProcurementOrders";
+import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -153,7 +153,7 @@ export const PurchaseOrder = ({
 
   const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
   const [PO, setPO] = useState<ProcurementOrder | null>(null);
-  
+
 
   const {
     data: po,
@@ -183,7 +183,7 @@ export const PurchaseOrder = ({
   );
 
   const { errors, isValid } = usePOValidation(PO);
-  const [invoicePO,setInvoicePO] = useState<ProcurementOrder | null>(null);
+  const [invoicePO, setInvoicePO] = useState<ProcurementOrder | null>(null);
 
   useEffect(() => {
     if (po) {
@@ -194,15 +194,15 @@ export const PurchaseOrder = ({
       setMergedPaymentTerms(doc?.payment_terms || []);
     }
     if (po) {
-              const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data),delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }           
-              setInvoicePO(data);          
-          }
-          
+      const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data), delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }
+      setInvoicePO(data);
+    }
+
 
   }, [po]);//po add
 
 
- 
+
 
   const [advance, setAdvance] = useState(0);
   const [materialReadiness, setMaterialReadiness] = useState(0);
@@ -326,20 +326,20 @@ export const PurchaseOrder = ({
       // This is the key: The query only runs if `po` exists.
       po
         ? {
-            // We only need fields for the final client-side filtering steps.
-            // We CANNOT get `items` or `payment_terms` here.
-            fields: ["name", "custom"],
+          // We only need fields for the final client-side filtering steps.
+          // We CANNOT get `items` or `payment_terms` here.
+          fields: ["name", "custom"],
 
-            // These filters are now run efficiently on the backend database!
-            filters: [
-              ["project", "=", po.project],
-              ["vendor", "=", po.vendor],
-              ["status", "=", "PO Approved"],
-              ["docstatus", "!=", 2],
-              ["name", "!=", poId],
-            ],
-            limit: 1000,
-          }
+          // These filters are now run efficiently on the backend database!
+          filters: [
+            ["project", "=", po.project],
+            ["vendor", "=", po.vendor],
+            ["status", "=", "PO Approved"],
+            ["docstatus", "!=", 2],
+            ["name", "!=", poId],
+          ],
+          limit: 1000,
+        }
         : null // This `null` is what pauses the hook, preventing the error.
     );
 
@@ -361,8 +361,8 @@ export const PurchaseOrder = ({
     `Nirmaan Users`
   );
 
-    const { data: project, isLoading: project_loading } = useFrappeGetDoc<Projects>("Projects", PO?.project, PO?.project ? `Projects ${PO?.project}` : null)
-  
+  const { data: project, isLoading: project_loading } = useFrappeGetDoc<Projects>("Projects", PO?.project, PO?.project ? `Projects ${PO?.project}` : null)
+
   const {
     data: poPayments,
     isLoading: poPaymentsLoading,
@@ -450,11 +450,11 @@ export const PurchaseOrder = ({
   }, [potentialMergePOsList, po, AllPoPaymentsList, fetchFullPoDetails]);
 
 
- 
+
   const deliveryHistory = useMemo(() =>
-      safeJsonParse<{ data: DeliveryDataType }>(PO?.delivery_data, { data: {} }),
-      [PO?.delivery_data]
-    );
+    safeJsonParse<{ data: DeliveryDataType }>(PO?.delivery_data, { data: {} }),
+    [PO?.delivery_data]
+  );
 
   useEffect(() => {
     if (!mergeSheet) {
@@ -469,44 +469,44 @@ export const PurchaseOrder = ({
   // --- REPLACE with this corrected function ---
   // PurchaseOrder.tsx
 
-  const previewTotal=useMemo<POTotals>(()=>{
+  const previewTotal = useMemo<POTotals>(() => {
     return getPreviewTotal(orderData);
-  },[orderData,setOrderData,PO])
-// --- REPLACE with this corrected function ---
-const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPOs: ProcurementOrder[]) => {
-  const allPOs = [basePO, ...additionalPOs];
-  const combinedTerms: { [label: string]: PaymentTerm } = {};
+  }, [orderData, setOrderData, PO])
+  // --- REPLACE with this corrected function ---
+  const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPOs: ProcurementOrder[]) => {
+    const allPOs = [basePO, ...additionalPOs];
+    const combinedTerms: { [label: string]: PaymentTerm } = {};
 
-  allPOs.forEach(p => {
-    (p.payment_terms || []).forEach(term => {
-      // Ensure the amount from the API is a number
-      const termAmount = parseFloat(String(term.amount)) || 0;
+    allPOs.forEach(p => {
+      (p.payment_terms || []).forEach(term => {
+        // Ensure the amount from the API is a number
+        const termAmount = parseFloat(String(term.amount)) || 0;
 
-      if (combinedTerms[term.label]) {
-        // --- THE FIX IS HERE ---
-        // Ensure we are doing MATH (number + number), not joining strings.
-        combinedTerms[term.label].amount = (combinedTerms[term.label].amount || 0) + termAmount;
+        if (combinedTerms[term.label]) {
+          // --- THE FIX IS HERE ---
+          // Ensure we are doing MATH (number + number), not joining strings.
+          combinedTerms[term.label].amount = (combinedTerms[term.label].amount || 0) + termAmount;
 
-        // The rest of your logic for due_date is fine
-        if (
-          term.payment_type === 'Credit' && 
-          combinedTerms[term.label].payment_type === 'Credit' && 
-          term.due_date && 
-          combinedTerms[term.label].due_date
-        ) {
-          if (new Date(term.due_date) > new Date(combinedTerms[term.label].due_date!)) {
-            combinedTerms[term.label].due_date = term.due_date;
+          // The rest of your logic for due_date is fine
+          if (
+            term.payment_type === 'Credit' &&
+            combinedTerms[term.label].payment_type === 'Credit' &&
+            term.due_date &&
+            combinedTerms[term.label].due_date
+          ) {
+            if (new Date(term.due_date) > new Date(combinedTerms[term.label].due_date!)) {
+              combinedTerms[term.label].due_date = term.due_date;
+            }
           }
+        } else {
+          // When adding a new term, also ensure its amount is a number
+          combinedTerms[term.label] = { ...term, amount: termAmount };
         }
-      } else {
-        // When adding a new term, also ensure its amount is a number
-        combinedTerms[term.label] = { ...term, amount: termAmount };
-      }
+      });
     });
-  });
 
-  return Object.values(combinedTerms);
-}, []);
+    return Object.values(combinedTerms);
+  }, []);
 
   // --- UPDATE: handleMerge function ---
   const handleMerge = (poToMerge: ProcurementOrder) => {
@@ -615,7 +615,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
     }
   };
 
- const handleUnmergePOs = async () => {
+  const handleUnmergePOs = async () => {
     try {
       // The payload is simple: just the ID of the master PO.
       // The backend will handle the rest.
@@ -959,28 +959,28 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
     setStack(newStack); // Update the stack
   }, [orderData, stack]);
 
- const treeData = useMemo(() => {
-  if (!PO?.items) {
-    return [{ title: PO?.name, key: "mainPO", children: [] }];
-  }
+  const treeData = useMemo(() => {
+    if (!PO?.items) {
+      return [{ title: PO?.name, key: "mainPO", children: [] }];
+    }
 
-  const allSourcePoNames = PO.items.map(item => item.po).filter(Boolean);
-  const uniqueSourcePoNames = [...new Set(allSourcePoNames)];
-  
-  const childrenNodes = uniqueSourcePoNames.map((poName, idx) => ({
-    title: poName,
-    key: `po-${idx}-${poName}`,
-    isLeaf: true,
-  }));
+    const allSourcePoNames = PO.items.map(item => item.po).filter(Boolean);
+    const uniqueSourcePoNames = [...new Set(allSourcePoNames)];
 
-  return [
-    {
-      title: PO?.name,
-      key: "mainPO",
-      children: childrenNodes,
-    },
-  ];
-}, [PO]);
+    const childrenNodes = uniqueSourcePoNames.map((poName, idx) => ({
+      title: poName,
+      key: `po-${idx}-${poName}`,
+      isLeaf: true,
+    }));
+
+    return [
+      {
+        title: PO?.name,
+        key: "mainPO",
+        children: childrenNodes,
+      },
+    ];
+  }, [PO]);
 
   const amountPaid = useMemo(
     () =>
@@ -1095,7 +1095,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
     return (
       <AlertDestructive
         error={
-        
+
           usersListError ||
           poError ||
           poPaymentsError
@@ -1263,7 +1263,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                                   return orderData?.some(
                                     (currentItem) =>
                                       currentItem.item_name ===
-                                        poItem.item_name &&
+                                      poItem.item_name &&
                                       currentItem.quote !== poItem.quote
                                   );
                                 }
@@ -1431,6 +1431,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
         poPayments={poPayments}
         togglePoPdfSheet={togglePoPdfSheet}
         // getTotal={getTotal}
+        totalInvoice={getTotalInvoiceAmount(PO?.invoice_data || [])}
         amountPaid={amountPaid}
         poMutate={poMutate}
       />
@@ -1470,16 +1471,16 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                   getTotal={getTotal}
                   poMutate={poMutate}
                   projectPaymentsMutate={poPaymentsMutate}
-                  // advance={advance}
-                  // materialReadiness={materialReadiness}
-                  // afterDelivery={afterDelivery}
-                  // xDaysAfterDelivery={xDaysAfterDelivery}
-                  // xDays={xDays}
-                  // setAdvance={setAdvance}
-                  // setMaterialReadiness={setMaterialReadiness}
-                  // setAfterDelivery={setAfterDelivery}
-                  // setXDaysAfterDelivery={setXDaysAfterDelivery}
-                  // setXDays={setXDays}
+                // advance={advance}
+                // materialReadiness={materialReadiness}
+                // afterDelivery={afterDelivery}
+                // xDaysAfterDelivery={xDaysAfterDelivery}
+                // xDays={xDays}
+                // setAdvance={setAdvance}
+                // setMaterialReadiness={setMaterialReadiness}
+                // setAfterDelivery={setAfterDelivery}
+                // setXDaysAfterDelivery={setXDaysAfterDelivery}
+                // setXDays={setXDays}
                 />
               </div>
             </AccordionContent>
@@ -1504,7 +1505,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
               </AccordionTrigger>
               {/* )} */}
               <AccordionContent>
-                
+
                 <DocumentAttachments
                   docType="Procurement Orders"
                   docName={PO?.name}
@@ -1590,10 +1591,10 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                     {["Partially Delivered", "Delivered"].includes(
                       PO?.status
                     ) && (
-                      <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                        Delivered Quantity
-                      </th>
-                    )}
+                        <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                          Delivered Quantity
+                        </th>
+                      )}
                   </tr>
                 </thead>
               </table>
@@ -1633,7 +1634,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                       {/* Item Name */}
                       <td className="pl-2 py-2 align-top">
                         <div className="flex flex-col gap-1">
-                              {item.item_name}
+                          {item.item_name}
                           <small className="font-medium text-red-700 truncate">
                             {item?.make}
                           </small>
@@ -1684,16 +1685,15 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                       {["Partially Delivered", "Delivered"].includes(
                         PO?.status
                       ) && (
-                        <td
-                          className={`text-center py-2 align-top ${
-                            item?.received_quantity === item?.quantity
-                              ? "text-green-600"
-                              : "text-red-700"
-                          }`}
-                        >
-                          {item?.received_quantity || 0}
-                        </td>
-                      )}
+                          <td
+                            className={`text-center py-2 align-top ${item?.received_quantity === item?.quantity
+                                ? "text-green-600"
+                                : "text-red-700"
+                              }`}
+                          >
+                            {item?.received_quantity || 0}
+                          </td>
+                        )}
                     </tr>
                   ))}
                 </tbody>
@@ -2061,7 +2061,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                               setTax(Number(value));
                               // onTaxChange(amendEditItem.item_id, value);
                             }}
-                            // disabled={mode === "view" || isReadOnly}
+                          // disabled={mode === "view" || isReadOnly}
                           >
                             <SelectTrigger>
                               <SelectValue
@@ -2143,7 +2143,7 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
                     </DialogDescription>
                     <DialogDescription className="flex justify-end">
                       <div className="flex gap-2">
-                        {orderData?.filter((item)=>item.category!=="Additional Charges").length === 1 ? (
+                        {orderData?.filter((item) => item.category !== "Additional Charges").length === 1 ? (
                           <Button className="flex items-center gap-1" disabled>
                             <Trash2 className="h-4 w-4" />
                             Delete
@@ -2256,10 +2256,10 @@ const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPO
         </div>
       </div>
       {/* Delivery History */}
-      {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (
+      {["Delivered", "Partially Delivered", "PO Approved", "Dispatched"].includes(PO?.status) && (
         <DeliveryHistoryTable
           deliveryData={deliveryHistory.data}
-            onPrintHistory={triggerHistoryPrint}
+          onPrintHistory={triggerHistoryPrint}
         />
       )}
 
