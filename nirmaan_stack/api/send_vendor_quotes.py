@@ -76,8 +76,8 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                 # Item is delayed
                 delayed_item_names.append(item.item_id)
                 delayed_items_details.append({
-                    "item_id": item.item_id,
-                    "item_name": item.item_name,
+                    "item_id": item.get("item_id"),
+                    "item_name": item.get("item_name"),
                     "quantity": flt(item.get("quantity")),
                     "tax": flt(item.get("tax")),
                     "unit": item.get("unit"),
@@ -92,8 +92,8 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                 # if item.item_id in rfq_details:
                 #     new_rfq_details[item.item_id] = rfq_details[item.item_id]
                 print(f"DEBUGRFQ: Adding rfq_details for item {item}")
-                if item["name"] in rfq_details:
-                    new_rfq_details[item["name"]] = rfq_details[item["name"]]
+                if item.name in rfq_details:
+                    new_rfq_details[item.name] = rfq_details[item.name]
                     print(f"DEBUGRFQ: Adding rfq_details for item {rfq_details}")
             else:
                 # Item has a vendor, potentially ready for approval/PO
@@ -125,7 +125,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         sent_back_doc_name = None
         if delayed_items_details:
             new_categories = []
-            delayed_item_categories = set(item["category"] for item in delayed_items_details)
+            delayed_item_categories = set(item.get("category") for item in delayed_items_details)
             # Rebuild category list based only on *delayed* items
             # for item in delayed_items_details:
             #     if not any(cat["name"] == item["category"] for cat in new_categories):
