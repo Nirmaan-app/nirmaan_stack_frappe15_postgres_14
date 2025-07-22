@@ -84,7 +84,7 @@ export const ApproveSelectVendor: React.FC = () => {
 
     // --- Fields to Fetch ---
     const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat([
-        "creation", "modified", "procurement_list", "category_list" // Fetch workflow_state if needed for display/logic
+        "creation", "modified", "category_list", "estimated_value" // Fetch workflow_state if needed for display/logic
     ]), []);
 
     // --- Column Definitions ---
@@ -191,15 +191,15 @@ export const ApproveSelectVendor: React.FC = () => {
             }
         },
         {
-            id: "estimated_total", header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value" />,
+            accessorKey: "estimated_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value" />,
             cell: ({ row }) => {
-                const total = getTotal(row.original.order_list);
+                const total = row.original.estimated_value
                 return <p className="font-medium pr-2">{total === 0 ? "N/A" : formatToRoundedIndianRupee(total)}</p>;
             }, size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Est. Value",
                 exportValue: (row) => {
-                    const total = getTotal(row.procurement_list);
+                    const total = row.original.estimated_value
                     return total === 0 ? "N/A" : formatForReport(total);
                 }
             }
