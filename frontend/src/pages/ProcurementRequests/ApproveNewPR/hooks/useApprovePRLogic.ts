@@ -1294,7 +1294,7 @@ export const useApprovePRLogic = ({
                 return Object.fromEntries(Object.entries(backendItem).filter(([_, v]) => v !== undefined));
             });
 
-            console.log("payloadOrderList", payloadOrderList);
+            // console.log("payloadOrderList", payloadOrderList);
             // 1. Update the PR Document
 
             const updatedPR = await updateDoc("Procurement Requests", orderData.name, {
