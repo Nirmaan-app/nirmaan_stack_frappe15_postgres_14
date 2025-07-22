@@ -1,26 +1,26 @@
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor";
 export interface ProcurementItemBase {
 	name: string;
-  item: string;
-  unit: string;
-  quantity: number;
-  category: string;
+	item: string;
+	unit: string;
+	quantity: number;
+	category: string;
 	work_package?: string;
-  make?: string;
-  status: string;
-  tax? : number;
-  comment?: string;
+	make?: string;
+	status: string;
+	tax?: number;
+	comment?: string;
 }
 
 export interface ProcurementItemWithVendor extends ProcurementItemBase {
-  vendor?: string; // Optional: Vendor ID if selected/quoted
-  quote?: number;  // Optional: Quoted amount
+	vendor?: string; // Optional: Vendor ID if selected/quoted
+	quote?: number;  // Optional: Quoted amount
 }
 
 
 // The type for items in procurement_list.list
 // This could be a union if items can exist with or without vendor details yet
-export type ProcurementItem =   ProcurementItemWithVendor;
+export type ProcurementItem = ProcurementItemWithVendor;
 
 
 // export interface ProcurementItem {
@@ -39,15 +39,15 @@ export type ProcurementItem =   ProcurementItemWithVendor;
 // }
 
 export interface Category {
-  name: string;
-  makes?: string[];
+	name: string;
+	makes?: string[];
 }
 export interface RFQData {
 	selectedVendors: Vendor[];
 	details: {
 		[itemId: string]: {
 			initialMake?: string;
-			vendorQuotes: { [vendorId: string]: { quote?: string | number ; make?: string } };
+			vendorQuotes: { [vendorId: string]: { quote?: string | number; make?: string } };
 			makes: string[];
 		};
 	};
@@ -112,5 +112,6 @@ export interface ProcurementRequest {
 	rfq_data: RFQData
 	workflow_state: string
 	order_list: ProcurementRequestItemDetail[]
-	custom?:string
+	custom?: string
+	estimated_value?: number; // Estimated value of the procurement request
 }

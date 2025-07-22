@@ -195,6 +195,11 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         else:
             # Some items have vendors selected (are not delayed)
             pr_doc.workflow_state = "Vendor Selected" # Tentative state
+            
+            pr_doc.estimated_value = sum(
+                float(item.get('quote', 0)) * float(item.get('quantity', 0))
+                for item in pr_doc.get('order_list') if item.get('status') == 'Pending'
+            )
  
             pr_doc.save(ignore_permissions=True)
             frappe.db.commit() # Ensure the transaction is committed
