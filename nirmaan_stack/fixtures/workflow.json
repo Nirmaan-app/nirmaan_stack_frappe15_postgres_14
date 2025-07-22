@@ -19,6 +19,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Pending",
     "update_field": null,
     "update_value": null,
@@ -34,6 +35,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Approved",
     "update_field": null,
     "update_value": null,
@@ -49,6 +51,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "RFQ Generated",
     "update_field": null,
     "update_value": null,
@@ -64,6 +67,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Quote Updated",
     "update_field": null,
     "update_value": null,
@@ -79,6 +83,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Vendor Selected",
     "update_field": null,
     "update_value": null,
@@ -94,6 +99,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Vendor Approved",
     "update_field": null,
     "update_value": null,
@@ -109,6 +115,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Partially Approved",
     "update_field": null,
     "update_value": null,
@@ -124,6 +131,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Rejected",
     "update_field": null,
     "update_value": null,
@@ -139,6 +147,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Delayed",
     "update_field": null,
     "update_value": null,
@@ -154,6 +163,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Sent Back",
     "update_field": null,
     "update_value": null,
@@ -169,6 +179,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Draft",
     "update_field": null,
     "update_value": null,
@@ -184,6 +195,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "In Progress",
     "update_field": null,
     "update_value": null,
@@ -200,6 +212,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Pending",
     "workflow_builder_id": "action-2"
    },
@@ -212,6 +225,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Pending",
     "workflow_builder_id": null
    },
@@ -224,6 +238,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Rejected",
     "workflow_builder_id": null
    },
@@ -236,6 +251,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Approved",
     "workflow_builder_id": null
    },
@@ -248,6 +264,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "In Progress",
     "workflow_builder_id": null
    },
@@ -260,6 +277,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "In Progress",
     "workflow_builder_id": null
    },
@@ -272,6 +290,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Vendor Selected",
     "workflow_builder_id": null
    },
@@ -284,6 +303,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Vendor Selected",
     "workflow_builder_id": null
    },
@@ -296,6 +316,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Vendor Selected",
     "workflow_builder_id": null
    },
@@ -308,6 +329,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Partially Approved",
     "workflow_builder_id": null
    },
@@ -320,6 +342,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Partially Approved",
     "workflow_builder_id": null
    },
@@ -332,6 +355,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Pending",
     "workflow_builder_id": null
    },
@@ -344,6 +368,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Draft",
     "workflow_builder_id": null
    },
@@ -356,6 +381,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Pending",
     "workflow_builder_id": null
    },
@@ -368,6 +394,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Vendor Selected",
     "workflow_builder_id": null
    },
@@ -380,6 +407,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Rejected",
     "workflow_builder_id": null
    },
@@ -392,6 +420,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "In Progress",
     "workflow_builder_id": null
    },
@@ -404,6 +433,7 @@
     "parent": "Procurement Request Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "In Progress",
     "workflow_builder_id": null
    }
@@ -432,6 +462,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Pending",
     "update_field": null,
     "update_value": null,
@@ -447,6 +478,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Vendor Selected",
     "update_field": null,
     "update_value": null,
@@ -462,6 +494,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Approved",
     "update_field": null,
     "update_value": null,
@@ -477,6 +510,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Partially Approved",
     "update_field": null,
     "update_value": null,
@@ -492,6 +526,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "states",
     "parenttype": "Workflow",
+    "send_email": 0,
     "state": "Sent Back",
     "update_field": null,
     "update_value": null,
@@ -508,6 +543,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Pending",
     "workflow_builder_id": null
    },
@@ -520,6 +556,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Vendor Selected",
     "workflow_builder_id": null
    },
@@ -532,6 +569,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Vendor Selected",
     "workflow_builder_id": null
    },
@@ -544,6 +582,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Vendor Selected",
     "workflow_builder_id": null
    },
@@ -556,6 +595,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Partially Approved",
     "workflow_builder_id": null
    },
@@ -568,6 +608,7 @@
     "parent": "Sent Back Category Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
+    "send_email_to_creator": 0,
     "state": "Partially Approved",
     "workflow_builder_id": null
    }
