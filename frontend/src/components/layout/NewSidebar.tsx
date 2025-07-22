@@ -23,7 +23,8 @@ import {
   ReceiptText, FileUp,
   Banknote,
   CreditCard,
-  BanknoteIcon
+  BanknoteIcon,
+  Landmark
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -366,7 +367,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/credits',
@@ -408,7 +409,7 @@ export function NewSidebar() {
       ? [
         {
           key: '/project-expenses',
-          icon: BanknoteIcon,
+          icon: Landmark,
           label: 'Project Expenses',
         },
       ]
