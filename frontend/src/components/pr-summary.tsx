@@ -5,7 +5,7 @@ import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/
 import { Category, ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
 import { Timeline } from "antd";
-import { FrappeDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { FrappeDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig,useFrappePostCall } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -72,7 +72,8 @@ interface PRSummaryPageProps {
 const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, universalComments, usersList, pr_data_mutate }) => {
 
     if(!pr_data) return <div>No PR data found.</div>
-
+// console.log("PR Data",pr_data)  
+// console.log("PO Data",po_data)
     const navigate = useNavigate();
     const { role, user_id } = useUserData()
     const { deleteDoc } = useFrappeDeleteDoc()
@@ -82,18 +83,84 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
 
     const getFullName = useMemo(() => (id: string) => usersList?.find(user => user.name === id)?.full_name || '', [usersList]);
 
-    useEffect(() => {
-        if (po_data) {
-            const newSet = new Set<string>()
-            po_data.forEach(po => {
-                po.order_list.list.forEach(item => {
-                    newSet.add(item.name)
-                })
-            })
-            setPoItemList(newSet)
-        }
 
-    }, [po_data])
+
+    // useEffect(() => {
+    //     if (po_data) {
+    //         const newSet = new Set<string>()
+    //         po_data.forEach(po => {
+    //             po.items.forEach(item => {
+    //                 newSet.add(item.name)
+    //             })
+    //         })
+    //         setPoItemList(newSet)
+    //     }
+
+    // }, [po_data])
+    // This useEffect now calls our working API
+// In your PRSummaryPage component...
+
+// Make sure your fetch call is defined correctly
+
+
+// This is the corrected useEffect block
+// In your PRSummaryPage component...
+
+// In your PRSummaryPage component...
+
+// Your custom API call hook remains the same
+const { call: fetchPoItems } = useFrappePostCall<ProcurementOrdersType>(
+    'nirmaan_stack.api.projects.project_aggregates.get_purchase_order_with_items'
+);
+
+// This is the corrected useEffect block using async/await
+useEffect(() => {
+    // Define an async function to handle the fetching
+    const fetchAllPoItems = async () => {
+        // We need the initial list of POs to loop through
+        if (po_data && po_data.length > 0) {
+            
+            const newIdSet = new Set<string>();
+
+            // Loop through each PO from the initial list
+            for (const po of po_data) {
+                try {
+                    // Correctly call the API for each PO
+                    const {message:fullPoDoc} = await fetchPoItems({ po_name: po.name });
+                //  console.log("fullPoDoc",fullPoDoc)
+                    // Check if the response and its 'items' array exist
+                    if (fullPoDoc && fullPoDoc.items) {
+                        // Loop through the items array of the fetched PO
+                        fullPoDoc.items.forEach(item => {
+                            // --- THE CRITICAL FIX IS HERE ---
+                            // Add the actual Item ID to the set, not the row's unique name.
+                            newIdSet.add(item.name);
+                        });
+                    }
+                } catch (err) {
+                    console.error(`Error fetching details for PO ${po.name}:`, err);
+                    toast({
+                        title: "Failed to Load Order Details",
+                        description: `Could not fetch items for PO ${po.name}.`,
+                        variant: "destructive",
+                    });
+                    return; // Stop if one fails
+                }
+            }
+            
+            // After the loop, update the state with the set of ordered Item IDs.
+            setPoItemList(newIdSet);
+        }
+    };
+
+    // Execute the async function
+    fetchAllPoItems();
+
+}, [po_data, fetchPoItems, toast]);
+
+
+// console.log("PO Items",poItemList)
+
 
     const actualPrItems = useMemo(() => pr_data?.order_list || [], [pr_data]);
 
