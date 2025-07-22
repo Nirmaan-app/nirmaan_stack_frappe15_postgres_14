@@ -33,6 +33,7 @@
   "freight_charges",
   "notes",
   "note_points",
+  "po_amount_delivered",
   "tracking_details_section",
   "status",
   "delivery_contact",
@@ -259,12 +260,17 @@
    "fieldname": "latest_payment_date",
    "fieldtype": "Datetime",
    "label": "Latest Payment Date"
+  },
+  {
+   "fieldname": "po_amount_delivered",
+   "fieldtype": "Data",
+   "label": "PO Amount Delivered"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-14 18:39:14.567680",
+ "modified": "2025-07-23 02:15:57.773198",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

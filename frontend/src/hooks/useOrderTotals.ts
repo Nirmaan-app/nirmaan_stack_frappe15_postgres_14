@@ -1,6 +1,7 @@
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
+import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import { useMemo } from "react";
@@ -9,7 +10,7 @@ export const useOrderTotals = () => {
   const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
     'Procurement Orders',
     {
-      fields: ['name', "amount", "total_amount", "tax_amount"],
+      fields: ['name', "amount", "total_amount", "tax_amount", "po_amount_delivered"],
       filters: [['status', 'not in', ['Cancelled', 'Merged']]],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
@@ -47,6 +48,22 @@ export const useOrderTotals = () => {
       (orderId: string, type: string) => orderId + type), [purchaseOrders, serviceOrders]
   );
 
+  // --- (THE FIX) Create a new memoized getter for the delivered amount ---
+  const getDeliveredAmount = useMemo(
+    () => memoize((orderId: string, type: string): number => {
+      if (['Procurement Orders', 'Purchase Order'].includes(type)) {
+        const order = purchaseOrders?.find(i => i?.name === orderId);
+        console.log("getDeliveredAmount", orderId, type, order);
+        // Directly return the pre-calculated value from the document
+        return order?.po_amount_delivered
+      }
+      // Return 0 for other doctypes like Service Requests
+      return 0;
+    },
+      (orderId: string, type: string) => `${orderId}-${type}`), // Unique cache key
+    [purchaseOrders]
+  );
+
   return {
     purchaseOrders,
     poLoading,
@@ -55,5 +72,6 @@ export const useOrderTotals = () => {
     srLoading,
     srError,
     getTotalAmount,
+    getDeliveredAmount, // --- (THE FIX) Expose the new function ---
   };
 };

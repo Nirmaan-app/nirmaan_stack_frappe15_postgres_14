@@ -1,15 +1,15 @@
 
 // ADD this new interface for the notes
 export interface NotePoint {
-  note: string;
-  // This is a temporary client-side ID, so it's optional
-  clientId?: number; 
+	note: string;
+	// This is a temporary client-side ID, so it's optional
+	clientId?: number;
 }
 // --- ADD THIS NEW TYPE DEFINITION ---
 export interface POTotals {
-  grandTotal: number;
-  totalBase: number;
-  totalTax: number;
+	grandTotal: number;
+	totalBase: number;
+	totalTax: number;
 }
 
 export interface PurchaseOrderItem {
@@ -19,16 +19,16 @@ export interface PurchaseOrderItem {
 	unit: string;
 	quantity: number;
 	received_quantity?: number;
-  category: string;
+	category: string;
 	procurement_package?: string;
-  quote: number;
+	quote: number;
 	total_amount?: number;
 	amount?: number;
-	note_points?:string;// remove
-  make?: string;
-  status: string;
-  tax: number;
-  comment?: string;
+	note_points?: string;// remove
+	make?: string;
+	status: string;
+	tax: number;
+	comment?: string;
 	po?: string;
 	makes?: string
 }
@@ -46,8 +46,8 @@ export interface PaymentTerm {
 	label: string;
 	percentage: number;
 	amount: number;
-	status?:string;
-	due_date?:string;
+	status?: string;
+	due_date?: string;
 
 	// status: 'Created' | 'Requested' |'Scheduled'|'Approved'| 'Paid'; 
 
@@ -55,7 +55,7 @@ export interface PaymentTerm {
 
 export interface DeliveryDataType {
 	[date: string]: {
-		note_no:string;
+		note_no: string;
 		items: DeliveryItem[];
 		updated_by: string;
 		dc_attachment_id?: string;
@@ -98,7 +98,7 @@ export interface ProcurementOrder {
 	merged?: string
 	/**	Attachment : Data	*/
 	attachment?: string
-	payment_terms?:PaymentTerm[]
+	payment_terms?: PaymentTerm[]
 	/**	Project Name : Data	*/
 	project_name: string
 	/**	Project Address : Data	*/
@@ -119,8 +119,9 @@ export interface ProcurementOrder {
 	// order_list: {
 	// 	list: PurchaseOrderItem[]
 	// }
+	po_amount_delivered?: number
 
-	items:PurchaseOrderItem[]
+	items: PurchaseOrderItem[]
 	// payment_terms:
 	/**	Category List : JSON	*/
 	category_list?: any
@@ -140,6 +141,6 @@ export interface ProcurementOrder {
 	delivery_data?: { data: DeliveryDataType }
 	invoice_data?: { data: InvoiceDataType }
 	dispatch_date?: string | null;
-	latest_delivery_date?:string|null;
-	latest_payment_date?:string|null;
+	latest_delivery_date?: string | null;
+	latest_payment_date?: string | null;
 }
