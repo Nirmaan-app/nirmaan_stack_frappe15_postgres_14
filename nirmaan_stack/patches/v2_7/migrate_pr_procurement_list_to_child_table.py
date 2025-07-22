@@ -18,7 +18,9 @@ def execute():
     # You'll need a flag field on "Procurement Requests" for this, e.g., "pr_items_migrated_to_table" (Check, default 0)
     prs_to_migrate = frappe.get_all(
         doctype_name,
-        fields=["name", old_json_field_name, "work_package"], # Include parent work_package
+        fields=["name", old_json_field_name, "work_package"],
+        order_by="creation asc"  # Order by creation date for consistent processing
+        # Include parent work_package
         # filters={
         #     old_json_field_name: ["is", "set"], # Only process if old field has data
         #     # "pr_items_migrated_to_table": ("!=", 1) # Uncomment if you add this flag

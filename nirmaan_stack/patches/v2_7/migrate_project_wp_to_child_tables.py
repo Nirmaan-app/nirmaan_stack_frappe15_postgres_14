@@ -15,6 +15,7 @@ def execute():
     projects_to_migrate = frappe.get_all(
         projects_doctype,
         fields=["name", old_json_field_name],
+        order_by="creation asc"  # Order by creation date for consistent processing
     )
 
     if not projects_to_migrate:

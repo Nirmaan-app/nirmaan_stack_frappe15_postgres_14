@@ -20,6 +20,7 @@ def execute():
     sbc_docs_to_migrate = frappe.get_all(
         sbc_doctype,
         fields=["name", old_json_field_name, "procurement_request"], # work_package from parent SBC for fallback
+        order_by="creation asc"  # Order by creation date for consistent processing
         # filters={old_json_field_name: ["is", "set"]} 
     )
 
