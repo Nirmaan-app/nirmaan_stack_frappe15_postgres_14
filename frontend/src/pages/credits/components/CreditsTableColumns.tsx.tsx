@@ -17,38 +17,38 @@ import { cn } from "@/lib/utils";
 
 // Define the props for our component
 interface StatusBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
-  // We expect a status string
-  status: string;
+    // We expect a status string
+    status: string;
 }
 
 // Define the mapping from status to badge variant
 // We use BadgeProps["variant"] for type safety
 const statusVariantMap: { [key: string]: BadgeProps["variant"] } = {
-  Approved: "green",
-  Paid: "darkGreen",
-  Scheduled: "destructive",
-  Requested: "yellow",
-  Created: "gray",
+    Approved: "green",
+    Paid: "darkGreen",
+    Scheduled: "destructive",
+    Requested: "yellow",
+    Created: "gray",
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
-  // Normalize status for lookup (e.g., "approved" -> "Approved")
-  const formattedStatus = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+    // Normalize status for lookup (e.g., "approved" -> "Approved")
+    const formattedStatus = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
 
-  // Look up the variant from our map
-  // If a status is not in the map, it will fall back to "default" (grey)
-  const variant = statusVariantMap[formattedStatus] || "default";
+    // Look up the variant from our map
+    // If a status is not in the map, it will fall back to "default" (grey)
+    const variant = statusVariantMap[formattedStatus] || "default";
 
-  return (
-    // We pass down the className so it can be customized from the outside
-    <Badge variant={variant} className={cn("w-20 justify-center capitalize", className)}>
-      {status=="Scheduled"?"Due":status}
-    </Badge>
-  );
+    return (
+        // We pass down the className so it can be customized from the outside
+        <Badge variant={variant} className={cn("w-20 justify-center capitalize", className)}>
+            {status == "Scheduled" ? "Due" : status}
+        </Badge>
+    );
 }
 // Exporting columns as a function or a constant is a great pattern.
 export const getCreditsColumns = (navigate: NavigateFunction): ColumnDef<PoPaymentTermRow>[] => [
-   {
+    {
         accessorKey: "name",
         header: ({ column }) => <DataTableColumnHeader column={column} title="PO Number" />,
         cell: ({ row }) => {
@@ -75,17 +75,19 @@ export const getCreditsColumns = (navigate: NavigateFunction): ColumnDef<PoPayme
         // Text -> Left Align (Default)
         accessorKey: "vendor_name",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
+        enableColumnFilter: true, // This is correct, it enables the filter UI
     },
     {
         // Text -> Left Align (Default)
         accessorKey: "project_name",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+        enableColumnFilter: true, // This is correct, it enables the filter UI
     },
-    
+
     {
         // Badge -> Center Align
-        accessorKey: "status",
-         header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        accessorKey: '`tabPO Payment Terms`.status',
+        header: ({ column }) => <div>Status</div>,
         // header: ({ column }) => (
         //     <div className="flex justify-end">
         //         <DataTableColumnHeader column={column} title="Status" />
@@ -102,8 +104,8 @@ export const getCreditsColumns = (navigate: NavigateFunction): ColumnDef<PoPayme
                 </div>
             );
         },
-        enableColumnFilter: true, // This is correct, it enables the filter UI
-        filterFn: 'auto', // Keep this or let it default     
+        // enableColumnFilter: true, 
+        // filterFn: 'auto', // Keep this or let it default     
     },
 
 
@@ -125,7 +127,7 @@ export const getCreditsColumns = (navigate: NavigateFunction): ColumnDef<PoPayme
         // Number -> Right Align
         accessorKey: "amount",
         header: ({ column }) => (
-             <div className="flex justify-end">
+            <div className="flex justify-end">
                 <DataTableColumnHeader column={column} title="Amount" />
             </div>
         ),
@@ -137,10 +139,9 @@ export const getCreditsColumns = (navigate: NavigateFunction): ColumnDef<PoPayme
     },
     {
         // Date -> Center Align
-        id: "due_date",
         accessorKey: "due_date",
         header: ({ column }) => (
-             <div className="flex justify-center">
+            <div className="flex justify-center">
                 <DataTableColumnHeader column={column} title="Due Date" />
             </div>
         ),
@@ -148,5 +149,5 @@ export const getCreditsColumns = (navigate: NavigateFunction): ColumnDef<PoPayme
             <div className="text-center">{formatDate(row.original.due_date)}</div>
         ),
     }
-    
+
 ];

@@ -16,7 +16,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -46,7 +46,7 @@ export const projectPaymentsQueryKeys = {
  *   customerId="CUST-456" 
  * />
  */
-export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: string}> = ({ projectId, customerId}) => {
+export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: string }> = ({ projectId, customerId }) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
 
@@ -77,9 +77,9 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
         fields: ["name", "project_name"],
         filters: projectFilters,
         limit: 1000,
-    }, 
-    // customerId ? `Projects ${customerId}` : projectId ? `Projects ${projectId}` : "Projects"
-    projectPaymentsQueryKeys.projects(projectFilters)
+    },
+        // customerId ? `Projects ${customerId}` : projectId ? `Projects ${projectId}` : "Projects"
+        projectPaymentsQueryKeys.projects(projectFilters)
     );
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
@@ -88,8 +88,8 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
         limit: 0,
         orderBy: { field: "modified", order: "desc" },
     },
-    projects ? undefined : null
-);
+        projects ? undefined : null
+    );
 
     const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
@@ -97,8 +97,8 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
         limit: 0,
         orderBy: { field: "modified", order: "desc" },
     },
-    projects ? undefined : null
-);
+        projects ? undefined : null
+    );
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {
         fields: ["name", "vendor_name"],
@@ -146,7 +146,7 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
 
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
-    const handleNewPRSeen = useCallback((notification : NotificationType | undefined) => {
+    const handleNewPRSeen = useCallback((notification: NotificationType | undefined) => {
         if (notification) {
             mark_seen_notification(db, notification)
         }
@@ -162,20 +162,20 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
         value: item?.name,
     })) || [], [vendors])
 
-    const {getTotalAmount} = useOrderTotals()
+    const { getTotalAmount } = useOrderTotals()
 
-    const getAmountPaid =  useMemo(
-        () => memoize((id : string) => {
-        const payments = projectPayments?.filter((payment) => payment.document_name === id) || [];
-        return getTotalAmountPaid(payments);
-    }, (id: string) => id),[projectPayments])
+    const getAmountPaid = useMemo(
+        () => memoize((id: string) => {
+            const payments = projectPayments?.filter((payment) => payment.document_name === id) || [];
+            return getTotalAmountPaid(payments);
+        }, (id: string) => id), [projectPayments])
 
     const combinedData = useMemo(() => [
         ...(purchaseOrders?.map((order) => ({ ...order, type: "Purchase Order" })) || []),
         ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
     ], [purchaseOrders, serviceOrders])
 
-    
+
 
     const AddPayment = async () => {
         try {
@@ -192,16 +192,16 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                 status: "Paid"
             })
 
-            if(paymentScreenshot) {
+            if (paymentScreenshot) {
                 const fileArgs = {
                     doctype: "Project Payments",
                     docname: res?.name,
                     fieldname: "payment_attachment",
                     isPrivate: true,
                 };
-    
+
                 const uploadedFile = await upload(paymentScreenshot, fileArgs);
-    
+
                 await call({
                     doctype: "Project Payments",
                     name: res?.name,
@@ -246,40 +246,39 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
     }
 
     const validateAmount = useCallback(
-        debounce((amount : string) => {
-        const order =
-          newPayment?.doctype === "Procurement Orders"
-            ? purchaseOrders?.find((i) => i?.name === newPayment?.docname)
-            : serviceOrders?.find((i) => i?.name === newPayment?.docname);
-    
-        if (!order) {
-          setWarning(""); // Clear warning if no order is found
-          return;
-        }
-    
-        const { total, totalWithTax } = getTotalAmount(order?.name,
-          newPayment.doctype
-        );
+        debounce((amount: string) => {
+            const order =
+                newPayment?.doctype === "Procurement Orders"
+                    ? purchaseOrders?.find((i) => i?.name === newPayment?.docname)
+                    : serviceOrders?.find((i) => i?.name === newPayment?.docname);
 
-        const totalAmountPaid = getAmountPaid(order?.name)
-    
-        const compareAmount =
-          newPayment?.doctype === "Procurement Orders"
-            ? (totalWithTax - totalAmountPaid) // Always compare with totalWithTax for Purchase Orders
-            : order?.gst === "true" // Check GST field for Service Orders
-            ? (totalWithTax - totalAmountPaid)
-            : (total - totalAmountPaid);
-    
-        if (parseNumber(amount) > compareAmount) {
-          setWarning(
-            `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${
-              newPayment?.doctype === "Procurement Orders" ? "including" : order.gst === "true" ? "including" : "excluding"
-            } GST: ${formatToRoundedIndianRupee(compareAmount)}`
-          );
-        } else {
-          setWarning(""); // Clear warning if within the limit
-        }
-      }, 300), [newPayment])
+            if (!order) {
+                setWarning(""); // Clear warning if no order is found
+                return;
+            }
+
+            const { total, totalWithTax } = getTotalAmount(order?.name,
+                newPayment.doctype
+            );
+
+            const totalAmountPaid = getAmountPaid(order?.name)
+
+            const compareAmount =
+                newPayment?.doctype === "Procurement Orders"
+                    ? (totalWithTax - totalAmountPaid) // Always compare with totalWithTax for Purchase Orders
+                    : order?.gst === "true" // Check GST field for Service Orders
+                        ? (totalWithTax - totalAmountPaid)
+                        : (total - totalAmountPaid);
+
+            if (parseNumber(amount) > compareAmount) {
+                setWarning(
+                    `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${newPayment?.doctype === "Procurement Orders" ? "including" : order.gst === "true" ? "including" : "excluding"
+                    } GST: ${formatToRoundedIndianRupee(compareAmount)}`
+                );
+            } else {
+                setWarning(""); // Clear warning if within the limit
+            }
+        }, 300), [newPayment])
 
     const getVendorName = useMemo(() => memoize((id: string | undefined) => {
         const vendorName = vendorValues.find((vend) => vend.value === id)?.label || id;
@@ -290,12 +289,12 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
         const projectName = projectValues.find((proj) => proj.value === id)?.label || id;
         return projectName;
     }, (id: string | undefined) => id), [vendorValues])
-    
-      // Handle input change
-    const handleAmountChange = useCallback((e : React.ChangeEvent<HTMLInputElement>) => {
-      const amount = e.target.value;
-      setNewPayment({ ...newPayment, amount });
-      validateAmount(amount);
+
+    // Handle input change
+    const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const amount = e.target.value;
+        setNewPayment({ ...newPayment, amount });
+        validateAmount(amount);
     }, [newPayment, validateAmount])
 
     const columns = useMemo(
@@ -317,11 +316,11 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
                             )}
                             <div className="flex items-center gap-1">
-                            <Link to={projectId ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
-                                {id}
-                            </Link>
-                            {isPO?(<ItemsHoverCard parentDocId={data} parentDoctype={"Procurement Orders"} childTableName="items" />):( <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />)}
-                            
+                                <Link to={projectId ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
+                                    {id}
+                                </Link>
+                                {isPO ? (<ItemsHoverCard parentDocId={data} parentDoctype={"Procurement Orders"} childTableName="items" />) : (<ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />)}
+
                             </div>
                         </div>
                     );
@@ -393,31 +392,31 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                     const amount = getTotalAmount(row.original.name, row.original.type)
                     return <div className="font-medium">
                         {/* {formatToRoundedIndianRupee(amount?.totalWithTax)} */}
-                         {formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.total)}
+                        {formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.total)}
 
                     </div>
                 },
             },
-                {
-                    id: "invoices_amount",
-                    header: ({ column }) => {
-                        return (
-                            <DataTableColumnHeader column={column} title="Total Invoice Amt" />
-                        )
-                    },
-                    cell: ({ row }) => {
-                        const data = row.original;
-                        const invoiceAmount = getTotalInvoiceAmount(data?.invoice_data)
-                        return (
-                          <div 
+            {
+                id: "invoices_amount",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Total Invoice Amt" />
+                    )
+                },
+                cell: ({ row }) => {
+                    const data = row.original;
+                    const invoiceAmount = getTotalInvoiceAmount(data?.invoice_data)
+                    return (
+                        <div
                             className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
                             onClick={() => invoiceAmount && setSelectedInvoice(data)}
-                          >
+                        >
                             {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
-                          </div>
-                        )
-                      }                      
-                },
+                        </div>
+                    )
+                }
+            },
             {
                 id: "Amount_paid",
                 header: "Amt Paid",
@@ -429,39 +428,39 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                     </div>
                 },
             },
-            ...(!projectId && !customerId ? [
-                {
-                    id: "Record_Payment",
-                    header: "Record Payment",
-                    cell: ({ row }) => {
-                        const data = row.original
-                        const project = getProjectName(data?.project)
-                        const vendor = getVendorName(data?.vendor)
-                        return <div className="font-medium">
-                            <SquarePlus onClick={() => {
-                                setNewPayment({ ...newPayment, project: project!, vendor: vendor!, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
-                                setWarning("")
-                                toggleNewPaymentDialog()
-                            }} className="w-5 h-5 text-red-500 cursor-pointer" />
-                        </div>
-                    },
-                },
-            ] : [
-                {
-                    id: "due_amount",
-                    header: "Due Amount",
-                    cell: ({ row }) => {
-                        const data = row.original
-                        const totalAmount = getTotalAmount(row.original.name, row.original.type)?.totalWithTax
-                        const amountPaid = getAmountPaid(data?.name);
-                        return(
-                            <div className="font-medium">
-                                {formatToRoundedIndianRupee(totalAmount - amountPaid)}
-                            </div>
-                        )
-                    }
-                }
-            ]),
+            //     ...(!projectId && !customerId ? [
+            //         {
+            //             id: "Record_Payment",
+            //             header: "Record Payment",
+            //             cell: ({ row }) => {
+            //                 const data = row.original
+            //                 const project = getProjectName(data?.project)
+            //                 const vendor = getVendorName(data?.vendor)
+            //                 return <div className="font-medium">
+            //                     <SquarePlus onClick={() => {
+            //                         setNewPayment({ ...newPayment, project: project!, vendor: vendor!, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
+            //                         setWarning("")
+            //                         toggleNewPaymentDialog()
+            //                     }} className="w-5 h-5 text-red-500 cursor-pointer" />
+            //                 </div>
+            //             },
+            //         },
+            //     ] : [
+            //         {
+            //             id: "due_amount",
+            //             header: "Due Amount",
+            //             cell: ({ row }) => {
+            //                 const data = row.original
+            //                 const totalAmount = getTotalAmount(row.original.name, row.original.type)?.totalWithTax
+            //                 const amountPaid = getAmountPaid(data?.name);
+            //                 return(
+            //                     <div className="font-medium">
+            //                         {formatToRoundedIndianRupee(totalAmount - amountPaid)}
+            //                     </div>
+            //                 )
+            //             }
+            //         }
+            //     ]),
         ],
         [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId]
     );
@@ -494,11 +493,11 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                             </span>
                         </div>
                         {(newPayment?.doctype === "Procurement Orders" || (newPayment?.doctype === "Service Requests" && serviceOrders?.find(i => i?.name === newPayment?.docname)?.gst === "true")) && (
-                        <div className="flex items-center justify-between">
-                            <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                            <span className="">{formatToRoundedIndianRupee(getTotalAmount(newPayment?.docname, newPayment.doctype)?.totalWithTax)}
-                            </span>
-                        </div>
+                            <div className="flex items-center justify-between">
+                                <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                                <span className="">{formatToRoundedIndianRupee(getTotalAmount(newPayment?.docname, newPayment.doctype)?.totalWithTax)}
+                                </span>
+                            </div>
                         )}
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">Amt Paid Till Now:</Label>
@@ -509,28 +508,28 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                             <div className="flex gap-4 w-full">
                                 <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
                                 <div className="w-full">
-                                <Input
-                                    type="number"
-                                    placeholder="Enter Amount"
-                                    value={newPayment.amount}
-                                    onChange={(e) => handleAmountChange(e)}
-                                />
+                                    <Input
+                                        type="number"
+                                        placeholder="Enter Amount"
+                                        value={newPayment.amount}
+                                        onChange={(e) => handleAmountChange(e)}
+                                    />
                                     {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
-                                </div> 
+                                </div>
                             </div>
                             <div className="flex gap-4 w-full">
                                 <Label className="w-[40%]">TDS Amount</Label>
                                 <div className="w-full">
-                                <Input
-                                    type="number"
-                                    placeholder="Enter TDS Amount"
-                                    value={newPayment.tds}
-                                    onChange={(e) => {
-                                        const tdsValue = e.target.value;
-                                        setNewPayment({ ...newPayment, tds: tdsValue })
-                                    }}
-                                />
-                                {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
+                                    <Input
+                                        type="number"
+                                        placeholder="Enter TDS Amount"
+                                        value={newPayment.tds}
+                                        onChange={(e) => {
+                                            const tdsValue = e.target.value;
+                                            setNewPayment({ ...newPayment, tds: tdsValue })
+                                        }}
+                                    />
+                                    {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
                                 </div>
                             </div>
                             <div className="flex gap-4 w-full">
@@ -545,13 +544,13 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
                             <div className="flex gap-4 w-full" >
                                 <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
                                 <Input
-                                        type="date"
-                                        value={newPayment.payment_date}
-                                        placeholder="DD/MM/YYYY"
-                                        onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
-                                        max={new Date().toISOString().split("T")[0]}
-                                        onKeyDown={(e) => e.preventDefault()}
-                                     />
+                                    type="date"
+                                    value={newPayment.payment_date}
+                                    placeholder="DD/MM/YYYY"
+                                    onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })}
+                                    max={new Date().toISOString().split("T")[0]}
+                                    onKeyDown={(e) => e.preventDefault()}
+                                />
                             </div>
                         </div>
 
@@ -583,22 +582,22 @@ export const ProjectPaymentsList : React.FC<{ projectId? : string, customerId?: 
             </AlertDialog>
 
             <InvoiceDataDialog
-              open={!!selectedInvoice}
-              onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
-              invoiceData={selectedInvoice?.invoice_data}
-              project={getProjectName(selectedInvoice?.project)}
-              poNumber={selectedInvoice?.name}
-              vendor={getVendorName(selectedInvoice?.vendor)}
+                open={!!selectedInvoice}
+                onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
+                invoiceData={selectedInvoice?.invoice_data}
+                project={getProjectName(selectedInvoice?.project)}
+                poNumber={selectedInvoice?.name}
+                vendor={getVendorName(selectedInvoice?.vendor)}
             />
 
             <PaymentsDataDialog
-              open={!!currentPaymentsDialog}
-              onOpenChange={(open) => !open && setCurrentPaymentsDialog(undefined)}
-              payments={projectPayments}
-              data={currentPaymentsDialog}
-              projects={projects}
-              vendors={vendors}
-              isPO={currentPaymentsDialog?.document_type === "Purchase Order"}
+                open={!!currentPaymentsDialog}
+                onOpenChange={(open) => !open && setCurrentPaymentsDialog(undefined)}
+                payments={projectPayments}
+                data={currentPaymentsDialog}
+                projects={projects}
+                vendors={vendors}
+                isPO={currentPaymentsDialog?.document_type === "Purchase Order"}
             />
             {
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
