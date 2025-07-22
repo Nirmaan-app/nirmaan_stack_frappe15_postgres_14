@@ -3,6 +3,43 @@ import json
 from datetime import datetime
 from frappe.model.document import Document
 
+# --- (1) NEW: Helper function for safe float conversion ---
+def safe_float(value, default=0.0):
+    """Safely converts a value to a float, returning a default on failure."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+# --- (2) NEW: The core calculation function ---
+def calculate_delivered_amount(order_items: list) -> float:
+    """
+    Calculates the total value of an order based on the received_quantity of its items.
+    
+    Args:
+        order_items (list): A list of child table item documents (as dicts or Document objects).
+    
+    Returns:
+        float: The total calculated value including tax.
+    """
+    total_delivered_value = 0.0
+    for item in order_items:
+        # Use .get() for safe access on both dicts and Document objects
+        quote = safe_float(item.get("quote"))
+        received_qty = safe_float(item.get("received_quantity"))
+        tax_percent = safe_float(item.get("tax"))
+        
+        # Calculate the value for this item based on its delivered quantity
+        item_base_value = quote * received_qty
+        item_tax_amount = item_base_value * (tax_percent / 100)
+        
+        # Add the total value (base + tax) for this item to the running total
+        total_delivered_value += item_base_value + item_tax_amount
+        
+    return total_delivered_value
+
 @frappe.whitelist()
 def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict = None, 
                         delivery_challan_attachment: str = None):
@@ -22,11 +59,19 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
         po = frappe.get_doc("Procurement Orders", po_id)
         original_order = po.get("items")
 
-        # Update received quantities in original order
-        print("DEBUGUPDATEDNITEMS: --- Function Start ---")
-        print(f"DEBUGUPDATEDNITEMS: Original Order: {original_order}")
-        print(f"DEBUGUPDATEDNITEMS: Modified Items: {modified_items}")
+        # # Update received quantities in original order
+        # print("DEBUGUPDATEDNITEMS: --- Function Start ---")
+        # print(f"DEBUGUPDATEDNITEMS: Original Order: {original_order}")
+        # print(f"DEBUGUPDATEDNITEMS: Modified Items: {modified_items}")
         updated_order = update_order_items(original_order, modified_items)
+
+        # --- (3) INTEGRATION: Calculate and set the new field ---
+        # Calculate the total delivered amount using the *updated* item list
+        delivered_amount = calculate_delivered_amount(updated_order)
+
+        # Set the calculated value on the parent PO document
+        po.po_amount_delivered = delivered_amount
+        
         
         # Update order list and status
         po.items =  updated_order
