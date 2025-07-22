@@ -148,14 +148,14 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     // --- Logging Start ---
     console.log("--- ISC useMemo Start ---");
     console.log("currentItemCategoryName:", currentItemCategoryName);
-    console.log(
-      "selectedCategories (prop):",
-      JSON.stringify(selectedCategories)
-    );
-    console.log(
-      "initialCategoryMakes (prop):",
-      JSON.stringify(initialCategoryMakes)
-    );
+    // console.log(
+    //   "selectedCategories (prop):",
+    //   JSON.stringify(selectedCategories)
+    // );
+    // console.log(
+    //   "initialCategoryMakes (prop):",
+    //   JSON.stringify(initialCategoryMakes)
+    // );
     // --- Logging End ---
 
     if (!currentItemCategoryName) {
@@ -173,7 +173,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
 
     if (hasInitialMakes) {
       // Use initial makes from the WP Project config as the base
-      console.log(`ISC useMemo: Using initialMakes as base:`, initialMakes);
+      // console.log(`ISC useMemo: Using initialMakes as base:`, initialMakes);
       initialMakes!.forEach((makeValue) => applicableMakeValues.add(makeValue));
     } else if (categoryMakelist) {
       // Fallback to CategoryMakelist if initial makes are empty/not defined
@@ -190,10 +190,10 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         `ISC useMemo: No initial makes and no categoryMakelist provided for base.`
       );
     }
-    console.log(
-      `ISC useMemo: Makes after base determination:`,
-      Array.from(applicableMakeValues)
-    );
+    // console.log(
+    //   `ISC useMemo: Makes after base determination:`,
+    //   Array.from(applicableMakeValues)
+    // );
 
     // 2. ADD makes from Session/procList (selectedCategories)
     // Ensure makes used in items or explicitly added this session (via Manage Makes)
@@ -206,10 +206,10 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     //     console.log(`ISC useMemo: No additional makes found in selectedCategories.`);
     // }
 
-    console.log(
-      `ISC useMemo: Final applicable make values set:`,
-      Array.from(applicableMakeValues)
-    );
+    // console.log(
+    //   `ISC useMemo: Final applicable make values set:`,
+    //   Array.from(applicableMakeValues)
+    // );
 
     // 3. Filter allMakeOptions based on the final applicable set of make values
     let potentialMakeOptions = allMakeOptions.filter((opt) =>

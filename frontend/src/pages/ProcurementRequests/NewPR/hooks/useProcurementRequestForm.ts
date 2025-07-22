@@ -62,7 +62,7 @@ export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>
     }), []);
 
     const selectWorkPackage = useCallback((wp: string, wpSpecificMakes: CategoryMakesMap) => {
-        console.log("Hook: Selecting WP", wp, "with makes:", wpSpecificMakes);
+        // console.log("Hook: Selecting WP", wp, "with makes:", wpSpecificMakes);
         setSelectedWP(wp, wpSpecificMakes); // Call store action with both params
     }, [setSelectedWP]);
 
