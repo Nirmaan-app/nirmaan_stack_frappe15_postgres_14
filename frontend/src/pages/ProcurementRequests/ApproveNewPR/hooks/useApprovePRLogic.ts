@@ -1272,6 +1272,7 @@ export const useApprovePRLogic = ({
             // Frappe often only needs non-null values for new/updated rows.
             // For existing child rows, their 'name' field must be present to be updated.
             // New child rows won't have a 'name'.
+
             const payloadOrderList = orderData.order_list.map(item => {
                 const backendItem: Partial<ProcurementRequestItemDetail> = {
                     name: item.name?.startsWith("NewRow-") ? undefined : item.name, // Send name for existing, undefined for new
@@ -1281,22 +1282,23 @@ export const useApprovePRLogic = ({
                     quantity: item.quantity,
                     category: item.category,
                     procurement_package: item.procurement_package,
-                    make: item.make,
+                    make: item?.make||"",
                     status: item.status,
                     tax: item.tax,
                     comment: item.comment,
                     vendor: item.vendor,
-                    quote: item.quote
+                    quote: item?.quote
                     // Omit parent, parentfield, parenttype, idx, etc. Frappe handles these.
                 };
                 // Remove undefined keys to send cleaner payload
                 return Object.fromEntries(Object.entries(backendItem).filter(([_, v]) => v !== undefined));
             });
 
+            console.log("payloadOrderList", payloadOrderList);
             // 1. Update the PR Document
 
             const updatedPR = await updateDoc("Procurement Requests", orderData.name, {
-                order_list: payloadOrderList, // Send the current state
+                // order_list: payloadOrderList, // Send the current state
                 category_list: orderData.category_list, // Send the current state
                 workflow_state: actionText, // "Approved" or "Rejected"
             });
