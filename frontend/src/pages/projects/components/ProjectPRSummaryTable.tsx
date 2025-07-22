@@ -33,14 +33,14 @@ import { USER_ROLE_PROFILE_OPTIONS } from "@/pages/users/users";
 
 const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] = [
     "name", "creation", "modified", "owner", "project",
-    "work_package", "procurement_list", "category_list", "workflow_state",
+    "work_package", "order_list", "category_list", "workflow_state",
 ];
 
 export const PR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "PR ID", placeholder: "Search by PR ID...", default: true },
     { value: "work_package", label: "Package", placeholder: "Search by Package..." },
     {
-        value: "procurement_list", // For item search within PR
+        value: "order_list", // For item search within PR
         label: "Item in PR",
         placeholder: "Search by Item Name in PR...",
         is_json: true,
@@ -77,6 +77,7 @@ interface PRStatusCounts {
     "New PR": number;
     "Open PR": number;
     "Approved PO": number;
+    "Deleted PR": number;
     [key: string]: number;
 }
 
@@ -89,7 +90,7 @@ interface PRStatusDataResponse {
 export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ projectId }) => {
     const { toast } = useToast();
 
-    const [statusCounts, setStatusCounts] = useState<PRStatusCounts>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
+    const [statusCounts, setStatusCounts] = useState<PRStatusCounts>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 , "Deleted PR": 0});
     const [prStatuses, setPrStatuses] = useState<{ [key: string]: string }>({});
 
     const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
@@ -114,7 +115,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
                 .catch(err => console.error("Failed to fetch PR statuses data:", err));
         } else {
             // Reset counts if no projectId (e.g., if component can be shown for all projects)
-            setStatusCounts({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
+            setStatusCounts({ "New PR": 0, "Open PR": 0, "Approved PO": 0 ,"Deleted PR": 0});
             setPrStatuses({});
         }
     }, [projectId, fetchPrStatusesData]);
@@ -122,11 +123,13 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
     // Fetch POs related to the current project for status and total calculations
     const { data: po_data, isLoading: poDataLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
         "Procurement Orders", {
-        fields: ["name", "procurement_request", "status"],
+        fields: ["name", "procurement_request", "status",'`tabPurchase Order Item`.total_amount'],
         filters: projectId ? [["project", "=", projectId]] : [],
         limit: 10000,
     }, !!projectId ? `POsForPRSummary_${projectId}` : null
     );
+
+    // console.log("po_data", po_data)
 
     // Fetch Approved Quotations (quote_data)
     const { data: quote_data, isLoading: quoteDataLoading, error: quoteError } = useFrappeGetDocList<ApprovedQuotations>(
@@ -179,16 +182,16 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({ pr
             let total = 0;
 
             if (derivedStatus === "Approved PO") {
-                const filteredPOsForThisPR = projectPOs?.filter((po) => po.procurement_request === pr.name) || [];
-                filteredPOsForThisPR.forEach((po) => {
-                    po.order_list?.list.forEach((item) => {
-                        if (item.quote && item.quantity && item.tax) {
-                            total += parseNumber((item.quote * item.quantity) * (1 + parseNumber(item.tax) / 100));
-                        }
-                    });
-                });
+                 const filteredPOsForThisPR = projectPOs?.filter((po) => po.procurement_request === pr.name) || [];
+            
+            // Use .reduce() to sum the total_amount from each related PO.
+            total = filteredPOsForThisPR.reduce((sum, currentPo) => {
+                // The parent PO doc has the total_amount field directly on it.
+                return sum + parseNumber(currentPo.total_amount);
+            }, 0);
             } else { // New PR or Open PR - use estimated quotes
-                pr.procurement_list?.list.forEach((item) => {
+                // console.log("DEBUG: pr.order_list", pr);
+                pr.order_list?.forEach((item) => {
                     if (item.status !== 'Deleted') { // Only consider non-deleted items for estimation
                         const minQuoteInfo = getThreeMonthsLowestFiltered(quote_data, item.name); // Use item_code or item
                         total += parseNumber(minQuoteInfo?.averageRate || 0) * parseNumber(item.quantity);
