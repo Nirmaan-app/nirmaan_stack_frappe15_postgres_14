@@ -1,4 +1,4 @@
-import { Category, ProcurementItemWithVendor, RFQData } from "./ProcurementRequests"
+import { Category, ProcurementItemWithVendor, RFQData, ProcurementRequestItemDetail } from "./ProcurementRequests"
 
 export type SentBackItem = ProcurementItemWithVendor
 
@@ -35,4 +35,5 @@ export interface SentBackCategory{
 	/**	Amended From : Link - Sent Back Category	*/
 	amended_from?: string
 	workflow_state: string
+	order_list: ProcurementRequestItemDetail[]
 }

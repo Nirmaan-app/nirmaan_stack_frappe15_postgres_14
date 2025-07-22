@@ -1,10 +1,9 @@
 import React, { useMemo } from 'react'; // Added useMemo
 import { useParams, useNavigate } from 'react-router-dom';
-import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
 
 import { ApprovePRView } from './ApprovePRView';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic';
-import { PRDocType } from './types';
 import { Projects as Project } from '@/types/NirmaanStack/Projects';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
@@ -17,6 +16,7 @@ import { usePRComments } from './hooks/usePRComments';
 import { useRelatedPRData } from './hooks/useRelatedPRData';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { toast } from '@/components/ui/use-toast';
+import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 
 export const ApprovePRContainer: React.FC = () => {
     const { prId } = useParams<{ prId: string }>();
@@ -28,18 +28,20 @@ export const ApprovePRContainer: React.FC = () => {
     }
 
     // --- 1. Fetch Main PR Document ---
-    const prQueryKey = queryKeys.procurementRequests.doc(prId);
-    const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
-        "Procurement Requests",
-        prId,
-        prQueryKey
-    );
+    // const prQueryKey = queryKeys.procurementRequests.doc(prId);
+
+    const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useProcurementRequest(prId)
+    // const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
+    //     "Procurement Requests",
+    //     prId,
+    //     prQueryKey
+    // );
 
     useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
-          console.log("Procurement Requests document updated (real-time):", event);
+          console.log("Procurement Requests document updated (real-time):", event?.name);
           toast({
               title: "Document Updated",
-              description: `Procurement Requests ${event.name} has been modified.`,
+              description: `Procurement Requests ${event?.name} has been modified.`,
           });
           prMutate(); // Re-fetch this specific document
         },

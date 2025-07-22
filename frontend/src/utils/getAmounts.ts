@@ -1,4 +1,4 @@
-import { InvoiceDataType, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import { InvoiceDataType, PurchaseOrderItem, POTotals, ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceItemType, ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -7,45 +7,23 @@ import { parseNumber } from "./parseNumber";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 
+export const getPOTotal = (order: ProcurementOrder): { total: number, totalGst: number, totalWithTax: number } => {
 
-export const getPOTotal = memoize(
-  (
-    order: any,
-    loadingCharges = 0,
-    freightCharges = 0
-  ) => {
-    if (!order) return { total: 0, totalGst: 0, totalAmt: 0 };
+  // console.log("orders",orders)
+  // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
+  if (!order) {
+    return { total: 0, totalGst: 0, totalWithTax: 0 };
+  }
 
-    let orderData: PurchaseOrderItem[] = [];
-    if (typeof order.order_list === "string") {
-      orderData = JSON.parse(order.order_list)?.list || [];
-    } else {
-      orderData = order.order_list?.list || [];
-    }
 
-    const { total, totalGst } = orderData.reduce(
-      (acc, item) => {
-        const price = parseNumber(item.quote);
-        const quantity = item.quantity || 1;
-        const gst = price * quantity * (item.tax / 100);
-        return {
-          total: acc.total + price * quantity,
-          totalGst: acc.totalGst + parseNumber(gst)
-        };
-      },
-      { total: 0, totalGst: 0 }
-    );
+  // 2. Directly access the pre-calculated fields from the document, using parseNumber for safety.
+  const total = parseNumber(order.amount);
+  const totalGst = parseNumber(order.tax_amount);
+  const totalWithTax = parseNumber(order.total_amount);
 
-    const additionalCharges = parseNumber(loadingCharges) + parseNumber(freightCharges);
-    const additionalGst =
-      parseNumber(loadingCharges) * 0.18 + parseNumber(freightCharges) * 0.18;
-
-    return {
-      total: total + additionalCharges,
-      totalGst: totalGst + additionalGst,
-      totalAmt: total + totalGst + additionalCharges + additionalGst
-    };
-  }, (order: any, loadingCharges = 0, freightCharges = 0) => JSON.stringify(order) + loadingCharges + freightCharges);
+  // 3. Return the extracted totals.
+  return { total, totalGst, totalWithTax };
+};
 
 
 export const getSRTotal = memoize(
@@ -184,3 +162,39 @@ export const getTotalInvoiceAmount = memoize(
       return 0;
     }
   }, (order: any) => JSON.stringify(order));
+
+
+// --- THIS IS THE NEW, SIMPLIFIED FUNCTION ---
+export const getPreviewTotal = (orderData: PurchaseOrderItem[]): POTotals => {
+  // If there's no order, return zeroed values
+  if (!orderData) {
+    return { grandTotal: 0, totalBase: 0, totalTax: 0 };
+  }
+
+  // Determine the correct list of items to use
+
+  // Calculate totals from the items list
+  const totals = orderData?.reduce(
+    (acc, item) => {
+      const rate = parseNumber(item.quote);
+      const quantity = parseNumber(item.quantity);
+      const taxPercent = parseNumber(item.tax);
+
+      const itemBaseAmount = rate * quantity;
+      const itemTaxAmount = itemBaseAmount * (taxPercent / 100);
+
+      acc.totalBase += itemBaseAmount;
+      acc.totalTax += itemTaxAmount;
+
+      return acc;
+    },
+    { totalBase: 0, totalTax: 0 }
+  );
+
+  // Return the new, clean object. No additional charges are included.
+  return {
+    grandTotal: totals.totalBase + totals.totalTax,
+    totalBase: totals.totalBase,
+    totalTax: totals.totalTax,
+  };
+};

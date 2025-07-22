@@ -107,9 +107,9 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
           <TableHeader>
             <TableRow>
               <TableHead className="text-center text-gray-700 font-semibold">Invoice No.</TableHead>
+              <TableHead className="text-center text-gray-700 font-semibold">Project</TableHead>
               <TableHead className="text-center text-gray-700 font-semibold">Amount(Incl. GST)</TableHead>
               <TableHead className="text-center text-gray-700 font-semibold">Invoice Date</TableHead>
-              <TableHead className="text-center text-gray-700 font-semibold">Project</TableHead>
               {isAdmin && <TableHead className="text-center text-gray-700 font-semibold">Actions</TableHead>}
             </TableRow>
           </TableHeader>

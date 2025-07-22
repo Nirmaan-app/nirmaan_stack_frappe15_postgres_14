@@ -24,14 +24,14 @@ import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProcurementItem, ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses"; // Import new type
 import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"; // Import new hover card
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -40,6 +40,7 @@ import {
   MenuProps
 } from "antd";
 import {
+  FrappeDoc,
   useFrappeDocumentEventListener,
   useFrappeGetCall,
   useFrappeGetDoc,
@@ -56,7 +57,6 @@ import {
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
-  Link,
   useParams
 } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
@@ -65,12 +65,12 @@ import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 // import { ProjectMakesTab } from "./ProjectMakesTab";
 // import ProjectOverviewTab from "./ProjectOverviewTab";
 // import ProjectSpendsTab from "./ProjectSpendsTab";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
+import { Projects, ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
 // import ProjectPRSummaryTable from "./components/ProjectPRSummaryTable";
 // import ProjectSRSummaryTable from "./components/ProjectSRSummaryTable";
 
@@ -85,6 +85,8 @@ const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSum
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 
+import { KeyedMutator } from "swr";
+import { useUrlParam } from "@/hooks/useUrlParam";
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -110,7 +112,7 @@ export interface po_item_data_item {
   item_id: string
   quote: number
   quantity: number
-  received: number
+  received_quantity: number
   category: string
   tax: number
   unit: string
@@ -138,7 +140,7 @@ const Project: React.FC = () => {
 
   if (!projectId) return <div>No Project ID Provided</div>
 
-  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId, projectId ? ProjectQueryKeys.project(projectId) : null);
+  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc<Projects>("Projects", projectId, projectId ? ProjectQueryKeys.project(projectId) : null);
 
   useFrappeDocumentEventListener("Projects", projectId, (event) => {
     console.log("Project document updated (real-time):", event);
@@ -153,7 +155,7 @@ const Project: React.FC = () => {
 
   const { data: projectCustomer, isLoading: projectCustomerLoading, mutate: projectCustomerMutate } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? ProjectQueryKeys.customer(data?.customer) : null);
 
-  useFrappeDocumentEventListener("Customers", data?.customer, (event) => {
+  useFrappeDocumentEventListener("Customers", data?.customer!, (event) => {
     console.log("Customer document updated (real-time):", event);
     toast({
       title: "Document Updated",
@@ -178,6 +180,11 @@ const Project: React.FC = () => {
     return <LoadingFallback />
   }
 
+  if (isLoading || projectCustomerLoading ) {
+    return <LoadingFallback />
+  }
+
+
   return (
     data && (
       <ProjectView
@@ -196,8 +203,8 @@ const Project: React.FC = () => {
 
 interface ProjectViewProps {
   projectId: string;
-  data: any;
-  project_mutate: any;
+  data: Projects;
+  project_mutate: KeyedMutator<FrappeDoc<Projects>>;
   projectCustomer?: Customers;
   po_item_data?: po_item_data_item[];
 }
@@ -276,20 +283,22 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // Effect to sync URL "page" param TO activePage state (for popstate/direct URL load)
   useEffect(() => {
     const unsubscribe = urlStateManager.subscribe("page", (_, value) => {
-      const newPage = (value || PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
-      if (activePage !== newPage) {
-        setActivePage(newPage);
-      }
+        const newPage = (value || PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
+        if (activePage !== newPage) {
+            setActivePage(newPage);
+        }
     });
     // Ensure initial sync if URL already has the param
     const currentUrlPage = urlStateManager.getParam("page") as ProjectPageTabValue | null;
     if (currentUrlPage && activePage !== currentUrlPage) {
-      setActivePage(currentUrlPage);
+        setActivePage(currentUrlPage);
     }
     return unsubscribe;
   }, [activePage, initialActivePage]); // Rerun if initialTab logic changes or tab changes externally
 
-  const [makesTab] = useStateSyncedWithParams<string>("makesTab", makeOptions?.[0]?.value)
+  const makesTab = useUrlParam("makesTab") || makeOptions?.[0]?.value
+
+  // const [makesTab] = useStateSyncedWithParams<string>("makesTab", makeOptions?.[0]?.value)
 
   const handlePageChange: MenuProps['onClick'] = useCallback((e) => {
     const newPage = e.key as ProjectPageTabValue;
@@ -437,13 +446,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const {
     data: project_estimates,
   } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
-    fields: ["*"],
+    fields: ["work_package", "quantity_estimate", "rate_estimate", "name"],
     filters: [["project", "=", projectId]],
     limit: 0,
-  }, projectId ? ProjectQueryKeys.estimates({ fields: ["*"], filters: [["project", "=", projectId]], limit: 0 }) : null);
+  }, projectId ? ProjectQueryKeys.estimates({ fields: ["work_package", "quantity_estimate", "rate_estimate", "name"], filters: [["project", "=", projectId]], limit: 0 }) : null);
 
   const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["*"],
+    fields: ["document_type", "amount", "document_name", "status", "name"],
     filters: [['project', '=', projectId], ['status', '=', 'Paid']],
     limit: 0
   })
@@ -463,30 +472,17 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
     "Procurement Requests",
     {
-      fields: ["*"],
+      fields: ["name", "work_package"],
       filters: [["project", "=", `${projectId}`]],
       limit: 0,
     },
     projectId ? `Procurement Requests ${projectId}` : null
   );
 
-  // const { data: mergedPOData, isLoading: mergedPOLoading } = useFrappeGetDocList<ProcurementOrdersType>(
-  //   "Procurement Orders",
-  //   {
-  //     fields: ["*"],
-  //     filters: [
-  //       ["project", "=", projectId],
-  //       ["status", "=", "Merged"],
-  //     ], // removed ["status", "!=", "PO Approved"] for now
-  //     limit: 1000,
-  //     orderBy: { field: "creation", order: "desc" },
-  //   }
-  // );
-
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
-      fields: ["*"],
+      fields: ["name","procurement_request", "status","amount","tax_amount","total_amount" ,"invoice_data"] as const,
       filters: [
         ["project", "=", projectId],
         ["status", "!=", "Merged"],
@@ -496,27 +492,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   );
 
-  // const {
-  //   data: po_data_for_posummary,
-  //   isLoading: po_data_for_posummary_loading,
-  // } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
-  //   fields: ["*"],
-  //   filters: [
-  //     ["project", "=", projectId],
-  //     ["status", "!=", "Merged"],
-  //   ], // removed ["status", "!=", "PO Approved"] for now
-  //   limit: 1000,
-  //   orderBy: { field: "creation", order: "desc" },
-  // });
-
-  // const { data: allServiceRequestsData, isLoading: allServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-  //   fields: ["*"],
-  //   filters: [["project", "=", projectId]],
-  //   limit: 1000,
-  // });
+  // console.log("ProjectOverView DATA", po_data)
 
   const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-    fields: ["*"],
+    fields: ["gst", "name", "service_order_list"],
     filters: [
       ["status", "=", "Approved"],
       ["project", "=", projectId],
@@ -548,498 +527,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     return { poAmount, srAmount, projectExpensesAmount, totalAmount: poAmount + srAmount + projectExpensesAmount };
   }, [projectPayments, projectExpenses]);
 
-  const totalPosRaised = useMemo(() => {
-    if (!po_data || po_data.length === 0) {
-      return 0;
-    }
+const totalPosRaised = useMemo(() => {
+  // 1. Guard Clause: This part is correct and should be kept.
+  if (!po_data || po_data.length === 0) {
+    return 0;
+  }
 
-    return po_data.reduce((acc, po) => {
-      if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
-        return acc + po.order_list.list.reduce((itemAcc, item) => itemAcc + parseNumber(item.quote * item.quantity), 0);
-      }
-      return acc;
-    }, 0);
-  }, [po_data]);
+  // 2. Corrected `reduce` implementation
+  return po_data.reduce((accumulator, currentOrder) => {
+    // For each order, add its 'amount' to the running total (accumulator).
+    // The parseNumber helper gracefully handles cases where 'amount' might be null or not a number.
+    return accumulator + parseNumber(currentOrder.amount);
+  }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
 
-
-  // type ScopesMilestones = {
-  //   work_package: string;
-  //   scope_of_work: string;
-  //   milestone: string;
-  //   start_date: string;
-  //   end_date: string;
-  //   status_list: {
-  //     list: {
-  //       name: string;
-  //       status: string;
-  //     }[];
-  //   };
-  // };
-
-
-  // const [areaNames, setAreaNames] = useState(null);
-
-  // const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
-  //   const statusNames = Array.from(
-  //     new Set(
-  //       mile_data.flatMap((row) =>
-  //         row.status_list.list.map((statusObj) => statusObj.name)
-  //       )
-  //     )
-  //   );
-  //   setAreaNames(statusNames);
-
-  //   return statusNames.map((statusName) => ({
-  //     accessorKey: `status_${statusName}`,
-  //     header: ({ column }) => {
-  //       return (
-  //         <DataTableColumnHeader
-  //           className="text-black font-bold"
-  //           column={column}
-  //           title={statusName}
-  //         />
-  //       );
-  //     },
-  //     cell: ({ row }) => {
-  //       const statusObj = row.original.status_list.list.find(
-  //         (statusObj) => statusObj.name === statusName
-  //       );
-  //       return (
-  //         <div
-  //           className={`text-[#11050599] ${statusObj?.status === "WIP" && "text-yellow-500"
-  //             } ${statusObj?.status === "Halted" && "text-red-500"} ${statusObj?.status === "Completed" && "text-green-800"
-  //             }`}
-  //         >
-  //           {statusObj?.status && statusObj.status !== "Pending"
-  //             ? statusObj?.status
-  //             : "--"}
-  //         </div>
-  //       );
-  //     },
-  //   }));
-  // };
-
-  // const columns: ColumnDef<ScopesMilestones>[] = useMemo(() => {
-  //   const staticColumns: ColumnDef<ScopesMilestones>[] = [
-  //     {
-  //       accessorKey: "work_package",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader
-  //             className="text-black font-bold"
-  //             column={column}
-  //             title="Work Package"
-  //           />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="text-[#11050599]">
-  //             {row.getValue("work_package")}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "scope_of_work",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader
-  //             className="text-black font-bold"
-  //             column={column}
-  //             title="Scope of Work"
-  //           />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="text-[#11050599]">
-  //             {row.getValue("scope_of_work")}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "milestone",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader
-  //             className="text-black font-bold"
-  //             column={column}
-  //             title="Milestone"
-  //           />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="text-[#11050599]">{row.getValue("milestone")}</div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "start_date",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader
-  //             className="text-black font-bold"
-  //             column={column}
-  //             title="Start Date"
-  //           />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="text-[#11050599]">
-  //             {formatDate(row.getValue("start_date"))}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "end_date",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader
-  //             className="text-black font-bold"
-  //             column={column}
-  //             title="End Date"
-  //           />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="text-[#11050599]">
-  //             {formatDate(row.getValue("end_date"))}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //   ];
-
-  //   const dynamicColumns = mile_data ? getStatusListColumns(mile_data) : [];
-  //   return [...staticColumns, ...dynamicColumns];
-  // }, [mile_data]);
-
-
-  // const getSRTotal = (order_id: string) => {
-  //   return useMemo(() => {
-  //     let total: number = 0;
-  //     const orderData = allServiceRequestsData?.find((item) => item.name === order_id)?.service_order_list;
-  //     orderData?.list.forEach((item) => {
-  //       const price = parseNumber(item.rate) * parseNumber(item.quantity);
-  //       total += price;
-  //     });
-  //     return total;
-  //   }, [allServiceRequestsData, order_id]);
-  // };
-
-
-  // const srSummaryColumns: ColumnDef<ServiceRequests>[] = useMemo(
-  //   () => [
-  //     {
-  //       accessorKey: "name",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="SR Number" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         const data = row.original
-  //         const srId = data?.name;
-  //         return (
-  //           <div className="flex items-center gap-1">
-  //             <Link
-  //               className="text-blue-500 underline"
-  //               to={`/service-requests-list/${srId}`}
-  //             >
-  //               {srId?.slice(-5)}
-  //             </Link>
-  //             <ItemsHoverCard order_list={data?.service_order_list.list} isSR />
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "creation",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="Date Created" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="font-medium">
-  //             {formatDate(row.getValue("creation")?.split(" ")[0])}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "status",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="Status" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         return <div className="font-medium">{row.getValue("status")}</div>;
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "service_category_list",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="Categories" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="flex flex-col gap-1 items-start justify-center">
-  //             {row.getValue("service_category_list").list.map((obj) => (
-  //               <Badge className="inline-block">{obj["name"]}</Badge>
-  //             ))}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       id: "total",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader column={column} title="Estimated Price" />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="font-medium">
-  //             {formatToRoundedIndianRupee(getSRTotal(row.getValue("name")) || "--")}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       id: "Amount_paid",
-  //       header: "Amt Paid",
-  //       cell: ({ row }) => {
-  //         const data = row.original
-  //         const amountPaid = getTotalAmountPaidPOWise(data?.name);
-  //         return <div className="font-medium">
-  //           {formatToRoundedIndianRupee(amountPaid || "--")}
-  //         </div>
-  //       },
-  //     },
-  //   ],
-  //   [projectId, allServiceRequestsData, getSRTotal]
-  // );
-
-  // const getPOTotal = (order_id: string) => {
-  //   return useMemo(() => {
-  //     let total: number = 0;
-  //     let totalWithGST: number = 0;
-  //     const po = po_data_for_posummary?.find((item) => item.name === order_id);
-  //     const loading_charges = parseNumber(po?.loading_charges);
-  //     const freight_charges = parseNumber(po?.freight_charges);
-  //     const orderData = po?.order_list;
-
-  //     orderData?.list.forEach((item) => {
-  //       const price = parseNumber(item.quote);
-  //       const quantity = parseNumber(item?.quantity) || 1;
-  //       const gst = parseNumber(item?.tax);
-  //       total += price * quantity;
-  //       const gstAmount = (price * gst) / 100;
-  //       totalWithGST += (price + gstAmount) * quantity;
-  //     });
-
-  //     total += loading_charges + freight_charges;
-  //     totalWithGST += loading_charges * 1.18 + freight_charges * 1.18;
-
-  //     return { totalWithoutGST: total, totalWithGST: totalWithGST };
-  //   }, [po_data_for_posummary, order_id]);
-  // }
-
-  // const getWorkPackageName = useMemo(() => memoize((poId: string) => {
-  //   const po = po_data_for_posummary?.find((j) => j?.name === poId);
-  //   return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package;
-  // }, (poId: string) => poId), [po_data_for_posummary, pr_data])
-
-
-  // const wpOptions = useMemo(() => {
-  //   try {
-  //     if (data && data.project_work_packages) {
-  //       const workPackages = JSON.parse(data.project_work_packages)?.work_packages;
-  //       return workPackages?.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })) || [];
-  //     }
-  //     return [];
-  //   } catch (error) {
-  //     console.error("Error parsing project_work_packages:", error);
-  //     return [];
-  //   }
-  // }, [data]);
-
-
-  // const getTotalAmountPaidPOWise = useMemo(() => memoize((id: string) => {
-  //   const payments = projectPayments?.filter((payment) => payment.document_name === id);
-  //   return payments?.reduce((acc, payment) => acc + parseNumber(payment.amount), 0);
-  // }, (id: string) => id), [projectPayments]);
-
-  // const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
-  //   () => [
-  //     {
-  //       accessorKey: "name",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="ID" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         const data = row.original
-  //         const id = data?.name;
-  //         return (
-  //           <div className="font-medium flex items-center gap-2 relative">
-  //             <Link
-  //               className="underline hover:underline-offset-2"
-  //               to={`po/${id.replaceAll("/", "&=")}`}
-  //             >
-  //               {id}
-  //             </Link>
-  //             <ItemsHoverCard order_list={data?.order_list.list} />
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "creation",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="PO Date Created" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="font-medium">
-  //             {formatDate(row.getValue("creation")?.split(" ")[0])}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "name",
-  //       id: "wp",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="Work Package" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         const po: string = row.getValue("name");
-  //         return <div className="font-medium">{getWorkPackageName(po) || "Custom"}</div>;
-  //       },
-  //       filterFn: (row, id, value) => {
-  //         const rowValue: string = row.getValue(id);
-  //         // console.log("rowvalue", rowValue)
-  //         // console.log("value", value)
-  //         const renderValue = getWorkPackageName(rowValue);
-  //         // console.log("renderValue", renderValue)
-  //         return value.includes(renderValue);
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "vendor_name",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="Vendor" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="font-medium">{row.getValue("vendor_name")}</div>
-  //         );
-  //       },
-  //       filterFn: (row, id, value) => {
-  //         return value.includes(row.getValue(id));
-  //       },
-  //     },
-  //     {
-  //       accessorKey: "status",
-  //       header: ({ column }) => {
-  //         return <DataTableColumnHeader column={column} title="Status" />;
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <Badge
-  //             variant={
-  //               row.getValue("status") === "PO Approved"
-  //                 ? "default"
-  //                 : row.getValue("status") === "PO Sent"
-  //                   ? "yellow"
-  //                   : row.getValue("status") === "Dispatched"
-  //                     ? "orange"
-  //                     : "green"
-  //             }
-  //           >
-  //             {row.getValue("status") === "Partially Delivered"
-  //               ? "Delivered"
-  //               : row.getValue("status")}
-  //           </Badge>
-  //         );
-  //       },
-  //     },
-  //     // {
-  //     //   id: "totalWithoutGST",
-  //     //   header: ({ column }) => {
-  //     //     return (
-  //     //       <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
-  //     //     );
-  //     //   },
-  //     //   cell: ({ row }) => {
-  //     //     return (
-  //     //       <div className="font-medium">
-  //     //         {formatToRoundedIndianRupee(
-  //     //           getPOTotal(row.getValue("name")).totalWithoutGST
-  //     //         )}
-  //     //       </div>
-  //     //     );
-  //     //   },
-  //     // },
-  //     {
-  //       accessorKey: "owner",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader column={column} title="Approved By" />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         const data = row.original
-  //         const ownerUser = usersList?.find((entry) => data?.owner === entry.name)
-  //         return (
-  //           <div className="font-medium">
-  //             {ownerUser?.full_name || data?.owner || "--"}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       id: "totalWithGST",
-  //       header: ({ column }) => {
-  //         return (
-  //           <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
-  //         );
-  //       },
-  //       cell: ({ row }) => {
-  //         return (
-  //           <div className="font-medium">
-  //             {formatToRoundedIndianRupee(
-  //               getPOTotal(row.getValue("name")).totalWithGST
-  //             )}
-  //           </div>
-  //         );
-  //       },
-  //     },
-  //     {
-  //       id: "Amount_paid",
-  //       header: "Amt Paid",
-  //       cell: ({ row }) => {
-  //         const data = row.original
-  //         const amountPaid = getTotalAmountPaidPOWise(data?.name);
-  //         return <div className="font-medium">
-  //           {formatToRoundedIndianRupee(amountPaid)}
-  //         </div>
-  //       },
-  //     },
-  //     {
-  //       accessorKey: 'order_list',
-  //       header: ({ column }) => {
-  //         return <h1 className="hidden">:</h1>
-  //       },
-  //       cell: ({ row }) => <span className="hidden">hh</span>
-  //     }
-  //   ],
-  //   [projectId, po_data_for_posummary, data, projectPayments, getWorkPackageName, getTotalAmountPaidPOWise, getPOTotal, usersList]
-  // );
+}, [po_data]);
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
 
@@ -1050,6 +551,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     month: "long",
     day: "numeric",
   });
+
   const componentRef = React.useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
     content: () => {
@@ -1141,7 +643,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }, {}) || {};
 
     return { groupedData, totals };
-  }, [project_estimates, items]);
+  }, [items]);
 
   const poToWorkPackageMap = useMemo(() => {
     if (!po_data || !pr_data) return {};
@@ -1257,27 +759,77 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, []);
 
   useEffect(() => {
-    if (data) {
-      const workPackages =
-        JSON.parse(data?.project_work_packages)?.work_packages || [];
-      const options = [
-        { label: "All", value: "All" },
-        ...workPackages.map((wp) => ({ label: wp?.work_package_name, value: wp?.work_package_name })),
-        // { label: "Tool & Equipments", value: "Tool & Equipments" },
-        { label: "Services", value: "Services" },
-      ].sort((a, b) => {
-        if (a.label === "All") return -1;
-        if (b.label === "All") return 1;
-        return a.label.localeCompare(b.label);
-      });
+    if (data && data.project_wp_category_makes) {
+        // Step 1: Extract unique procurement package DocNames from the child table
+        const uniqueWPDocNames = new Set<string>();
+        data.project_wp_category_makes.forEach((item: ProjectWPCategoryMake) => {
+            if (item.procurement_package) {
+                uniqueWPDocNames.add(item.procurement_package);
+            }
+        });
 
+        // Step 2: Create options from these unique DocNames
+        // For the label, you'd ideally use the display name (e.g., work_package_name)
+        // For now, let's assume the DocName itself can be used as a label,
+        // or you have a way to map it (e.g., from a fetched list of all Procurement Packages).
 
-      setMakeOptions(options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label)));
+        // --- Placeholder for mapping DocName to Display Name ---
+        // Example: if you fetched 'allProcurementPackages'
+        // const wpNameMap = new Map<string, string>();
+        // allProcurementPackages?.forEach(pkg => {
+        //     if (pkg.name && pkg.work_package_name) {
+        //         wpNameMap.set(pkg.name, pkg.work_package_name);
+        //     }
+        // });
+        // --- End Placeholder ---
 
-      setOptions(options);
-      // setSelectedPackage("All");
+        const workPackageOptions = Array.from(uniqueWPDocNames).map(wpDocName => {
+            // const label = wpNameMap.get(wpDocName) || wpDocName; // Use display name if available
+            const label = wpDocName; // Using DocName as label for now
+            return { label: label, value: wpDocName };
+        });
+
+        // Step 3: Construct the full options list including "All", "Services"
+        const finalOptions = [
+            { label: "All", value: "All" },
+            ...workPackageOptions,
+            // { label: "Tool & Equipments", value: "Tool & Equipments" }, // This was commented out
+            { label: "Services", value: "Services" }, // Assuming "Services" is always an option
+        ].sort((a, b) => {
+            if (a.label === "All") return -1;
+            if (b.label === "All") return 1;
+            return a.label.localeCompare(b.label);
+        });
+        
+        setOptions(finalOptions);
+
+        // Step 4: Set makeOptions (which seems to be a filtered version of finalOptions)
+        // Your original logic for makeOptions: options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label))
+        // Since "Tool & Equipments" is commented out, it might just be:
+        const filteredMakeOptions = finalOptions.filter(
+            option => !["All", "Services"].includes(option.label)
+        );
+        setMakeOptions(filteredMakeOptions);
+        
+        // setSelectedPackage("All"); // If you need to reset a selection
+
+    } else if (data && !data.project_wp_category_makes) {
+        // Handle case where project data is loaded but the child table is empty or missing
+        // This might mean no work packages are configured for the project yet.
+        const defaultOptions = [
+            { label: "All", value: "All" },
+            { label: "Services", value: "Services" },
+        ].sort((a, b) => {
+            if (a.label === "All") return -1;
+            if (b.label === "All") return 1;
+            return a.label.localeCompare(b.label);
+        });
+        setOptions(defaultOptions);
+        setMakeOptions(defaultOptions.filter(opt => !["All", "Services"].includes(opt.label)));
     }
-  }, [data]);
+}, [data, setOptions, setMakeOptions]); // Add setOptions and setMakeOptions to dependencies if they are stable
+                                       // If allProcurementPackages is fetched, add it to dependencies too.
+
 
   const handleStatusChange = useCallback((value: string) => {
     if (value === data?.status) {

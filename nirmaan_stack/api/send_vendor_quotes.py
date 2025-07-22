@@ -1,10 +1,23 @@
 import frappe
+from frappe.utils import flt
 
 import json # Ensure json is imported if not already
 # Import necessary functions from the hooks file
 from ..integrations.Notifications.pr_notifications import PrNotification, get_admin_users, get_allowed_lead_users
 from ..integrations.controllers.procurement_requests import validate_procurement_request_for_po
 from ..api.approve_vendor_quotes import generate_pos_from_selection # Make sure this path is correct
+
+def convert_to_format1(data_format2: dict) -> dict:
+    """ Helper function to convert payment terms format. """
+    if not isinstance(data_format2, dict):
+        return {}
+    data_format1 = {}
+    for vendor_id, vendor_data in data_format2.items():
+        if isinstance(vendor_data, dict) and 'terms' in vendor_data:
+            milestones = vendor_data.get('terms', [])
+            if isinstance(milestones, list):
+                data_format1[vendor_id] = milestones
+    return data_format1
 
 
 @frappe.whitelist()
@@ -26,11 +39,26 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         original_workflow_state = pr_doc.workflow_state
         custom = True if pr_doc.work_package is None else False # Determine if custom PR
 
-        procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
+        # procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
+        order_list = pr_doc.get("order_list", [])
         category_list = frappe.parse_json(pr_doc.category_list).get('list', [])
-        rfq_data = frappe.parse_json(pr_doc.rfq_data) if pr_doc.rfq_data else {}
-        selected_vendors = rfq_data.get("selectedVendors", [])
-        rfq_details = rfq_data.get("details", {})
+        payment_terms = frappe.parse_json(pr_doc.payment_terms or '{}').get('list', {})
+
+        # RFQ data handling
+        rfq_data_pr = {}
+        if isinstance(pr_doc.rfq_data, str):
+            try:
+                rfq_data_pr = frappe.parse_json(pr_doc.rfq_data or '{}')
+            except json.JSONDecodeError:
+                frappe.log_error(f"Invalid RFQ JSON in PR {pr_id}", "handle_delayed_items")
+                rfq_data_pr = {"selectedVendors": [], "details": {}} # Default
+        elif isinstance(pr_doc.rfq_data, dict): # If Frappe already parsed it
+            rfq_data_pr = pr_doc.rfq_data
+        else: # Default if missing or unexpected type
+            rfq_data_pr = {"selectedVendors": [], "details": {}}
+
+        selected_vendors = rfq_data_pr.get("selectedVendors", [])
+        rfq_details = rfq_data_pr.get("details", {})
 
         delayed_items_details = [] # Store full details for Sent Back
         delayed_item_names = []    # Store just names for status update
@@ -38,31 +66,35 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
 
         new_rfq_details = {} # For Sent Back RFQ data
 
-        for item in procurement_list:
+        for item in order_list:
             # Ensure item is a dict and has 'name'
-            if not isinstance(item, dict) or "name" not in item:
-                frappe.log_error(f"Invalid item format in PR {pr_id}: {item}", "handle_delayed_items")
+            if not item.get("item_id"):
+                frappe.log_error(f"Invalid item format in PR {pr_id}: {item.as_dict()}", "handle_delayed_items")
                 continue # Skip malformed item
 
             if not item.get("vendor"):
                 # Item is delayed
-                delayed_item_names.append(item["name"])
+                delayed_item_names.append(item.item_id)
                 delayed_items_details.append({
-                    "name": item["name"],
-                    "item": item["item"],
-                    "quantity": item["quantity"],
-                    "tax": item.get("tax"),
-                    "unit": item["unit"],
-                    "category": item["category"],
+                    "item_id": item.get("item_id"),
+                    "item_name": item.get("item_name"),
+                    "quantity": flt(item.get("quantity")),
+                    "tax": flt(item.get("tax")),
+                    "unit": item.get("unit"),
+                    "category": item.get("category"),
                     "status": "Pending", # Status in Sent Back should be Pending
                     "comment": item.get("comment"),
-                    "work_package": item.get("work_package"),
+                    "procurement_package": item.get("procurement_package") or pr_doc.work_package,
                     "make": item.get("make"),
                     # Add other relevant fields needed by Sent Back Category
                 })
                 # Add item details to new_rfq_details for the Sent Back doc
-                if item["name"] in rfq_details:
-                    new_rfq_details[item["name"]] = rfq_details[item["name"]]
+                # if item.item_id in rfq_details:
+                #     new_rfq_details[item.item_id] = rfq_details[item.item_id]
+                print(f"DEBUGRFQ: Adding rfq_details for item {item}")
+                if item.name in rfq_details:
+                    new_rfq_details[item.name] = rfq_details[item.name]
+                    print(f"DEBUGRFQ: Adding rfq_details for item {rfq_details}")
             else:
                 # Item has a vendor, potentially ready for approval/PO
                 items_with_vendors.append(item)
@@ -71,42 +103,72 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
 
 
         # Update the original PR's procurement list status
-        updated_procurement_list_items = []
-        for item in procurement_list:
-            if isinstance(item, dict) and item.get("name") in delayed_item_names:
+        # updated_procurement_list_items = []
+        for item in order_list:
+            if item.item_id in delayed_item_names:
                 # Mark as Delayed in the original PR
-                updated_procurement_list_items.append({**item, "status": "Delayed"})
+                # updated_procurement_list_items.append({**item, "status": "Delayed"})
+                item.status = "Delayed"
             else:
-                # Keep original item data (including vendor if present)
-                updated_procurement_list_items.append(item)
+        # THIS IS THE FIX:
+        # Explicitly mark items that are NOT delayed (i.e., have a vendor)
+        # with the "Pending" status that the validator function expects.
+                item.status = "Pending"  
+            # else:
+            #     # Keep original item data (including vendor if present)
+            #     updated_procurement_list_items.append(item)
 
         # Update the PR doc's procurement_list in memory *before* validation/saving
-        pr_doc.procurement_list = json.dumps({"list": updated_procurement_list_items})
+        # pr_doc.procurement_list = json.dumps({"list": updated_procurement_list_items})
 
         # Create Sent Back Category if there are delayed items
         sent_back_doc_name = None
         if delayed_items_details:
             new_categories = []
+            delayed_item_categories = set(item.get("category") for item in delayed_items_details)
             # Rebuild category list based only on *delayed* items
-            for item in delayed_items_details:
-                if not any(cat["name"] == item["category"] for cat in new_categories):
-                    makes = next((cat.get("makes", []) for cat in category_list if cat["name"] == item["category"]), [])
-                    new_categories.append({"name": item["category"], "makes": makes})
+            # for item in delayed_items_details:
+            #     if not any(cat["name"] == item["category"] for cat in new_categories):
+            #         makes = next((cat.get("makes", []) for cat in category_list if cat["name"] == item["category"]), [])
+            #         new_categories.append({"name": item["category"], "makes": makes})
+            for cat_name in delayed_item_categories:
+                # Find original makes for this category from the PR's category_list_json_pr
+                original_cat_info = next((c for c in category_list if c.get("name") == cat_name), None)
+                makes_for_sbc_cat = original_cat_info.get("makes", []) if original_cat_info else []
+                new_categories.append({"name": cat_name, "makes": makes_for_sbc_cat})
 
-            new_send_back = {
-                "procurement_request": pr_id,
-                "project": pr_doc.project,
-                "category_list": json.dumps({"list": new_categories}), # Store as JSON string
-                "item_list": json.dumps({"list": delayed_items_details}), # Store as JSON string
-                "rfq_data": json.dumps({"selectedVendors": selected_vendors, "details": new_rfq_details}), # Store as JSON string
-                "type": "Delayed",
-                # Add other mandatory fields for Sent Back Category
-            }
+
+            # new_send_back = {
+            #     "procurement_request": pr_id,
+            #     "project": pr_doc.project,
+            #     "category_list": json.dumps({"list": new_categories}), # Store as JSON string
+            #     "item_list": json.dumps({"list": delayed_items_details}), # Store as JSON string
+            #     "rfq_data": json.dumps({"selectedVendors": selected_vendors, "details": new_rfq_details}), # Store as JSON string
+            #     "type": "Delayed",
+            #     # Add other mandatory fields for Sent Back Category
+            # }
 
             sent_back_doc = frappe.new_doc("Sent Back Category")
-            sent_back_doc.update(new_send_back)
-            sent_back_doc.insert(ignore_permissions=True) # Consider permissions
+            sent_back_doc.procurement_request = pr_id
+            sent_back_doc.project = pr_doc.project
+            sent_back_doc.type = "Delayed"
+            # Assuming SBC's category_list and rfq_data are still JSON
+            sent_back_doc.category_list = json.dumps({"list": new_categories})
+            sent_back_doc.rfq_data = json.dumps({
+                "selectedVendors": selected_vendors, # Carry over selected vendors for RFQ context
+                "details": new_rfq_details
+            })
+
+            # Populate the order_list child table for Sent Back Category
+            for sbc_item_data in delayed_items_details:
+                sent_back_doc.append("order_list", sbc_item_data) # "order_list" is the child table field in SBC
+
+            sent_back_doc.insert(ignore_permissions=True)
             sent_back_doc_name = sent_back_doc.name
+
+            # sent_back_doc.update(new_send_back)
+            # sent_back_doc.insert(ignore_permissions=True) # Consider permissions
+            # sent_back_doc_name = sent_back_doc.name
 
             if comments and comments.get("delaying"):
                 # Add comment related to the Sent Back document
@@ -129,20 +191,37 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
             # All items were delayed
             pr_doc.workflow_state = "Delayed"
             final_message = "All items have been marked as delayed. You can find them in the 'Sent Back Requests' under the delayed tab."
+            pr_doc.save(ignore_permissions=True) # Save the final "Delayed" state
         else:
             # Some items have vendors selected (are not delayed)
             pr_doc.workflow_state = "Vendor Selected" # Tentative state
+            
+            pr_doc.estimated_value = sum(
+                float(item.get('quote', 0)) * float(item.get('quantity', 0))
+                for item in pr_doc.get('order_list') if item.get('status') == 'Pending'
+            )
+ 
+            pr_doc.save(ignore_permissions=True)
+            frappe.db.commit() # Ensure the transaction is committed
 
+   
+            doc_to_validate = frappe.get_doc("Procurement Requests", pr_id)
+    
             # Check if these items are ready for PO (validation)
             # Pass the updated pr_doc object directly to the validation function
-            is_ready_for_po = validate_procurement_request_for_po(pr_doc)
+            
+            is_ready_for_po = validate_procurement_request_for_po(doc_to_validate)
+            # print("is_ready_for_po": {is_ready_for_po})
 
             if is_ready_for_po:
-                pr_doc.workflow_state = "Vendor Approved" # Final state if validation passes
+                doc_to_validate.workflow_state = "Vendor Approved" # Final state if validation passes
                 # Prepare for PO generation - Extract necessary data from the *updated* pr_doc
-                current_procurement_list = json.loads(pr_doc.procurement_list).get('list', [])
-                items_for_po = [item["name"] for item in current_procurement_list if item.get("status") != "Delayed" and item.get("vendor")]
-                selected_vendors_for_po = {item["name"]: item["vendor"] for item in current_procurement_list if item.get("status") != "Delayed" and item.get("vendor")}
+                # current_procurement_list = json.loads(pr_doc.procurement_list).get('list', [])
+                current_order_list = doc_to_validate.get("order_list", [])
+                # items_for_po = [item.item_id for item in current_order_list if item.get("status") != "Delayed" and item.get("vendor")]
+                # selected_vendors_for_po = {item.item_id: item.vendor for item in current_order_list if item.get("status") != "Delayed" and item.get("vendor")}
+                items_for_po = [item.name for item in current_order_list if item.get("status") == "Pending"]
+                selected_vendors_for_po = {item.name: item.vendor for item in current_order_list if item.get("status") == "Pending"}
 
                 # We will generate PO *after* saving the PR successfully
                 po_generated = True
@@ -182,7 +261,13 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         # Generate POs if validation passed
         if po_generated:
             try:
-                po_details = generate_pos_from_selection(pr_doc.project, pr_doc.name, po_items_arr, po_selected_vendors, False)
+                 # 1. Convert the payment_terms DICTIONARY into a JSON STRING.
+                payment_terms_str = json.dumps(convert_to_format1(payment_terms))
+        
+        # 2. Add a debug print to confirm the string format.
+                print(f"DEBUGSVQ: Passing payment_terms as string: {payment_terms_str}")
+
+                po_details = generate_pos_from_selection(pr_doc.project, pr_doc.name, po_items_arr, po_selected_vendors, False,payment_terms=payment_terms_str)
                 if po_details and po_details.get('po'):
                     final_message += f" PO {po_details['po']} generated."
                     po_doc = frappe.get_doc("Procurement Orders", po_details['po'])

@@ -39,6 +39,7 @@ interface ProcurementRequestState {
 }
 
 // Helper to derive categories, now incorporating sessionAddedMakes
+// REFACTOR: remove the use of makes from this function
 const deriveCategoriesWithMakes = (
     procList: ProcurementRequestItem[],
     initialMakesMap: CategoryMakesMap, // Baseline makes for the WP
@@ -87,7 +88,7 @@ const deriveCategoriesWithMakes = (
             finalCategories.push({
                 name: categoryName,
                 status: status,
-                makes: Array.from(combinedMakes).sort() // Convert Set to sorted array
+                // makes: Array.from(combinedMakes).sort() // Convert Set to sorted array
             });
         }
     });
@@ -120,7 +121,7 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             // --- Actions ---
             initialize: (mode, projectId, prId, wpSpecificInitialMakes = {}, initialPrData) => {
                 const currentState = get();
-                if (!currentState.isInitialized || currentState.projectId !== projectId || ( currentState.prId != prId) || currentState.mode !== mode) {
+                if (!currentState.isInitialized || currentState.projectId !== projectId || (currentState.prId != prId) || currentState.mode !== mode) {
                     console.log("Initializing store:", { mode, projectId, prId });
                     const initialProcList = initialPrData?.procList || [];
                     // Ignore initialPrData.categories - we will derive them fresh

@@ -26,6 +26,7 @@ import { useUsersList } from "./hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "../config/prTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
@@ -65,7 +66,7 @@ export const ApprovePR: React.FC = () => {
     // --- Fields to Fetch ---
 
     const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(['creation',
-        'modified', 'category_list', 'procurement_list']), [])
+        'modified', 'category_list', 'target_value']), [])
 
     const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([
         { value: 'work_package', label: 'Work Package', placeholder: 'Search by Work Package...' },
@@ -93,7 +94,12 @@ export const ApprovePR: React.FC = () => {
                         </Link>
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ItemsHoverCard order_list={Array.isArray(data.procurement_list?.list) ? data.procurement_list.list : []} isPR />
+                            <ItemsHoverCard
+                                parentDocId={prId}
+                                parentDoctype={DOCTYPE} // 'Procurement Requests'
+                                childTableName={"order_list"} // Or "procurement_list" - check your DocType
+                                isPR={true} // Pass relevant flags
+                            />
                         </div>
                     </div>
                 );
@@ -170,6 +176,20 @@ export const ApprovePR: React.FC = () => {
                 exportValue: (row) => {
                     const ownerUser = userList?.find((entry) => row.owner === entry.name);
                     return ownerUser?.full_name || row.owner || "--";
+                }
+            }
+        },
+        {
+            accessorKey: "target_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Est. Value (excl GST)" />,
+            cell: ({ row }) => {
+                const targetValue: string = Math.round(row.getValue("target_value")) !== 0 ? row.getValue("target_value") : "N/A";
+                return (<div className="font-medium truncate">{targetValue === "N/A" ? targetValue : formatToRoundedIndianRupee(targetValue)}</div>);
+            }, size: 180,
+            meta: {
+                exportHeaderName: "Est. Value (excl GST)",
+                exportValue: (row) => {
+                    const targetValue: string = Math.round(row.getValue("target_value")) !== 0 ? row.getValue("target_value") : "N/A";
+                    return targetValue === "N/A" ? targetValue : formatToRoundedIndianRupee(targetValue);
                 }
             }
         },

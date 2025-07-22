@@ -1,12 +1,10 @@
 import { FormSkeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import NewCustomer from "@/pages/customers/add-new-customer"
-import { formatToLocalDateTimeString } from "@/utils/FormatDate"
-import { parseNumber } from "@/utils/parseNumber"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Steps } from "antd"
 import { format } from "date-fns"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
+import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
 import { BadgeIndianRupee, CalendarIcon, CirclePlus, ListChecks, Pencil, Undo2 } from "lucide-react"
 import React, { useCallback, useEffect, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
@@ -29,6 +27,12 @@ import { Separator } from "../../components/ui/separator"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "../../components/ui/sheet"
 import { useToast } from "../../components/ui/use-toast"
 import useSectionContext, { SectionProvider } from "./SectionContext"
+import { Category } from "@/types/NirmaanStack/Category"
+import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist"
+import { WorkPackage } from "@/types/NirmaanStack/Projects"
+import { Customers } from "@/types/NirmaanStack/Customers"
+import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes"
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 
 
 const { Step } = Steps;
@@ -53,8 +57,11 @@ const projectFormSchema = z.object({
     project_value: z
         .string()
         .optional(),
-    subdivisions: z
-        .string(),
+    project_value_gst: z
+        .string()
+        .optional(),
+    // subdivisions: z
+    //     .string(),
     address_line_1: z
         .string({
             required_error: "Address Line 1 Required"
@@ -197,6 +204,7 @@ export const ProjectForm = () => {
     const defaultValues: ProjectFormValues = {
         project_name: "",
         project_value: "",
+        project_value_gst: "",
         project_start_date: new Date(),
         project_end_date: undefined,
         project_work_packages: {
@@ -231,7 +239,7 @@ export const ProjectForm = () => {
         design_lead: "",
         project_manager: "",
         accountant: "",
-        subdivisions: "",
+        // subdivisions: "",
     };
 
     const form = useForm<ProjectFormValues>({
@@ -239,15 +247,15 @@ export const ProjectForm = () => {
         mode: "onBlur",
         defaultValues
     })
-    const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
+    const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList<Customers>('Customers', {
         fields: ["name", "company_name", "creation"],
-        limit: 1000,
+        limit: 0,
         orderBy: { field: "creation", order: "desc" }
     });
 
-    const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList('Project Types', {
+    const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList<ProjectTypes>('Project Types', {
         fields: ["name", "project_type_name", "creation"],
-        limit: 1000,
+        limit: 0,
         orderBy: { field: "creation", order: "desc" }
     });
 
@@ -256,10 +264,10 @@ export const ProjectForm = () => {
         await project_types_mutate()
     })
 
-    const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
+    const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList<NirmaanUsers>('Nirmaan Users', {
         fields: ["name", "full_name", "role_profile"],
         filters: [["name", "!=", "Administrator"]],
-        limit: 1000
+        limit: 0
     });
 
     const { call: createProjectAndAddress, loading: createProjectAndAddressLoading } = useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address")
@@ -269,7 +277,7 @@ export const ProjectForm = () => {
     const [popoverOpen, setPopoverOpen] = useState(false);
     const [popoverOpen2, setPopoverOpen2] = useState(false);
     const [duration, setDuration] = useState(0)
-    const [areaNames, setAreaNames] = useState([]);
+    const [areaNames, setAreaNames] = useState<{ name: string; status: string; }[]>([]);
     const [newProjectId, setNewProjectId] = useState();
     const { toast } = useToast()
     const [section, setSection] = useState("projectDetails")
@@ -323,103 +331,6 @@ export const ProjectForm = () => {
         button?.click()
     };
 
-    // async function onSubmit(values: z.infer<typeof projectFormSchema>) {
-    //     let reformattedWorkPackages = []
-    //     try {
-    //         if (values.project_city === "Not Found" || values.project_state === "Not Found") {
-    //             throw new Error('City and State are "Not Found", Please Enter a Valid Pincode!')
-    //         }
-    //         if (!values.project_end_date) {
-    //             throw new Error('Project_End_Date Must not be empty!')
-    //         }
-    //         if (!values.project_work_packages.work_packages.length) {
-    //             throw new Error('Please select atleast one work package associated with this project!')
-    //         } else {
-    //             reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
-    //                 const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
-    //                     name: category.name,
-    //                     makes: category.makes.map((make) => make.label), // Extract only the labels
-    //                 }));
-
-    //                 return {
-    //                     ...workPackage,
-    //                     category_list: {
-    //                         list: updatedCategoriesList,
-    //                     },
-    //                 };
-    //             });
-    //         }
-    //         // Format the dates
-    //         const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
-    //         const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
-
-    //         // Create the address document
-    //         const addressDoc = await createDoc('Address', {
-    //             address_title: values.project_name,
-    //             address_type: "Shipping",
-    //             address_line1: values.address_line_1,
-    //             address_line2: values.address_line_2,
-    //             city: values.project_city,
-    //             state: values.project_state,
-    //             country: "India",
-    //             pincode: values.pin,
-    //             email_id: values.email,
-    //             phone: values.phone
-    //         });
-
-    //         try {
-    //             // Create the project document using the address document reference
-    //             const projectDoc = await createDoc('Projects', {
-    //                 project_name: values.project_name,
-    //                 customer: values.customer,
-    //                 project_type: values.project_type,
-    //                 project_value: parseNumber(values.project_value),
-    //                 project_gst_number: values.project_gst_number,
-    //                 project_start_date: formatted_start_date,
-    //                 project_end_date: formatted_end_date,
-    //                 project_address: addressDoc.name,
-    //                 project_city: values.project_city,
-    //                 project_state: values.project_state,
-    //                 project_lead: values.project_lead,
-    //                 procurement_lead: values.procurement_lead,
-    //                 estimates_exec: values.estimates_exec,
-    //                 design_lead: values.design_lead,
-    //                 accountant: values.accountant,
-    //                 project_manager: values.project_manager,
-    //                 project_work_packages: { work_packages: reformattedWorkPackages },
-    //                 // project_category_list: values.project_category_list,
-    //                 project_scopes: values.project_scopes,
-    //                 subdivisions: values.subdivisions,
-    //                 subdivision_list: {
-    //                     list: areaNames
-    //                 },
-    //                 status: "Created"
-    //             })
-
-    //             // console.log("project", projectDoc)
-    //             toast({
-    //                 title: "Success!",
-    //                 description: `Project ${projectDoc.project_name} created successfully!`,
-    //                 variant: "success"
-    //             })
-    //             setNewProjectId(projectDoc.name)
-    //             handleOpenDialog()
-
-    //         }
-    //         catch (projectError) {
-    //             await deleteDoc('Address', addressDoc.name);
-    //             throw projectError;
-    //         }
-    //     } catch (error) {
-    //         toast({
-    //             title: "Failed!",
-    //             description: `${error?.message}`,
-    //             variant: "destructive"
-    //         })
-    //         console.log("Error:", error);
-    //     }
-    // }
-
     async function onSubmit(values: ProjectFormValues) {
         try {
 
@@ -453,7 +364,7 @@ export const ProjectForm = () => {
                     variant: 'destructive',
                 });
             }
-        } catch (error) {
+        } catch (error: any) {
             toast({
                 title: "Failed!",
                 description: `${error?.message}`,
@@ -505,10 +416,10 @@ export const ProjectForm = () => {
         value: item.name
     })) || [];
 
-    const estimates_exec_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Estimates Executive Profile").map(item => ({
-        label: item.full_name, // Adjust based on your data structure
-        value: item.name
-    })) || [];
+    // const estimates_exec_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Estimates Executive Profile").map(item => ({
+    //     label: item.full_name, // Adjust based on your data structure
+    //     value: item.name
+    // })) || [];
 
     const accountant_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Accountant Profile").map(item => ({
         label: item.full_name, // Adjust based on your data structure
@@ -519,7 +430,7 @@ export const ProjectForm = () => {
         work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
 
-    const handleSubdivisionChange = (e) => {
+    const handleSubdivisionChange = (e: number) => {
         let n = e;
         setAreaNames(Array.from({ length: Number(n) }, (_, i) => ({
             name: `Area ${i + 1}`,
@@ -527,7 +438,7 @@ export const ProjectForm = () => {
         })));
     }
 
-    const handleAreaNameChange = (index, event) => {
+    const handleAreaNameChange = (index: number, event: React.ChangeEvent<HTMLInputElement>) => {
         const newAreaNames = [...areaNames];
         newAreaNames[index].name = event.target.value;
         setAreaNames(newAreaNames);
@@ -573,7 +484,7 @@ export const ProjectForm = () => {
     const getFieldsForSection = (sectionName: string) => {
         switch (sectionName) {
             case "projectDetails":
-                return ["project_name", "customer", "project_type", "subdivisions", "project_value"];
+                return ["project_name", "customer", "project_type", "subdivisions", "project_value", "project_value_gst"];
             case "projectAddressDetails":
                 return ["address_line_1", "address_line_2", "project_city", "project_state", "pin", 'email', 'phone'];
             case "projectTimeline":
@@ -715,7 +626,22 @@ export const ProjectForm = () => {
                                             <FormLabel className="md:basis-2/12">Project Value (excl. GST)</FormLabel>
                                             <div className="flex flex-col items-start md:basis-2/4">
                                                 <FormControl className="">
-                                                    <Input placeholder="Project Value" {...field} />
+                                                    <Input placeholder="Enter Project Value without GST" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </div>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="project_value_gst"
+                                    render={({ field }) => (
+                                        <FormItem className="lg:flex lg:items-center gap-4">
+                                            <FormLabel className="md:basis-2/12">Project Value (incl. GST)</FormLabel>
+                                            <div className="flex flex-col items-start md:basis-2/4">
+                                                <FormControl className="">
+                                                    <Input placeholder="Enter Project Value with GST" {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </div>
@@ -808,7 +734,7 @@ export const ProjectForm = () => {
                                         </FormItem>
                                     )}
                                 />
-                                <FormField
+                                {/* <FormField
                                     control={form.control}
                                     name="subdivisions"
                                     render={({ field }) => {
@@ -846,8 +772,8 @@ export const ProjectForm = () => {
                                             </FormItem>
                                         )
                                     }}
-                                />
-                                {Array.from({ length: form.getValues().subdivisions }).map((_, index) => {
+                                /> */}
+                                {/* {Array.from({ length: Number(form.getValues().subdivisions) }).map((_, index) => {
                                     return <FormItem className="lg:flex lg:items-center gap-4">
                                         <FormLabel className="md:basis-2/12">Area {index + 1}:</FormLabel>
                                         <div className="md:basis-2/4">
@@ -859,7 +785,7 @@ export const ProjectForm = () => {
                                             />
                                         </div>
                                     </FormItem>
-                                })}
+                                })} */}
                                 <div className="flex items-center justify-end">
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
@@ -1241,38 +1167,6 @@ export const ProjectForm = () => {
 
                                 {/* <FormField
                                     control={form.control}
-                                    name="estimates_exec"
-                                    render={({ field }) => (
-                                        <FormItem className="lg:flex lg:items-center gap-4">
-                                            <FormLabel className="md:basis-2/12">Estimates Executive</FormLabel>
-                                            <div className="md:basis-2/4">
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                    <div className="flex flex-col items-start">
-                                                        <FormControl>
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Select Estimates Executive" />
-                                                            </SelectTrigger>
-                                                        </FormControl>
-                                                        <FormMessage />
-                                                    </div>
-                                                    <SelectContent>
-                                                        {user_isLoading && <div>Loading...</div>}
-                                                        {user_error && <div>Error: {user_error.message}</div>}
-                                                        {estimates_exec_options.map(option => (
-                                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <FormDescription>
-                                                Select Estimates Executive
-                                            </FormDescription>
-                                        </FormItem>
-                                    )}
-                                /> */}
-
-                                <FormField
-                                    control={form.control}
                                     name="design_lead"
                                     render={({ field }) => (
                                         <FormItem className="lg:flex lg:items-center gap-4">
@@ -1301,7 +1195,7 @@ export const ProjectForm = () => {
                                             </FormDescription>
                                         </FormItem>
                                     )}
-                                />
+                                /> */}
 
                                 <FormField
                                     control={form.control}
@@ -1344,222 +1238,6 @@ export const ProjectForm = () => {
                                 </div>
                             </>
                         )}
-
-                        {/* <Separator className="my-6" /> */}
-                        {/* {section === "packageSelection" && (
-                            <>
-                                <p className="text-sky-600 font-semibold">Package Specification</p>
-                                <FormField
-                                    control={form.control}
-                                    name="project_work_packages"
-                                    render={() => (
-                                        <FormItem>
-                                            <div className="mb-4">
-                                                <FormLabel className="text-base flex">Work Package selection<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                                <FormDescription>
-                                                    Select the work packages.
-                                                </FormDescription>
-                                            </div>
-                                            <Checkbox
-                                                className="mr-3"
-                                                onCheckedChange={(checked) => {
-                                                    if (checked) {
-                                                        // form.getValues().project_work_packages.work_packages.forEach(wp => {
-                                                            const wpCategoryOptions = []
-                                                            wp_list?.forEach(wp => {
-                                                                const categoryOptions = []
-                                                                const selectedCategories = categoriesList?.filter(cat => cat.work_package === wp.work_package_name)
-                                                                selectedCategories?.forEach(cat => {
-                                                                    categoryOptions.push({
-                                                                        // name: cat.category_name,
-                                                                        // makes: []
-                                                                        label: cat.category_name,
-                                                                        value: cat.category_name,
-                                                                        name : cat.category_name,
-                                                                        makes: []
-                                                                    })
-                                                                })
-                                                                if(!wpCategoryOptions.some(selectedWP => selectedWP.work_package_name === wp.work_package_name)) {
-                                                                    if(categoryOptions.length > 0) {
-                                                                    wpCategoryOptions.push({
-                                                                        work_package_name: wp.work_package_name,
-                                                                        category_list: {
-                                                                            list: categoryOptions
-                                                                        }
-                                                                    })
-                                                                    } else {
-                                                                        wpCategoryOptions.push({
-                                                                            work_package_name: wp.work_package_name,
-                                                                        })
-                                                                    }
-                                                                }
-                                                            })
-
-                                                        form.setValue(("project_work_packages.work_packages"), wpCategoryOptions)
-                                                    }
-                                                    else {
-                                                        // form.setValue(("project_work_packages.work_packages.category_list.list"), [])
-                                                        form.setValue(("project_work_packages.work_packages"), [])
-                                                    }
-                                                }}
-
-                                            /> <span className="text-sm text-red-600 font-bold">Select All</span>
-                                            <Separator />
-                                            <Separator />
-                                            {wp_list.map((item) => (
-                                                <Accordion type="single" 
-                                                collapsible
-                                                value={openValue}
-                                                onValueChange={setOpenValue} className="w-full">
-                                                    <AccordionItem value={item.work_package_name}>
-                                                        <AccordionTrigger>
-                                                            <FormField
-                                                                key={item.work_package_name}
-                                                                control={form.control}
-                                                                name="project_work_packages.work_packages"
-                                                                render={({ field }) => {
-                                                                    return (
-                                                                        <FormItem
-                                                                            key={item.work_package_name}
-                                                                            className="flex flex-row items-start space-x-3 space-y-0"
-                                                                        >
-                                                                            <FormControl>
-                                                                                <Checkbox
-                                                                                    checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
-                                                                                    onCheckedChange={(checked) => {
-                                                                                        const categoryOptions = []
-                                                                                        const selectedCategories = categoriesList?.filter(cat => cat.work_package === item.work_package_name)
-                                                                                        selectedCategories?.forEach(cat => {
-                                                                                            categoryOptions.push({
-                                                                                                // name: cat.category_name,
-                                                                                                // makes: []
-                                                                                                label: cat.category_name,
-                                                                                                value: cat.category_name,
-                                                                                                name : cat.category_name,
-                                                                                                makes: []
-                                                                                            })
-                                                                                        })
-                                                                                        return checked
-                                                                                            ? field.onChange([...field.value, { work_package_name: item.work_package_name, category_list : {list : categoryOptions} }])
-                                                                                            : field.onChange(
-                                                                                                field.value?.filter(
-                                                                                                    (value) => value.work_package_name !== item.work_package_name
-                                                                                                )
-                                                                                            )
-                                                                                    }}
-                                                                                />
-                                                                            </FormControl>
-                                                                            <FormLabel className="text-sm font-normal">
-                                                                                {item.work_package_name}
-                                                                            </FormLabel>
-                                                                        </FormItem>
-                                                                    )
-                                                                }}
-                                                            />
-                                                        </AccordionTrigger>
-                                                        <AccordionContent>
-                                                            {categoriesList?.map((catOption) => {
-                                                                if (catOption.work_package === item.work_package_name) {
-                                                                    return (
-                                                                        <div key={catOption.name} >
-                                                                            <Separator />
-                                                                            <FormField
-                                                                                key={catOption.name}
-                                                                                control={form.control}
-                                                                                name="project_work_packages.work_packages"
-                                                                                render={({ field }) => {
-                                                                                    const categoryMakeOptions = category_make_list?.filter(cat => cat.category === catOption.name)
-                                                                                    const selectedMakes = field.value?.find((i) => i?.work_package_name === catOption?.work_package)?.category_list?.list?.find((i) => i?.name === catOption?.name)?.makes || []
-                                                                                    const renderMakeOptions = categoryMakeOptions?.map((i) => ({
-                                                                                        label: i?.make,
-                                                                                        value: i?.make,
-                                                                                    }))
-
-                                                                                   return <FormItem className="flex flex-row items-center justify-between p-3">
-                                                                                        <FormLabel className="text-sm font-normal">
-                                                                                            <div className="flex">
-                                                                                                <GitCommitVertical className="w-6" />
-                                                                                                <span className="text-sm mt-0.5">{catOption.name}</span>
-                                                                                            </div>
-                                                                                        </FormLabel>
-
-                                                                                        <FormControl>
-                                                                                            <ReactSelect
-                                                                                              isMulti
-                                                                                              options={renderMakeOptions}
-                                                                                              value={selectedMakes}
-                                                                                              onChange={(selected) => {
-                                                                                                const updatedCategories = [...(field.value?.find(i => i?.work_package_name === catOption?.work_package)?.category_list?.list || [])];
-                                                                                                const categoryIndex = updatedCategories.findIndex(
-                                                                                                  (cat) => cat.name === catOption.name
-                                                                                                );
-                                                                                            
-                                                                                                updatedCategories[categoryIndex].makes = selected;
-                                                                                            
-                                                                                                field.onChange([...(field.value?.find(i => i?.work_package_name === catOption?.work_package)?.category_list?.list || []), ...updatedCategories]);
-                                                                                              }}
-                                                                                            />
-                                                                                        </FormControl>
-                                                                                    </FormItem>
-                                                                                }}
-                                                                            />
-                                                                        </div>
-                                                                    );
-                                                                }
-                                                            })}
-                                                        </AccordionContent>
-                                                    </AccordionItem>
-                                                </Accordion>
-                                            ))}
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <div className="pt-2 flex items-center justify-end gap-2">
-                                    <Button variant={"outline"} onClick={() => {
-                                        setSection("projectAssignees")
-                                        setCurrentStep(prevStep => prevStep-1)
-                                    }}>Previous</Button>
-                                    {(loading) ?
-                                        <ButtonLoading />
-                                        : <Button type="submit" className="flex items-center gap-1">
-                                            <ListChecks className="h-4 w-4" />
-                                            Submit</Button>
-                                    }
-                                </div>
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <button className="hidden" id="alertOpenProject" >Trigger Dialog</button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader className="flex items-center justify-center">
-                                            <AlertDialogTitle className="text-green-500">
-                                                Project Created Successfully! You can start adding project estimates.
-                                            </AlertDialogTitle>
-                                            <div className="flex gap-2">
-                                                <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
-                                                    <Undo2 className="h-4 w-4" />
-                                                    Go Back
-                                                </AlertDialogAction>
-                                                <AlertDialogAction onClick={() => {
-                                            form.reset()
-                                            form.clearErrors()
-                                        }}
-                                            className="flex items-center gap-1"
-                                        >
-                                            <CirclePlus className="h-4 w-4" />
-                                            Create New</AlertDialogAction>
-                                                <AlertDialogAction onClick={() => navigate(`/projects/${newProjectId}/add-estimates`)} className="flex items-center gap-1 bg-gray-100 text-black">
-                                                    <BadgeIndianRupee className="h-4 w-4" />
-                                                    Next: Fill Estimates
-                                                </AlertDialogAction>
-                                            </div>
-                                        </AlertDialogHeader>
-
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            </>
-                        )} */}
 
                         {section === "packageSelection" && (
                             <>
@@ -1631,26 +1309,31 @@ export const ProjectForm = () => {
     )
 }
 
-const WorkPackageSelection = ({ form, wp_list }) => {
+
+interface WorkPackageSelection {
+    form: any;
+    wp_list: wpType[];
+}
+const WorkPackageSelection: React.FC<WorkPackageSelection> = ({ form, wp_list }) => {
 
     const [openValue, setOpenValue] = useState(null);
-    const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
+    const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList<Category>("Category", {
         fields: ["category_name", "work_package", "name"],
         filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
-        limit: 10000,
+        limit: 0,
     });
 
-    const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
+    const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
         fields: ["make", "category"],
-        limit: 100000,
+        limit: 0,
     });
 
-    const workPackages = form.watch("project_work_packages.work_packages");
+    const workPackages: WorkPackage[] = form.watch("project_work_packages.work_packages");
 
-    const handleSelectAll = (checked) => {
+    const handleSelectAll = (checked: boolean) => {
         if (checked) {
-            const allWorkPackages = categoriesList.reduce((acc, category) => {
-                const existingPackage = acc.find((wp) => wp.work_package_name === category.work_package);
+            const allWorkPackages = categoriesList?.reduce((acc: WorkPackage[], category) => {
+                const existingPackage = acc.find((wp) => wp?.work_package_name === category.work_package);
                 if (existingPackage) {
                     existingPackage.category_list.list.push({
                         name: category.category_name,
@@ -1678,18 +1361,18 @@ const WorkPackageSelection = ({ form, wp_list }) => {
         }
     };
 
-    const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
+    const handleSelectMake = (workPackageName: string, categoryName: string, selectedMakes: string[]) => {
         const updatedWorkPackages = [...workPackages];
 
         let workPackage = updatedWorkPackages.find((wp) => wp.work_package_name === workPackageName);
 
         if (!workPackage) {
             const associatedCategories = categoriesList
-                .filter((cat) => cat.work_package === workPackageName)
+                ?.filter((cat) => cat.work_package === workPackageName)
                 .map((cat) => ({
                     name: cat.category_name,
                     makes: [],
-                }));
+                })) || [];
 
             workPackage = {
                 work_package_name: workPackageName,
@@ -1759,7 +1442,7 @@ const WorkPackageSelection = ({ form, wp_list }) => {
                                                             checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                             onCheckedChange={(checked) => {
                                                                 const updatedCategories = categoriesList
-                                                                    .filter((cat) => cat.work_package === item.work_package_name)
+                                                                    ?.filter((cat) => cat.work_package === item.work_package_name)
                                                                     .map((cat) => ({
                                                                         name: cat.category_name,
                                                                         makes: [],
@@ -1786,7 +1469,7 @@ const WorkPackageSelection = ({ form, wp_list }) => {
                                             ?.filter((cat) => cat.work_package === item.work_package_name)
                                             ?.map((cat) => {
                                                 const categoryMakeOptions = categoryMakeList?.filter((make) => make.category === cat.name);
-                                                const makeOptions = categoryMakeOptions.map((make) => ({
+                                                const makeOptions = categoryMakeOptions?.map((make) => ({
                                                     label: make.make,
                                                     value: make.make,
                                                 }));
@@ -1833,8 +1516,25 @@ const WorkPackageSelection = ({ form, wp_list }) => {
     );
 };
 
+interface ReviewDetailsProps {
+    company?: Customers[];
+    user?: NirmaanUsers[];
+    form: any;
+    duration: number;
+    setSection: React.Dispatch<React.SetStateAction<string>>
+    sections: string[]
+    setCurrentStep: React.Dispatch<React.SetStateAction<number>>
+    sectionTitles: {
+        projectDetails: string;
+        projectAddressDetails: string;
+        projectTimeline: string;
+        projectAssignees: string;
+        packageSelection: string;
+        reviewDetails: string;
+    }
+}
 
-const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
+const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, user, ...sectionProps }) => {
 
     const { setSection, setCurrentStep } = sectionProps
 
@@ -1845,7 +1545,8 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
                     <Detail label="Project Name" value={form.getValues("project_name")} />
                     <Detail label="Project Type" value={form.getValues("project_type")} />
                     <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
-                    <Detail label="Project Value" value={form.getValues("project_value")} />
+                    <Detail label="Project Value(excl. GST)" value={form.getValues("project_value")} />
+                    <Detail label="Project Value(incl. GST)" value={form.getValues("project_value_gst")} />
                 </Section>
 
                 <Section sectionKey="projectAddressDetails">
@@ -1879,7 +1580,7 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
                     <Detail label="Project Manager" value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""} />
                     {/* <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} /> */}
                     <Detail label="Accountant" value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""} />
-                    <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} />
+                    {/* <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} /> */}
                 </Section>
 
                 <div>
@@ -1892,7 +1593,7 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {form
-                            .getValues("project_work_packages")?.work_packages?.map((workPackage, index) => (
+                            .getValues("project_work_packages")?.work_packages?.map((workPackage: WorkPackage, index: number) => (
                                 <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} border-b pb-4`}>
                                     <p className="text-md font-medium text-gray-700">
                                         {workPackage.work_package_name}
@@ -1902,7 +1603,7 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
                                             <li key={idx} className="text-sm text-gray-600">
                                                 <span className="font-semibold">- {category.name}:</span>{" "}
                                                 {category.makes.length > 0
-                                                    ? category.makes.map((make) => make.label).join(", ")
+                                                    ? category.makes.map((make) => make?.label).join(", ")
                                                     : "N/A"}
                                             </li>
                                         ))}
@@ -1918,7 +1619,11 @@ const ReviewDetails = ({ form, duration, company, user, ...sectionProps }) => {
     );
 };
 
-const Section = ({ sectionKey, children }) => {
+interface SectionProps {
+    sectionKey: string;
+    children: React.ReactNode[];
+}
+const Section: React.FC<SectionProps> = ({ sectionKey, children }) => {
     const { setSection, sections, setCurrentStep, sectionTitles } = useSectionContext();
 
     // Flatten children to handle fragments and arrays of elements
@@ -1951,7 +1656,8 @@ const Section = ({ sectionKey, children }) => {
 };
 
 
-const Detail = ({ label, value }) => (
+
+const Detail = ({ label, value }: { label: string; value: string | undefined | null }) => (
     <div className="flex justify-between items-start border-b pb-2 mb-2">
         <p className="text-sm text-gray-600 font-semibold">{label}</p>
         <p className="text-sm text-gray-800 italic">{value || "N/A"}</p>

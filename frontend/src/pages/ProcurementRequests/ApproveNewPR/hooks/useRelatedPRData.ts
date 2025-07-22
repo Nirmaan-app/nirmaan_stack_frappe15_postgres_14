@@ -1,9 +1,10 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { Category, Item, Quote, User, Comment, PRDocType } from "../types"; // Use types defined above
+import { Item, Quote, User, Comment, PRDocType } from "../types"; // Use types defined above
 import { useMemo } from "react";
 import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { Makelist } from "@/types/NirmaanStack/Makelist";
 import { MakeOption } from "../../NewPR/types";
+import { Category } from "@/types/NirmaanStack/Category";
 
 interface UseRelatedPRDataProps {
     prDoc?: PRDocType; // Make optional to avoid errors before PR loads
@@ -16,7 +17,7 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
 
     const { data: usersList, isLoading: usersLoading, error: usersError } = useFrappeGetDocList<User>("Nirmaan Users", {
         fields: ["name", "full_name", "role_profile"], // Fetch required fields
-        limit: 1000,
+        limit: 0,
         // Consider filtering roles directly here if needed, or filter later in useMemo
         // filters: [
         //     ["role_profile", "in", ["Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"]],
@@ -27,7 +28,7 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
         fields: ["name", "category_name", "work_package", "tax"], // Added unit_name if default unit comes from category
         filters: workPackage ? [["work_package", "=", workPackage]] : [],
         orderBy: { field: "category_name", order: "asc" },
-        limit: 10000,
+        limit: 0,
     }, workPackage ? `Category_${workPackage}` : null);
 
     const categoryNames = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
@@ -37,18 +38,19 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
         // Fetch all items for the relevant categories once
         filters: categoryNames.length > 0 ? [["category", "in", categoryNames]] : [],
         orderBy: { field: "creation", order: "desc" },
-        limit: 100000,
+        limit: 0,
     }, categoryNames.length ? undefined : null);
 
     const { data: quoteData, isLoading: quotesLoading, error: quotesError } = useFrappeGetDocList<Quote>("Approved Quotations", {
         fields: ["item_id", "quote"],
-        limit: 100000,
+        limit: 0,
     }, 'Approved Quotations'); // Consider fetching quotes only when needed (e.g., in summary view)
 
     const { data: universalComments, isLoading: commentsLoading, error: commentsError } = useFrappeGetDocList<Comment>("Nirmaan Comments", {
         fields: ["name", "comment_type", "reference_doctype", "reference_name", "comment_by", "content", "subject", "creation"], // Specify fields
         filters: prName ? [["reference_name", "=", prName]] : [],
         orderBy: { field: "creation", order: "desc" },
+        limit: 0,
     }, prName ? `Nirmaan Comments ${prName}` : null);
 
 
@@ -56,7 +58,7 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
             fields: ["category", "make"],
             filters: [["category", "in", categoryNames]],
             orderBy: { field: "category", order: "asc" },
-            limit: 100000,
+            limit: 0,
         },
         categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
         )
@@ -65,7 +67,7 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
          const { data: make_list, isLoading: makeLoading, error: makeError, mutate: makeListMutate } = useFrappeGetDocList<Makelist>(
             "Makelist", {
                 fields: ["name", "make_name"],
-                limit: 10000, // Consider if this needs pagination for very large lists
+                limit: 0, // Consider if this needs pagination for very large lists
             }
         );
     

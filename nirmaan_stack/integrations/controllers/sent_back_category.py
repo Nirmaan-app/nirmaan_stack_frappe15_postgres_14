@@ -67,9 +67,13 @@ def after_insert(doc, method):
 
 def on_update(doc, method):
     old_doc = doc.get_doc_before_save()
+    pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
+    print(f"DEBUGSBAPPROVE PR: pr {pr}")
+
     if old_doc and old_doc.workflow_state == 'Pending' and doc.workflow_state == "Vendor Selected":
         admin_lead_users = get_allowed_lead_users(doc) + get_admin_users()
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
+
         if admin_lead_users:
             for user in admin_lead_users:
                 if user["push_notification"] == "true":
@@ -152,24 +156,28 @@ def on_trash(doc, method):
 
     procurement_request_name = doc.procurement_request
 
-    print(f"procurement_request_name {procurement_request_name}")
+
+    print(f"DEBUGSBPR: procurement_request_name {procurement_request_name}")
 
     if procurement_request_name:
         try:
             procurement_request = frappe.get_doc("Procurement Requests", procurement_request_name)
-            procurement_list = frappe.parse_json(procurement_request.procurement_list).get('list', [])
-            print(f"procurement_list: {procurement_list}")
-            sb_item_list = doc.item_list if isinstance(doc.item_list, dict) else json.loads(doc.item_list)
-            for item in sb_item_list.get("list", []):
-                print(f"item: {item}")
-                for pr_item in procurement_list:
-                    print(f"pr_item: {pr_item}")
-                    if item['name'] == pr_item['name']:
-                        print(f"found item: {item['name']}")
-                        pr_item['status'] = "Deleted"
+            # order_list = procurement_request.order_list
+            # print(f"order_list: {order_list}")
+            # sb_item_list = doc.order_list
+            # print(f"SB_item: {sb_item_list}")
+            for item in doc.order_list:
+                print(f"item-loop: {item}")
+                print(f"SB_item: {item}:SB_item_name: {item.item_id}")
+                for pr_item in procurement_request.order_list:
+                    print(f"pr_item: {pr_item}:pr_item: {pr_item.item_id}")
+                    if item.item_id == pr_item.item_id:
+                        print(f"found item: {item.item_id}")
+                        pr_item.status = "Deleted"
                         break
             
             procurement_request.save(ignore_permissions=True)
+            print(f"DEBUGSBPR: procurement_request.save(ignore_permissions=True :SUCCESS{procurement_request})")
         except frappe.DoesNotExistError:
             print(f"Procurement Request {procurement_request_name} not found.")
         except Exception as e:

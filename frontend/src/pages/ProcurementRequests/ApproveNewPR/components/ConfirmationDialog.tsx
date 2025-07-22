@@ -14,12 +14,13 @@ interface ConfirmationDialogProps {
     prName: string;
     onConfirm: () => Promise<void>; // The async action handler
     isLoading: boolean;
+    totalItemsCount: number;
     universalComment: string;
     handleUniversalCommentChange: (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => void
 }
 
 export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
-    isOpen, onClose, actionType, prName, onConfirm, isLoading, universalComment, 
+    isOpen, onClose, actionType, prName, onConfirm, isLoading, universalComment,totalItemsCount, 
     handleUniversalCommentChange
 }) => {
     if (!actionType) return null; // Don't render if action type isn't set
@@ -35,7 +36,7 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>{title}</AlertDialogTitle>
-                    <AlertDialogDescription>{description}</AlertDialogDescription>
+                    <AlertDialogDescription>{totalItemsCount <= 1?"Cannot delete the last item in a PR":description}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <div>
                 <textarea
@@ -50,7 +51,7 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
                     <AlertDialogCancel onClick={onClose} disabled={isLoading}>Cancel</AlertDialogCancel>
                     <Button
                         onClick={onConfirm}
-                        disabled={isLoading}
+                        disabled={totalItemsCount <= 1}    
                         variant={isApproving ? 'default' : 'destructive'}
                     >
                         {isLoading

@@ -22,17 +22,26 @@
   "project_gst",
   "order_list",
   "category_list",
+  "items",
+  "payment_terms",
   "payment_terms_section",
   "advance",
+  "amount",
+  "tax_amount",
+  "total_amount",
   "loading_charges",
   "freight_charges",
   "notes",
+  "note_points",
+  "po_amount_delivered",
   "tracking_details_section",
   "status",
   "delivery_contact",
   "delivery_data",
   "invoice_data",
-  "dispatch_date"
+  "dispatch_date",
+  "latest_delivery_date",
+  "latest_payment_date"
  ],
  "fields": [
   {
@@ -203,12 +212,65 @@
    "fieldname": "dispatch_date",
    "fieldtype": "Datetime",
    "label": "Dispatch Date"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Purchase Order Item"
+  },
+  {
+   "default": "0",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "default": "0",
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tax Amount"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount (inc. Tax)"
+  },
+  {
+   "fieldname": "payment_terms",
+   "fieldtype": "Table",
+   "label": "Payment Terms",
+   "options": "PO Payment Terms"
+  },
+  {
+   "fieldname": "note_points",
+   "fieldtype": "JSON",
+   "label": "Note Points"
+  },
+  {
+   "fieldname": "latest_delivery_date",
+   "fieldtype": "Datetime",
+   "label": "Latest Delivery Date"
+  },
+  {
+   "fieldname": "latest_payment_date",
+   "fieldtype": "Datetime",
+   "label": "Latest Payment Date"
+  },
+  {
+   "fieldname": "po_amount_delivered",
+   "fieldtype": "Data",
+   "label": "PO Amount Delivered"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-03 20:05:37.346434",
+ "modified": "2025-07-23 02:15:57.773198",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

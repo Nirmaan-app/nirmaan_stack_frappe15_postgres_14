@@ -31,6 +31,8 @@ export const useTargetRatesForItems = (itemIds: string[], prId?: string) => {
         return map;
     }, [apiResponse]);
 
+    // console.log("apiResponse", targetRatesDataMap)
+
     return {
         targetRatesDataMap,
         isLoading,

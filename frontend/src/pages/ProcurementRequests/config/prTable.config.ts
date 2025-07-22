@@ -2,8 +2,8 @@ import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
 
 // Fields to fetch by default for most PR tables
-export const DEFAULT_PR_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] =  [
-    "name", "project", "owner", "workflow_state", "work_package"
+export const DEFAULT_PR_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] = [
+    "name", "project", "owner", "workflow_state", "work_package", "order_list"
 ];
 
 // Searchable fields Base configuration for PR tables
@@ -12,10 +12,11 @@ export const PR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
     // { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
     {
-        value: "procurement_list",
+        value: "order_list",
         label: "Item in PR",
-        placeholder: "Search by Item Name in procurement list...",
-        is_json: true,
+        placeholder: "Search by Item Name in PRs...",
+        is_json: true, // Signal to backend for special JSON search logic
+
     },
 ];
 

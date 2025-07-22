@@ -140,7 +140,7 @@ export default function UpdatePaymentRequestDialog({
           <Row label="Vendor"   val={payment.vendor_label} />
           <Row label="Doc #"    val={payment.document_name} />
           <Row label="Req. Amt" val={fmt(payment.amount)} labelClass="font-bold" valClass="font-bold" />
-          <Row label="PO Value" val={fmt(getTotalAmount(payment.document_name, payment.document_type)?.totalWithTax)} />
+          <Row label="PO Value" val={fmt(getTotalAmount(payment.document_name, payment.document_type).total)} />
           <Row label="Total Paid" val={fmt(getTotalAmountPaidForPO(payment.document_name, ["Paid"]))} />
         </div>
 

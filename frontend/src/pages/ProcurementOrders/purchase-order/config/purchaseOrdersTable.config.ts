@@ -2,8 +2,8 @@ import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 
 // Fields to fetch by default for most PO tables
-export const DEFAULT_PO_FIELDS_TO_FETCH: (keyof ProcurementOrder | 'name')[] =  [
-    "name", "project", "vendor", "project_name",
+export const DEFAULT_PO_FIELDS_TO_FETCH: (keyof ProcurementOrder | 'name')[] = [
+    "name", "project", "vendor", "project_name","total_amount",
     "vendor_name", "status", "owner", "custom",
 ];
 
@@ -15,22 +15,22 @@ export const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },
     { value: "vendor_name", label: "Vendor Name", placeholder: "Search by Vendor Name..." },
     {
-        value: "order_list", // Field name for backend
+        value: "items", // Field name for backend
         label: "Item in PO",
-        placeholder: "Search by Item Name in order list...",
+        placeholder: "Search by Item Name in orde list...",
         is_json: true, // Signal to backend for special JSON search logic
     },
 ];
 
 
 export const PO_STATUS_OPTIONS = [
-            { label: "PO Approved", value: "PO Approved" },
-            { label: "Dispatched", value: "Dispatched" },
-            { label: "Partially Delivered", value: "Partially Delivered" },
-            { label: "Delivered", value: "Delivered" },
-            { label: "Merged", value: "Merged" },
-            {label: "PO Amendment", value: "PO Amendment"},
-        ]
+    { label: "PO Approved", value: "PO Approved" },
+    { label: "Dispatched", value: "Dispatched" },
+    { label: "Partially Delivered", value: "Partially Delivered" },
+    { label: "Delivered", value: "Delivered" },
+    { label: "Merged", value: "Merged" },
+    { label: "PO Amendment", value: "PO Amendment" },
+]
 
 // Date columns commonly used for filtering PO tables
 export const PO_DATE_COLUMNS: string[] = ["creation", "modified"];
@@ -41,7 +41,7 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
         ["status", "not in", ["Merged", "PO Amendment"]]
     ];
 
-    if(tab === "All POs") {
+    if (tab === "All POs") {
         return [];
     } else if (tab === "Merged POs") {
         return [["status", "=", "Merged"]];

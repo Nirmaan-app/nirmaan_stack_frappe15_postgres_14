@@ -18,7 +18,8 @@
   "project_gst",
   "advance",
   "invoice_no",
-  "invoice_date"
+  "invoice_date",
+  "latest_payment_date"
  ],
  "fields": [
   {
@@ -93,12 +94,17 @@
    "fieldname": "invoice_date",
    "fieldtype": "Date",
    "label": "Invoice Date"
+  },
+  {
+   "fieldname": "latest_payment_date",
+   "fieldtype": "Datetime",
+   "label": "Latest Payment Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-27 19:11:14.756953",
+ "modified": "2025-07-15 18:29:52.035526",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

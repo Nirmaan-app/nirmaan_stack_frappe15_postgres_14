@@ -1,4 +1,3 @@
-// src/features/procurement/approve-reject-quotes/hooks/useApprovedQuotationsList.ts
 import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations"; // Adjust path
 import { queryKeys, getApprovedQuotationOptions } from "@/config/queryKeys"; // Adjust path

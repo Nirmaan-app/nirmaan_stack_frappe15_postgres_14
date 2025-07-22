@@ -11,6 +11,8 @@ export const PAYMENT_STATUS = {
   REQUESTED: "Requested" as const,
   APPROVED: "Approved" as const,
   REJECTED: "Rejected" as const,
+  SCHEDULED: "Scheduled" as const,
+  CREATED: "Created" as const,
   PAID: "Paid" as const,
 };
 

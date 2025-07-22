@@ -1,198 +1,211 @@
+
 import frappe
-import json # Ensure json is imported
+import json
+from frappe.utils import flt, getdate, nowdate
 
 @frappe.whitelist()
-def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: list, selected_vendors: dict, custom : bool = False ):
+def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: list, selected_vendors: dict, custom: bool = False, payment_terms: str = None):
     """
-    Generates Procurement Orders based on selected items and vendors, and updates the Procurement Request.
-
-    Args:
-        project_id (str): The ID of the project.
-        pr_name (str): The name of the Procurement Request.
-        selected_items (list): A list of selected item names for PO generation.
-        selected_vendors (dict): A dictionary mapping item names to vendor IDs for PO generation.
-        custom (bool): A flag to indicate if custom handling is needed.
+    Generates Procurement Orders, including payment terms, based on selected items 
+    and vendors from a Procurement Request.
+    Prioritizes dynamic payment terms from the payload if provided.
     """
     try:
-        # Fetch the Procurement Request, lock for update
+        # --- STEP 1: FETCH THE PROCUREMENT REQUEST (THE SINGLE SOURCE OF TRUTH FOR ITEMS) ---
         pr_doc = frappe.get_doc("Procurement Requests", pr_name, for_update=True)
         if not pr_doc:
             raise frappe.ValidationError(f"Procurement Request {pr_name} not found.")
 
-        # Access procurement_list as a dictionary and get the list
-        # Ensure a mutable copy if modifying item statuses directly in this list
-        procurement_list_data = frappe.parse_json(pr_doc.procurement_list)
-        procurement_list_items = procurement_list_data.get('list', [])
+        # --- STEP 2: PREPARE THE PAYMENT TERMS DATA (PRIORITIZING FRONTEND PAYLOAD) ---
+        payment_terms_data_source = {}
+
+        # If dynamic payment_terms are sent from the frontend, use them as the source.
+        if payment_terms:
+            try:
+                print(f"DEBUGPP0: before payment_terms :{payment_terms}")
+                parsed_terms = json.loads(payment_terms)
+                print(f"DEBUGPP1: parsed_terms :{parsed_terms}")
+                if isinstance(parsed_terms, dict):
+                    payment_terms_data_source = parsed_terms
+                    print(f"DEBUGPP2: payment_terms_data_source :{payment_terms_data_source}")
+            except (json.JSONDecodeError, TypeError):
+                frappe.log_error(f"Could not parse dynamic payment_terms JSON from payload for PR {pr_name}", "generate_pos_from_selection")     
+        # --- STEP 3: PREPARE THE ITEM DATA (GROUPING ITEMS BY VENDOR) ---
+        # This existing logic for preparing items and vendors remains the same.
+        if isinstance(selected_items, str):
+            selected_items = json.loads(selected_items)
+        if isinstance(selected_vendors, str):
+            selected_vendors = json.loads(selected_vendors)
         
-        # It's safer to work with a deep copy if you are modifying items
-        # and then rebuilding the list. Alternatively, build a new_procurement_list.
-        updated_procurement_list_items = [] # We will build a new list
+        selected_child_item_names_set = set(selected_items)
+        vendor_po_items_details = {}
+        processed_pr_child_item_names_for_status_update = set()
+        project_doc = frappe.get_doc("Projects", pr_doc.project) if pr_doc.project else None
 
-        latest_po_name = None # To return the name of the last created PO
+        for pr_child_item in pr_doc.order_list:
+            if pr_child_item.name in selected_child_item_names_set:
+                vendor_id_from_payload = selected_vendors.get(pr_child_item.name)
+                if vendor_id_from_payload and vendor_id_from_payload == pr_child_item.vendor:
+                    if pr_child_item.quote is None:
+                        frappe.throw(f"Quote not found for selected item {pr_child_item.item_id}.")
+                    
+                    item_quote_rate = flt(pr_child_item.quote)
+                    item_quantity = flt(pr_child_item.quantity)
+                    item_tax_percentage = flt(pr_child_item.tax)
+                    base_amount = item_quantity * item_quote_rate
+                    calculated_tax_amount = base_amount * (item_tax_percentage / 100.0)
+                    final_total_amount = base_amount + calculated_tax_amount
+                    po_item_dict = {
+                        "item_id": pr_child_item.item_id, "item_name": pr_child_item.item_name, "unit": pr_child_item.unit,
+                        "quantity": item_quantity, "category": pr_child_item.category, "procurement_package": pr_child_item.procurement_package,
+                        "quote": item_quote_rate, "amount": base_amount, "make": pr_child_item.make, "tax": item_tax_percentage,
+                        "tax_amount": calculated_tax_amount, "total_amount": final_total_amount, "comment": pr_child_item.comment,
+                        "procurement_request_item": pr_child_item.name
+                    }
+                    if vendor_id_from_payload not in vendor_po_items_details:
+                        vendor_po_items_details[vendor_id_from_payload] = []
+                    vendor_po_items_details[vendor_id_from_payload].append(po_item_dict)
+                    processed_pr_child_item_names_for_status_update.add(pr_child_item.name)
+                else:
+                    frappe.log_error(f"Vendor mismatch for item {pr_child_item.name} in PR {pr_name}.")
 
-        if custom:
-            # Custom PO generation logic
-            # This section seems to assume ALL items in procurement_list are for this custom PO.
-            if not procurement_list_items:
-                return {"message": "No items found for custom approval.", "status": 400, "error": "No items in PR"}
+        if not vendor_po_items_details:
+            if selected_items:
+                frappe.msgprint(f"Warning: Selected items from PR {pr_name} could not be processed for PO.", indicator="orange", alert=True)
 
-            # Get vendor from the first item (as per original logic)
-            first_item = procurement_list_items[0]
-            if not first_item or not first_item.get("vendor"):
-                return {"message": "Vendor not found for the selected items.", "status": 400, "error": "Vendor missing"}
+        # --- STEP 4: CREATE THE PURCHASE ORDERS (ONE PER VENDOR) ---
+        latest_po_name = None
+        created_po_names = []
+        is_pr_custom = not pr_doc.work_package
 
-            vendor_id = first_item["vendor"]
-            vendor_doc = frappe.get_doc("Vendors", vendor_id)
-
-            # Create Procurement Order
+        for vendor_id, po_items_list_for_vendor in vendor_po_items_details.items():
             po_doc = frappe.new_doc("Procurement Orders")
+            vendor_doc = frappe.get_doc("Vendors", vendor_id)
+            
+            # Set PO Header Fields (no change)
             po_doc.procurement_request = pr_name
-            po_doc.project = project_id
-            po_doc.project_name = frappe.get_value("Projects", project_id, "project_name")
-            po_doc.project_address = frappe.get_value("Projects", project_id, "project_address")
+            po_doc.project = pr_doc.project
+            if project_doc:
+                po_doc.project_name = project_doc.project_name
+                po_doc.project_address = project_doc.project_address
             po_doc.vendor = vendor_id
             po_doc.vendor_name = vendor_doc.vendor_name
             po_doc.vendor_address = vendor_doc.vendor_address
             po_doc.vendor_gst = vendor_doc.vendor_gst
-            # For custom, it seems all items in the PR's current list go into this PO
-            po_doc.order_list = {"list": procurement_list_items} # Store as JSON string
-            po_doc.custom = "true" # Assuming this is a string field in DB
-            po_doc.insert(ignore_permissions=True)
-            latest_po_name = po_doc.name
+            if is_pr_custom:
+                 po_doc.custom = "true"
 
-            # Update Procurement Request items status for ALL items in the list
-            for item_data in procurement_list_items:
-                # Make a copy to avoid modifying the original dict if it's referenced elsewhere
-                # (though parse_json usually creates new dicts)
-                updated_item = item_data.copy()
-                updated_item['status'] = "Approved" # Or "PO Generated"
-                updated_procurement_list_items.append(updated_item)
-
-            pr_doc.procurement_list = {'list': updated_procurement_list_items}
-
-            # In custom mode, it seems the intention is to always go to Vendor Approved
-            # This is fine IF the PR was in a state allowing transition to Vendor Approved.
-            # If handle_delayed_items already set it, this save might be redundant for state,
-            # but needed for procurement_list update.
-            if pr_doc.workflow_state != "Vendor Approved": # Only change if not already there
-                 pr_doc.workflow_state = "Vendor Approved"
-            pr_doc.save(ignore_permissions=True)
-
-            return {"message": f"New PO: {latest_po_name} created successfully (custom).", "status": 200, "po": latest_po_name}
-
-        else:
-            # Standard PO generation (non-custom)
-            vendor_items_for_po = {}
-            rfq_data = frappe.parse_json(pr_doc.rfq_data) if pr_doc.rfq_data else {}
-            rfq_details = rfq_data.get("details", {})
-
-            # Iterate over ALL items in the PR's procurement list to build the updated list
-            # and identify which ones are part of THIS PO generation batch
-            for item_data in procurement_list_items:
-                updated_item = item_data.copy() # Work with a copy
-
-                if item_data.get("name") in selected_items:
-                    vendor_id = selected_vendors.get(item_data["name"])
-                    if vendor_id:
-                        # This item is part of the current PO generation batch
-                        updated_item['status'] = "Approved" # Mark as Approved (or "PO Generated")
-
-                        # Construct "makes" field for the PO item
-                        item_rfq_details = rfq_details.get(item_data["name"], {})
-                        makes_list_from_rfq = item_rfq_details.get("makes", [])
-                        item_original_make = item_data.get("make")
-
-                        makes_formatted_for_po = {"list": []}
-                        for make_option in makes_list_from_rfq:
-                            is_selected_make = "true" if item_original_make == make_option else "false"
-                            makes_formatted_for_po["list"].append({"make": make_option, "enabled": is_selected_make})
-                        
-                        # Add 'makes' to the item copy that goes into the PO
-                        item_for_po = updated_item.copy() # Copy again specifically for PO list
-                        item_for_po["makes"] = makes_formatted_for_po # Store as JSON string
-
-                        if vendor_id not in vendor_items_for_po:
-                            vendor_items_for_po[vendor_id] = []
-                        vendor_items_for_po[vendor_id].append(item_for_po)
-                
-                updated_procurement_list_items.append(updated_item)
-
-
-            # Create Procurement Orders for the grouped items
-            if not vendor_items_for_po:
-                 # This case should ideally be caught by the caller (handle_delayed_items)
-                 # or means selected_items/selected_vendors was empty or mismatched.
-                 pr_doc.procurement_list = {'list': updated_procurement_list_items}
-                 pr_doc.save(ignore_permissions=True) # Save updated item statuses even if no POs
-                 return {"message": "No items/vendors provided for PO generation or items not found in PR.", "status": 200, "po": None}
-
-
-            for vendor_id, items_for_this_po in vendor_items_for_po.items():
-                vendor_doc = frappe.get_doc("Vendors", vendor_id)
-                po_doc = frappe.new_doc("Procurement Orders")
-                po_doc.procurement_request = pr_name
-                po_doc.project = project_id
-                po_doc.project_name = frappe.get_value("Projects", project_id, "project_name")
-                po_doc.project_address = frappe.get_value("Projects", project_id, "project_address")
-                po_doc.vendor = vendor_id
-                po_doc.vendor_name = vendor_doc.vendor_name
-                po_doc.vendor_address = vendor_doc.vendor_address
-                po_doc.vendor_gst = vendor_doc.vendor_gst
-                po_doc.order_list = {"list": items_for_this_po} # Store as JSON string
-                po_doc.insert(ignore_permissions=True)
-                latest_po_name = po_doc.name # Keep track of the last PO name
-
-
-            # Update the PR's procurement_list with new statuses
-            pr_doc.procurement_list = {'list': updated_procurement_list_items}
-
-            # --- Workflow State Logic for PR (Crucial Change) ---
-            # The PR's workflow_state should have been set by the calling function (handle_delayed_items)
-            # to "Vendor Approved" if all non-delayed items passed PO validation, or "Vendor Selected" otherwise.
-            # This function (generate_pos_from_selection) should *not* try to downgrade it
-            # from "Vendor Approved" to "Partially Approved".
-            # It should only potentially upgrade it if it's in a state like "Vendor Selected"
-            # and *now* all remaining items are "Approved" or "Delayed".
-
-            # Recalculate overall PR status based on the *full* updated_procurement_list_items
-            all_items_finalized = True
-            for item in updated_procurement_list_items:
-                # "Finalized" means either PO generated ("Approved") or intentionally "Delayed".
-                # Items still "Pending" (without vendor) or in other intermediate states mean the PR is not fully done.
-                if item.get("status") not in ["Approved", "Delayed", "PO Generated"]: # Add "PO Generated" if you use that
-                    all_items_finalized = False
-                    break
-            
-            # Only attempt to change workflow state if it's not already "Vendor Approved" by the caller
-            # OR if it's "Partially Approved" and now fully finalized.
-            current_pr_state = pr_doc.workflow_state
-            new_pr_state = current_pr_state # Default to no change
-
-            if current_pr_state not in ["Vendor Approved", "Delayed", "Closed", "Cancelled"]: # Add other "final" states
-                if all_items_finalized:
-                    new_pr_state = "Vendor Approved"
+            # --- Step 4.1: Populate the Payment Terms Child Table ---
+            #
+            # === THIS IS THE COMBINED LOGIC ===
+            #
+            # We use `payment_terms_data_source` which holds the dynamic data from the frontend.
+            if vendor_id in payment_terms_data_source:
+                # The structure of your old `vendor_term_data` had `type` at the top level
+                # and `terms` as a list of milestones. The new data is just the list of milestones.
+                # We will adapt to the new, simpler structure from the frontend.
+                milestones = payment_terms_data_source[vendor_id]
+             
+                print(f"DEBUGPP3: milestones: {milestones}")
+                # Your old code checked for `.get('terms', [])`. We now have the list directly.
+                if milestones:
+                    today = getdate(nowdate())
+                    print(f"DEBUGPP3terms: milestones.terms:")
+                    for milestone in milestones:
+                    # for milestone in milestones.get('terms'):
+                      
+                        term_status = "Created"
+                        due_date=""
+                        print(f"DEBUGPP3term: milestones.terms: {milestone}")
+                        # Get the payment type and due date from the milestone data
+                        payment_type = milestone.get('type')
+                        if payment_type == "Credit":
+                            due_date_str = milestone.get('due_date')
+                            # This append logic now mirrors your original code, ensuring compatibility.
+                        if payment_type == "Credit" and due_date_str:
+                    # Convert the due_date string to a proper date object for comparison
+                            due_date = getdate(due_date_str)
+                    
+                    # If the due date is today or in the past...
+                            if due_date <= today:
+                        # ...override the default status to "Scheduled"
+                                term_status = "Scheduled"
+                # --- [END NEW LOGIC BLOCK] ---
+                        po_doc.append("payment_terms", {
+                            # The keys here MUST match the fieldnames in your "PO Payment Terms" Child Doctype.
+                            # Get the 'type' from the milestone itself if it exists, otherwise it will be None.
+                            "payment_type": payment_type,
+                            "label": milestone.get('name'),
+                            "percentage": milestone.get('percentage'),
+                            "amount": milestone.get('amount'),
+                            "due_date": milestone.get('due_date'),
+                            "status": term_status # Example of setting a default status
+                        })
+                        print(f"DEBUGPP3ifend: milestone: {milestone}")
                 else:
-                    # Check if any item is "Approved" (PO generated) and others are "Pending" or "Delayed"
-                    has_approved = any(item.get("status") == "Approved" for item in updated_procurement_list_items)
-                    has_pending_or_delayed = any(item.get("status") in ["Pending", "Delayed"] for item in updated_procurement_list_items)
+                    print(f"DEBUGPP3else: milestones is empty: {milestones}")
 
-                    if has_approved and has_pending_or_delayed:
-                        new_pr_state = "Partially Approved"
-                    # If no items approved yet but some are pending/delayed, it might remain "Vendor Selected" or similar
-                    # depending on your workflow. This logic might need refinement based on exact states.
+            # --- Step 4.2: Populate the Items Child Table (no change) ---
+            print(f"DEBUGPP4: po_items_list_for_vendor: {po_items_list_for_vendor}")
 
-                if new_pr_state != current_pr_state:
-                    pr_doc.workflow_state = new_pr_state
+            for po_item_entry in po_items_list_for_vendor:
+                po_doc.append("items", po_item_entry)
+            
 
-            # Save the PR document (with updated list and potentially state)
+            # --- Step 4.3: Calculate Totals and Save PO (no change) ---
+            po_header_amount = sum(item.get("amount", 0) for item in po_doc.items)
+            po_header_tax_amount = sum(item.get("tax_amount", 0) for item in po_doc.items)
+            print(f"DEBUGPP4: po_header_amount: {po_header_amount}")
+            
+            po_doc.amount = po_header_amount
+            po_doc.tax_amount = po_header_tax_amount
+            po_doc.total_amount = po_header_amount + po_header_tax_amount
+
+            po_doc.insert(ignore_permissions=True)
+            latest_po_name= po_doc.name
+            created_po_names.append(po_doc.name)
+            print(f"DEBUGPP4: latest_po_name: {latest_po_name}")
+        # --- STEP 5: FINALIZE THE PROCUREMENT REQUEST (no change) ---
+        pr_state_potentially_changed = False
+        if processed_pr_child_item_names_for_status_update:
+            for pr_child_item_doc_to_update in pr_doc.order_list:
+                if pr_child_item_doc_to_update.name in processed_pr_child_item_names_for_status_update:
+                    if pr_child_item_doc_to_update.status != "Approved":
+                        pr_child_item_doc_to_update.status = "Approved" 
+                        pr_state_potentially_changed = True
+        
+        if pr_state_potentially_changed or not created_po_names:
+            all_pr_items_finalized = all(item.status in ["Approved", "PO Generated", "Delayed", "Rejected", "Cancelled"] for item in pr_doc.order_list)
+            has_any_approved_now = any(item.status in ["Approved", "PO Generated"] for item in pr_doc.order_list)
+            current_pr_workflow_state = pr_doc.workflow_state
+            new_pr_workflow_state = current_pr_workflow_state
+            pr_non_updatable_states = ["Closed", "Cancelled", "Rejected"]
+
+            if current_pr_workflow_state not in pr_non_updatable_states:
+                if all_pr_items_finalized and has_any_approved_now:
+                    new_pr_workflow_state = "Vendor Approved"
+                elif has_any_approved_now:
+                    new_pr_workflow_state = "Partially Approved"
+                
+                if new_pr_workflow_state != current_pr_workflow_state:
+                    pr_doc.workflow_state = new_pr_workflow_state
+                    pr_state_potentially_changed = True
+
+        if pr_state_potentially_changed:
             pr_doc.save(ignore_permissions=True)
 
-            return {"message": "Procurement Orders created successfully.", "status" : 200, "po": latest_po_name}
+        message = f"Procurement Order(s): {', '.join(created_po_names)} created successfully." if created_po_names else "No Purchase Orders generated."
+        if pr_state_potentially_changed:
+            message += f" PR {pr_name} updated."
+            
+        return {
+            "message": message,
+            "status": 200,
+            "po": latest_po_name,
+            "created_pos": created_po_names
+        }
 
-    except frappe.exceptions.WorkflowTransitionNotAllowedError as wf_err:
-        # Specifically catch workflow errors if they still occur
-        frappe.log_error(f"Workflow transition error in generate_pos_from_selection: {wf_err}\nPR: {pr_name}, Current State: {pr_doc.workflow_state if 'pr_doc' in locals() else 'Unknown'}", "generate_pos_from_selection")
-        return {"error": str(wf_err), "status": 400}
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "generate_pos_from_selection")
-        return {"error": str(e), "status" : 400}
+        frappe.log_error(message=frappe.get_traceback(), title="PO Generation Failed")
+        return {"error": str(e), "status": 400, "message": f"Error: {str(e)}"}
+

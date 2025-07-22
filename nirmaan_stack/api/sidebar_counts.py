@@ -159,12 +159,43 @@ def sidebar_counts(user: str) -> str:
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
 
+
+    # --- [NEW SECTION] Credits (PO Payment Terms) -------------------
+    # This filter is for the PARENT doctype (Procurement Orders).
+    # We apply user permissions at the PO level.
+    credit_po_filters = {} if is_admin else {"project": ["in", _get_projects(user)]}
+    credit_po_filters["status"] = ["!=", "Merged"]
+    # We query the child table 'PO Payment Terms' but filter it based on which
+    # parent documents ('Procurement Orders') the user is allowed to see.
+    credit_counts_raw = frappe.get_all(
+        "PO Payment Terms",
+        fields=["status", "count(name) as count"],
+        filters={
+            "payment_type": "Credit",
+            # This is the crucial part: filter child docs by their parent's properties
+            "parent": ["in", frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")]
+        },
+        group_by="status"
+    )
+    # Convert list of dicts to a single dict: {'Paid': 10, 'Requested': 5}
+    credit_counts = {item.status.lower(): item.count for item in credit_counts_raw}
+    
+    # Calculate the total for the 'all' key
+    credit_counts["all"] = sum(credit_counts.values())
+
+
+
+
+
+
     return json.dumps({
         "po" : po_map,
         "pr" : pr_counts,
         "sb" : sb_counts,
         "sr" : sr_counts,
         "pay": pay_counts,
+        "credits": credit_counts, # <-- Add the new credits object here
+
     })
 
 

@@ -1,57 +1,65 @@
 import logo from "@/assets/logo-svg.svg";
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
-import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import {
+  ProcurementOrder,
+  PurchaseOrderItem,
+  PaymentTerm,POTotals
+} from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { MessageCircleMore, Printer } from "lucide-react";
-import * as pdfjsLib from 'pdfjs-dist';
-import { useEffect, useRef, useState } from "react";
+import * as pdfjsLib from "pdfjs-dist";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useReactToPrint } from "react-to-print";
 import { AddressView } from "@/components/address-view";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent
-} from "@/components/ui/sheet";
+
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 interface POPdfProps {
-  po: ProcurementOrder | null
-  orderData: {
-    list: PurchaseOrderItem[]
-  }
-  includeComments: boolean
-  getTotal: {
-    total: number
-    totalAmt: number
-    totalGst: number
-  }
-  advance: number
-  materialReadiness: number
-  afterDelivery: number
-  xDaysAfterDelivery: number
-  xDays: number
-  poPdfSheet: boolean
-  togglePoPdfSheet: () => void
+  po: ProcurementOrder | null;
+  orderData?: PurchaseOrderItem[];
+paymentTerms?: PaymentTerm[];
+  // includeComments: boolean
+  POTotals?:POTotals;
+  // advance: number
+  // materialReadiness: number
+  // afterDelivery: number
+  // xDaysAfterDelivery: number
+  // xDays: number
+  poPdfSheet: boolean;
+  togglePoPdfSheet: () => void;
 }
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js"
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
 
 export const POPdf: React.FC<POPdfProps> = ({
-  po, orderData,
-  includeComments, getTotal, advance, materialReadiness, afterDelivery, xDaysAfterDelivery, xDays,
-  poPdfSheet, togglePoPdfSheet
+  po,
+  orderData,
+  POTotals,
+  paymentTerms,
+  poPdfSheet,
+  togglePoPdfSheet,
 }) => {
-
-  if (!po) return <div>No PO ID Provided</div>
+  if (!po) return <div>No PO ID Provided</div>;
   const componentRef = useRef<HTMLDivElement>(null);
 
-  const { data: attachmentsData } = useFrappeGetDocList("Nirmaan Attachments", {
-    fields: ["*"],
-    filters: [["associated_doctype", "=", "Procurement Requests"], ["associated_docname", "=", po?.procurement_request!], ["attachment_type", "=", "custom pr attachment"]]
-  },
+   const finalPaymentTerms = paymentTerms && paymentTerms.length > 0 ? paymentTerms : po?.payment_terms;
+  
+  const { data: attachmentsData } = useFrappeGetDocList(
+    "Nirmaan Attachments",
+    {
+      fields: ["*"],
+      filters: [
+        ["associated_doctype", "=", "Procurement Requests"],
+        ["associated_docname", "=", po?.procurement_request!],
+        ["attachment_type", "=", "custom pr attachment"],
+      ],
+    },
     po?.procurement_request ? undefined : null
-  )
+  );
 
   const [images, setImages] = useState([]);
 
@@ -100,14 +108,14 @@ export const POPdf: React.FC<POPdfProps> = ({
     try {
       const baseURL = window.location.origin;
       const fileUrl = `${baseURL}${att.attachment}`;
-      const fileType = att.attachment.split('.').pop().toLowerCase();
+      const fileType = att.attachment.split(".").pop().toLowerCase();
 
-      if (['pdf'].includes(fileType)) {
+      if (["pdf"].includes(fileType)) {
         // Handle PDF files
         const response = await fetch(fileUrl, {
-          method: 'GET',
+          method: "GET",
           headers: {
-            'Content-Type': 'application/pdf',
+            "Content-Type": "application/pdf",
           },
         });
 
@@ -126,8 +134,8 @@ export const POPdf: React.FC<POPdfProps> = ({
           const page = await pdf.getPage(pageNum);
 
           const viewport = page.getViewport({ scale: 1.5 });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d");
           canvas.height = viewport.height;
           canvas.width = viewport.width;
 
@@ -136,15 +144,15 @@ export const POPdf: React.FC<POPdfProps> = ({
           pages.push(imgData);
         }
 
-        setImages(prevImages => [...prevImages, ...pages]);
-      } else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType)) {
+        setImages((prevImages) => [...prevImages, ...pages]);
+      } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(fileType)) {
         // Handle image files
-        setImages(prevImages => [...prevImages, fileUrl]);
+        setImages((prevImages) => [...prevImages, fileUrl]);
       } else {
         console.warn(`Unsupported file type: ${fileType}`);
       }
     } catch (error) {
-      console.error('Failed to load file as image:', error);
+      console.error("Failed to load file as image:", error);
     }
   };
 
@@ -154,15 +162,34 @@ export const POPdf: React.FC<POPdfProps> = ({
     }
   }, [attachmentsData]);
 
-
   const handlePrint = useReactToPrint({
     content: () => componentRef.current || null,
     documentTitle: `${po?.name}_${po?.vendor_name}`,
   });
 
+
+  const parsedNotes = useMemo(() => {
+    if (!po?.note_points) {
+      return []; // Return an empty array if there are no notes
+    }
+    try {
+      const parsedObject = JSON.parse(po?.note_points);
+      const notesList = parsedObject.list;
+      if (Array.isArray(notesList)) {
+        // Return a clean array of strings, filtering out any empty notes
+        return notesList.map((item) => item.note).filter(Boolean);
+      }
+    } catch (error) {
+      console.error("Could not parse po.note_points as JSON:", error);
+    }
+    // Return an empty array in case of errors or invalid data structure
+    return [];
+  }, [po.note_points]); // Dependency: this logic only re-runs if note_points changes.
+
+
   return (
     <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
-      <SheetContent className="overflow-y-auto md:min-w-[700px]">
+      <SheetContent className="overflow-y-auto md:min-w-[900px]">
         <Button onClick={handlePrint} className="flex items-center gap-1">
           <Printer className="h-4 w-4" />
           Print
@@ -302,76 +329,24 @@ export const POPdf: React.FC<POPdfProps> = ({
                   </tr>
                 </thead>
                 <tbody className={`bg-white`}>
-                  {[
-                    ...new Map(
-                      orderData?.list?.map((item) => [
-                        item.item,
-                        {
-                          ...item,
-                          quantity: orderData?.list
-                            ?.filter(
-                              ({ item: itemName }) => itemName === item.item
-                            )
-                            ?.reduce(
-                              (total, curr) => total + curr.quantity,
-                              0
-                            ),
-                        },
-                      ])
-                    )?.values(),
-                  ]?.map((item, index) => {
-                    const length = [
-                      ...new Map(
-                        orderData?.list?.map((item) => [
-                          item.item,
-                          {
-                            ...item,
-                            quantity: orderData?.list
-                              ?.filter(
-                                ({ item: itemName }) => itemName === item.item
-                              )
-                              ?.reduce(
-                                (total, curr) => total + curr.quantity,
-                                0
-                              ),
-                          },
-                        ])
-                      ).values(),
-                    ].length;
+                  {orderData?.map((item, index) => {
                     return (
                       <tr
                         key={index}
-                        className={`${!parseNumber(po?.loading_charges) &&
+                        className={`${
+                          !parseNumber(po?.loading_charges) &&
                           !parseNumber(po?.freight_charges) &&
                           index === length - 1 &&
                           "border-b border-black"
-                          } page-break-inside-avoid ${index === 15 ? "page-break-before" : ""
-                          }`}
+                        } page-break-inside-avoid ${
+                          index === 15 ? "page-break-before" : ""
+                        }`}
                       >
                         <td className="py-2 px-2 text-sm whitespace-nowrap w-[7%]">
                           {index + 1}.
                         </td>
                         <td className="py-2 text-xs whitespace-nowrap text-wrap">
-                          {item.item?.toUpperCase()}
-                          {item?.makes?.list?.length > 0 && (
-                            <p className="text-xs italic font-semibold text-gray-500">
-                              -{" "}
-                              {item.makes.list
-                                .find((i) => i?.enabled === "true")
-                                ?.make?.toLowerCase()
-                                ?.replace(/\b\w/g, (char) =>
-                                  char.toUpperCase()
-                                ) || "No Make Specified"}
-                            </p>
-                          )}
-                          {item.comment && includeComments && (
-                            <div className="flex gap-1 items-start block p-1">
-                              <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
-                              <div className="text-xs text-gray-400">
-                                {item.comment}
-                              </div>
-                            </div>
-                          )}
+                          {item.item_name?.toUpperCase()}
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
                           {item.unit}
@@ -391,65 +366,9 @@ export const POPdf: React.FC<POPdfProps> = ({
                       </tr>
                     );
                   })}
-                  {parseNumber(po?.loading_charges) ? (
-                    <tr
-                      className={`${!po?.freight_charges && "border-b border-black"
-                        }`}
-                    >
-                      <td className="py-2 text-sm whitespace-nowrap w-[7%]">
-                        -
-                      </td>
-                      <td className=" py-2 text-xs whitespace-nowrap">
-                        LOADING CHARGES
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        NOS
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        1
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        {formatToIndianRupee(po?.loading_charges)}
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        18%
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        {formatToIndianRupee(po?.loading_charges)}
-                      </td>
-                    </tr>
-                  ) : (
-                    <></>
-                  )}
-                  {parseNumber(po?.freight_charges) ? (
-                    <tr className={`border-b border-black`}>
-                      <td className="py-2 text-sm whitespace-nowrap w-[7%]">
-                        -
-                      </td>
-                      <td className=" py-2 text-xs whitespace-nowrap">
-                        FREIGHT CHARGES
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        NOS
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        1
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        {formatToIndianRupee(po?.freight_charges)}
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        18%
-                      </td>
-                      <td className="px-4 py-2 text-sm whitespace-nowrap">
-                        {formatToIndianRupee(po?.freight_charges)}
-                      </td>
-                    </tr>
-                  ) : (
-                    <></>
-                  )}
-                  <tr className="">
-                    <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
+
+                  {/* <tr className="border-t border-black">
+                    <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td> 
                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
@@ -458,96 +377,87 @@ export const POPdf: React.FC<POPdfProps> = ({
                       Sub-Total
                     </td>
                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">
-                      {formatToIndianRupee(getTotal?.total)}
+                      {formatToIndianRupee(po?.amount)}
                     </td>
-                  </tr>
-                  <tr className="border-none">
+                  </tr> */}
+
+                  <tr className="border-b border-t border-black">
                     <td></td>
                     <td></td>
                     <td></td>
                     <td></td>
                     <td></td>
-                    <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
+                    <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-bold page-break-inside-avoid">
+                      <div>Sub-Total:</div>
                       <div>Total Tax(GST):</div>
                       <div>Round Off:</div>
                       <div>Total:</div>
                     </td>
 
-                    <td className="space-y-4 py-4 text-sm whitespace-nowrap">
+                    <td className="space-y-4 py-4 text-sm font-bold whitespace-nowrap">
                       <div className="ml-4">
-                        {formatToIndianRupee(getTotal?.totalGst)}
+                      {formatToIndianRupee(POTotals?.totalBase)}
+                    </div>
+                      <div className="ml-4">
+                        {formatToIndianRupee(POTotals?.totalTax)}
                       </div>
                       <div className="ml-4">
                         {" "}
                         {formatToIndianRupee(
-                          (getTotal?.totalAmt -
-                            Math.round(getTotal?.totalAmt)) * -1
+                          (POTotals?.grandTotal -
+                            Math.round(POTotals?.grandTotal)) *
+                            -1
                         )}
                       </div>
                       <div className="ml-4">
-                        {formatToIndianRupee(Math.round(getTotal?.totalAmt))}
+                        {formatToIndianRupee(Math.round(POTotals?.grandTotal))}
                       </div>
+                    </td>
+                  </tr>
+                  <tr className="">
+                    <td colSpan={6}>
+                      {finalPaymentTerms.length > 0 && (
+                        <div className="mb-4">
+                          <div className="text-gray-600 font-bold text-sm py-2">
+                            Payment
+                          </div>
+                          <ul className="list-disc list-inside space-y-1 text-sm text-gray-900">
+                            <li>
+                              {finalPaymentTerms
+                                // 1. (Optional but Recommended) Filter out terms with no value
+                                .filter(
+                                  (term) => parseFloat(term.percentage) > 0
+                                )
+
+                                // 2. Map the array of objects to an array of strings in the desired format
+                                .map(
+                                  (term) =>
+                                    `${parseFloat(term.percentage).toFixed(
+                                      2
+                                    )}% -- ${term.label}`
+                                )
+
+                                // 3. Join the array of strings into a single string, separated by ", "
+                                .join(", ")}
+                            </li>
+                          </ul>
+                        </div>
+                      )}
                     </td>
                   </tr>
                   <tr className="end-of-page page-break-inside-avoid">
                     <td colSpan={6}>
-                      {po?.notes !== "" && (
-                        <>
+                      {parsedNotes.length > 0 && (
+                        <div className="mb-4">
                           <div className="text-gray-600 font-bold text-sm py-2">
                             Note
                           </div>
-                          <div className="text-sm text-gray-900">{po?.notes}</div>
-                        </>
-                      )}
-                      {advance ||
-                        materialReadiness ||
-                        afterDelivery ||
-                        xDaysAfterDelivery ? (
-                        <>
-                          <div className="text-gray-600 font-bold text-sm py-2">
-                            Payment Terms
-                          </div>
-                          <div className="text-sm text-gray-900">
-                            {(() => {
-                              // Check if any of the variables is 100
-                              if (advance === 100) {
-                                return `${advance}% advance`;
-                              } else if (materialReadiness === 100) {
-                                return `${materialReadiness}% on material readiness`;
-                              } else if (afterDelivery === 100) {
-                                return `${afterDelivery}% after delivery to the site`;
-                              } else if (xDaysAfterDelivery === 100) {
-                                return `${xDaysAfterDelivery}% after ${xDays} days of delivering the material(s)`;
-                              }
-
-                              // If none of the variables is 100, render non-zero values
-                              const parts = [];
-                              if (advance > 0) {
-                                parts.push(`${advance}% advance`);
-                              }
-                              if (materialReadiness > 0) {
-                                parts.push(
-                                  `${materialReadiness}% on material readiness`
-                                );
-                              }
-                              if (afterDelivery > 0) {
-                                parts.push(
-                                  `${afterDelivery}% after delivery to the site`
-                                );
-                              }
-                              if (xDaysAfterDelivery > 0) {
-                                parts.push(
-                                  `${xDaysAfterDelivery}% after ${xDays} days of delivering the material(s)`
-                                );
-                              }
-
-                              // Join the parts with commas and return
-                              return parts.join(", ");
-                            })()}
-                          </div>
-                        </>
-                      ) : (
-                        ""
+                          <ol className="list-decimal list-inside space-y-1 text-sm text-gray-900">
+                            {parsedNotes.map((note, index) => (
+                              <li key={index}>{note}</li>
+                            ))}
+                          </ol>
+                        </div>
                       )}
 
                       <img src={Seal} className="w-24 h-24" />
@@ -559,9 +469,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                 </tbody>
               </table>
             </div>
-            <div
-              style={{ display: "block", pageBreakBefore: "always" }}
-            ></div>
+            <div style={{ display: "block", pageBreakBefore: "always" }}></div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-gray-200">
                 <thead className="border-b border-black">
@@ -617,10 +525,10 @@ export const POPdf: React.FC<POPdfProps> = ({
                     </h2>
                     <ol className="list-decimal pl-6 space-y-2 text-sm">
                       <li className="pl-2">
-                        All invoices shall be submitted in original and shall
-                        be tax invoices showing the breakup of tax
-                        structure/value payable at the prevailing rate and a
-                        clear description of goods.
+                        All invoices shall be submitted in original and shall be
+                        tax invoices showing the breakup of tax structure/value
+                        payable at the prevailing rate and a clear description
+                        of goods.
                       </li>
                       <li className="pl-2">
                         All invoices submitted shall have Delivery
@@ -629,12 +537,11 @@ export const POPdf: React.FC<POPdfProps> = ({
                       <li className="pl-2">
                         All Invoices shall have the tax registration numbers
                         mentioned thereon. The invoices shall be raised in the
-                        name of “Stratos Infra Technologies Pvt Ltd,
-                        Bangalore”.
+                        name of “Stratos Infra Technologies Pvt Ltd, Bangalore”.
                       </li>
                       <li className="pl-2">
-                        Payments shall be only entertained after receipt of
-                        the correct invoice.
+                        Payments shall be only entertained after receipt of the
+                        correct invoice.
                       </li>
                       <li className="pl-2">
                         In case of advance request, Advance payment shall be
@@ -643,9 +550,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                       </li>
                     </ol>
 
-                    <h2 className="text-lg font-semibold mt-6">
-                      2. Payment:
-                    </h2>
+                    <h2 className="text-lg font-semibold mt-6">2. Payment:</h2>
                     <ol className="list-decimal pl-6 space-y-2 text-sm">
                       <li className="pl-2">
                         Payment shall be done through RTGS/NEFT.
@@ -656,21 +561,20 @@ export const POPdf: React.FC<POPdfProps> = ({
                       </li>
                       <ol className="list-decimal pl-6 space-y-1 text-sm">
                         <li className="pl-2">
-                          In case the vendor is not completing the task
-                          assigned by Nirmaan a suitable amount, as decided by
-                          Nirmaan, shall be deducted from the retention
-                          amount.
+                          In case the vendor is not completing the task assigned
+                          by Nirmaan a suitable amount, as decided by Nirmaan,
+                          shall be deducted from the retention amount.
                         </li>
                         <li className="pl-2">
-                          The adjusted amount shall be paid on completion of
-                          the defect liability period.
+                          The adjusted amount shall be paid on completion of the
+                          defect liability period.
                         </li>
                         <li className="pl-2">
-                          Vendors are expected to pay GST as per the
-                          prevailing rules. In case the vendor is not making
-                          GST payments to the tax authority, Nirmaan shall
-                          deduct the appropriated amount from the invoice
-                          payment of the vendor.
+                          Vendors are expected to pay GST as per the prevailing
+                          rules. In case the vendor is not making GST payments
+                          to the tax authority, Nirmaan shall deduct the
+                          appropriated amount from the invoice payment of the
+                          vendor.
                         </li>
                         <li className="pl-2">
                           Nirmaan shall deduct the following amounts from the
@@ -697,9 +601,8 @@ export const POPdf: React.FC<POPdfProps> = ({
                     <ol className="list-decimal pl-6 space-y-2 text-sm">
                       <li className="pl-2">
                         All goods delivered shall conform to the technical
-                        specifications mentioned in the vendor’s quote
-                        referred to in this PO or as detailed in Annexure 1 to
-                        this PO.
+                        specifications mentioned in the vendor’s quote referred
+                        to in this PO or as detailed in Annexure 1 to this PO.
                       </li>
                       <li className="pl-2">
                         Supply of goods or services shall be strictly as per
@@ -708,20 +611,20 @@ export const POPdf: React.FC<POPdfProps> = ({
                       </li>
                       <li className="pl-2">
                         Any change in line items or quantities shall be duly
-                        approved by Nirmaan with rate approval prior to
-                        supply. Any goods supplied by the agency without
-                        obtaining due approvals shall be subject to the
-                        acceptance or rejection from Nirmaan.
+                        approved by Nirmaan with rate approval prior to supply.
+                        Any goods supplied by the agency without obtaining due
+                        approvals shall be subject to the acceptance or
+                        rejection from Nirmaan.
                       </li>
                       <li className="pl-2">
                         Any damaged/faulty material supplied needs to be
-                        replaced with a new item free of cost, without
-                        extending the completion dates.
+                        replaced with a new item free of cost, without extending
+                        the completion dates.
                       </li>
                       <li className="pl-2">
                         Material supplied in excess and not required by the
-                        project shall be taken back by the vendor at no cost
-                        to Nirmaan.
+                        project shall be taken back by the vendor at no cost to
+                        Nirmaan.
                       </li>
                     </ol>
                     <br />
@@ -735,11 +638,9 @@ export const POPdf: React.FC<POPdfProps> = ({
                     </h1>
                     <ol className="list-decimal pl-6 space-y-2 text-sm">
                       <li className="pl-2">
-                        <div className="font-semibold">
-                          Liquidity Damages:
-                        </div>{" "}
-                        Liquidity damages shall be applied at 2.5% of the
-                        order value for every day of delay.
+                        <div className="font-semibold">Liquidity Damages:</div>{" "}
+                        Liquidity damages shall be applied at 2.5% of the order
+                        value for every day of delay.
                       </li>
                       <li className="pl-2">
                         <div className="font-semibold">
@@ -759,31 +660,31 @@ export const POPdf: React.FC<POPdfProps> = ({
                       <ol className="list-decimal pl-6 space-y-1 text-sm">
                         <li className="pl-2">
                           Insurance: All required insurance including, but not
-                          limited to, Contractors’ All Risk (CAR) Policy,
-                          FLEXA cover, and Workmen’s Compensation (WC) policy
-                          are in the vendor’s scope. Nirmaan in any case shall
-                          not be made liable for providing these insurance.
-                          All required insurances are required prior to the
+                          limited to, Contractors’ All Risk (CAR) Policy, FLEXA
+                          cover, and Workmen’s Compensation (WC) policy are in
+                          the vendor’s scope. Nirmaan in any case shall not be
+                          made liable for providing these insurance. All
+                          required insurances are required prior to the
                           commencement of the work at the site.
                         </li>
                         <li className="pl-2">
                           Safety: The safety and security of all men deployed
                           and materials placed by the Vendor or its agents for
-                          the project shall be at the risk and responsibility
-                          of the Vendor. Vendor shall ensure compliance with
-                          all safety norms at the site. Nirmaan shall have no
-                          obligation or responsibility on any safety, security
-                          & compensation related matters for the resources &
+                          the project shall be at the risk and responsibility of
+                          the Vendor. Vendor shall ensure compliance with all
+                          safety norms at the site. Nirmaan shall have no
+                          obligation or responsibility on any safety, security &
+                          compensation related matters for the resources &
                           material deployed by the Vendor or its agent.
                         </li>
                         <li className="pl-2">
-                          Notice: Any notice or other communication required
-                          or authorized under this PO shall be in writing and
-                          given to the party for whom it is intended at the
-                          address given in this PO or such other address as
-                          shall have been notified to the other party for that
-                          purpose, through registered post, courier, facsimile
-                          or electronic mail.
+                          Notice: Any notice or other communication required or
+                          authorized under this PO shall be in writing and given
+                          to the party for whom it is intended at the address
+                          given in this PO or such other address as shall have
+                          been notified to the other party for that purpose,
+                          through registered post, courier, facsimile or
+                          electronic mail.
                         </li>
                         <li className="pl-2">
                           Force Majeure: Neither party shall be liable for any
@@ -793,20 +694,20 @@ export const POPdf: React.FC<POPdfProps> = ({
                           insurrection, labor action, or governmental action.
                         </li>
                         <li className="pl-2">
-                          Name use: Vendor shall not use, or permit the use
-                          of, the name, trade name, service marks, trademarks,
-                          or logo of Nirmaan in any form of publicity, press
-                          release, advertisement, or otherwise without
-                          Nirmaan's prior written consent.
+                          Name use: Vendor shall not use, or permit the use of,
+                          the name, trade name, service marks, trademarks, or
+                          logo of Nirmaan in any form of publicity, press
+                          release, advertisement, or otherwise without Nirmaan's
+                          prior written consent.
                         </li>
                         <li className="pl-2">
                           Arbitration: Any dispute arising out of or in
                           connection with the order shall be settled by
                           Arbitration in accordance with the Arbitration and
                           Conciliation Act,1996 (As amended in 2015). The
-                          arbitration proceedings shall be conducted in
-                          English in Bangalore by the sole arbitrator
-                          appointed by the Purchaser.
+                          arbitration proceedings shall be conducted in English
+                          in Bangalore by the sole arbitrator appointed by the
+                          Purchaser.
                         </li>
                         <li className="pl-2">
                           The law governing: All disputes shall be governed as
@@ -822,7 +723,16 @@ export const POPdf: React.FC<POPdfProps> = ({
             {po?.custom === "true" && images?.length > 0 && (
               <div>
                 {images?.map((imgSrc, index) => (
-                  <img key={index} src={imgSrc} alt={`Attachment ${index + 1}`} style={{ width: '100%', marginBottom: '20px', marginTop: "20px" }} />
+                  <img
+                    key={index}
+                    src={imgSrc}
+                    alt={`Attachment ${index + 1}`}
+                    style={{
+                      width: "100%",
+                      marginBottom: "20px",
+                      marginTop: "20px",
+                    }}
+                  />
                 ))}
               </div>
             )}
@@ -830,5 +740,5 @@ export const POPdf: React.FC<POPdfProps> = ({
         </div>
       </SheetContent>
     </Sheet>
-  )
-}
+  );
+};

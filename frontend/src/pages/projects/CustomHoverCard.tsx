@@ -1,5 +1,5 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { DownOutlined } from "@ant-design/icons";
 import { Tree } from "antd";
 
@@ -9,7 +9,7 @@ interface CustomHoverCardProps {
   totalServiceOrdersAmt?: number;
   categorizedData?: {
     [workPackage: string]: {
-        [category: string]: any[];
+      [category: string]: any[];
     };
   };
   workPackageTotalAmounts?: {
@@ -17,12 +17,18 @@ interface CustomHoverCardProps {
   };
 }
 
-export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
+export const CustomHoverCard: React.FC<CustomHoverCardProps> = ({
   totalPosRaised,
   totalServiceOrdersAmt,
   categorizedData,
   workPackageTotalAmounts,
 }) => {
+
+  //    console.log("CustomHoverCard DATA", totalPosRaised,
+  // totalServiceOrdersAmt,
+  // categorizedData,
+  // workPackageTotalAmounts,)
+
   // Generate tree data for the Tree component
   const generateTreeData = () => {
     const treeData =
@@ -41,11 +47,9 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
             );
 
             return {
-              title: `${category}: ${
-                formatToIndianRupee(totalAmountWithTax)
-              } (Base: ${
-                formatToIndianRupee(totalAmount)
-              })`,
+              title: `${category}: ${formatToIndianRupee(totalAmountWithTax)
+                } (Base: ${formatToIndianRupee(totalAmount)
+                })`,
               key: `${workPackage}-${category}`,
               children: items.map((item, index) => ({
                 title: `${item.item_name} - Qty: ${item.quantity}`,
@@ -56,9 +60,8 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
         );
 
         return {
-          title: `${workPackage} - Total: ${
-            formatToIndianRupee(workPackageTotalAmounts[workPackage]?.amountWithoutTax)
-          }`,
+          title: `${workPackage} - Total: ${formatToIndianRupee(workPackageTotalAmounts[workPackage]?.amountWithoutTax)
+            }`,
           key: workPackage,
           children: categoryNodes,
         };
@@ -67,9 +70,8 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
     // Add service requests total as a standalone item
     if (totalServiceOrdersAmt) {
       treeData?.push({
-        title: `Service Requests Total: ${
-          formatToRoundedIndianRupee(totalServiceOrdersAmt)
-        }`,
+        title: `Service Requests Total: ${formatToRoundedIndianRupee(totalServiceOrdersAmt)
+          }`,
         key: "service-requests-total",
       });
     }
@@ -81,7 +83,7 @@ export const CustomHoverCard : React.FC<CustomHoverCardProps> = ({
     <HoverCard>
       <HoverCardTrigger>
         <div className="underline">
-          <span className="whitespace-nowrap">PO Amt (ex. GST): </span>
+          <span className="whitespace-nowrap">PO + SR Amt (ex. GST): </span>
           <span className="max-sm:text-end max-sm:w-full text-primary">
             {formatToRoundedIndianRupee(totalPosRaised + totalServiceOrdersAmt)}
           </span>

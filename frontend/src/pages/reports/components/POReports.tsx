@@ -23,6 +23,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { format } from "path";
 import { useUserData } from "@/hooks/useUserData";
+import { late } from "zod";
 
 interface SelectOption { label: string; value: string; }
 
@@ -113,6 +114,8 @@ export default function POReports() {
     }, [allPOsForReports, selectedReportType, delta]);
 
     // 4. Initialize useServerDataTable in clientData mode
+    // console.log("currentDisplayData", currentDisplayData);
+
     const {
         table,
         isLoading: isTableHookLoading,
@@ -183,6 +186,8 @@ export default function POReports() {
             total_invoice_amt: formatForReport(row.invoiceAmount),
             amt_paid: formatForReport(row.amountPaid),
             dispatch_date: row.originalDoc.dispatch_date ? formatDate(row.originalDoc.dispatch_date) : "N/A",
+            latest_delivery_date: row.originalDoc.latest_delivery_date ? formatDate(row.originalDoc.latest_delivery_date) : "N/A",
+            latest_payment_date: row.originalDoc.latest_payment_date ? formatDate(row.originalDoc.latest_payment_date) : "N/A",
             status: row.originalDoc.status,
         }));
 
@@ -195,6 +200,8 @@ export default function POReports() {
             { header: "Total Invoice Amt", accessorKey: "total_invoice_amt" },
             { header: "Amt Paid", accessorKey: "amt_paid" },
             { header: "PO Status", accessorKey: "status" }, // Moved before conditional dispatch date
+            { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
+            { header: "Latest Payment Date", accessorKey: "latest_payment_date" },
         ];
         if (selectedReportType === 'Dispatched for 3 days') {
             exportColumnsConfig.push({ header: "Dispatched Date", accessorKey: "dispatch_date" });

@@ -24,6 +24,13 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { UnitOptions } from "@/components/helpers/SelectUnit";
 
 
+// --- (1) NEW: Define the static options for the status filter ---
+const ITEM_STATUS_OPTIONS = [
+    { label: "Active", value: "Active" },
+    { label: "Inactive", value: "Inactive" },
+];
+
+
 export default function ItemsPage() {
     const { toast } = useToast();
     const userData = useUserData();
@@ -119,6 +126,7 @@ export default function ItemsPage() {
             accessorKey: "item_status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("item_status") || "--"}</div>,
+            enableColumnFilter: true,
             size: 120,
             meta: {
                 exportHeaderName: "Status",
@@ -155,6 +163,7 @@ export default function ItemsPage() {
     const facetFilterOptions = useMemo(() => ({
         category: { title: "Category", options: categoryFacetOptions },
         unit_name: { title: "Unit", options: UnitOptions },
+        item_status: { title: "Status", options: ITEM_STATUS_OPTIONS }, // Add new config
     }), [categoryFacetOptions, UnitOptions]);
 
     const canManageItems = userData?.role === "Nirmaan Admin Profile"; // Define roles that can add/edit

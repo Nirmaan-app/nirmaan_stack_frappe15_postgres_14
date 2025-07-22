@@ -32,11 +32,13 @@ export const PROJECT_INVOICE_DATE_COLUMNS = ["invoice_date"];
 // =================================================================================
 type ProjectNameResolver = (projectId?: string) => string;
 type CustomerNameResolver = (customerId?: string) => string;
+type UserNameResolver = (userId?: string) => string;
 
 interface ColumnGeneratorOptions {
     isAdmin: boolean;
     getProjectName: ProjectNameResolver;
     getCustomerName: CustomerNameResolver;
+    getUserName: UserNameResolver; // --- (2) NEW: Add to the options interface ---
     onDelete: (invoice: ProjectInvoice) => void;
     onEdit: (invoice: ProjectInvoice) => void; // --- (Indicator) NEW: onEdit callback ---
 }
@@ -48,7 +50,7 @@ export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
 
-    const { isAdmin, getProjectName, getCustomerName, onDelete, onEdit } = options; // Destructure onEdit
+    const { isAdmin, getProjectName, getCustomerName, getUserName, onDelete, onEdit } = options; // Destructure onEdit
 
     const columns: ColumnDef<ProjectInvoice>[] = [
         {
@@ -111,8 +113,9 @@ export const getProjectInvoiceColumns = (
         {
             accessorKey: "owner",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
-            cell: ({ row }) => <div>{row.original.owner}</div>,
-            meta: { exportHeaderName: "Created By", exportValue: (row: ProjectInvoice) => row.owner }
+            cell: ({ row }) => <div>{getUserName(row.original.owner)}</div>,
+            filterFn: facetedFilterFn,
+            meta: { exportHeaderName: "Created By", exportValue: (row: ProjectInvoice) => getUserName(row.owner) }
         },
 
         // --- CORRECTED INLINE SYNTAX ---

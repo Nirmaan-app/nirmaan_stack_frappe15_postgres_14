@@ -3,14 +3,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Vendor } from "@/pages/ServiceRequests/service-request/select-service-vendor"
 import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist"
 import { Makelist } from "@/types/NirmaanStack/Makelist"
-import { ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementRequests"
+import { RFQData } from "@/types/NirmaanStack/ProcurementRequests"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { useEffect, useMemo, useState } from "react"
 import ReactSelect, { components, StylesConfig, GroupBase, MenuListProps } from "react-select"
+import { ProgressItem } from "../types"
 
 interface MakesSelectionProps {
   vendor: Vendor
-  item: ProcurementItem
+  item: ProgressItem
   formData: RFQData
   setFormData: React.Dispatch<React.SetStateAction<RFQData>>
   defaultMake?: string
@@ -26,22 +27,22 @@ export const MakesSelection: React.FC<MakesSelectionProps> = ({ defaultMake, ven
 
 
   const { data: categoryMakeList, mutate: categoryMakeListMutate } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
-    fields: ["*"],
+    fields: ["make", "category"],
     filters: [["category", "=", item?.category]],
-    limit: 100000,
+    limit: 0,
   },
     item?.category ? `Category Makelist_${item?.category}` : null
   )
 
   const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList<Makelist>("Makelist", {
-    fields: ["*"],
-    limit: 100000,
+    fields: ["name"],
+    limit: 0,
   })
 
   const makeOptions: { label: string, value: string }[] = useMemo(() => categoryMakeList?.map((i) => ({ label: i?.make, value: i?.make })) || [], [categoryMakeList, item])
 
 
-  const selectedMakeName = useMemo(() => formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make || defaultMake, [item, vendor, formData, defaultMake]);
+  const selectedMakeName = useMemo(() => formData?.details?.[item?.item_id]?.vendorQuotes?.[vendor?.value]?.make || defaultMake, [item, vendor, formData, defaultMake]);
 
   const selectedVendorMake = useMemo(() => ({ value: selectedMakeName, label: selectedMakeName }), [selectedMakeName])
 
@@ -50,11 +51,11 @@ export const MakesSelection: React.FC<MakesSelectionProps> = ({ defaultMake, ven
       ...prev,
       details: {
         ...prev.details,
-        [item?.name]: {
-          ...prev.details[item?.name],
+        [item?.item_id]: {
+          ...prev.details[item?.item_id],
           vendorQuotes: {
-            ...prev.details[item?.name].vendorQuotes,
-            [vendor?.value]: { ...(prev.details[item?.name].vendorQuotes[vendor?.value] || {}), make: make.value },
+            ...prev.details[item?.item_id].vendorQuotes,
+            [vendor?.value]: { ...(prev.details[item?.item_id].vendorQuotes[vendor?.value] || {}), make: make.value },
           },
         },
       },
@@ -62,10 +63,10 @@ export const MakesSelection: React.FC<MakesSelectionProps> = ({ defaultMake, ven
   }
 
   useEffect(() => {
-    if (defaultMake && !formData?.details?.[item?.name]?.vendorQuotes?.[vendor?.value]?.make) {
+    if (defaultMake && !formData?.details?.[item?.item_id]?.vendorQuotes?.[vendor?.value]?.make) {
       handleMakeChange({ label: defaultMake, value: defaultMake });
     }
-  }, [defaultMake, formData, item?.name, vendor?.value]);
+  }, [defaultMake, formData, item?.item_id, vendor?.value]);
 
 
   // Define the styles for the portal menu

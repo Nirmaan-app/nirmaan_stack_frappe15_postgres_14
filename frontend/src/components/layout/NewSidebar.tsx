@@ -22,6 +22,9 @@ import {
   HandCoins,
   ReceiptText, FileUp,
   Banknote,
+  CreditCard,
+  BanknoteIcon,
+  Landmark
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -364,6 +367,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+      ? [
+        {
+          key: '/credits',
+          icon: CreditCard,
+          label: 'Credit Payments',
+        },
+
+      ]
+      : []),
+
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
       ? [
         {
@@ -394,6 +408,15 @@ export function NewSidebar() {
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
       ? [
         {
+          key: '/project-expenses',
+          icon: Landmark,
+          label: 'Project Expenses',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+      ? [
+        {
           key: '/non-project',
           icon: Banknote,
           label: 'Non Project Expenses',
@@ -409,6 +432,7 @@ export function NewSidebar() {
         },
       ]
       : [])
+
 
   ], [user_id, role]);
 
@@ -438,9 +462,11 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
+    "credits",
     "in-flow-payments",
     'invoice-reconciliation',
     'project-invoices',
+    'project-expenses',
     'non-project',
     'reports',
 
@@ -464,9 +490,11 @@ export function NewSidebar() {
     "/purchase-orders": ["purchase-orders"],
     // "/sent-back-requests": ["sent-back-requests"],
     "/project-payments": ["project-payments"],
+    "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
+    "/project-expenses": ["project-expenses"],
     "/non-project": ["non-project"],
     "/reports": ["reports"]
   }), []);
@@ -536,7 +564,8 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Non Project Expenses"]).has(item?.label) ? (
+
+                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

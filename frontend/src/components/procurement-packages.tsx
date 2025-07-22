@@ -43,7 +43,7 @@ import {
   TableRow,
 } from "./ui/table";
 
-export const ProcurementPackages : React.FC = () => {
+export const ProcurementPackages: React.FC = () => {
   const navigate = useNavigate();
 
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
@@ -98,11 +98,11 @@ export const ProcurementPackages : React.FC = () => {
     modified_by: "",
   });
 
-  const [newCategoryMakes, setNewCategoryMakes] = useState<{label : string, value : string}[]>([]);
+  const [newCategoryMakes, setNewCategoryMakes] = useState<{ label: string, value: string }[]>([]);
 
   const [loadingFunc, setLoadingFunc] = useState("")
 
-  const [makeOptions, setMakeOptions] = useState<{label : string, value : string}[]>([])
+  const [makeOptions, setMakeOptions] = useState<{ label: string, value: string }[]>([])
 
   const [showNewMakeInput, setShowNewMakeInput] = useState(false)
 
@@ -269,7 +269,7 @@ export const ProcurementPackages : React.FC = () => {
     if (makeList && editCategory?.name && categoryMakeList) {
       const categoryMakes = categoryMakeList?.filter((catMake) => catMake?.category === editCategory?.name)
 
-      let makeOptionsList : {label : string, value : string}[] = []
+      let makeOptionsList: { label: string, value: string }[] = []
       if (categoryMakes?.length > 0) {
         makeOptionsList = makeList?.filter((i) => categoryMakes?.every((j) => j?.make !== i?.name))?.map((k) => ({ label: k?.name, value: k?.name })) || [];
       } else {
@@ -283,7 +283,7 @@ export const ProcurementPackages : React.FC = () => {
     }
   }, [makeList, editCategory?.name, categoryMakeList])
 
-  const handleChange = (selectedOptions : {label : string, value : string}[]) => {
+  const handleChange = (selectedOptions: { label: string, value: string }[]) => {
     setNewCategoryMakes(selectedOptions)
   }
 
@@ -321,10 +321,10 @@ export const ProcurementPackages : React.FC = () => {
   //   }
   // }
 
-  const handleCategoryClick = (categoryName : string) => {
+  const handleCategoryClick = (categoryName: string) => {
     // Encode special characters in the category name
     const encodedCategoryName = encodeURIComponent(categoryName);
-    navigate(`/products?Category=${encodedCategoryName}`);
+    navigate(`/products?items_master_pageIdx=0&items_master_pageSize=50&items_master_searchBy=category&items_master_q=${encodedCategoryName}`);
   };
 
   return (
@@ -393,9 +393,9 @@ export const ProcurementPackages : React.FC = () => {
             </div>
           ))
           : procurementPackages &&
-            procurementPackages?.sort((a, b) =>
-              (a?.work_package_name || "")?.localeCompare(b?.work_package_name || "")
-            )
+          procurementPackages?.sort((a, b) =>
+            (a?.work_package_name || "")?.localeCompare(b?.work_package_name || "")
+          )
             ?.map((d) => (
               <div key={d?.work_package_name}>
                 {/* <WPCard wp={d.work_package_name} /> */}
@@ -613,19 +613,19 @@ export const ProcurementPackages : React.FC = () => {
 };
 
 interface AddMakeComponentProps {
-  makeList? : Makelist[]
+  makeList?: Makelist[]
   makeListMutate: any;
   category?: string
   categoryMakeListMutate?: any;
   handleMakeChange?: (make: {
-                      label: string;
-                      value: string;
-                      }) => void
+    label: string;
+    value: string;
+  }) => void
   toggleShowAlert?: () => void
 }
 
 
-const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeListMutate, category, categoryMakeListMutate, handleMakeChange, toggleShowAlert }) => {
+const AddMakeComponent: React.FC<AddMakeComponentProps> = ({ makeList, makeListMutate, category, categoryMakeListMutate, handleMakeChange, toggleShowAlert }) => {
   const [newMake, setNewMake] = useState("");
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [checking, setChecking] = useState(false); // To show loading state for the check
@@ -638,12 +638,12 @@ const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeList
         make_name: newMake
       })
 
-      if(category) {
+      if (category) {
         await createDoc("Category Makelist", {
           category: category,
           make: res?.name
         })
-        handleMakeChange?.({label: res?.name, value: res?.name})
+        handleMakeChange?.({ label: res?.name, value: res?.name })
         await categoryMakeListMutate?.()
         toggleShowAlert?.()
       }
@@ -670,7 +670,7 @@ const AddMakeComponent : React.FC<AddMakeComponentProps> = ({ makeList, makeList
 
   // Debounced function to check for duplicates
   const checkDuplicateMake = useCallback(
-    debounce((value : string) => {
+    debounce((value: string) => {
       if (!value) {
         setIsDuplicate(false);
         return;
