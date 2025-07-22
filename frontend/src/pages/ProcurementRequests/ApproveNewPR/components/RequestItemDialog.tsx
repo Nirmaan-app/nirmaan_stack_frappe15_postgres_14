@@ -173,9 +173,9 @@ export const RequestItemDialog: React.FC<RequestItemDialogProps> = ({
                 </div>
 
                 <AlertDialogFooter className='flex justify-between items-center'>
-                     <Button variant="destructive" onClick={() => onReject(requestItem)} disabled={isLoading} size='sm'>
+                     {/* <Button variant="destructive" onClick={() => onReject(requestItem)} disabled={isLoading} size='sm'>
                          <Trash className='h-4 w-4 mr-1'/> Reject Request
-                     </Button>
+                     </Button> */}
                      <AlertDialogCancel onClick={onClose} disabled={isLoading}>Close</AlertDialogCancel>
                 </AlertDialogFooter>
             </AlertDialogContent>

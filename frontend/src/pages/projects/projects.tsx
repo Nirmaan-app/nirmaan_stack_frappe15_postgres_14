@@ -335,7 +335,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     defaultSort: 'creation desc',
     enableRowSelection: false, // No selection needed for this overview table
     additionalFilters: staticFilters,
-    shouldCache: true,
+    // shouldCache: true,
   });
 
   // // --- Transform fetched project data to include calculated financials and PR counts ---
