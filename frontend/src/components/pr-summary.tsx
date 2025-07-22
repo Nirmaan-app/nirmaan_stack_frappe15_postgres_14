@@ -2,10 +2,10 @@ import { useUserData } from "@/hooks/useUserData";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { Category, ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { Category, ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
 import { Timeline } from "antd";
-import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { FrappeDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig,useFrappePostCall } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -19,21 +19,23 @@ import { Label } from "./ui/label";
 import { PRSummarySkeleton } from "./ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { toast } from "./ui/use-toast";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { KeyedMutator } from "swr";
+
 
 const PRSummary: React.FC = () => {
 
     const { prId: id } = useParams<{ prId: string }>();
 
-    const { data: pr_data, error: pr_error, isLoading: prLoading, mutate: pr_data_mutate } = useFrappeGetDoc("Procurement Requests", id, `Procurement Requests ${id}`);
+    if(!id) return <div>No PR ID provided.</div>
 
-    const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
-        fields: ["*"],
-        limit: 1000,
-    })
+    const { data: pr_data, error: pr_error, isLoading: prLoading, mutate: pr_data_mutate } = useFrappeGetDoc<ProcurementRequest>("Procurement Requests", id, `Procurement Requests ${id}`);
+
+    const { data: usersList, isLoading: userLoading, error: userError } = useUsersList()
 
     const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
-        limit: 1000,
+        limit: 0,
         filters: [["reference_name", "=", id]],
         orderBy: { field: "creation", order: "desc" }
     }, id ? `Nirmaan Comments ${id}` : null)
@@ -41,7 +43,7 @@ const PRSummary: React.FC = () => {
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
         filters: [['procurement_request', '=', id]],
-        limit: 1000
+        limit: 0
     },
         id ? undefined : null
     )
@@ -60,15 +62,18 @@ const PRSummary: React.FC = () => {
 };
 
 interface PRSummaryPageProps {
-    pr_data?: any
-    address?: any
+    pr_data?: FrappeDoc<ProcurementRequest>;
     po_data?: ProcurementOrdersType[]
     universalComments?: NirmaanComments[]
     usersList?: NirmaanUsersType[]
-    pr_data_mutate?: any
+    pr_data_mutate: KeyedMutator<FrappeDoc<ProcurementRequest>>
 }
 
 const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, universalComments, usersList, pr_data_mutate }) => {
+
+    if(!pr_data) return <div>No PR data found.</div>
+// console.log("PR Data",pr_data)  
+// console.log("PO Data",po_data)
     const navigate = useNavigate();
     const { role, user_id } = useUserData()
     const { deleteDoc } = useFrappeDeleteDoc()
@@ -78,26 +83,102 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
 
     const getFullName = useMemo(() => (id: string) => usersList?.find(user => user.name === id)?.full_name || '', [usersList]);
 
-    useEffect(() => {
-        if (po_data) {
-            const newSet = new Set<string>()
-            po_data.forEach(po => {
-                po.order_list.list.forEach(item => {
-                    newSet.add(item.name)
-                })
-            })
-            setPoItemList(newSet)
-        }
 
-    }, [po_data])
+
+    // useEffect(() => {
+    //     if (po_data) {
+    //         const newSet = new Set<string>()
+    //         po_data.forEach(po => {
+    //             po.items.forEach(item => {
+    //                 newSet.add(item.name)
+    //             })
+    //         })
+    //         setPoItemList(newSet)
+    //     }
+
+    // }, [po_data])
+    // This useEffect now calls our working API
+// In your PRSummaryPage component...
+
+// Make sure your fetch call is defined correctly
+
+
+// This is the corrected useEffect block
+// In your PRSummaryPage component...
+
+// In your PRSummaryPage component...
+
+// Your custom API call hook remains the same
+const { call: fetchPoItems } = useFrappePostCall<ProcurementOrdersType>(
+    'nirmaan_stack.api.projects.project_aggregates.get_purchase_order_with_items'
+);
+
+// This is the corrected useEffect block using async/await
+useEffect(() => {
+    // Define an async function to handle the fetching
+    const fetchAllPoItems = async () => {
+        // We need the initial list of POs to loop through
+        if (po_data && po_data.length > 0) {
+            
+            const newIdSet = new Set<string>();
+
+            // Loop through each PO from the initial list
+            for (const po of po_data) {
+                try {
+                    // Correctly call the API for each PO
+                    const {message:fullPoDoc} = await fetchPoItems({ po_name: po.name });
+                //  console.log("fullPoDoc",fullPoDoc)
+                    // Check if the response and its 'items' array exist
+                    if (fullPoDoc && fullPoDoc.items) {
+                        // Loop through the items array of the fetched PO
+                        fullPoDoc.items.forEach(item => {
+                            // --- THE CRITICAL FIX IS HERE ---
+                            // Add the actual Item ID to the set, not the row's unique name.
+                            newIdSet.add(item.name);
+                        });
+                    }
+                } catch (err) {
+                    console.error(`Error fetching details for PO ${po.name}:`, err);
+                    toast({
+                        title: "Failed to Load Order Details",
+                        description: `Could not fetch items for PO ${po.name}.`,
+                        variant: "destructive",
+                    });
+                    return; // Stop if one fails
+                }
+            }
+            
+            // After the loop, update the state with the set of ordered Item IDs.
+            setPoItemList(newIdSet);
+        }
+    };
+
+    // Execute the async function
+    fetchAllPoItems();
+
+}, [po_data, fetchPoItems, toast]);
+
+
+// console.log("PO Items",poItemList)
+
+
+    const actualPrItems = useMemo(() => pr_data?.order_list || [], [pr_data]);
 
     const statusRender = useMemo(() => (status: string) => {
         if (["Approved", "In Progress", "Vendor Selected"].includes(status)) return "Open PR";
-        const itemList = pr_data?.procurement_list?.list || [];
+        // const itemList = pr_data?.procurement_list?.list || [];
         // if (itemList?.some(i => i?.status === "Deleted")) return "Open PR";
-        const allItemsApproved = itemList.every(item => (poItemList.has(item?.name) || item?.status === "Deleted"));
-        return allItemsApproved ? "Approved PO" : "Open PR";
-    }, [poItemList, pr_data]);
+        // const allItemsApproved = itemList.every(item => (poItemList.has(item?.name) || item?.status === "Deleted"));
+         // Use actualPrItems which is pr_data.order_list
+        if (!actualPrItems.length) return "Open PR"; // Or handle as appropriate if empty
+
+        // An item is considered "covered" if it's in a PO or its status is "Deleted"
+        const allItemsCovered = actualPrItems.every(item => 
+            poItemList.has(item.item_id) || item.status === "Deleted"
+        );
+        return allItemsCovered ? "Approved PO" : "Open PR";
+
+    }, [poItemList, actualPrItems]);
 
     const itemsTimelineList = useMemo(() => universalComments?.map(cmt => ({
         label: <span className="max-sm:text-wrap text-xs m-0 p-0">{formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}</span>,
@@ -125,7 +206,11 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
         }
     }
 
-    const getItemStatus = useMemo(() => (itemJson: ProcurementItem) => poItemList.has(itemJson.name) ? "Ordered" : "In Progress", [poItemList]);
+    const getItemStatus = useMemo(() => (prItemDetail: ProcurementRequestItemDetail) => {
+        // prItemDetail.item_id is the Item DocName
+        return poItemList.has(prItemDetail.item_id) ? "Ordered" : "In Progress";
+    }, [poItemList]);
+
 
     const handleMarkDraftPR = async () => {
         try {
@@ -170,41 +255,42 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
 
     const categories = useMemo(() => {
         const uniqueCategories = new Map<string, Category>();
+        // Assuming pr_data.category_list is still the source for displayable category names/info
+        // and is still in the old JSON format. If category_list also changes, this needs an update.
         try {
-            JSON.parse(pr_data?.category_list || "[]")?.list?.forEach((cat: Category) => {
-                if (!uniqueCategories.has(cat.name)) uniqueCategories.set(cat.name, cat);
-            });
+            const catListRaw = pr_data?.category_list;
+            const parsedList = (typeof catListRaw === 'string' ? JSON.parse(catListRaw || '{"list":[]}') : catListRaw)?.list || [];
+            
+            if (Array.isArray(parsedList)) {
+                parsedList.forEach((cat: any) => { // Use 'any' if structure is uncertain
+                    if (cat && cat.name && !uniqueCategories.has(cat.name)) {
+                        uniqueCategories.set(cat.name, cat as Category);
+                    }
+                });
+            }
         } catch (e) {
-            console.error("Error parsing category_list JSON:", e);
+            console.error("Error parsing category_list JSON for summary:", e);
         }
         return Array.from(uniqueCategories.values());
-    }, [pr_data]);
+    }, [pr_data?.category_list]);
 
     const deletedItems = useMemo(() => {
-        try {
-            return JSON.parse(pr_data?.procurement_list)?.list?.filter((i: ProcurementItem) => i?.status === "Deleted") || [];
-        } catch (error) {
-            console.log("Error parsing procurement_list JSON:", error);
-        }
-    }, [pr_data]);
+        return actualPrItems.filter((item: ProcurementRequestItemDetail) => item.status === "Deleted");
+    }, [actualPrItems]);
 
-    const requestedItems = useMemo(() => (cat: Category) => {
-        try {
-            return JSON.parse(pr_data?.procurement_list)?.list?.filter((item: ProcurementItem) => item.category === cat.name && item.status === "Request") || [];
-        } catch (e) {
-            console.error("Error parsing procurement_list JSON:", e);
-            return [];
-        }
-    }, [pr_data]);
+    const requestedItems = useMemo(() => (categoryDocName: string) => {
+        return actualPrItems.filter((item: ProcurementRequestItemDetail) => 
+            item.category === categoryDocName && item.status === "Request"
+        );
+    }, [actualPrItems]);
 
-    const categoryItems = useMemo(() => (cat: Category) => {
-        try {
-            return JSON.parse(pr_data?.procurement_list)?.list?.filter((item: ProcurementItem) => item.category === cat.name && !["Request", "Deleted"].includes(item?.status)) || [];
-        } catch (e) {
-            console.error("Error parsing procurement_list JSON:", e);
-            return [];
-        }
-    }, [pr_data]);
+    const categoryItemsToDisplay = useMemo(() => (categoryDocName: string) => {
+        // Filters items for a given category that are NOT "Request" or "Deleted"
+        return actualPrItems.filter((item: ProcurementRequestItemDetail) => 
+            item.category === categoryDocName && !["Request", "Deleted"].includes(item.status)
+        );
+    }, [actualPrItems]);
+
 
 
     return (
@@ -280,7 +366,7 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
                         <CardHeader>
                             <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                                 PR Details
-                                <Badge variant={`${pr_data?.workflow_state === "Rejected" ? "red" : pr_data?.workflow_state === "Pending" ? "yellow" : pr_data?.workflow_state === "Draft" ? "indigo" : statusRender(pr_data?.workflow_state) === "Open PR" ? "orange" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "green" : undefined}`}>
+                                <Badge variant={`${pr_data?.workflow_state === "Rejected" ? "red" : pr_data?.workflow_state === "Pending" ? "yellow" : pr_data?.workflow_state === "Draft" ? "indigo" : statusRender(pr_data?.workflow_state) === "Open PR" ? "orange" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "green" : "default"}`}>
                                     {pr_data?.workflow_state === "Rejected" ? "Rejected" : pr_data?.workflow_state === "Pending" ? "Approval Pending" : pr_data?.workflow_state === "Draft" ? "Draft" : statusRender(pr_data?.workflow_state) === "Open PR" ? "In Progress" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "Ordered" : ""}
                                 </Badge>
                             </CardTitle>
@@ -376,18 +462,26 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
                     </Card>
                 </div>
                 <div className="flex flex-col flex-1 gap-4">
+                    {/* Order Details Card */}
                     <Card className="w-full">
                         <CardHeader>
                             <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
-                            {categories.map((cat) => (
-                                (categoryItems(cat)?.length > 0 || requestedItems(cat)?.length > 0) && (
+                            {/* Iterate over categories derived from category_list JSON */}
+                            {categories.map((cat) => {
+                                const itemsForCategory = categoryItemsToDisplay(cat.name);
+                                const reqItemsForCategory = requestedItems(cat.name);
 
+                                if (itemsForCategory.length === 0 && reqItemsForCategory.length === 0) {
+                                    return null; // Don't render table if no items for this category
+                                }
+
+                                return (
                                     <div className="overflow-x-auto w-full" key={cat.name}>
                                         <Table>
                                             <TableHeader>
                                                 <TableRow className="bg-red-100">
                                                     <TableHead className="w-[50%]">
-                                                        <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                                        <span className="text-red-700 pr-1 font-extrabold">{cat.name /* Display category name */}</span>
                                                     </TableHead>
                                                     <TableHead className="w-[15%]">UOM</TableHead>
                                                     <TableHead className="w-[15%]">Qty</TableHead>
@@ -395,10 +489,14 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {categoryItems(cat).map((item) => (
-                                                    <TableRow key={item.item}>
+                                                {/* Display "normal" items */}
+                                                {itemsForCategory.map((item: ProcurementRequestItemDetail) => (
+                                                    <TableRow key={item.name /* Use child row name as key */}>
                                                         <TableCell>
-                                                            {item.item}
+                                                            {item.item_name /* Display item_name */}
+                                                            {item.make && ( /* Display make if present */
+                                                                <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
+                                                            )}
                                                             <div className="flex gap-1 pt-2 items-start">
                                                                 <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
                                                                 <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
@@ -406,13 +504,17 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
                                                         </TableCell>
                                                         <TableCell>{item.unit}</TableCell>
                                                         <TableCell>{item.quantity}</TableCell>
-                                                        <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : item.status === "Deleted" ? "Deleted" : getItemStatus(item)}</Badge></TableCell>
+                                                        <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge></TableCell>
                                                     </TableRow>
                                                 ))}
-                                                {requestedItems(cat).map((item) => (
-                                                    <TableRow className="bg-yellow-50" key={item.item}>
+                                                {/* Display "requested" items */}
+                                                {reqItemsForCategory.map((item: ProcurementRequestItemDetail) => (
+                                                    <TableRow className="bg-yellow-50" key={item.name /* Use child row name as key */}>
                                                         <TableCell>
-                                                            {item.item}
+                                                            {item.item_name /* Display item_name */}
+                                                            {item.make && ( /* Display make if present */
+                                                                <span className="ml-1 text-red-700 font-light text-xs">({item.make})</span>
+                                                            )}
                                                             <div className="flex gap-1 pt-2 items-start">
                                                                 <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
                                                                 <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
@@ -426,11 +528,13 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
                                             </TableBody>
                                         </Table>
                                     </div>
-                                )
-                            ))}
+                                );
+                            })}
                         </CardHeader>
                     </Card>
-                    {deletedItems?.length > 0 && (
+
+                    {/* Deleted Items Card */}
+                    {deletedItems.length > 0 && (
                         <Card className="w-full">
                             <CardHeader>
                                 <CardTitle className="text-xl text-red-600">Deleted Items</CardTitle>
@@ -439,27 +543,26 @@ const PRSummaryPage: React.FC<PRSummaryPageProps> = ({ pr_data, po_data, univers
                                 <Table>
                                     <TableHeader>
                                         <TableRow className="bg-red-100">
-                                            <TableHead className="w-[50%]">
-                                                Item
-                                            </TableHead>
+                                            <TableHead className="w-[50%]">Item</TableHead>
                                             <TableHead className="w-[15%]">UOM</TableHead>
                                             <TableHead className="w-[15%]">Qty</TableHead>
                                             <TableHead className="w-[20%]">Status</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {
-                                            deletedItems?.map(i => (
-                                                <TableRow key={i?.name}>
-                                                    <TableCell className="text-red-700 font-light">
-                                                        {i?.item}
-                                                    </TableCell>
-                                                    <TableCell>{i?.unit}</TableCell>
-                                                    <TableCell>{i?.quantity}</TableCell>
-                                                    <TableCell>Deleted</TableCell>
-                                                </TableRow>
-                                            ))
-                                        }
+                                        {deletedItems.map((item: ProcurementRequestItemDetail) => (
+                                            <TableRow key={item.name /* Use child row name as key */}>
+                                                <TableCell className="text-red-700 font-light">
+                                                    {item.item_name /* Display item_name */}
+                                                    {item.make && ( /* Display make if present */
+                                                        <span className="ml-1">({item.make})</span>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>{item.unit}</TableCell>
+                                                <TableCell>{item.quantity}</TableCell>
+                                                <TableCell>Deleted</TableCell>
+                                            </TableRow>
+                                        ))}
                                     </TableBody>
                                 </Table>
                             </CardContent>

@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProjectEstimates } from "@/types/NirmaanStack/ProjectEstimates";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd";
@@ -14,7 +15,7 @@ interface CategoryAccordionProps {
     };
   };
   selectedPackage?: string;
-  projectEstimates?: any[];
+  projectEstimates?: ProjectEstimates[];
   po_data?: ProcurementOrder[];
 }
 
@@ -47,7 +48,7 @@ export const CategoryAccordion: React.FC<CategoryAccordionProps> = ({
           category: key,
           total_amount: totalAmount,
           total_estimate_amount: totalCategoryEstdAmt,
-          items: selectedData[key],
+          items: selectedData?.[key],
         };
       })
       ?.sort((a, b) => b?.total_estimate_amount - a?.total_estimate_amount);
@@ -82,7 +83,7 @@ export const CategoryAccordion: React.FC<CategoryAccordionProps> = ({
 
     if (!estimateItem) return { dynamicQtyClass: null, updated_estd_amt: null, percentage_change: null, estimateItem: null }
 
-    const quantityDif = item?.quantity - estimateItem?.quantity_estimate;
+    const quantityDif = item?.quantity - parseNumber(estimateItem?.quantity_estimate);
 
     let dynamicQtyClass = null;
 
@@ -103,16 +104,16 @@ export const CategoryAccordion: React.FC<CategoryAccordionProps> = ({
 
     const updated_estd_amt =
       estimateItem?.quantity_estimate > item?.quantity
-        ? estimateItem?.quantity_estimate *
+        ? parseNumber(estimateItem?.quantity_estimate) *
         item?.averageRate
         : item.amount;
 
     const percentage_change = Math.floor(
       ((updated_estd_amt -
-        estimateItem?.rate_estimate *
-        estimateItem?.quantity_estimate) /
-        (estimateItem?.rate_estimate *
-          estimateItem?.quantity_estimate)) *
+        parseNumber(estimateItem?.rate_estimate) *
+        parseNumber(estimateItem?.quantity_estimate)) /
+        (parseNumber(estimateItem?.rate_estimate) *
+          parseNumber(estimateItem?.quantity_estimate))) *
       100
     );
 
@@ -203,8 +204,8 @@ export const CategoryAccordion: React.FC<CategoryAccordionProps> = ({
         const { estimateItem } = getItemAttributes(data)
         return <span className="italic">
           {formatToRoundedIndianRupee(
-            estimateItem?.rate_estimate *
-            estimateItem?.quantity_estimate
+            parseNumber(estimateItem?.rate_estimate) *
+            parseNumber(estimateItem?.quantity_estimate)
           )}
         </span>
       },
@@ -218,8 +219,8 @@ export const CategoryAccordion: React.FC<CategoryAccordionProps> = ({
           className={`${(estimateItem?.quantity_estimate !==
             undefined && updated_estd_amt)
             ? updated_estd_amt >
-              (estimateItem?.rate_estimate *
-                estimateItem?.quantity_estimate)
+              (parseNumber(estimateItem?.rate_estimate) *
+                parseNumber(estimateItem?.quantity_estimate))
               ? "text-red-500"
               : "text-green-500"
             : ""
@@ -229,7 +230,7 @@ export const CategoryAccordion: React.FC<CategoryAccordionProps> = ({
             undefined
             ? formatToRoundedIndianRupee(updated_estd_amt)
             : "--"}
-          {!isNaN(percentage_change) && (estimateItem?.quantity_estimate !==
+          {!isNaN(percentage_change || 0) && (estimateItem?.quantity_estimate !==
             undefined && ` (${percentage_change}%)`)}
         </span>
       },

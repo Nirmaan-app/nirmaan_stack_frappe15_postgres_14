@@ -5,7 +5,7 @@ import { useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from 'frappe-rea
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
-import { CategorySelection, ProcurementRequestItem } from '../types';
+import { BackendPRItemDetail, CategorySelection, ProcurementRequestItem } from '../types';
 
 interface UseSubmitProcurementRequestResult {
     submitNewPR: (finalCommentFromDialog: string) => Promise<void>;
@@ -14,10 +14,29 @@ interface UseSubmitProcurementRequestResult {
     isSubmitting: boolean;
 }
 
+// Helper to transform frontend items to backend child table format
+const transformToBackendOrderList = (frontendProcList: ProcurementRequestItem[]): Omit<BackendPRItemDetail, 'name' | 'creation' | 'modified' | 'parent' | 'parentfield' | 'parenttype'>[] => {
+    return frontendProcList.map(feItem => ({
+        //uniqueId is client-side, Frappe assigns 'name' to child row on save
+        item_id: feItem.status === "Request" ? "" : feItem.name,       // Frontend 'name' is Item DocName
+        item_name: feItem.item,     // Frontend 'item' is display name
+        unit: feItem.unit,
+        quantity: feItem.quantity,
+        category: feItem.category,
+        procurement_package: feItem.work_package, // map work_package
+        make: feItem.make,
+        status: feItem.status,
+        tax: feItem.tax, // Ensure this matches backend expectation (optional or required)
+        comment: feItem.comment,
+        // Frappe handles parent, parentfield, parenttype, name, creation, modified for child table items
+    }));
+};
+
+
 export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult => {
     const navigate = useNavigate();
     const { toast } = useToast();
-    
+
     const { mutate: globalMutate } = useSWRConfig();
     const userData = useUserData();
 
@@ -61,7 +80,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             navigate(`/prs&milestones/procurement-requests/${docName || prId}`);
         }
 
-    // Dependencies for handleSuccess: Include all state values used inside it
+        // Dependencies for handleSuccess: Include all state values used inside it
     }, [globalMutate, mode, prId, resetStore, navigate, toast]);
 
 
@@ -83,7 +102,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
                 toast({ title: "Comment Failed", description: "Failed to save comment, but PR action was successful.", variant: "destructive" }); // Adjusted message
             }
         }
-    // Dependencies for addCommentIfNeeded
+        // Dependencies for addCommentIfNeeded
     }, [userData?.user_id, createDoc, toast]);
 
 
@@ -91,7 +110,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         const categoriesList: CategorySelection[] = []
         procList.forEach(item => {
             const category = selectedCategories.find(c => c.name === item.category && c.status === item.status);
-            if(category) {
+            if (category) {
                 if (category?.name && categoriesList?.some(c => c.name === category.name && c.status === category.status)) {
                     return;
                 }
@@ -111,15 +130,17 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         }
 
         try {
+            const backendOrderList = transformToBackendOrderList(procList);
             // Ensure procList and selectedCategories are structured correctly for the API
             const payload = {
                 project: projectId,
                 work_package: selectedWP,
                 category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
-                procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+                // procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+                order_list: backendOrderList
                 // Add other necessary fields
             };
-             // console.log("Creating PR with payload:", payload); // Debug log
+            // console.log("Creating PR with payload:", payload); // Debug log
             const res = await createDoc("Procurement Requests", payload);
             await addCommentIfNeeded("Procurement Requests", res.name, "creating pr", finalCommentFromDialog);
             await handleSuccess(res.name, "created");
@@ -128,7 +149,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             console.error("Submit PR Error:", error);
             toast({ title: "Submission Failed", description: error.message || "Could not create Procurement Request.", variant: "destructive" });
         }
-    // Dependencies for submitNewPR
+        // Dependencies for submitNewPR
     }, [projectId, selectedWP, procList, selectedCategories, getRefinedCategoriesList, createDoc, addCommentIfNeeded, handleSuccess, toast]);
 
 
@@ -139,10 +160,13 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             return;
         }
 
+        const backendOrderList = transformToBackendOrderList(procList);
+
         const updateData: any = {
             // Ensure lists are structured correctly for the API
             category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
-            procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+            // procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
+            order_list: backendOrderList, // NEW: Pass the transformed array
             workflow_state: "Pending"
             // Add other necessary fields
         };
@@ -158,7 +182,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             console.error("Resolve/Update PR Error:", error);
             toast({ title: `${mode === 'edit' ? 'Update' : 'Resolve'} Failed`, description: error.message || "Could not update Procurement Request.", variant: "destructive" });
         }
-    // Dependencies for resolveOrUpdatePR
+        // Dependencies for resolveOrUpdatePR
     }, [prId, procList, selectedCategories, getRefinedCategoriesList, mode, updateDoc, addCommentIfNeeded, handleSuccess, toast]);
 
 
@@ -179,7 +203,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             console.error("Cancel Draft Error:", error);
             toast({ title: "Cancellation Failed", description: error.message || "Could not cancel draft.", variant: "destructive" });
         }
-     // Dependencies for cancelDraftPR
+        // Dependencies for cancelDraftPR
     }, [mode, prId, updateDoc, navigate, resetStore, globalMutate, toast]);
 
 

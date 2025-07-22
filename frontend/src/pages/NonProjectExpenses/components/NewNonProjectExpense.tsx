@@ -84,7 +84,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const [formState, setFormState] = useState<NewExpenseFormState>(INITIAL_FORM_STATE);
     const [formErrors, setFormErrors] = useState<Partial<Record<keyof NewExpenseFormState, string>>>({});
 
-    const [recordPaymentDetails, setRecordPaymentDetails] = useState(false);
+    const [recordPaymentDetails, setRecordPaymentDetails] = useState(true);
     const [recordInvoiceDetails, setRecordInvoiceDetails] = useState(false);
 
     const [paymentAttachmentFile, setPaymentAttachmentFile] = useState<File | null>(null);
@@ -207,7 +207,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         if (newNonProjectExpenseDialog) {
             setFormState(INITIAL_FORM_STATE);
             setFormErrors({});
-            setRecordPaymentDetails(false);
+            setRecordPaymentDetails(true);
             setRecordInvoiceDetails(false);
             setPaymentAttachmentFile(null);
             setInvoiceAttachmentFile(null);
@@ -216,7 +216,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     }, [newNonProjectExpenseDialog]);
 
     const isLoadingOverall = createLoading || uploadLoading || expenseTypesLoading;
-    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount;
+    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount || !formState.payment_date;
 
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 

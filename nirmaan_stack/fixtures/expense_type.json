@@ -268,5 +268,23 @@
   "name": "Software Chagres",
   "non_project": 1,
   "project": 0
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Hotel Expenses",
+  "modified": "2025-07-22 18:24:55.581781",
+  "name": "Hotel Expenses",
+  "non_project": 1,
+  "project": 0
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Manpower Rent",
+  "modified": "2025-07-22 18:25:07.718037",
+  "name": "Manpower Rent",
+  "non_project": 0,
+  "project": 1
  }
 ]

@@ -8,7 +8,7 @@ from frappe.utils import flt, get_datetime, add_months, now_datetime
 from datetime import datetime
 from functools import lru_cache
 import math # Though not used in the final version 3 logic, kept if needed later
-from ...api.approve_vendor_quotes import generate_pos_from_selection
+# from ...api.approve_vendor_quotes import generate_pos_from_selection
 
 # Import only necessary components from typing (TypedDict is not built-in)
 # 'Any' might still be useful for generic dictionary values if strict typing isn't needed there.
@@ -223,19 +223,20 @@ def validate_procurement_request(doc: Document) -> bool:
     """
     get_historical_average_quote_cached.cache_clear()
 
-    procurement_list_json = doc.get("procurement_list")
-    items = []
-    if procurement_list_json:
-        try:
-            data = json.loads(procurement_list_json)
-            # Ensure 'list' exists and is a list, otherwise default to empty list
-            items = data.get("list", []) if isinstance(data.get("list"), list) else []
-        except json.JSONDecodeError:
-            frappe.msgprint(f"Error parsing procurement list JSON for {doc.name}", indicator="red", title="Validation Error")
-            return False # Invalid format fails the check
+    # procurement_list_json = doc.get("procurement_list")
+    # items = []
+    items = doc.get("order_list", [])
+    # if procurement_list_json:
+    #     try:
+    #         data = json.loads(procurement_list_json)
+    #         # Ensure 'list' exists and is a list, otherwise default to empty list
+    #         items = data.get("list", []) if isinstance(data.get("list"), list) else []
+    #     except json.JSONDecodeError:
+    #         frappe.msgprint(f"Error parsing procurement list JSON for {doc.name}", indicator="red", title="Validation Error")
+    #         return False # Invalid format fails the check
 
     if not items:
-        frappe.msgprint(f"Procurement Request {doc.name} has no items.", indicator="orange", title="Validation Info")
+        frappe.msgprint(f"Procurement Request {doc.name} has no items in 'order_list'.", indicator="orange", title="Validation Info")
         return True # Passes based on amount < 5000
 
     total_estimated_amount = 0.0
@@ -244,35 +245,48 @@ def validate_procurement_request(doc: Document) -> bool:
     # --- Check 1: No "Request" status items ---
     for item in items:
         # Check if item is a dictionary before accessing keys
-        if not isinstance(item, dict):
-             frappe.msgprint(f"Invalid item format found in procurement list for {doc.name}.", indicator="red", title="Validation Error")
-             return False # Invalid item format
+        # if not isinstance(item, dict):
+        #      frappe.msgprint(f"Invalid item format found in procurement list for {doc.name}.", indicator="red", title="Validation Error")
+        #      return False # Invalid item format
 
-        if item.get("status") == "Request":
-            item_display = item.get('item') or item.get('name', 'Unknown Item')
+        current_item_status = item.get("status")
+
+        if current_item_status == "Request":
+            item_display = item.get('item_name') or item.get('item_id', 'Unknown Item')
             frappe.msgprint(f"Procurement Request {doc.name} contains item '{item_display}' with status 'Request'. Please add the item to the database first.", indicator="red", title="Validation Failed")
             return False # Fail check 1
 
     # --- Checks 2, 3 & 4: Calculate total estimated amount for "Pending" items ---
     for item in items:
+        current_item_status = item.get("status")
+
         # Already checked item is a dict
-        if item.get("status") == "Pending":
+        if current_item_status == "Pending":
             pending_items_count += 1
-            item_id = item.get("name") # Assuming 'name' holds the Item Code/ID
-            item_display_name = item.get('item') or item_id or 'Unknown Item' # For messages
-            quantity_str = item.get("quantity")
+            item_id = item.get("item_id") # Assuming 'name' holds the Item Code/ID
+            item_display_name = item.get('item_name') or item_id or 'Unknown Item' # For messages
+            quantity = item.get("quantity")
 
             if not item_id:
-                frappe.msgprint(f"Item '{item_display_name}' in Procurement Request {doc.name} is missing an ID ('name' field).", indicator="red", title="Validation Failed")
+                frappe.msgprint(f"Item '{item_display_name}' in Procurement Request {doc.name} is missing an ID ('item_id' field).", indicator="red", title="Validation Failed")
+                return False
+
+            # Validate quantity
+            if quantity is None: # Check if quantity is missing
+                frappe.msgprint(
+                    f"Item '{item_display_name}' in PR {doc.name} is missing a quantity value.", 
+                    indicator="red", 
+                    title="Validation Failed"
+                )
                 return False
 
             try:
-                quantity = flt(quantity_str)
-                if quantity <= 0:
+                numeric_quantity = flt(quantity) 
+                if numeric_quantity <= 0:
                     frappe.msgprint(f"Item '{item_display_name}' in PR {doc.name} has zero or negative quantity.", indicator="red", title="Validation Failed")
                     return False
             except (ValueError, TypeError):
-                 frappe.msgprint(f"Item '{item_display_name}' in PR {doc.name} has an invalid quantity value: '{quantity_str}'.", indicator="red", title="Validation Failed")
+                 frappe.msgprint(f"Item '{item_display_name}' in PR {doc.name} has an invalid quantity value: '{numeric_quantity}'.", indicator="red", title="Validation Failed")
                  return False
 
 
@@ -298,6 +312,8 @@ def validate_procurement_request(doc: Document) -> bool:
     if pending_items_count == 0:
          frappe.msgprint(f"Procurement Request {doc.name} has no items with status 'Pending'.", indicator="orange", title="Validation Info")
          return True # Passes amount check (0 < 5000)
+    
+    doc.db_set("target_value", total_estimated_amount, update_modified=False)
 
 
     # --- Check 5: Total Estimated Amount < 5000 ---
@@ -335,62 +351,76 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
     Returns:
         True if all checks pass, False otherwise.
     """
+     # --- Start of Debugging ---
+    frappe.msgprint("---- STARTING AUTO-APPROVAL VALIDATION ----", title="Debug Info")
+    print("---- STARTING AUTO-APPROVAL VALIDATION ----")
+    print(f"DEBUG1: Validating PR: {doc.name}")
+
     # --- Check 1: Workflow State ---
     required_state = "Vendor Selected"
+    print(f"DEBUG2: [Check 1] Required State='{required_state}', Actual State='{doc.workflow_state}'")
     if doc.workflow_state != required_state:
-        frappe.msgprint(f"Procurement Request {doc.name} is not in the required workflow state '{required_state}'. Current state: '{doc.workflow_state}'.", indicator="orange", title="Validation Failed")
+        msg = f"Procurement Request {doc.name} is not in the required workflow state '{required_state}'. Current state: '{doc.workflow_state}'."
+        frappe.msgprint(msg, indicator="orange", title="Validation Failed")
+        print(f"DEBUG3: [FAIL] {msg}")
         return False
+    print("DEBUG4: [PASS] Check 1: Workflow state is correct.")
 
-    # --- Parse Procurement List ---
-    procurement_list_data = doc.get("procurement_list") # Use different variable name
-    items = []
-    data = None # Initialize data
+    # --- Get Items from order_list ---
+    items = doc.get("order_list", [])
+    # data = None # Initialize data
 
     # *** FIX APPLIED HERE ***
-    if isinstance(procurement_list_data, str):
-        try:
-            data = json.loads(procurement_list_data)
-        except json.JSONDecodeError:
-            frappe.msgprint(f"Error parsing procurement list JSON for {doc.name}", indicator="red", title="Validation Error")
-            return False
-    elif isinstance(procurement_list_data, dict):
-        data = procurement_list_data # Already a dictionary
-    elif procurement_list_data is None:
-         frappe.msgprint(f"Procurement list is missing for PR {doc.name} in state '{required_state}'.", indicator="red", title="Validation Failed")
-         return False
-    else:
-        frappe.msgprint(f"Unexpected data type for procurement list in {doc.name}", indicator="red", title="Validation Error")
-        return False
+    # if isinstance(procurement_list_data, str):
+    #     try:
+    #         data = json.loads(procurement_list_data)
+    #     except json.JSONDecodeError:
+    #         frappe.msgprint(f"Error parsing procurement list JSON for {doc.name}", indicator="red", title="Validation Error")
+    #         return False
+    # elif isinstance(procurement_list_data, dict):
+    #     data = procurement_list_data # Already a dictionary
+    # elif procurement_list_data is None:
+    #      frappe.msgprint(f"Procurement list is missing for PR {doc.name} in state '{required_state}'.", indicator="red", title="Validation Failed")
+    #      return False
+    # else:
+    #     frappe.msgprint(f"Unexpected data type for procurement list in {doc.name}", indicator="red", title="Validation Error")
+    #     return False
 
     # Get items list safely
-    if data and isinstance(data.get("list"), list):
-        items = data.get("list")
+    # if data and isinstance(data.get("list"), list):
+    #     items = data.get("list")
     # *** END OF FIX ***
 
     if not items:
-        frappe.msgprint(f"Procurement list is empty for PR {doc.name} in state '{required_state}'.", indicator="red", title="Validation Failed")
+        msg = f"Procurement list (order_list) is empty for PR {doc.name}."
+        frappe.msgprint(msg, indicator="red", title="Validation Failed")
+        print(f"DEBUG5: [FAIL] {msg}")
         return False
-
+    print(f"DEBUG6: Found {len(items)} total items in order_list.")
     # --- Calculate Actual and Estimated Amounts ---
     total_actual_amount = 0.0
-    total_estimated_amount = 0.0
-
-    items_processed_count = 0 # Count items used for calculation
+    items_processed_count = 0 
+    # total_estimated_amount = 0.0
+    print("DEBUG7: Iterating through items to calculate total actual amount for 'Pending' items...")
+    # Count items used for calculation
     # get_historical_average_quote_cached.cache_clear() # Clear cache before calculations
 
     for item in items:
-        if not isinstance(item, dict):
-             frappe.msgprint(f"Invalid item format found in procurement list for {doc.name}.", indicator="red", title="Validation Error")
-             return False
-        if item.get("status") != "Pending":
+        print(f"DEBUG8: Processing item {item}")
+        # if not isinstance(item, dict):
+        #      frappe.msgprint(f"Invalid item format found in procurement list for {doc.name}.", indicator="red", title="Validation Error")
+        #      return False
+        if item.status != "Pending":
             # Skip items that are not "Pending"
             continue
         items_processed_count += 1 # Increment count for valid items
-        item_id = item.get("name")
-        item_display_name = item.get('item') or item_id or 'Unknown Item'
-        quantity_str = item.get("quantity")
+        item_id = item.item_id
+        item_display_name = item.item_name or item_id or 'Unknown Item'
+        quantity_str = item.quantity
         # *** IMPORTANT: Assumes 'quote' field exists in the item dict ***
-        actual_quote_str = item.get("quote")
+        actual_quote_str = item.quote
+        print(f"DEBUG8: Processing 'Pending' item: {item_display_name}, Qty: {quantity_str}, Quote: {actual_quote_str}")
+
 
         if not item_id:
             frappe.msgprint(f"Item '{item_display_name}' in PR {doc.name} is missing an ID ('name' field).", indicator="red", title="Validation Failed")
@@ -438,26 +468,42 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
 
     # If no 'Pending' items were found to process after filtering
     if items_processed_count == 0:
-        frappe.msgprint(f"No 'Pending' items found in procurement list for PR {doc.name} to validate for PO.", indicator="orange", title="Validation Info")
+        msg = f"No 'Pending' items found in procurement list for PR {doc.name} to validate for PO."
+        frappe.msgprint(msg, indicator="orange", title="Validation Info")
+        print(f"DEBUG9: [FAIL] {msg}")
         # Decide if this state passes or fails. Usually, if no items, amounts are 0, so it might pass checks below.
         # Let's assume it should fail if the intent requires items.
         return False
     
+    print(f"DEBUG10: Total 'Pending' items processed: {items_processed_count}")
+    print(f"DEBUG11: Calculated Total Actual Amount: {total_actual_amount}")
+    frappe.msgprint(f"Calculated Total PO Value: {total_actual_amount:.2f}", title="Debug Info")
+    
+    print(f"DEBUG12: [Check 2] Checking if {total_actual_amount} < {AUTO_APPROVAL_THRESHOLD}")
     # --- Auto-Approval Logic based on Value Threshold and Counter ---
     if total_actual_amount < AUTO_APPROVAL_THRESHOLD: # This covers anything under ₹20,000
+        print("DEBUG13: [PASS] Check 2: Amount is below threshold. Proceeding to counter check.")
         current_auto_approved_count = get_auto_approval_counter()
+        print(f"DEBUG14: [Check 3] Current auto-approval count is {current_auto_approved_count}. Skipping on {SKIP_PR_INTERVAL - 1}.")
         
         if current_auto_approved_count == (SKIP_PR_INTERVAL - 1): # This is the 9th PR (0-indexed count)
-            frappe.msgprint(f"Procurement Request {doc.name} (Value: {total_actual_amount:.2f}) is the {SKIP_PR_INTERVAL}th auto-approval candidate. Skipping auto-approval for manual review.", indicator="orange", title="Manual Review Required")
+            msg = f"This is the {SKIP_PR_INTERVAL}th auto-approval candidate. Forcing manual review."
+            frappe.msgprint(msg, indicator="orange", title="Manual Review Required")
+            print(f"DEBUG15: [FAIL] {msg}")
             reset_auto_approval_counter()
             return False # Fail validation to force manual review
         else:
+            msg = f"PR auto-approved! Amount is below threshold and it is not the {SKIP_PR_INTERVAL}th check."
+            frappe.msgprint(msg, indicator="green", title="Auto-Approved")
+            print(f"DEBUG16: [PASS] {msg}")
             increment_auto_approval_counter()
             frappe.msgprint(f"Procurement Request {doc.name} (Value: {total_actual_amount:.2f}) auto-approved. Auto-approval count: {get_auto_approval_counter()}/{SKIP_PR_INTERVAL-1}", indicator="green", title="Auto-Approved")
             return True # Auto-approve
     else:
         # If total actual amount is >= AUTO_APPROVAL_THRESHOLD, it fails auto-approval
-        frappe.msgprint(f"Validation Failed for PR {doc.name}: Total Actual Amount ({total_actual_amount:.2f}) is not less than {AUTO_APPROVAL_THRESHOLD:.2f}.", indicator="red", title="Validation Failed")
+        msg = f"Total Actual Amount ({total_actual_amount:.2f}) is not less than the auto-approval threshold of {AUTO_APPROVAL_THRESHOLD:.2f}."
+        frappe.msgprint(f"Validation Failed: {msg}", indicator="red", title="Validation Failed")
+        print(f"DEBUG17: [FAIL] Check 2: {msg}")
         return False
 
     # --- Check 3: Percentage Difference (This check is now only reached if total_actual_amount >= AUTO_APPROVAL_THRESHOLD) ---

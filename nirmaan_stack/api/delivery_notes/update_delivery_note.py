@@ -3,6 +3,43 @@ import json
 from datetime import datetime
 from frappe.model.document import Document
 
+# --- (1) NEW: Helper function for safe float conversion ---
+def safe_float(value, default=0.0):
+    """Safely converts a value to a float, returning a default on failure."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+# --- (2) NEW: The core calculation function ---
+def calculate_delivered_amount(order_items: list) -> float:
+    """
+    Calculates the total value of an order based on the received_quantity of its items.
+    
+    Args:
+        order_items (list): A list of child table item documents (as dicts or Document objects).
+    
+    Returns:
+        float: The total calculated value including tax.
+    """
+    total_delivered_value = 0.0
+    for item in order_items:
+        # Use .get() for safe access on both dicts and Document objects
+        quote = safe_float(item.get("quote"))
+        received_qty = safe_float(item.get("received_quantity"))
+        tax_percent = safe_float(item.get("tax"))
+        
+        # Calculate the value for this item based on its delivered quantity
+        item_base_value = quote * received_qty
+        item_tax_amount = item_base_value * (tax_percent / 100)
+        
+        # Add the total value (base + tax) for this item to the running total
+        total_delivered_value += item_base_value + item_tax_amount
+        
+    return total_delivered_value
+
 @frappe.whitelist()
 def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict = None, 
                         delivery_challan_attachment: str = None):
@@ -20,14 +57,27 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
 
         # Get original procurement order
         po = frappe.get_doc("Procurement Orders", po_id)
-        original_order = po.get("order_list", {}).get("list", [])
+        original_order = po.get("items")
 
-        # Update received quantities in original order
+        # # Update received quantities in original order
+        # print("DEBUGUPDATEDNITEMS: --- Function Start ---")
+        # print(f"DEBUGUPDATEDNITEMS: Original Order: {original_order}")
+        # print(f"DEBUGUPDATEDNITEMS: Modified Items: {modified_items}")
         updated_order = update_order_items(original_order, modified_items)
+
+        # --- (3) INTEGRATION: Calculate and set the new field ---
+        # Calculate the total delivered amount using the *updated* item list
+        delivered_amount = calculate_delivered_amount(updated_order)
+
+        # Set the calculated value on the parent PO document
+        po.po_amount_delivered = delivered_amount
+        
         
         # Update order list and status
-        po.order_list = {"list": updated_order}
+        po.items =  updated_order
         po.status = calculate_order_status(updated_order)
+        po.latest_delivery_date = datetime.now()
+        
 
         # Handle delivery challan attachment
         if delivery_challan_attachment:
@@ -65,19 +115,42 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
             "error": frappe.get_traceback()
         }
 
+# in apps/nirmaan_stack/nirmaan_stack/api/delivery_notes/update_delivery_note.py
+
+# --- BEFORE (Your current code that causes the error) ---
+# def update_order_items(original: list, modified: dict) -> list:
+#     """Safely merge modified items into original order"""
+#     return [
+#         {**item.as_dict(), "received_quantity": modified.get(item.name, item.received_quantity or 0)}
+#         for item in original
+#     ]
+
+
+# --- AFTER (The Corrected Code) ---
 def update_order_items(original: list, modified: dict) -> list:
-    """Safely merge modified items into original order"""
-    return [
-        {**item, "received": modified.get(item["name"], item.get("received", 0))}
-        for item in original
-    ]
+    """
+    Safely updates the 'received_quantity' on the original Document objects in-place.
+    'original' is a list of Frappe Document objects for the child table.
+    """
+    # Iterate through the actual Document objects
+    for item_object in original:
+        # Get the new value from the 'modified' dictionary, using the object's name as the key.
+        # If the item wasn't modified, it will default to its existing value.
+        new_value = modified.get(item_object.name, item_object.received_quantity or 0)
+        
+        # Directly set the attribute on the Document object.
+        # This is the key change. We are not creating a new dictionary.
+        item_object.received_quantity = new_value
+        
+    # Return the original list, which now contains the modified objects.
+    return original
 
 def calculate_order_status(order: list) -> str:
     """Determine order status based on received quantities"""
     total_items = len(order)
     delivered_items = sum(
         1 for item in order 
-        if item.get("quantity", 0) <= item.get("received", 0)
+        if item.get("quantity", 0) <= item.get("received_quantity", 0)
     )
     
     if delivered_items == total_items:

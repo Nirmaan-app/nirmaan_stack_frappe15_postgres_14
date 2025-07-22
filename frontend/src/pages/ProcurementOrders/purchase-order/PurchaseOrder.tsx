@@ -1,5 +1,17 @@
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -11,19 +23,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   HoverCard,
@@ -48,7 +55,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import { usePOValidation } from "@/hooks/usePOValidation";
@@ -57,10 +68,18 @@ import { useUserData } from "@/hooks/useUserData";
 import { PODetails } from "@/pages/ProcurementOrders/purchase-order/components/PODetails";
 import { POPdf } from "./components/POPdf";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import {
+  ProcurementOrder,
+  PurchaseOrderItem,
+} from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { getPOTotal, getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
+import {
+  getPOTotal,
+  getTotalAmountPaid,
+  getTotalInvoiceAmount,
+  getPreviewTotal,
+} from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
 import {
@@ -68,7 +87,8 @@ import {
   useFrappeDocumentEventListener,
   useFrappeGetDocList,
   useFrappePostCall,
-  useFrappeUpdateDoc
+  useFrappeUpdateDoc,
+  useFrappeGetDoc,
 } from "frappe-react-sdk";
 import {
   AlertTriangle,
@@ -85,13 +105,13 @@ import {
   Split,
   Trash2,
   Undo,
-  X
+  X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import DeliveryHistory from "@/pages/DeliveryNotes/components/DeliveryHistory";
+import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
@@ -101,7 +121,9 @@ import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
-
+import { safeJsonParse } from "@/pages/DeliveryNotes/constants";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -112,55 +134,75 @@ export const PurchaseOrder = ({
   summaryPage = false,
   accountsPage = false,
 }: PurchaseOrderProps) => {
-
-  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO")
+  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO");
 
   const userData = useUserData();
-  const estimatesViewing = useMemo(() => userData?.role === "Nirmaan Estimates Executive Profile", [userData?.role]);
+  const estimatesViewing = useMemo(
+    () => userData?.role === "Nirmaan Estimates Executive Profile",
+    [userData?.role]
+  );
 
   const navigate = useNavigate();
   const params = useParams();
   const id = summaryPage ? params.poId : params.id;
 
-  if (!id) return <div>No PO ID Provided</div>
+  if (!id) return <div>No PO ID Provided</div>;
 
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
 
-  const [orderData, setOrderData] = useState<{ list: PurchaseOrderItem[] }>({
-    list: []
-  });
-  const [PO, setPO] = useState<ProcurementOrder | null>(null)
+  const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
+  const [PO, setPO] = useState<ProcurementOrder | null>(null);
 
-  const { data: po, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-    fields: ["*"],
-    filters: [["name", "=", poId]],
-  });
+
+  const {
+    data: po,
+    isLoading: poLoading,
+    error: poError,
+    mutate: poMutate,
+  } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
+  //  const { data: pos } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
+
 
   // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
-  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(PO);
+  const { triggerHistoryPrint, PrintableHistoryComponent } =
+    usePrintHistory(PO);
 
-
-  useFrappeDocumentEventListener("Procurement Orders", poId, (event) => {
-    console.log("Procurement Orders document updated (real-time):", event);
-    toast({
-      title: "Document Updated",
-      description: `Procurement Order ${event.name} has been modified.`,
-    });
-    poMutate(); // Re-fetch this specific document
-  },
+  useFrappeDocumentEventListener(
+    "Procurement Orders",
+    poId,
+    (event) => {
+      console.log("Procurement Orders document updated (real-time):", event);
+      toast({
+        title: "Document Updated",
+        description: `Procurement Order ${event.name} has been modified.`,
+      });
+      poMutate(); // Re-fetch this specific document
+    },
     true // emitOpenCloseEventsOnMount (default)
-  )
+  );
 
   const { errors, isValid } = usePOValidation(PO);
+  const [invoicePO, setInvoicePO] = useState<ProcurementOrder | null>(null);
 
   useEffect(() => {
     if (po) {
-      const doc = po[0]
-      setPO(doc)
-      setOrderData(doc?.order_list || { list: [] });
+      const doc = po;
+      setPO(doc);
+      setOrderData(doc?.items || []);
+      // --- NEW: Initialize payment terms with the current PO's terms ---
+      setMergedPaymentTerms(doc?.payment_terms || []);
     }
-  }, [po])
+    if (po) {
+      const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data), delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }
+      setInvoicePO(data);
+    }
+
+
+  }, [po]);//po add
+
+
+
 
   const [advance, setAdvance] = useState(0);
   const [materialReadiness, setMaterialReadiness] = useState(0);
@@ -173,9 +215,15 @@ export const PurchaseOrder = ({
   const [mergedItems, setMergedItems] = useState<ProcurementOrder[]>([]);
   const [prevMergedPOs, setPrevMergedPos] = useState<ProcurementOrder[]>([]);
 
+  // --- NEW: State for merged payment terms ---
+  const [mergedPaymentTerms, setMergedPaymentTerms] = useState<PaymentTerm[]>(
+    []
+  );
+
   const [loadingFuncName, setLoadingFuncName] = useState<string>("");
 
   const [quantity, setQuantity] = useState<number | null | string>(null);
+  const [tax, setTax] = useState<number | null | string>(null);
 
   interface Make {
     make: string;
@@ -183,20 +231,28 @@ export const PurchaseOrder = ({
   }
 
   interface Operation {
-    operation: 'delete' | 'quantity_change' | 'make_change';
-    item: string | PurchaseOrderItem;
+    operation: "delete" | "quantity_change" | "make_change" | "tax_change";
+    item: PurchaseOrderItem;
     previousQuantity?: number;
-    previousMakeList?: Make[];
+    previousMakeList?: string;
+    previousTax?: number;
   }
 
   const [stack, setStack] = useState<Operation[]>([]);
   const [comment, setComment] = useState("");
 
-  const [editMakeOptions, setEditMakeOptions] = useState<{ label: string, value: string }[]>([]);
+  const [editMakeOptions, setEditMakeOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
 
-  const [selectedMake, setSelectedMake] = useState<{ label: string, value: string } | null>(null);
+  const [selectedMake, setSelectedMake] = useState<{
+    label: string;
+    value: string;
+  } | null>(null);
 
-  const [amendEditItem, setAmendEditItem] = useState<PurchaseOrderItem | null>(null);
+  const [amendEditItem, setAmendEditItem] = useState<PurchaseOrderItem | null>(
+    null
+  );
 
   const [poPdfSheet, setPoPdfSheet] = useState(false);
 
@@ -246,65 +302,159 @@ export const PurchaseOrder = ({
     setShowAddNewMake((prevState) => !prevState);
   }, [showAddNewMake]);
 
-  const { toggleRequestPaymentDialog } = useDialogStore()
+  const { toggleRequestPaymentDialog } = useDialogStore();
 
   const { updateDoc } = useFrappeUpdateDoc();
 
   const { createDoc } = useFrappeCreateDoc();
 
-  const { call: cancelPOCall, loading: cancelPOCallLoading } = useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
+  const { call: cancelPOCall, loading: cancelPOCallLoading } =
+    useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
 
-  const { call: mergePOCall, loading: mergePOCallLoading } = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos");
+  const { call: mergePOCall, loading: mergePOCallLoading } = useFrappePostCall(
+    "nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos"
+  );
 
-  const { call: unMergePOCall, loading: unMergePOCallLoading } = useFrappePostCall("nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos");
+  const { call: unMergePOCall, loading: unMergePOCallLoading } =
+    useFrappePostCall(
+      "nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos"
+    );
 
-  const { data: associated_po_list, error: associated_po_list_error, isLoading: associated_po_list_loading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-    fields: ["*"],
-    limit: 100000,
-  });
+  const { data: potentialMergePOsList, isLoading: listIsLoading } =
+    useFrappeGetDocList<ProcurementOrder>(
+      "Procurement Orders",
+      // This is the key: The query only runs if `po` exists.
+      po
+        ? {
+          // We only need fields for the final client-side filtering steps.
+          // We CANNOT get `items` or `payment_terms` here.
+          fields: ["name", "custom"],
 
-  const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-    fields: ["name", "full_name"],
-    limit: 1000,
-  }, `Nirmaan Users`);
+          // These filters are now run efficiently on the backend database!
+          filters: [
+            ["project", "=", po.project],
+            ["vendor", "=", po.vendor],
+            ["status", "=", "PO Approved"],
+            ["docstatus", "!=", 2],
+            ["name", "!=", poId],
+          ],
+          limit: 1000,
+        }
+        : null // This `null` is what pauses the hook, preventing the error.
+    );
 
-  const { data: poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["*"],
-    filters: [["document_name", "=", poId]],
-    limit: 1000,
-  },
+  const { call: fetchFullPoDetails, loading: fullPoDetailsLoading } =
+    useFrappePostCall(
+      "nirmaan_stack.api.po_merge_and_unmerge.get_full_po_details" // This path looks correct based on your Python file
+    );
+
+  const {
+    data: usersList,
+    isLoading: usersListLoading,
+    error: usersListError,
+  } = useFrappeGetDocList<NirmaanUsers>(
+    "Nirmaan Users",
+    {
+      fields: ["name", "full_name"],
+      limit: 1000,
+    },
+    `Nirmaan Users`
+  );
+
+  const { data: project, isLoading: project_loading } = useFrappeGetDoc<Projects>("Projects", PO?.project, PO?.project ? `Projects ${PO?.project}` : null)
+
+  const {
+    data: poPayments,
+    isLoading: poPaymentsLoading,
+    error: poPaymentsError,
+    mutate: poPaymentsMutate,
+  } = useFrappeGetDocList<ProjectPayments>(
+    "Project Payments",
+    {
+      fields: ["*"],
+      filters: [["document_name", "=", poId]],
+      limit: 1000,
+    },
     poId ? undefined : null
   );
 
-  const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["*"],
-    filters: [["document_type", "=", "Procurement Orders"]],
-    limit: 1000,
-  });
+  const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } =
+    useFrappeGetDocList<ProjectPayments>("Project Payments", {
+      fields: ["*"],
+      filters: [["document_type", "=", "Procurement Orders"]],
+      limit: 1000,
+      order: 'desc'
+    });
+
 
   useEffect(() => {
-    if (associated_po_list && associated_po_list?.length > 0) {
-      if (PO?.status === "PO Approved") {
-        const mergeablePOs = associated_po_list.filter(
-          (item) =>
-            item.project === PO?.project &&
-            item.vendor === PO?.vendor &&
-            item.status === "PO Approved" &&
-            item.name !== poId &&
-            item?.custom != "true" &&
-            !AllPoPaymentsList?.some((j) => j?.document_name === item.name)
-          // item.merged !== "true" &&
-        );
-        setMergeablePOs(mergeablePOs);
-        if (PO?.merged === "true") {
-          const mergedPOs = associated_po_list.filter(
-            (po) => po?.merged === poId
-          );
-          setPrevMergedPos(mergedPOs);
-        }
-      }
+    // console.log("STEP 1: Initial list from database:", potentialMergePOsList);
+
+    // Wait until the main PO and the efficient list of names are ready.
+    if (!potentialMergePOsList || !po || !AllPoPaymentsList) return;
+
+    // A. Perform the final filtering that MUST be done on the frontend.
+    //    (Checking against the AllPoPaymentsList is easier here).
+    const mergeablePoNames = potentialMergePOsList
+      .filter(
+        (item) =>
+          item.custom !== "true" &&
+          !AllPoPaymentsList.some((j) => j.document_name === item.name)
+      )
+      .map((item) => item.name); // We only need the names for the next step.
+
+    // B. If we have names, call our backend function to get the FULL documents.
+    // console.log("STEP 2: Names after client-side filter:", mergeablePoNames);
+    if (mergeablePoNames.length > 0) {
+      fetchFullPoDetails({ po_names: mergeablePoNames })
+        .then((fullDocs) => {
+          // `fullDocs` is now an array of POs WITH `items` and `payment_terms`.
+
+          // Now we can do the final payment type check on the full data.
+
+          // +++ REPLACE WITH THIS +++
+          const mainPoPaymentType = po.payment_terms?.[0]?.payment_type;
+
+          // If the main PO has no payment terms, then nothing is mergeable.
+          if (!mainPoPaymentType) {
+            console.log(
+              "Final Filter: Main PO has no payment terms. Result is an empty list."
+            );
+            setMergeablePOs([]);
+          } else {
+            // console.log("fullDocs:", fullDocs);
+            const finalMergeablePOs = fullDocs.message?.filter((doc) => {
+              const docPaymentType = doc.payment_terms?.[0]?.payment_type;
+
+              // This check is now explicit:
+              // 1. The other PO must HAVE a payment type.
+              // 2. That type must MATCH the main PO's type.
+              return docPaymentType && docPaymentType === mainPoPaymentType;
+            });
+
+            // console.log(
+            //   "Final Filter: The final list of mergeable POs is:",
+            //   finalMergeablePOs
+            // );
+
+            setMergeablePOs(finalMergeablePOs);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to fetch full PO details:", err);
+          toast({ variant: "destructive", title: "Error fetching PO details" });
+        });
+    } else {
+      setMergeablePOs([]); // No POs matched all criteria.
     }
-  }, [associated_po_list, PO, AllPoPaymentsList]);
+  }, [potentialMergePOsList, po, AllPoPaymentsList, fetchFullPoDetails]);
+
+
+
+  const deliveryHistory = useMemo(() =>
+    safeJsonParse<{ data: DeliveryDataType }>(PO?.delivery_data, { data: {} }),
+    [PO?.delivery_data]
+  );
 
   useEffect(() => {
     if (!mergeSheet) {
@@ -313,72 +463,120 @@ export const PurchaseOrder = ({
   }, [mergeSheet]);
 
   const getTotal = useMemo(() => {
-    return getPOTotal(PO, PO?.loading_charges, PO?.freight_charges);
+    return getPOTotal(PO);
   }, [PO]);
+  // --- NEW: Helper function to calculate merged terms ---
+  // --- REPLACE with this corrected function ---
+  // PurchaseOrder.tsx
 
-  const handleMerge = (po: ProcurementOrder) => {
-    let updatedOrderList = po.order_list.list;
-    if (po?.merged !== "true") {
-      updatedOrderList = po.order_list.list.map((item) => ({
-        ...item,
-        po: po.name,
-      }));
-    }
+  const previewTotal = useMemo<POTotals>(() => {
+    return getPreviewTotal(orderData);
+  }, [orderData, setOrderData, PO])
+  // --- REPLACE with this corrected function ---
+  const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPOs: ProcurementOrder[]) => {
+    const allPOs = [basePO, ...additionalPOs];
+    const combinedTerms: { [label: string]: PaymentTerm } = {};
 
-    if (orderData) {
-      const updatedList = [...orderData.list, ...updatedOrderList];
+    allPOs.forEach(p => {
+      (p.payment_terms || []).forEach(term => {
+        // Ensure the amount from the API is a number
+        const termAmount = parseFloat(String(term.amount)) || 0;
 
-      setOrderData({ list: updatedList });
+        if (combinedTerms[term.label]) {
+          // --- THE FIX IS HERE ---
+          // Ensure we are doing MATH (number + number), not joining strings.
+          combinedTerms[term.label].amount = (combinedTerms[term.label].amount || 0) + termAmount;
 
-      setMergedItems((prev) => [...prev, po]);
+          // The rest of your logic for due_date is fine
+          if (
+            term.payment_type === 'Credit' &&
+            combinedTerms[term.label].payment_type === 'Credit' &&
+            term.due_date &&
+            combinedTerms[term.label].due_date
+          ) {
+            if (new Date(term.due_date) > new Date(combinedTerms[term.label].due_date!)) {
+              combinedTerms[term.label].due_date = term.due_date;
+            }
+          }
+        } else {
+          // When adding a new term, also ensure its amount is a number
+          combinedTerms[term.label] = { ...term, amount: termAmount };
+        }
+      });
+    });
+
+    return Object.values(combinedTerms);
+  }, []);
+
+  // --- UPDATE: handleMerge function ---
+  const handleMerge = (poToMerge: ProcurementOrder) => {
+    // Merge items (existing logic)
+    const taggedItems = (poToMerge.items || []).map((item) => ({
+      ...item,
+      po: poToMerge.name,
+    }));
+    setOrderData((currentOrderData) => [...currentOrderData, ...taggedItems]);
+
+    const newMergedItems = [...mergedItems, poToMerge];
+    setMergedItems(newMergedItems);
+
+    // console.log("handleMerge: Tagged Items", mergedItems,taggedItems, orderData);
+    // console.log("newMergedItems", newMergedItems);
+    // --- NEW: Recalculate and set merged payment terms ---
+    if (PO) {
+      const newMergedPaymentTerms = calculateMergedTerms(PO, newMergedItems);
+      setMergedPaymentTerms(newMergedPaymentTerms);
     }
   };
 
-  const handleUnmerge = (po: ProcurementOrder) => {
-    if (orderData) {
-      let updatedList;
-      if (po?.merged === "true") {
-        const associated_merged_pos =
-          associated_po_list
-            ?.filter((item) => item.merged === po?.name)
-            ?.map((i) => i?.name) || [];
-        updatedList = orderData.list.filter(
-          (item) => !associated_merged_pos.includes(item.po || '')
-        );
-      } else {
-        updatedList = orderData.list.filter((item) => item.po !== po.name);
-      }
+  // --- UPDATE: handleUnmerge function ---
+  const handleUnmerge = (poToUnmerge: ProcurementOrder) => {
+    // Unmerge items (existing logic)
+    setOrderData((currentOrderData) =>
+      currentOrderData.filter((item) => item.po !== poToUnmerge.name)
+    );
 
-      setOrderData({ list: updatedList });
+    const newMergedItems = mergedItems.filter(
+      (mergedPo) => mergedPo.name !== poToUnmerge.name
+    );
+    setMergedItems(newMergedItems);
 
-      // Remove the unmerged PO from the mergedItems array
-      setMergedItems((prev) =>
-        prev.filter((mergedPo) => mergedPo?.name !== po.name)
-      );
+    // --- NEW: Recalculate and set merged payment terms ---
+    if (PO) {
+      const newMergedPaymentTerms = calculateMergedTerms(PO, newMergedItems);
+      setMergedPaymentTerms(newMergedPaymentTerms);
     }
   };
 
   const handleUnmergeAll = () => {
-    if (mergedItems.length) {
-      const updatedList = orderData.list.filter((item) => !item.po);
-
-      setOrderData({ list: updatedList });
+    if (mergedItems.length > 0) {
+      // Directly filter the orderData ARRAY, keeping only the original items
+      // (those that don't have a 'po' property).
+      setOrderData((currentOrderData) =>
+        currentOrderData.filter((item) => !item.po)
+      );
 
       setMergedItems([]);
+      // --- NEW: Reset payment terms back to the original PO's terms ---
+      setMergedPaymentTerms(PO?.payment_terms || []);
     }
   };
 
   const handleMergePOs = async () => {
     try {
+      const sanitizedOrderData = orderData.map(
+        ({ po, ...restOfItem }) => restOfItem
+      );
       // Call the backend API for merging POs
+      // console.log("payload",poId,mergedItems,sanitizedOrderData,mergedPaymentTerms)
       const response = await mergePOCall({
         po_id: poId,
         merged_items: mergedItems,
-        order_data: orderData,
+        order_data: sanitizedOrderData, // Use the sanitized list
+        payment_terms: mergedPaymentTerms,
       });
 
       if (response.message.status === 200) {
-        // ✅ Step 4: Success message & UI updates (Batch State Updates)
         setMergeablePOs([]);
         toast({
           title: "Merge Successful!",
@@ -388,7 +586,6 @@ export const PurchaseOrder = ({
         toggleMergeConfirmDialog();
         toggleMergeSheet();
 
-        // ✅ Step 5: Add redirect overlay, then navigate smoothly
         setIsRedirecting(true);
 
         setTimeout(() => {
@@ -420,32 +617,30 @@ export const PurchaseOrder = ({
 
   const handleUnmergePOs = async () => {
     try {
-      // Call the backend API for unmerging POs
+      // The payload is simple: just the ID of the master PO.
+      // The backend will handle the rest.
       const response = await unMergePOCall({
         po_id: poId,
-        prev_merged_pos: prevMergedPOs,
       });
 
+      // Handle the success or error response from the backend
       if (response.message.status === 200) {
         toggleUnMergeDialog();
-
         toast({
           title: "Success!",
           description: response.message.message,
           variant: "success",
         });
-
-        setIsRedirecting(true); // Show overlay
-
+        setIsRedirecting(true);
         setTimeout(() => {
           setIsRedirecting(false);
           navigate(`/purchase-orders?tab=Approved%20PO`);
           window.location.reload();
-        }, 1000); // Small delay ensures UI has time to update
+        }, 1000);
       } else if (response.message.status === 400) {
         toast({
           title: "Error!",
-          description: response.message.error,
+          description: response.message.error, // Display the error from the backend
           variant: "destructive",
         });
       }
@@ -461,10 +656,90 @@ export const PurchaseOrder = ({
 
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
+
+    // --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+    // --- START: FULL FRONTEND VALIDATION (MIRRORS BACKEND) ---
+    // --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+
+    // --- PRE-CALCULATIONS ---
+    // Use a console.log to be 100% sure your PO object is loaded correctly.
+    // console.log("Validating with PO data:", PO);
+
+    // 1. Calculate the new total based on the user's changes (items only).
+    const newTotalAmountForValidation = orderData.reduce((acc, item) => {
+      const itemAmount = (item.quantity || 0) * (item.quote || 0);
+      const taxAmount = itemAmount * ((item.tax || 0) / 100);
+      return acc + itemAmount + taxAmount;
+    }, 0);
+
+    // 2. Get the total from the PO before any changes were made.
+    const previousTotal = PO?.total_amount || 0;
+
+    // --- CHECK 1: "Overpayment / Return" Scenario ---
+    // This directly replicates the `frappe.throw` condition in your Python script.
+
+    // A) Calculate the sum of all payments that cannot be changed.
+    const lockedAmount = (PO?.payment_terms || [])
+      .filter((term) => ["Paid", "Requested", "Approved"].includes(term.status))
+      .reduce((sum, term) => sum + (term.amount || 0), 0);
+
+    // B) Check if a "Return" term already exists from a previous amendment.
+    const hasExistingReturn = PO?.payment_terms?.some(
+      (term) => term.status === "Return"
+    );
+
+    // C) Check if the new total is less than what's already been paid/requested.
+    const willCreateReturn =
+      newTotalAmountForValidation < lockedAmount && lockedAmount > 0;
+
+    // D) Perform the block if either condition is true.
+    if (hasExistingReturn || willCreateReturn) {
+      toast({
+        title: "Amendment Blocked: Overpayment",
+        description: `This change would create a negative balance. New total (${newTotalAmountForValidation.toFixed(
+          2
+        )}) cannot be less than the locked amount (${lockedAmount.toFixed(
+          2
+        )}).`,
+        variant: "destructive",
+        duration: 8000,
+      });
+      setLoadingFuncName("");
+      return; // STOP EXECUTION
+    }
+
+    // --- CHECK 2: "Impossible Reduction" Scenario ---
+    // This is the extra, intelligent check to prevent a logical error.
+
+    // This check only matters if the total is being reduced.
+    if (newTotalAmountForValidation < previousTotal) {
+      const reductionAmount = previousTotal - newTotalAmountForValidation;
+
+      // Calculate the total amount from terms that can actually be reduced.
+      const modifiableAmount = (PO?.payment_terms || [])
+        .filter((term) => ["Created", "Scheduled"].includes(term.status))
+        .reduce((sum, term) => sum + (term.amount || 0), 0);
+
+      // console.log("DEBUG: Reduction Amount:", reductionAmount);
+      // console.log("DEBUG: Modifiable Amount:", modifiableAmount);
+      // Block if the user is trying to reduce more than is available to be reduced.
+      if (reductionAmount > modifiableAmount) {
+        toast({
+          title: "Amendment Blocked: Invalid Reduction",
+          description: `Cannot reduce total by ${reductionAmount}. There is only ${modifiableAmount} available in 'Created' & 'Scheduled' payment terms.`,
+          variant: "destructive",
+          duration: 8000,
+        });
+        setLoadingFuncName("");
+        return; // STOP EXECUTION
+      }
+    }
+
     try {
+      // This part only runs if the validation above passes
       await updateDoc("Procurement Orders", poId, {
         status: "PO Amendment",
-        order_list: orderData,
+        items: orderData,
       });
       if (comment) {
         await createDoc("Nirmaan Comments", {
@@ -484,8 +759,9 @@ export const PurchaseOrder = ({
       });
 
       navigate("/purchase-orders?tab=Approved%20PO");
+      setLoadingFuncName("");
     } catch (error) {
-      console.log("Error while cancelling po", error);
+      console.log("Error while amending po", error); // Changed from "cancelling"
       toast({
         title: "Failed!",
         description: `${poId} Amendment Failed!`,
@@ -500,7 +776,7 @@ export const PurchaseOrder = ({
     try {
       const response = await cancelPOCall({
         po_id: poId,
-        comment: comment
+        comment: comment,
       });
 
       if (response.message.status === 200) {
@@ -528,7 +804,7 @@ export const PurchaseOrder = ({
   };
 
   const handleUnAmendAll = () => {
-    setOrderData(PO?.order_list || { list: [] });
+    setOrderData(PO?.items || []);
     setStack([]);
   };
 
@@ -538,182 +814,254 @@ export const PurchaseOrder = ({
     }
   }, [amendPOSheet]);
 
-  const handleSave = useCallback((
-    itemName: string,
-    newQuantity: number,
-    selectedMake: { label: string, value: string }
-  ) => {
-    let curRequest = orderData?.list;
+  const handleSave = useCallback(
+    (itemName: string) => {
+      const previousItem = orderData.find(
+        (curValue) => curValue.name === itemName
+      );
+      if (!previousItem) return;
 
-    // Find the current item and store its previous quantity in the stack
-    const previousItem = curRequest.find(
-      (curValue) => curValue.item === itemName
-    );
+      // CORRECT: Get the make string from the `selectedMake` state object.
+      const newMakeValue = selectedMake?.value || "";
 
-    if (previousItem && newQuantity !== previousItem?.quantity) {
-      setStack((prevStack) => [
-        ...prevStack,
-        {
-          operation: "quantity_change",
-          item: previousItem.item,
-          previousQuantity: previousItem.quantity,
-        },
-      ]);
-    }
-
-    const makes = previousItem?.makes?.list?.map((i) =>
-      i?.make === selectedMake?.value
-        ? { make: selectedMake?.value, enabled: "true" }
-        : { make: i?.make, enabled: "false" }
-    );
-
-    if (
-      previousItem?.makes?.list?.find((i) => i?.make === selectedMake?.value)
-        ?.enabled === "false"
-    ) {
-      setStack((prevStack) => [
-        ...prevStack,
-        {
-          operation: "make_change",
-          item: previousItem.item,
-          previousMakeList: previousItem.makes?.list,
-        },
-      ]);
-    }
-
-    curRequest = curRequest.map((curValue) => {
-      if (curValue.item === itemName) {
-        return {
-          ...curValue,
-          quantity: newQuantity,
-          makes: { list: makes },
-        };
+      // Push quantity change to stack if different
+      if (quantity !== null && quantity !== previousItem.quantity) {
+        setStack((prev) => [
+          ...prev,
+          {
+            operation: "quantity_change",
+            item: previousItem,
+            previousQuantity: previousItem.quantity,
+          },
+        ]);
       }
-      return curValue;
-    });
-    setOrderData({
-      list: curRequest,
-    });
-    setQuantity("");
+      // Push make change to stack if different
+      if (newMakeValue !== previousItem.make) {
+        setStack((prev) => [
+          ...prev,
+          {
+            operation: "make_change",
+            item: previousItem,
+            previousMake: previousItem.make,
+          },
+        ]);
+      }
 
-    toggleAmendEditItemDialog();
-  }, [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]);
+      if (tax !== null && tax !== previousItem.tax) {
+        setStack((prev) => [
+          ...prev,
+          {
+            operation: "tax_change",
+            item: previousItem,
+            previousTax: previousItem.tax,
+          },
+        ]);
+      }
 
-  const handleDelete = useCallback((item: string) => {
-    let curRequest = orderData?.list;
-    let itemToPush = curRequest.find((curValue) => curValue.item === item);
-
-    if (itemToPush) {
-      setStack((prevStack) => [
-        ...prevStack,
-        {
-          operation: "delete",
-          item: itemToPush,
-        },
-      ]);
-    }
-    curRequest = curRequest.filter((curValue) => curValue.item !== item);
-    setOrderData({
-      list: curRequest,
-    });
-
-    setQuantity("");
-    toggleAmendEditItemDialog();
-  }, [orderData, setOrderData, setQuantity, toggleAmendEditItemDialog, setStack]);
-
-  const UndoDeleteOperation = useCallback(() => {
-    if (stack.length === 0) return; // No operation to undo
-
-    let curRequest = orderData?.list;
-    const lastOperation = stack[stack.length - 1]; // Get the last operation
-    const newStack = stack.slice(0, stack.length - 1); // Create a new stack without the last operation
-
-    if (lastOperation.operation === "delete" && lastOperation.item) {
-      // Restore the deleted item
-      curRequest.push(lastOperation.item as PurchaseOrderItem); // Type assertion, as item is Item in delete operation
-    } else if (lastOperation.operation === "quantity_change" && lastOperation.item) {
-      // Restore the previous quantity of the item
-      curRequest = curRequest.map((curValue) => {
-        if (curValue.item === lastOperation.item) {
-          return { ...curValue, quantity: lastOperation.previousQuantity };
-        }
-        return curValue;
-      });
-    } else if (lastOperation.operation === "make_change" && lastOperation.item) {
-      curRequest = curRequest.map((curValue) => {
-        if (curValue.item === lastOperation.item) {
+      const updatedOrderData = orderData.map((curValue) => {
+        if (curValue.name === itemName) {
           return {
             ...curValue,
-            makes: { list: lastOperation?.previousMakeList },
+            quantity: quantity !== null ? quantity : curValue.quantity,
+            make: newMakeValue,
+            tax: tax !== null ? Number(tax) : curValue.tax, // ➕ ADDED: Update tax
           };
         }
         return curValue;
       });
+
+      setOrderData(updatedOrderData);
+
+      // Reset state and close dialog
+      setQuantity(null);
+      setTax(null);
+      setSelectedMake(null); // CORRECT: Reset selectedMake
+      toggleAmendEditItemDialog();
+    },
+    [orderData, quantity, selectedMake, toggleAmendEditItemDialog]
+  ); // CORRECT: Dependency is on selectedMake
+  // NEW `handleDelete`
+  const handleDelete = useCallback(
+    (itemNameToDelete: string) => {
+      // Pass the unique 'name' of the item row
+      const itemToDelete = orderData.find(
+        (curValue) => curValue.name === itemNameToDelete
+      );
+
+      if (itemToDelete) {
+        setStack((prevStack) => [
+          ...prevStack,
+          {
+            operation: "delete",
+            item: itemToDelete, // Push the entire object to the stack
+          },
+        ]);
+      }
+
+      // Filter out the deleted item from the main array
+      const updatedOrderData = orderData.filter(
+        (curValue) => curValue.name !== itemNameToDelete
+      );
+
+      setOrderData(updatedOrderData); // Set the new array
+      setTax(null);
+      setQuantity(null); // Reset quantity state
+      toggleAmendEditItemDialog();
+    },
+    [orderData, toggleAmendEditItemDialog] // Simplified dependencies
+  );
+
+  // NEW `UndoDeleteOperation`
+  const UndoDeleteOperation = useCallback(() => {
+    if (stack.length === 0) return;
+
+    const lastOperation = stack[stack.length - 1];
+    const newStack = stack.slice(0, -1); // More efficient way to pop
+
+    let updatedOrderData = [...orderData]; // Work on a copy
+
+    if (lastOperation.operation === "delete") {
+      // Restore the deleted item
+      updatedOrderData.push(lastOperation.item as PurchaseOrderItem);
+    } else if (lastOperation.operation === "quantity_change") {
+      // Find and restore the previous quantity
+      updatedOrderData = updatedOrderData.map((item) => {
+        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
+          return { ...item, quantity: lastOperation.previousQuantity! };
+        }
+        return item;
+      });
+    } else if (lastOperation.operation === "make_change") {
+      // Find and restore the previous make list
+      updatedOrderData = updatedOrderData.map((item) => {
+        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
+          const originalItem = lastOperation.item as PurchaseOrderItem;
+          return {
+            ...item,
+            makes: { list: lastOperation.previousMakeList! },
+            // also restore the primary 'make' field
+            make: originalItem.make,
+          };
+        }
+        return item;
+      });
+    } else if (lastOperation.operation === "tax_change") {
+      // ➕ ADDED: Handler for undoing tax changes
+      updatedOrderData = updatedOrderData.map((item) => {
+        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
+          return { ...item, tax: lastOperation.previousTax! };
+        }
+        return item;
+      });
     }
 
-    // Update the order data with the restored item or quantity
-    setOrderData({
-      list: curRequest,
-    });
+    setOrderData(updatedOrderData); // Set the restored array
+    setStack(newStack); // Update the stack
+  }, [orderData, stack]);
 
-    // Update the stack after popping the last operation
-    setStack(newStack);
-  }, [orderData, setOrderData, setStack, stack]);
+  const treeData = useMemo(() => {
+    if (!PO?.items) {
+      return [{ title: PO?.name, key: "mainPO", children: [] }];
+    }
 
-  const treeData = useMemo(() => [
-    {
-      title: PO?.name,
-      key: "mainPO",
-      children: prevMergedPOs?.map((po, idx) => ({
-        title: po?.name,
-        key: `po-${idx}`,
-        children: po?.order_list?.list?.map((item, itemIdx) => ({
-          title: item?.item,
-          key: `item-${idx}-${itemIdx}`,
-        })),
-      })),
+    const allSourcePoNames = PO.items.map(item => item.po).filter(Boolean);
+    const uniqueSourcePoNames = [...new Set(allSourcePoNames)];
+
+    const childrenNodes = uniqueSourcePoNames.map((poName, idx) => ({
+      title: poName,
+      key: `po-${idx}-${poName}`,
+      isLeaf: true,
+    }));
+
+    return [
+      {
+        title: PO?.name,
+        key: "mainPO",
+        children: childrenNodes,
+      },
+    ];
+  }, [PO]);
+
+  const amountPaid = useMemo(
+    () =>
+      getTotalAmountPaid(
+        (poPayments || []).filter((i) => i?.status === "Paid")
+      ),
+    [poPayments]
+  );
+
+  const amountPending = useMemo(
+    () =>
+      getTotalAmountPaid(
+        (poPayments || []).filter((i) =>
+          ["Requested", "Approved"].includes(i?.status)
+        )
+      ),
+    [poPayments]
+  );
+
+  const getUserName = useMemo(
+    () => (id: string | undefined) => {
+      return usersList?.find((user) => user?.name === id)?.full_name || "";
     },
-  ], [prevMergedPOs, PO]);
+    [usersList]
+  );
 
-  const amountPaid = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => i?.status === "Paid")), [poPayments]);
+  const MERGEPOVALIDATIONS = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      PO?.custom != "true" &&
+      !estimatesViewing &&
+      PO?.status === "PO Approved" &&
+      PO?.merged !== "true" &&
+      !((poPayments || [])?.length > 0) &&
+      mergeablePOs.length > 0,
+    [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing]
+  );
 
-  const amountPending = useMemo(() => getTotalAmountPaid((poPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [poPayments]);
+  const CANCELPOVALIDATION = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      !PO?.custom &&
+      !estimatesViewing &&
+      ["PO Approved"].includes(PO?.status) &&
+      !((poPayments || []).length > 0) &&
+      PO?.merged !== "true",
+    [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
+  );
 
-  const totalInvoiceAmount = useMemo(() => getTotalInvoiceAmount((PO?.invoice_data || [])), [PO]);
+  const totalInvoiceAmount = useMemo(
+    () => getTotalInvoiceAmount(PO?.invoice_data || []),
+    [PO]
+  );
 
-  const getUserName = useMemo(() => (id: string | undefined) => {
-    return usersList?.find((user) => user?.name === id)?.full_name || ""
-  }, [usersList]);
+  const AMENDPOVALIDATION = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      !estimatesViewing &&
+      ["PO Approved"].includes(PO?.status) &&
+      PO?.merged !== "true" && [
+        // !((poPayments || [])?.length > 0),
+        PO,
+        poPayments,
+        summaryPage,
+        accountsPage,
+        estimatesViewing,
+      ]
+  );
 
-  const MERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && PO?.custom != "true" && !estimatesViewing && PO?.status === "PO Approved" && PO?.merged !== "true" && !((poPayments || [])?.length > 0) && mergeablePOs.length > 0,
-    [
-      PO,
-      mergeablePOs,
-      poPayments,
-      summaryPage,
-      accountsPage,
-      estimatesViewing
-    ]);
-
-  const CANCELPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && ["PO Approved"].includes(PO?.status) && !((poPayments || []).length > 0) && PO?.merged !== "true",
-    [PO,
-      poPayments,
-      summaryPage,
-      accountsPage,
-      estimatesViewing])
-
-  const AMENDPOVALIDATION = useMemo(() => !summaryPage && !accountsPage && !estimatesViewing && ["PO Approved"].includes(PO?.status) && PO?.merged !== "true" && !((poPayments || [])?.length > 0),
-    [PO,
-      poPayments,
-      summaryPage,
-      accountsPage,
-      estimatesViewing])
-
-  const UNMERGEPOVALIDATIONS = useMemo(() => !summaryPage && !accountsPage && !PO?.custom && !estimatesViewing && PO?.merged === "true",
-    [PO,
-      summaryPage,
-      accountsPage,
-      estimatesViewing])
+  const UNMERGEPOVALIDATIONS = useMemo(
+    () =>
+      !summaryPage &&
+      !accountsPage &&
+      !PO?.custom &&
+      !estimatesViewing &&
+      PO?.merged === "true",
+    [PO, summaryPage, accountsPage, estimatesViewing]
+  );
 
   if (isRedirecting) {
     return (
@@ -730,21 +1078,30 @@ export const PurchaseOrder = ({
     // vendor_address_loading ||
     // project_address_loading ||
     usersListLoading ||
-    associated_po_list_loading ||
+    // associated_po_list_loading ||
+    listIsLoading || // Use the new loading state from our list hook
+    fullPoDetailsLoading || // Use the loading state from our full details hook
     poPaymentsLoading
   )
-    return (
-      <LoadingFallback />
-    );
+    return <LoadingFallback />;
   if (
-    associated_po_list_error ||
+    // associated_po_list_error ||
     // vendor_address_error ||
     // project_address_error ||
     usersListError ||
     poError ||
     poPaymentsError
   )
-    return <AlertDestructive error={associated_po_list_error || usersListError || poError || poPaymentsError} />
+    return (
+      <AlertDestructive
+        error={
+
+          usersListError ||
+          poError ||
+          poPaymentsError
+        }
+      />
+    );
   if (
     !summaryPage &&
     !accountsPage &&
@@ -780,9 +1137,6 @@ export const PurchaseOrder = ({
       </div>
     );
 
-
-
-
   return (
     <div className="flex-1 space-y-4">
       {MERGEPOVALIDATIONS && (
@@ -798,13 +1152,20 @@ export const PurchaseOrder = ({
               </span>
               {/* PO Merging Feature is available for this PO. */}
               <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
-                <SheetTrigger disabled={!isValid} className="disabled:opacity-50">
+                <SheetTrigger
+                  disabled={!isValid}
+                  className="disabled:opacity-50"
+                >
                   <div>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                          aria-label={isValid ? "Merge PO(s)" : "Merge unavailable"}
-                          className="flex items-center gap-1" color="primary">
+                          aria-label={
+                            isValid ? "Merge PO(s)" : "Merge unavailable"
+                          }
+                          className="flex items-center gap-1"
+                          color="primary"
+                        >
                           <Merge className="w-4 h-4" />
                           Merge PO(s)
                         </Button>
@@ -814,7 +1175,10 @@ export const PurchaseOrder = ({
                           side="bottom"
                           className="bg-background border border-border text-foreground w-80"
                         >
-                          <ValidationMessages title="Required Before Merging" errors={errors} />
+                          <ValidationMessages
+                            title="Required Before Merging"
+                            errors={errors}
+                          />
                         </TooltipContent>
                       )}
                     </Tooltip>
@@ -837,9 +1201,7 @@ export const PurchaseOrder = ({
                           </p>
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-sm text-gray-500">
-                            Vendor:
-                          </span>
+                          <span className="text-sm text-gray-500">Vendor:</span>
                           <p className="text-base font-medium tracking-tight text-black">
                             {PO?.vendor_name}
                           </p>
@@ -866,30 +1228,21 @@ export const PurchaseOrder = ({
                                 {poId?.slice(3, 6)}/
                                 {PO?.procurement_request?.slice(9)}
                               </TableCell>
-                              <TableCell>
-                                {
-                                  orderData?.list?.filter((i) => !i?.po)
-                                    ?.length
-                                }
-                              </TableCell>
+                              <TableCell>{PO?.items?.length}</TableCell>
                               <TableCell>
                                 <ul className="list-disc">
-                                  {orderData?.list
-                                    ?.filter((i) => !i?.po)
-                                    ?.map((j) => (
-                                      <li key={j?.item}>
-                                        {j?.item}{" "}
-                                        <span>(Qty-{j?.quantity})</span>
-                                        <p className="text-primary text-sm">
-                                          Make:{" "}
-                                          <span className="text-xs text-gray-500 italic">
-                                            {j?.makes?.list?.find(
-                                              (k) => k?.enabled === "true"
-                                            )?.make || "--"}
-                                          </span>
-                                        </p>
-                                      </li>
-                                    ))}
+                                  {PO?.items?.map((j) => (
+                                    <li key={j?.name}>
+                                      {j?.item_name}{" "}
+                                      <span>(Qty-{j?.quantity})</span>
+                                      <p className="text-primary text-sm">
+                                        Make:{" "}
+                                        <span className="text-xs text-gray-500 italic">
+                                          {j?.make || "--"}
+                                        </span>
+                                      </p>
+                                    </li>
+                                  ))}
                                 </ul>
                               </TableCell>
                               <TableCell>
@@ -904,13 +1257,13 @@ export const PurchaseOrder = ({
                               </TableCell>
                             </TableRow>
                             {mergeablePOs.map((po) => {
-                              // Helper function to check if merge should be disabled
-                              const isMergeDisabled = po.order_list.list.some(
+                              // CORRECTED: Helper function now uses .items
+                              const isMergeDisabled = po.items.some(
                                 (poItem) => {
-                                  // Check if any item in orderData has the same name but different rate
-                                  return orderData?.list?.some(
+                                  return orderData?.some(
                                     (currentItem) =>
-                                      currentItem.name === poItem.name &&
+                                      currentItem.item_name ===
+                                      poItem.item_name &&
                                       currentItem.quote !== poItem.quote
                                   );
                                 }
@@ -922,21 +1275,17 @@ export const PurchaseOrder = ({
                                     {po?.name?.slice(3, 6)}/
                                     {po?.procurement_request?.slice(9)}
                                   </TableCell>
-                                  <TableCell>
-                                    {po.order_list.list.length}
-                                  </TableCell>
+                                  <TableCell>{po.items.length}</TableCell>
                                   <TableCell>
                                     <ul className="list-disc">
-                                      {po?.order_list?.list?.map((i) => (
-                                        <li key={i?.item}>
-                                          {i?.item}{" "}
+                                      {po?.items?.map((i) => (
+                                        <li key={i?.name}>
+                                          {i?.item_name}{" "}
                                           <span>(Qty-{i?.quantity})</span>
                                           <p className="text-primary text-sm">
                                             Make:{" "}
                                             <span className="text-xs text-gray-500 italic">
-                                              {i?.makes?.list?.find(
-                                                (k) => k?.enabled === "true"
-                                              )?.make || "--"}
+                                              {i?.make || "--"}
                                             </span>
                                           </p>
                                         </li>
@@ -963,8 +1312,8 @@ export const PurchaseOrder = ({
                                             Unable to Merge this PO as it has
                                             some{" "}
                                             <span className="text-primary">
-                                              overlapping item(s) with
-                                              different quotes
+                                              overlapping item(s) with different
+                                              quotes
                                             </span>
                                           </HoverCardContent>
                                         </HoverCard>
@@ -1073,63 +1422,111 @@ export const PurchaseOrder = ({
           </Alert>
         </>
       )}
-
-      <PODetails po={PO} toggleRequestPaymentDialog={toggleRequestPaymentDialog} summaryPage={summaryPage} accountsPage={accountsPage} estimatesViewing={estimatesViewing} poPayments={poPayments} togglePoPdfSheet={togglePoPdfSheet}
-        getTotal={getTotal} amountPaid={amountPaid} totalInvoice={totalInvoiceAmount} poMutate={poMutate} />
-
-      <Accordion type="multiple"
-        // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
-        className="w-full">
-        <AccordionItem key="transac&payments" value="transac&payments">
-          {/* {tab === "Delivered PO" && ( */}
-          <AccordionTrigger>
-            <p className="font-semibold text-lg text-red-600 pl-6">
-              Payment Details
-            </p>
-          </AccordionTrigger>
-          {/* )} */}
-          <AccordionContent>
-            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-              <TransactionDetailsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} amountPaid={amountPaid} poPayments={poPayments} poPaymentsMutate={poPaymentsMutate} AllPoPaymentsListMutate={AllPoPaymentsListMutate} />
-
-              <POPaymentTermsCard accountsPage={accountsPage} estimatesViewing={estimatesViewing} summaryPage={summaryPage} PO={PO} getTotal={getTotal} poMutate={poMutate} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} setAdvance={setAdvance} setMaterialReadiness={setMaterialReadiness} setAfterDelivery={setAfterDelivery} setXDaysAfterDelivery={setXDaysAfterDelivery} setXDays={setXDays} />
-            </div>
-          </AccordionContent>
-
-        </AccordionItem>
-      </Accordion>
-
-
-      {/* PO Attachments Accordion */}
-      {PO?.status !== "PO Approved" && (
-        <Accordion type="multiple"
-          // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
-          className="w-full">
-          <AccordionItem key="poattachments" value="poattachments">
+      <PODetails
+        po={PO}
+        toggleRequestPaymentDialog={toggleRequestPaymentDialog}
+        summaryPage={summaryPage}
+        accountsPage={accountsPage}
+        estimatesViewing={estimatesViewing}
+        poPayments={poPayments}
+        togglePoPdfSheet={togglePoPdfSheet}
+        // getTotal={getTotal}
+        totalInvoice={getTotalInvoiceAmount(PO?.invoice_data || [])}
+        amountPaid={amountPaid}
+        poMutate={poMutate}
+      />
+      <Card className="rounded-sm  md:col-span-3 p-2">
+        <Accordion
+          type="multiple"
+          // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
+          className="w-full"
+        >
+          <AccordionItem key="transac&payments" value="transac&payments">
             {/* {tab === "Delivered PO" && ( */}
             <AccordionTrigger>
               <p className="font-semibold text-lg text-red-600 pl-6">
-                PO Attachments
+                Payment Details
               </p>
             </AccordionTrigger>
             {/* )} */}
             <AccordionContent>
-              <DocumentAttachments
-                docType="Procurement Orders"
-                docName={poId}
-                documentData={PO}
-                docMutate={poMutate}
-              />
-              {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
+              <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                <TransactionDetailsCard
+                  accountsPage={accountsPage}
+                  estimatesViewing={estimatesViewing}
+                  summaryPage={summaryPage}
+                  PO={PO}
+                  getTotal={getTotal}
+                  amountPaid={amountPaid}
+                  poPayments={poPayments}
+                  poPaymentsMutate={poPaymentsMutate}
+                  AllPoPaymentsListMutate={AllPoPaymentsListMutate}
+                />
+
+                <POPaymentTermsCard
+                  accountsPage={accountsPage}
+                  estimatesViewing={estimatesViewing}
+                  summaryPage={summaryPage}
+                  PO={PO}
+                  getTotal={getTotal}
+                  poMutate={poMutate}
+                  projectPaymentsMutate={poPaymentsMutate}
+                // advance={advance}
+                // materialReadiness={materialReadiness}
+                // afterDelivery={afterDelivery}
+                // xDaysAfterDelivery={xDaysAfterDelivery}
+                // xDays={xDays}
+                // setAdvance={setAdvance}
+                // setMaterialReadiness={setMaterialReadiness}
+                // setAfterDelivery={setAfterDelivery}
+                // setXDaysAfterDelivery={setXDaysAfterDelivery}
+                // setXDays={setXDays}
+                />
+              </div>
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+      </Card>
+      {/* PO Attachments Accordion */}
+
+      {PO?.status && (
+        <Card className="rounded-sm  md:col-span-3 p-2">
+          <Accordion
+            type="multiple"
+            // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+            className="w-full"
+          >
+            <AccordionItem key="poattachments" value="poattachments">
+              {/* {tab === "Delivered PO" && ( */}
+              <AccordionTrigger>
+                <p className="font-semibold text-lg text-red-600 pl-6">
+                  PO Attachments
+                </p>
+              </AccordionTrigger>
+              {/* )} */}
+              <AccordionContent>
+
+                <DocumentAttachments
+                  docType="Procurement Orders"
+                  docName={PO?.name}
+                  documentData={invoicePO}
+                  docMutate={poMutate}
+                  project={project}
+                />
+
+                {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </Card>
       )}
 
-
       {/* Invoice Dialog */}
-      <InvoiceDialog docName={PO?.name} docType="Procurement Orders" docMutate={poMutate} />
-
+      <InvoiceDialog
+        docName={PO?.name}
+        docType="Procurement Orders"
+        docMutate={poMutate}
+      />
       {/* Order Details */}
       <Card className="rounded-sm shadow-md md:col-span-3">
         <CardHeader>
@@ -1161,11 +1558,13 @@ export const PurchaseOrder = ({
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
+                  {["Partially Delivered", "Delivered"].includes(
+                    PO?.status
+                  ) && <col className="w-[5%]" />}
                 </colgroup>
                 <thead className="bg-red-100">
                   <tr className="text-sm font-semibold text-gray-700">
-                    <th className="sticky top-0 z-10 text-left pl-4 py-3 bg-red-100">
+                    <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
                       S.No.
                     </th>
                     <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
@@ -1189,11 +1588,13 @@ export const PurchaseOrder = ({
                     <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
                       Amount (incl.GST)
                     </th>
-                    {["Partially Delivered", "Delivered"].includes(PO?.status) && (
-                      <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                        Delivered Quantity
-                      </th>
-                    )}
+                    {["Partially Delivered", "Delivered"].includes(
+                      PO?.status
+                    ) && (
+                        <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                          Delivered Quantity
+                        </th>
+                      )}
                   </tr>
                 </thead>
               </table>
@@ -1217,10 +1618,12 @@ export const PurchaseOrder = ({
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  {["Partially Delivered", "Delivered"].includes(PO?.status) && <col className="w-[5%]" />}
+                  {["Partially Delivered", "Delivered"].includes(
+                    PO?.status
+                  ) && <col className="w-[5%]" />}
                 </colgroup>
                 <tbody className="divide-y divide-gray-200">
-                  {orderData?.list?.map((item, index) => (
+                  {PO?.items?.map((item, index) => (
                     <tr
                       key={index}
                       className="hover:bg-gray-50 transition-colors text-sm text-gray-600"
@@ -1231,14 +1634,10 @@ export const PurchaseOrder = ({
                       {/* Item Name */}
                       <td className="pl-2 py-2 align-top">
                         <div className="flex flex-col gap-1">
-                          <span className="font-medium text-gray-700 truncate">
-                            {item.item}
-                            {item?.makes?.list?.length > 0 && (
-                              <span className="ml-1 text-xs italic font-semibold text-gray-500">
-                                - {item.makes.list.find(i => i?.enabled === "true")?.make || "N/A"}
-                              </span>
-                            )}
-                          </span>
+                          {item.item_name}
+                          <small className="font-medium text-red-700 truncate">
+                            {item?.make}
+                          </small>
                           {item.comment && (
                             <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5">
                               <MessageCircleMore className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
@@ -1251,10 +1650,14 @@ export const PurchaseOrder = ({
                       </td>
 
                       {/* Unit */}
-                      <td className="text-center py-2 align-top">{item.unit}</td>
+                      <td className="text-center py-2 align-top">
+                        {item.unit}
+                      </td>
 
                       {/* Quantity */}
-                      <td className="text-center py-2 align-top">{item.quantity}</td>
+                      <td className="text-center py-2 align-top">
+                        {item.quantity}
+                      </td>
 
                       {/* Rate */}
                       <td className="text-center py-2 align-top">
@@ -1262,27 +1665,35 @@ export const PurchaseOrder = ({
                       </td>
 
                       {/* Tax */}
-                      <td className="text-center py-2 align-top">{item?.tax}%</td>
+                      <td className="text-center py-2 align-top">
+                        {item?.tax}%
+                      </td>
 
                       {/* Amount */}
                       <td className="pr-4 text-center py-2 align-top font-medium">
-                        {formatToIndianRupee(item?.quote * item?.quantity)}
+                        {formatToIndianRupee(item?.amount)}
                       </td>
 
                       {/* Amount (Incl GST) */}
                       <td className="pr-4 text-center py-2 align-top font-medium">
-                        {formatToIndianRupee((item?.quote * item?.quantity) * (1 + item?.tax / 100))}
+                        {formatToIndianRupee(
+                          item?.quote * item?.quantity * (1 + item?.tax / 100)
+                        )}
                       </td>
 
                       {/* OD (Conditional) */}
-                      {["Partially Delivered", "Delivered"].includes(PO?.status) && (
-                        <td className={`text-center py-2 align-top ${item?.received === item?.quantity
-                          ? 'text-green-600'
-                          : 'text-red-700'
-                          }`}>
-                          {item?.received || 0}
-                        </td>
-                      )}
+                      {["Partially Delivered", "Delivered"].includes(
+                        PO?.status
+                      ) && (
+                          <td
+                            className={`text-center py-2 align-top ${item?.received_quantity === item?.quantity
+                                ? "text-green-600"
+                                : "text-red-700"
+                              }`}
+                          >
+                            {item?.received_quantity || 0}
+                          </td>
+                        )}
                     </tr>
                   ))}
                 </tbody>
@@ -1291,10 +1702,7 @@ export const PurchaseOrder = ({
           </div>
         </CardContent>
       </Card>
-
-
       {/* Unmerge, Amend and Cancel PO Buttons  */}
-
       {/* Unmerge */}
       <div className="flex items-center justify-between">
         {UNMERGEPOVALIDATIONS ? (
@@ -1399,8 +1807,7 @@ export const PurchaseOrder = ({
               <PencilRuler className="w-4 h-4" />
               Amend PO
             </Button>
-          )
-          }
+          )}
           <Sheet open={amendPOSheet} onOpenChange={toggleAmendPOSheet}>
             <SheetContent className="overflow-auto">
               <>
@@ -1463,6 +1870,9 @@ export const PurchaseOrder = ({
                           Item Name
                         </th>
                         <th className="w-[20%]  py-1 text-xs text-center">
+                          Tax
+                        </th>
+                        <th className="w-[20%]  py-1 text-xs text-center">
                           Make
                         </th>
                         <th className="w-[10%]  py-1 text-xs text-center">
@@ -1477,16 +1887,17 @@ export const PurchaseOrder = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {orderData?.list?.map((item) => {
+                      {orderData?.map((item) => {
                         return (
                           <tr key={item.name}>
                             <td className="w-[45%] text-left border-b-2 py-1 text-sm">
-                              {item.item}
+                              {item.item_name}
                             </td>
                             <td className="w-[20%] border-b-2 py-1 text-sm text-center">
-                              {item?.makes?.list?.find(
-                                (i) => i?.enabled === "true"
-                              )?.make || "--"}
+                              {item.tax}
+                            </td>
+                            <td className="w-[20%] border-b-2 py-1 text-sm text-center">
+                              {item.make}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
                               {item.unit}
@@ -1496,28 +1907,39 @@ export const PurchaseOrder = ({
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
                               <div className="flex items-center justify-center">
-                                <Pencil
-                                  onClick={() => {
-                                    const options =
-                                      item?.makes?.list?.map((i) => ({
-                                        label: i?.make,
-                                        value: i?.make,
-                                      })) || [];
-                                    const selected = item?.makes?.list?.find(
-                                      (i) => i?.enabled === "true"
-                                    );
+                                {item.category != "Additional Charges" && (
+                                  <Pencil
+                                    onClick={() => {
+                                      // Find all makes for this item (from its `makes.list` in the original PO data)
+                                      const itemMakes =
+                                        PO?.items.find(
+                                          (i) => i.name === item.name
+                                        )?.makes?.list || [];
+                                      const options = itemMakes.map((m) => ({
+                                        label: m.make,
+                                        value: m.make,
+                                      }));
 
-                                    setQuantity(item.quantity);
-                                    setAmendEditItem(item);
-                                    setEditMakeOptions(options);
-                                    setSelectedMake({
-                                      label: selected?.make || "",
-                                      value: selected?.make || "",
-                                    });
-                                    toggleAmendEditItemDialog();
-                                  }}
-                                  className="w-4 h-4 cursor-pointer"
-                                />
+                                      setEditMakeOptions(options);
+
+                                      // Find the currently enabled make
+                                      const currentMakeValue = item.make;
+                                      // Create the correct object structure for react-select
+                                      const currentSelectedObject = {
+                                        label: currentMakeValue,
+                                        value: currentMakeValue,
+                                      };
+
+                                      setSelectedMake(currentSelectedObject);
+                                      setTax(item.tax);
+                                      setQuantity(item.quantity);
+                                      setAmendEditItem(item);
+                                      setShowAddNewMake(false); // Make sure the card is hidden initially
+                                      toggleAmendEditItemDialog();
+                                    }}
+                                    className="w-4 h-4 cursor-pointer"
+                                  />
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1613,7 +2035,7 @@ export const PurchaseOrder = ({
                 >
                   <DialogContent className="max-w-3xl">
                     <DialogHeader>
-                      <DialogTitle className="flex justify-between">
+                      <DialogTitle className="flex justify-between border-b-2 border-gray-300 pb-2">
                         Edit Item
                       </DialogTitle>
                     </DialogHeader>
@@ -1624,8 +2046,44 @@ export const PurchaseOrder = ({
                             Item Name
                           </h5>
                           <div className="w-full  p-1 text-left">
-                            {amendEditItem?.item}
+                            {amendEditItem?.item_name}
                           </div>
+                        </div>
+                        <div className="w-[30%]">
+                          <h5 className="text-base text-gray-400 text-left mb-1">
+                            Tax %
+                          </h5>
+                          <Select
+                            value={String(tax) || ""}
+                            onValueChange={(value) => {
+                              // console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
+                              // console.log("tax", value);
+                              setTax(Number(value));
+                              // onTaxChange(amendEditItem.item_id, value);
+                            }}
+                          // disabled={mode === "view" || isReadOnly}
+                          >
+                            <SelectTrigger>
+                              <SelectValue
+                                className="text-gray-200"
+                                placeholder="Select Tax %"
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem key={5} value={"5"}>
+                                5 %
+                              </SelectItem>
+                              <SelectItem key={12} value={"12"}>
+                                12 %
+                              </SelectItem>
+                              <SelectItem key={18} value={"18"}>
+                                18 %
+                              </SelectItem>
+                              <SelectItem key={28} value={"28"}>
+                                28 %
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="flex space-x-2 w-full">
                           <div className="w-[60%]">
@@ -1637,7 +2095,9 @@ export const PurchaseOrder = ({
                                 selectedMake={selectedMake}
                                 setSelectedMake={setSelectedMake}
                                 editMakeOptions={editMakeOptions}
-                                toggleAddNewMake={toggleAddNewMake}
+                                setEditMakeOptions={setEditMakeOptions} // Pass the setter function
+                                // toggleAddNewMake={toggleAddNewMake}
+                                amendEditItem={amendEditItem}
                               />
                             </div>
                           </div>
@@ -1670,27 +2130,27 @@ export const PurchaseOrder = ({
                         </div>
                       </div>
 
-                      {showAddNewMake && (
+                      {/* {showAddNewMake && (
                         <AddNewMakes
-                          orderData={orderData?.list}
+                          orderData={orderData}
                           setOrderData={setOrderData}
                           editMakeOptions={editMakeOptions}
                           amendEditItem={amendEditItem}
                           toggleAddNewMake={toggleAddNewMake}
                           setEditMakeOptions={setEditMakeOptions}
                         />
-                      )}
+                      )} */}
                     </DialogDescription>
                     <DialogDescription className="flex justify-end">
                       <div className="flex gap-2">
-                        {orderData?.list?.length === 1 ? (
+                        {orderData?.filter((item) => item.category !== "Additional Charges").length === 1 ? (
                           <Button className="flex items-center gap-1" disabled>
                             <Trash2 className="h-4 w-4" />
                             Delete
                           </Button>
                         ) : (
                           <Button
-                            onClick={() => handleDelete(amendEditItem.item)}
+                            onClick={() => handleDelete(amendEditItem?.name)}
                             className="flex gap-1 items-center bg-gray-100 text-black hover:text-white"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1699,13 +2159,7 @@ export const PurchaseOrder = ({
                         )}
                         <Button
                           disabled={!quantity}
-                          onClick={() =>
-                            handleSave(
-                              amendEditItem?.item,
-                              quantity,
-                              selectedMake
-                            )
-                          }
+                          onClick={() => handleSave(amendEditItem?.name)}
                           variant={"outline"}
                           className="flex gap-1 items-center"
                         >
@@ -1730,8 +2184,7 @@ export const PurchaseOrder = ({
               <X className="w-4 h-4" />
               Cancel PO
             </Button>
-          )
-          }
+          )}
 
           <AlertDialog
             open={cancelPODialog}
@@ -1756,8 +2209,8 @@ export const PurchaseOrder = ({
                       </li>
                       <li>
                         This action will create a new{" "}
-                        <Badge variant="destructive">Cancelled</Badge> type Sent Back
-                        Request within{" "}
+                        <Badge variant="destructive">Cancelled</Badge> type Sent
+                        Back Request within{" "}
                         <span className="text-red-700 font-semibold">
                           Rejected PO tab of Procurement Requests
                         </span>{" "}
@@ -1802,17 +2255,36 @@ export const PurchaseOrder = ({
           </AlertDialog>
         </div>
       </div>
-
       {/* Delivery History */}
-      {["Delivered", "Partially Delivered"].includes(PO?.status) && (
-        <DeliveryHistory
-          deliveryData={PO?.delivery_data?.data || null}
+      {["Delivered", "Partially Delivered", "PO Approved", "Dispatched"].includes(PO?.status) && (
+        <DeliveryHistoryTable
+          deliveryData={deliveryHistory.data}
           onPrintHistory={triggerHistoryPrint}
         />
       )}
 
+      {/* {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (
+        <DeliveryHistoryTable
+          deliveryData={deliveryHistory.data}
+            onPrintHistory={triggerHistoryPrint}
+        />
+      )} */}
       {/* PO Pdf  */}
-      <POPdf poPdfSheet={poPdfSheet} togglePoPdfSheet={togglePoPdfSheet} po={PO} orderData={orderData} includeComments={includeComments} getTotal={getTotal} advance={advance} materialReadiness={materialReadiness} afterDelivery={afterDelivery} xDaysAfterDelivery={xDaysAfterDelivery} xDays={xDays} />
+      <POPdf
+        poPdfSheet={poPdfSheet}
+        togglePoPdfSheet={togglePoPdfSheet}
+        po={PO}
+        orderData={orderData}
+        includeComments={includeComments}
+        paymentTerms={mergedPaymentTerms} // make set term state
+        // getTotal={getTotal}
+        POTotals={previewTotal}
+        advance={advance}
+        materialReadiness={materialReadiness}
+        afterDelivery={afterDelivery}
+        xDaysAfterDelivery={xDaysAfterDelivery}
+        xDays={xDays}
+      />
       {/* Render RequestPaymentDialog here, outside the Accordion */}
       <RequestPaymentDialog
         totalIncGST={getTotal?.totalAmt || 0}
@@ -1831,177 +2303,73 @@ export const PurchaseOrder = ({
   );
 };
 
-
 export default PurchaseOrder;
 
-interface Make {
-  label: string
-  value: string
-}
-
+// ===================================================================
+// ✨ NEW, SIMPLIFIED SINGLE-SELECT MAKES COMPONENT
+// ===================================================================
 interface MakesSelectionProps {
   selectedMake: Make | null;
   setSelectedMake: React.Dispatch<React.SetStateAction<Make | null>>;
-  editMakeOptions: Make[];
-  toggleAddNewMake: () => void;
+  amendEditItem: PurchaseOrderItem | null;
 }
 
 const MakesSelection = ({
   selectedMake,
   setSelectedMake,
-  editMakeOptions,
-  toggleAddNewMake,
-}: MakesSelectionProps) => {
-  const CustomMenu = (props) => {
-    const { MenuList } = components;
-
-    return (
-      <MenuList {...props}>
-        {props.children}
-        <div
-          className="p-2 bg-gray-100 hover:bg-gray-200 text-center cursor-pointer"
-          onClick={() => toggleAddNewMake()}
-        >
-          <strong>Add New Make</strong>
-        </div>
-      </MenuList>
-    );
-  };
-
-  return (
-    <>
-      <div className="w-full">
-        <ReactSelect
-          className="w-full"
-          placeholder="Select Make..."
-          value={selectedMake}
-          options={editMakeOptions}
-          onChange={(selectedOption) => setSelectedMake(selectedOption)}
-          components={{ MenuList: CustomMenu }}
-        />
-      </div>
-    </>
-  );
-};
-
-interface AddNewMakesProps {
-  orderData: PurchaseOrderItem[];
-  setOrderData: React.Dispatch<React.SetStateAction<{ list: PurchaseOrderItem[] }>>;
-  editMakeOptions: Make[];
-  toggleAddNewMake: () => void;
-  amendEditItem: any;
-  setEditMakeOptions: React.Dispatch<React.SetStateAction<Make[]>>;
-}
-
-
-const AddNewMakes = ({
-  orderData,
-  setOrderData,
-  editMakeOptions,
   amendEditItem,
-  toggleAddNewMake,
-  setEditMakeOptions,
-}: AddNewMakesProps) => {
-  const [makeOptions, setMakeOptions] = useState<Make[]>([]);
+}: MakesSelectionProps) => {
+  // State for the options available in this component's dropdown.
+  const [availableMakeOptions, setAvailableMakeOptions] = useState<Make[]>([]);
 
-  const [newSelectedMakes, setNewSelectedMakes] = useState<Make[]>([]);
+  // Fetch the list of possible makes for the current item's category
+  const { data: categoryMakeList, isLoading: makesLoading } =
+    useFrappeGetDocList(
+      "Category Makelist",
+      {
+        fields: ["make"],
+        filters: [["category", "=", amendEditItem?.category]],
+        limit: 1000,
+      },
+      amendEditItem?.category
+        ? `category_makelist_for_${amendEditItem.category}`
+        : null
+    );
 
-  const { data: categoryMakeList } = useFrappeGetDocList("Category Makelist", {
-    fields: ["*"],
-    limit: 10000,
-  });
-
+  // Populate the available makes dropdown when data is fetched
   useEffect(() => {
-    if ((categoryMakeList || [])?.length > 0) {
-      const categoryMakes = categoryMakeList?.filter(
-        (i) => i?.category === amendEditItem.category
+    if (categoryMakeList) {
+      const allCategoryMakes = categoryMakeList.map((i) => ({
+        label: i.make,
+        value: i.make,
+      }));
+      setAvailableMakeOptions(allCategoryMakes);
+
+      // ✨ Optional: If the current item's make is not in the list, add it.
+      // This handles cases where a make was manually entered before this feature was added.
+      const currentMakeExists = allCategoryMakes.some(
+        (opt) => opt.value === amendEditItem?.make
       );
-      const makeOptionsList =
-        categoryMakes?.map((i) => ({ label: i?.make, value: i?.make })) || [];
-      const filteredOptions = makeOptionsList?.filter(
-        (i) => !editMakeOptions?.some((j) => j?.value === i?.value)
-      );
-      setMakeOptions(filteredOptions);
-    }
-  }, [categoryMakeList, editMakeOptions, amendEditItem]);
-
-  const handleSumbit = () => {
-    const allOptions = [...editMakeOptions, ...newSelectedMakes];
-
-    const currentMakes = editMakeOptions?.map((j) => ({
-      make: j?.value,
-      enabled: "false",
-    }));
-
-    const reformattedNewMakes = newSelectedMakes?.map((i) => ({
-      make: i?.value,
-      enabled: "false",
-    }));
-
-    const combinedMakes = [...currentMakes, ...reformattedNewMakes];
-
-    const curRequest = orderData.map((curValue) => {
-      if (curValue.item === amendEditItem?.item) {
-        return { ...curValue, makes: { list: combinedMakes } };
+      if (amendEditItem?.make && !currentMakeExists) {
+        setAvailableMakeOptions((prev) => [
+          { label: amendEditItem.make, value: amendEditItem.make },
+          ...prev,
+        ]);
       }
-      return curValue;
-    });
-
-    setOrderData({
-      list: curRequest,
-    });
-
-    setEditMakeOptions(allOptions);
-
-    toggleAddNewMake();
-  };
+    }
+  }, [categoryMakeList, amendEditItem?.make]);
 
   return (
-    <Card className="w-full bg-gray-100 my-2">
-      <CardContent className="py-2">
-        <div className="flex flex-col gap-2">
-          <h2 className="font-semibold">Existing Makes for this item:</h2>
-          {editMakeOptions?.length > 0 ? (
-            <div className="flex gap-1 flex-wrap">
-              {editMakeOptions?.map((i) => (
-                <Badge>{i?.value}</Badge>
-              ))}
-            </div>
-          ) : (
-            "--"
-          )}
-        </div>
-        <div className="flex gap-4 items-end my-4">
-          <div className="w-[70%]">
-            <Label>Select New Make</Label>
-            {categoryMakeList && (
-              <ReactSelect
-                options={makeOptions}
-                value={newSelectedMakes}
-                isMulti
-                onChange={(selectedOptions) =>
-                  setNewSelectedMakes(selectedOptions)
-                }
-              />
-            )}
-          </div>
-
-          <div className="flex gap-2 items-center">
-            <Button onClick={() => toggleAddNewMake()} variant="outline">
-              <CircleX className="h-4 w-4 mr-1" />
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSumbit}
-              disabled={!newSelectedMakes?.length}
-              className="flex items-center gap-1"
-            >
-              <ListChecks className="h-4 w-4" />
-              Confirm
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <ReactSelect
+      options={availableMakeOptions}
+      value={selectedMake}
+      isMulti={false} // Ensure single select
+      isLoading={makesLoading}
+      onChange={(selectedOption) =>
+        setSelectedMake(selectedOption as Make | null)
+      }
+      placeholder="Select a make..."
+      noOptionsMessage={() => "No makes available for this category."}
+    />
   );
 };

@@ -78,6 +78,14 @@ const getAllParamsForSyncKey = (baseSyncKey: string): string[] => {
 };
 
 // --- Types ---
+
+// NEW: Interface for aggregation configuration
+export interface AggregationConfig {
+    field: string;
+    function: 'sum' | 'avg' | 'count' | 'min' | 'max';
+}
+
+
 export interface ServerDataTableConfig<TData> {
     doctype: string;
     columns: ColumnDef<TData>[];
@@ -112,6 +120,9 @@ export interface ServerDataTableConfig<TData> {
     onRowSelectionChange?: (updater: React.SetStateAction<RowSelectionState>) => void;
     /** Optional Frappe orderBy string (e.g., "creation desc") */
     defaultSort?: string;
+
+    aggregatesConfig?: AggregationConfig[]; // NEW: Configuration for summary card
+
     /** Key for storing/retrieving state in URL. If not provided, URL sync is disabled */
     urlSyncKey?: string;
 
@@ -167,6 +178,12 @@ export interface ServerDataTableResult<TData> {
     // showItemSearchToggle: boolean; // Expose whether the toggle should be shown
     // -----------
 
+    // --- NEW: For Summary Card ---
+    aggregates: Record<string, number> | null;
+    isAggregatesLoading: boolean;
+    // ----------------------------
+
+
     // --- NEW: Exposed Search State & Setters ---
     searchTerm: string;
     setSearchTerm: React.Dispatch<React.SetStateAction<string>>;
@@ -216,6 +233,7 @@ export function useServerDataTable<TData extends { name: string }>({
     columns: userDefinedDisplayColumns,
     fetchFields,
     searchableFields,
+    aggregatesConfig, // NEW
     // defaultSearchField,
     // globalSearchFieldList = [], // This is used to populate current_search_fields for global search
     additionalFilters = [],
@@ -288,7 +306,7 @@ export function useServerDataTable<TData extends { name: string }>({
 
 
     const apiEndpoint = 'nirmaan_stack.api.data-table.get_list_with_count_enhanced'; // Get Frappe call method from context
-    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number } }>(apiEndpoint); // Get Frappe call method from context
+    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any } }>(apiEndpoint); // Get Frappe call method from context
 
     // --- SWR Mutate for Cache Invalidation ---
     const { mutate } = useSWRConfig();
@@ -361,6 +379,12 @@ export function useServerDataTable<TData extends { name: string }>({
     const [error, setError] = useState<Error | null>(null);
     const [isLoading, setIsLoading] = useState(false); // Manual loading state
     // const [internalTrigger, setInternalTrigger] = useState<number>(0); // To manually refetch
+
+
+    // --- NEW: State for Aggregates ---
+    const [aggregates, setAggregates] = useState<Record<string, number> | null>(null);
+    const [isAggregatesLoading, setIsAggregatesLoading] = useState(false);
+    // ---------------------------------
 
 
     const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialState.columnVisibility ?? {});
@@ -486,6 +510,7 @@ export function useServerDataTable<TData extends { name: string }>({
             // Data is already set via useEffect watching clientData.
             // No fetch needed.
             setIsLoading(false); // Ensure loading is false
+            setIsAggregatesLoading(false); // Also stop this loading state
             return;
         }
         // --- End clientData handling ---
@@ -494,6 +519,7 @@ export function useServerDataTable<TData extends { name: string }>({
         if (isLoading && !isRefetch) return;
 
         setIsLoading(true); // Set loading true when fetch starts
+        setIsAggregatesLoading(true); // Start aggregates loading
         setError(null); // Clear previous error
         resetApiState(); // Reset error/completion state of useFrappePostCall
 
@@ -550,6 +576,11 @@ export function useServerDataTable<TData extends { name: string }>({
             require_pending_items: requirePendingItems,
             to_cache: shouldCache,
             // -----------------------------
+            // --- NEW ---
+            aggregates_config: aggregatesConfig && aggregatesConfig.length > 0
+                ? JSON.stringify(aggregatesConfig)
+                : undefined,
+            // -----------
         };
 
         // --- Define the SWR Key for THIS specific fetch ---
@@ -569,17 +600,21 @@ export function useServerDataTable<TData extends { name: string }>({
                 setTotalCount(response.message.total_count);
                 // Update SWR cache manually after successful fetch if needed elsewhere?
                 // mutate(currentQueryKey, response, false); // Update cache without revalidation
+                setAggregates(response.message.aggregates || null); // Set aggregates data
             } else {
                 console.warn('Custom API call successful but no message received.');
                 setData([]); setTotalCount(0);
+                setAggregates(null); // Reset on error/no message
             }
         } catch (err: any) {
             console.error("Error fetching data via custom backend adapter:", err);
             const errorMessage = err.message || (err._server_messages ? JSON.parse(err._server_messages)[0].message : 'An unknown error occurred');
             setError(err instanceof Error ? err : new Error(errorMessage));
             setData([]); setTotalCount(0);
+            setAggregates(null); // Reset on error
         } finally {
             setIsLoading(false); // Set loading false when fetch completes
+            setIsAggregatesLoading(false); // Stop aggregates loading
         }
     }, [
         isClientSideMode,
@@ -595,7 +630,7 @@ export function useServerDataTable<TData extends { name: string }>({
         JSON.stringify(additionalFilters),
         // internalTrigger,
         requirePendingItems,
-        clientData, clientTotalCount // Add clientData and clientTotalCount to dependencies
+        clientData, clientTotalCount, aggregatesConfig // Add clientData and clientTotalCount to dependencies
         // isLoading // Remove isLoading from here to prevent loops if it's part of the logic above
     ]);
 
@@ -776,5 +811,9 @@ export function useServerDataTable<TData extends { name: string }>({
         refetch,
         isRowSelectionActive: !!configEnableRowSelection,
         isClientSideMode,
+        // --- NEW: Return aggregate data and loading state ---
+        aggregates,
+        isAggregatesLoading,
+        // ----------------------------------------------------
     };
 }

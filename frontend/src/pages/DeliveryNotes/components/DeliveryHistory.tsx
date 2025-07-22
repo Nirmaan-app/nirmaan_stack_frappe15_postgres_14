@@ -38,6 +38,9 @@ interface ExpandableRowProps {
 
 const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpanded, onToggle, onPrint }) => {
 
+
+  // console.log("DeliveryHistoryTable", JSON.stringify(data));
+
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       onToggle(date);
@@ -63,6 +66,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
         <div className="flex justify-between items-center" onClick={() => onToggle(date)}>
           <div>
             <div className="font-medium">{formatDate(new Date(date), "dd MMMM, yyyy")}</div>
+            <div className="text-sm text-gray-500">{data?.note_no}</div>
             <div className="text-sm text-gray-500">{data.items.length} item(s) updated by {getUserName(data.updated_by)}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -84,6 +88,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
         <TableCell>
           <div className="flex items-center font-medium">{formatDate(new Date(date), "dd/MM/yyyy")} <span className="ml-2">{isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span></div>
         </TableCell>
+        <TableCell>{data.note_no}</TableCell>
         <TableCell>{data.items.length}</TableCell>
         <TableCell className={`${index === 0 ? "font-bold" : ""}`}>{index === 0 ? "Create" : "Update"}</TableCell>
         <TableCell>{getUserName(data.updated_by)}</TableCell>
@@ -114,6 +119,8 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
 const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryData, onPrintHistory }) => {
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
 
+  
+
   const handleToggle = useCallback((date: string) => {
     setExpandedRows(prev => prev.includes(date)
       ? prev.filter(d => d !== date)
@@ -125,14 +132,19 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryDat
 
   return (
     <Card>
-      <CardHeader className="border-b"><CardTitle>Delivery History</CardTitle></CardHeader>
-      <CardContent className="p-0 sm:p-6"> {/* Remove padding on mobile, add it back for desktop table */}
+      <CardHeader className="font-semibold text-lg text-red-600 pl-6"><CardTitle>Delivery History</CardTitle></CardHeader>
+      <CardContent className="p-0"> {/* Remove padding on mobile, add it back for desktop table */}
         {/* For Desktop */}
         <div className="overflow-auto hidden sm:block">
           <Table>
             <TableHeader className="bg-red-100">
               <TableRow>
-                <TableHead>Date</TableHead><TableHead>No. of Items</TableHead><TableHead>Change Type</TableHead><TableHead>Updated By</TableHead><TableHead>Print</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>DN ID</TableHead>
+                <TableHead>No. of Items</TableHead>
+                <TableHead>Change Type</TableHead>
+                <TableHead>Updated By</TableHead>
+                <TableHead>Print</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

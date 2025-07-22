@@ -2,7 +2,7 @@ import useSWRMutation from "swr/mutation";
 import { useFrappePostCall } from "frappe-react-sdk";
 
 const API_PATH =
-  "nirmaan_stack.api.payments.project_payments.create_payment_request";
+  "nirmaan_stack.api.payments.project_payments.create_payment_request_for_service";
 
 /** Envelope your back-end returns on success */
 export interface PaymentRequestResponse {
@@ -11,9 +11,9 @@ export interface PaymentRequestResponse {
 
 /** Payload expected by the API */
 export type PaymentRequestArgs = {
-  doctype : "Procurement Orders" | "Service Requests";
-  docname : string;
-  amount  : number;
+  doctype: "Procurement Orders" | "Service Requests";
+  docname: string;
+  amount: number;
 };
 
 /* ---------- SWR mutation hook ----------------------------------- */

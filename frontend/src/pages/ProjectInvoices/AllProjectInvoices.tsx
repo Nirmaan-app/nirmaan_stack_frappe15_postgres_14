@@ -33,6 +33,7 @@ import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit 
 import { Button } from "@/components/ui/button"; // For Add New button
 import { PlusCircle } from "lucide-react"; // For Add New button icon
 import { Customers } from "@/types/NirmaanStack/Customers";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 interface SelectOption { label: string; value: string; }
 
@@ -72,6 +73,12 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
         queryKeys.customers.list(customersFetchOptions)
     );
 
+    // --- (2) NEW: Fetch user data for name mapping and filtering ---
+    const { data: users, isLoading: isUsersLoading } = useFrappeGetDocList<NirmaanUsers>(
+        "Nirmaan Users",
+        { fields: ["name", "full_name"], orderBy: {field:"full_name", order: "asc"}, limit: 0 } // Fetch all users
+    );
+
     const { deleteDoc, loading: isDeleting } = useFrappeDeleteDoc();
 
     // =================================================================================
@@ -85,6 +92,11 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     const getCustomerName = useCallback(
       memoize((custId?: string) => customers?.find(p => p.name === custId)?.company_name || custId || "--"),
       [customers]
+    );
+    // --- (3) NEW: Create a memoized resolver function for user names ---
+    const getUserName = useCallback(
+      memoize((userId?: string) => users?.find(u => u.name === userId)?.full_name || userId || "--"),
+      [users]
     );
 
     const handleOpenDeleteDialog = useCallback((invoice: ProjectInvoice) => {
@@ -117,16 +129,18 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
             isAdmin,
             getProjectName,
             getCustomerName,
+            getUserName, // --- (4) NEW: Pass the user name resolver ---
             onDelete: handleOpenDeleteDialog,
             onEdit: handleOpenEditDialog, // --- (Indicator) Pass onEdit handler ---
         }),
-        [isAdmin, getProjectName, getCustomerName, handleOpenDeleteDialog, handleOpenEditDialog] // Add handleOpenEditDialog to dependencies
+        [isAdmin, getProjectName, getCustomerName, getUserName, handleOpenDeleteDialog, handleOpenEditDialog] // Add handleOpenEditDialog to dependencies
     );
 
     const facetOptionsConfig = useMemo(() => ({
         project: { title: "Project", options: projects?.map(p => ({ label: p.project_name, value: p.name })) || [] },
         customer: { title: "Customer", options: customers?.map(p => ({ label: p.company_name, value: p.name })) || [] },
-    }), [projects, customers]);
+        owner: { title: "Created By", options: users?.map(u => ({ label: u.full_name, value: u.name })) || [] },
+    }), [projects, customers, users]);
 
     const {      
         table,
@@ -150,7 +164,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     // =================================================================================
     // 4. RENDER LOGIC
     // =================================================================================
-    const isLoadingOverall = isDataLoading || isProjectsLoading || isCustomersLoading;
+    const isLoadingOverall = isDataLoading || isProjectsLoading || isCustomersLoading || isUsersLoading;
 
     return (
         <div className="flex-1 space-y-4">

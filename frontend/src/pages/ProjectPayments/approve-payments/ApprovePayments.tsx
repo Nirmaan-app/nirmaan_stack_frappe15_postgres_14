@@ -68,7 +68,7 @@ export const ApprovePayments: React.FC = () => {
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
-        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "status", "order_list", "loading_charges", "freight_charges"], limit: 100000 }, 'POs_ApprovePay'
+        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "status", "total_amount", "loading_charges", "freight_charges"], limit: 100000 }, 'POs_ApprovePay'
     );
     const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
         DOC_TYPES.SERVICE_REQUESTS, { fields: ["name", "status", "service_order_list", "gst"], filters: [["status", "in", ["Approved", "Amendment"]]], limit: 10000 }, 'SRs_ApprovePay'
@@ -103,7 +103,7 @@ export const ApprovePayments: React.FC = () => {
     const getDocumentTotal = useMemo(() => memoize((docName: string, docType: string) => {
         if (docType === DOC_TYPES.PROCUREMENT_ORDERS) {
             const order = purchaseOrders?.find(po => po.name === docName);
-            return order ? getPOTotal(order, parseNumber(order.loading_charges), parseNumber(order.freight_charges))?.totalAmt : 0;
+            return order?.total_amount||0;
         } else if (docType === DOC_TYPES.SERVICE_REQUESTS) {
             const order = serviceOrders?.find(sr => sr.name === docName);
             if (!order || !order.service_order_list?.list) return 0;
@@ -252,8 +252,10 @@ export const ApprovePayments: React.FC = () => {
             cell: ({ row }) => (
                 <div className="flex items-center gap-1"> {/* Reduced gap */}
                     <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.APPROVE)}><CircleCheck className="h-5 w-5" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Approve</HoverCardContent></HoverCard>
+
                     <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.REJECT)}><CircleX className="h-5 w-5" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Reject</HoverCardContent></HoverCard>
-                    <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.EDIT)}><SquarePen className="h-4 w-4" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Edit & Approve</HoverCardContent></HoverCard>
+                    
+                    {/* <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.EDIT)}><SquarePen className="h-4 w-4" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Edit & Approve</HoverCardContent></HoverCard> */}
                 </div>
             ), size: 120,
             meta: {

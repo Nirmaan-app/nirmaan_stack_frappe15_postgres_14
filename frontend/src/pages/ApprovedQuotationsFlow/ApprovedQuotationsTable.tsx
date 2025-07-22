@@ -171,7 +171,7 @@ export default function ApprovedQuotationsTable({ productId, item_name }: Approv
             cell: ({ row }) => {
                 const poId = row.getValue<string>("procurement_order");
                 return poId ? (
-                    <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replaceAll("/", "&=")}`}> {/* Adjust PO link */}
+                    <Link className="text-blue-600 hover:underline font-medium" to={`/project-payments/${poId.replaceAll("/", "&=")}`}> {/* Adjust PO link */}
                         {poId}
                     </Link>
                 ) : (

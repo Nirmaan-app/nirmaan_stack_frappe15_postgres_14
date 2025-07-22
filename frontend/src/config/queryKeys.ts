@@ -54,7 +54,7 @@ interface ProjectExpenseListParams extends ListParams { }
 
 // --- Define Fields Constants (Good Practice) ---
 const PROJECT_REPORT_FIELDS: (keyof Projects)[] = ['name', 'project_name', 'project_value', 'creation', 'modified'];
-const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'order_list', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date'];
+const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'total_amount', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date',"latest_delivery_date","latest_payment_date"];
 const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'service_order_list', 'gst', 'invoice_data', 'status', 'modified'];
 const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status']; // Added 'project'
 const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date']; // Add fields as needed

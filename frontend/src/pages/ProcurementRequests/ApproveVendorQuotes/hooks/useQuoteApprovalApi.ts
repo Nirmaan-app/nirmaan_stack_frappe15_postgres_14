@@ -1,15 +1,15 @@
-// src/features/procurement/approve-reject-quotes/hooks/useQuoteApprovalApi.ts
 import { useFrappePostCall, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useCallback } from "react";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"; // Adjust path
 import { useUserData } from "@/hooks/useUserData"; // Adjust path
 
 export interface ApprovePayload {
     project_id: string;
     pr_name: string;
+    // payment_terms: string; // JSON string
     selected_items: string[]; // Array of item names (docnames)
     selected_vendors: { [itemName: string]: string }; // Map item name to chosen vendorId
     custom: boolean;
+    payment_terms?: string; 
 }
 
 export interface SendBackPayload {

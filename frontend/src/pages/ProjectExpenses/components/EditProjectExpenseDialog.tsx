@@ -30,7 +30,8 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys"; // Correct helper for types
+import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 interface EditProjectExpenseDialogProps {
     expenseToEdit: ProjectExpenses;
@@ -47,6 +48,9 @@ interface FormState {
     payment_by: string;
 }
 
+const AMOUNT_LIMIT = 15000;
+const OTHERS_VENDOR_VALUE = "OTHERS_EMPTY_SELECTION";
+
 export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> = ({ expenseToEdit, onSuccess }) => {
     const { editProjectExpenseDialog, setEditProjectExpenseDialog } = useDialogStore();
     const { toast } = useToast();
@@ -57,24 +61,23 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     const commandListRef = useRef<HTMLDivElement>(null);
 
     const { updateDoc, loading } = useFrappeUpdateDoc();
-    const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 10000 });
-    const { data: users, isLoading: usersLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], limit: 1000 });
-
+    const { data: vendorsData, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 0 });
+    const { data: users, isLoading: usersLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], limit: 0 });
     const expenseTypeFetchOptions = useMemo(() => getProjectExpenseTypeListOptions(), []);
-    const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
-    const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
-        "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
-    );
+    const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
 
-    const expenseTypeOptions = useMemo(() =>
-        expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [],
-        [expenseTypesData]);
+    const vendorOptions = useMemo(() => {
+        const vendors = vendorsData?.map(v => ({ value: v.name, label: v.vendor_name })) || [];
+        return [{ value: OTHERS_VENDOR_VALUE, label: "Others (No Vendor)" }, ...vendors];
+    }, [vendorsData]);
+
+    const expenseTypeOptions = useMemo(() => expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [], [expenseTypesData]);
 
     useEffect(() => {
         if (editProjectExpenseDialog && expenseToEdit) {
             setFormState({
                 type: expenseToEdit.type || "",
-                vendor: expenseToEdit.vendor || "",
+                vendor: expenseToEdit.vendor || OTHERS_VENDOR_VALUE,
                 description: expenseToEdit.description || "",
                 comment: expenseToEdit.comment || "",
                 amount: expenseToEdit.amount?.toString() || "",
@@ -86,7 +89,6 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         }
     }, [editProjectExpenseDialog, expenseToEdit]);
 
-    // Scroll fix effect
     useEffect(() => {
         const commandListElement = commandListRef.current;
         const handleWheel = (e: WheelEvent) => e.stopPropagation();
@@ -94,29 +96,37 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         return () => { if (commandListElement) commandListElement.removeEventListener('wheel', handleWheel); };
     }, [expenseTypePopoverOpen]);
 
-    const handleDialogClose = () => {
-        setEditProjectExpenseDialog(false);
-    };
+    const handleDialogClose = () => setEditProjectExpenseDialog(false);
 
-    const validateForm = (): boolean => {
+    const validateForm = useCallback((): boolean => {
         const errors: Partial<FormState> = {};
         if (!formState.type) errors.type = "Expense Type is required.";
         if (!formState.description.trim()) errors.description = "Description is required.";
-        if (!formState.amount || parseNumber(formState.amount) <= 0) errors.amount = "A valid amount is required.";
-        if (!formState.payment_date) errors.payment_date = "Payment date is required.";
+        if (formState.vendor === "") errors.vendor = "Please select a vendor or 'Others'.";
         if (!formState.payment_by) errors.payment_by = "Paid By user is required.";
+        if (!formState.payment_date) errors.payment_date = "Payment date is required.";
+
+        const amountValue = parseNumber(formState.amount);
+        if (!formState.amount.trim() || isNaN(amountValue)) {
+            errors.amount = "A valid amount is required.";
+        } else if (amountValue > AMOUNT_LIMIT) {
+            errors.amount = `Amount cannot exceed ${formatToRoundedIndianRupee(AMOUNT_LIMIT)}.`;
+        }
+
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
-    };
+    }, [formState]);
 
     const handleSubmit = async () => {
         if (!validateForm()) {
-            toast({ title: "Validation Error", description: "Please fill all required fields.", variant: "destructive" });
+            toast({ title: "Validation Error", description: "Please fill all required fields correctly.", variant: "destructive" });
             return;
         }
         try {
+            const finalVendor = formState.vendor === OTHERS_VENDOR_VALUE ? "" : formState.vendor;
             await updateDoc("Project Expenses", expenseToEdit.name, {
                 ...formState,
+                vendor: finalVendor,
                 amount: parseNumber(formState.amount)
             });
             toast({ title: "Success", description: "Expense updated successfully.", variant: "success" });
@@ -127,7 +137,15 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         }
     };
 
+    const handleInputChange = useCallback((fieldName: keyof FormState, value: string) => {
+        setFormState(p => ({ ...p, [fieldName]: value }));
+        if (formErrors[fieldName]) {
+            setFormErrors(prev => ({ ...prev, [fieldName]: undefined }));
+        }
+    }, [formErrors]);
+
     const isLoadingOverall = loading || vendorsLoading || usersLoading || expenseTypesLoading;
+    const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean);
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
 
     return (
@@ -138,79 +156,73 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                     <AlertDialogDescription>ID: {expenseToEdit.name}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
-                    {/* Type */}
+                    {/* All form fields are identical to New dialog, but controlled by this component's state */}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="type_edit" className="text-right">Type <sup className="text-destructive">*</sup></Label>
-                        <Popover open={expenseTypePopoverOpen} onOpenChange={setExpenseTypePopoverOpen}>
-                            <PopoverTrigger asChild>
-                                <Button id="type_edit" variant="outline" role="combobox" className="col-span-3 justify-between" disabled={isLoadingOverall}>
-                                    <span className="truncate">{selectedExpenseTypeLabel}</span><ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                                <Command>
-                                    <CommandInput placeholder="Search type..." />
-                                    <CommandList ref={commandListRef} className="max-h-[300px]">
-                                        <CommandEmpty>No type found.</CommandEmpty>
-                                        <CommandGroup>
-                                            {expenseTypeOptions.map((option) => (
-                                                <CommandItem key={option.value} value={option.value} onSelect={(val) => { setFormState(p => ({ ...p, type: val })); setExpenseTypePopoverOpen(false); }}>
-                                                    <Check className={cn("mr-2 h-4 w-4", formState.type === option.value ? "opacity-100" : "opacity-0")} />
-                                                    {option.label}
-                                                </CommandItem>
-                                            ))}
-                                        </CommandGroup>
-                                    </CommandList>
-                                </Command>
-                            </PopoverContent>
-                        </Popover>
-                        {formErrors.type && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.type}</p>}
+                        <div className="col-span-3">
+                            <Popover open={expenseTypePopoverOpen} onOpenChange={setExpenseTypePopoverOpen}>
+                                <PopoverTrigger asChild><Button variant="outline" role="combobox" className={`w-full justify-between ${formErrors.type ? "border-destructive" : ""}`} disabled={isLoadingOverall}>{selectedExpenseTypeLabel}<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" /></Button></PopoverTrigger>
+                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start"><Command><CommandInput placeholder="Search type..." /><CommandList ref={commandListRef} className="max-h-[300px]"><CommandEmpty>No type found.</CommandEmpty><CommandGroup>
+                                    {expenseTypeOptions.map((option) => (
+                                        <CommandItem key={option.value} value={option.value} onSelect={() => { handleInputChange('type', option.value); setExpenseTypePopoverOpen(false); }}>
+                                            <Check className={cn("mr-2 h-4 w-4", formState.type === option.value ? "opacity-100" : "opacity-0")} />{option.label}
+                                        </CommandItem>
+                                    ))}
+                                </CommandGroup></CommandList></Command></PopoverContent>
+                            </Popover>
+                            {formErrors.type && <p className="text-xs text-destructive mt-1">{formErrors.type}</p>}
+                        </div>
                     </div>
-                    {/* Description */}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="description_edit" className="text-right">Description <sup className="text-destructive">*</sup></Label>
-                        <Textarea id="description_edit" value={formState.description} onChange={(e) => setFormState(p => ({ ...p, description: e.target.value }))} className="col-span-3" disabled={isLoadingOverall} />
-                        {formErrors.description && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.description}</p>}
+                        <div className="col-span-3">
+                            <Textarea id="description_edit" value={formState.description} onChange={(e) => handleInputChange('description', e.target.value)} className={formErrors.description ? "border-destructive" : ""} disabled={isLoadingOverall} />
+                            {formErrors.description && <p className="text-xs text-destructive mt-1">{formErrors.description}</p>}
+                        </div>
                     </div>
-                    {/* Amount */}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="amount_edit" className="text-right">Amount <sup className="text-destructive">*</sup></Label>
-                        <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => setFormState(p => ({ ...p, amount: e.target.value }))} className="col-span-3" disabled={isLoadingOverall} />
-                        {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
+                        <div className="col-span-3">
+                            <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={formErrors.amount ? "border-destructive" : ""} disabled={isLoadingOverall} />
+                            {formErrors.amount && <p className="text-xs text-destructive mt-1">{formErrors.amount}</p>}
+                        </div>
                     </div>
-                    {/* Vendor */}
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="vendor_edit" className="text-right">Vendor</Label>
-                        <Select value={formState.vendor} onValueChange={(val) => setFormState(p => ({ ...p, vendor: val }))} disabled={isLoadingOverall}>
-                            <SelectTrigger id="vendor_edit" className="col-span-3"><SelectValue placeholder="Select a vendor..." /></SelectTrigger>
-                            <SelectContent>{vendors?.map(v => <SelectItem key={v.name} value={v.name}>{v.vendor_name}</SelectItem>)}</SelectContent>
-                        </Select>
+                        <Label htmlFor="vendor_edit" className="text-right">Vendor <sup className="text-destructive">*</sup></Label>
+                        <div className="col-span-3">
+                            <Select value={formState.vendor} onValueChange={(val) => handleInputChange('vendor', val)} disabled={isLoadingOverall}>
+                                <SelectTrigger id="vendor_edit" className={formErrors.vendor ? "border-destructive" : ""}><SelectValue placeholder="Select a vendor or 'Others'..." /></SelectTrigger>
+                                <SelectContent>{vendorOptions.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                            {formErrors.vendor && <p className="text-xs text-destructive mt-1">{formErrors.vendor}</p>}
+                        </div>
                     </div>
-                    {/* Payment Date */}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="payment_date_edit" className="text-right">Payment Date <sup className="text-destructive">*</sup></Label>
-                        <Input id="payment_date_edit" type="date" value={formState.payment_date} onChange={(e) => setFormState(p => ({ ...p, payment_date: e.target.value }))} className="col-span-3" max={formatDateFns(new Date(), 'yyyy-MM-dd')} disabled={isLoadingOverall} />
-                        {formErrors.payment_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
+                        <div className="col-span-3">
+                            <Input id="payment_date_edit" type="date" value={formState.payment_date} onChange={(e) => handleInputChange('payment_date', e.target.value)} className={formErrors.payment_date ? "border-destructive" : ""} max={formatDateFns(new Date(), 'yyyy-MM-dd')} disabled={isLoadingOverall} />
+                            {formErrors.payment_date && <p className="text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
+                        </div>
                     </div>
-                    {/* Paid By */}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="payment_by_edit" className="text-right">Paid By <sup className="text-destructive">*</sup></Label>
-                        <Select value={formState.payment_by} onValueChange={(val) => setFormState(p => ({ ...p, payment_by: val }))} disabled={isLoadingOverall}>
-                            <SelectTrigger id="payment_by_edit" className="col-span-3"><SelectValue placeholder="Select user..." /></SelectTrigger>
-                            <SelectContent>{users?.map(u => <SelectItem key={u.name} value={u.name}>{u.full_name}</SelectItem>)}</SelectContent>
-                        </Select>
-                        {formErrors.payment_by && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.payment_by}</p>}
+                        <div className="col-span-3">
+                            <Select value={formState.payment_by} onValueChange={(val) => handleInputChange('payment_by', val)} disabled={isLoadingOverall}>
+                                <SelectTrigger id="payment_by_edit" className={formErrors.payment_by ? "border-destructive" : ""}><SelectValue placeholder="Select user..." /></SelectTrigger>
+                                <SelectContent>{users?.map(u => <SelectItem key={u.name} value={u.name}>{u.full_name}</SelectItem>)}</SelectContent>
+                            </Select>
+                            {formErrors.payment_by && <p className="text-xs text-destructive mt-1">{formErrors.payment_by}</p>}
+                        </div>
                     </div>
-                    {/* Comment */}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="comment_edit" className="text-right">Comment</Label>
-                        <Textarea id="comment_edit" value={formState.comment} onChange={(e) => setFormState(p => ({ ...p, comment: e.target.value }))} className="col-span-3" disabled={isLoadingOverall} />
+                        <Textarea id="comment_edit" value={formState.comment} onChange={(e) => handleInputChange('comment', e.target.value)} className="col-span-3" disabled={isLoadingOverall} />
                     </div>
                 </div>
                 <AlertDialogFooter>
-                    {loading ? <div className="flex justify-end w-full"><TailSpin color="#4f46e5" height={28} width={28} /></div> : <>
+                    {isLoadingOverall ? <div className="flex justify-end w-full"><TailSpin color="#4f46e5" height={28} width={28} /></div> : <>
                         <AlertDialogCancel asChild><Button variant="outline" type="button" onClick={handleDialogClose}>Cancel</Button></AlertDialogCancel>
-                        <AlertDialogAction onClick={handleSubmit}>Save Changes</AlertDialogAction>
+                        <AlertDialogAction onClick={handleSubmit} disabled={isSubmitDisabled}>Save Changes</AlertDialogAction>
                     </>}
                 </AlertDialogFooter>
             </AlertDialogContent>

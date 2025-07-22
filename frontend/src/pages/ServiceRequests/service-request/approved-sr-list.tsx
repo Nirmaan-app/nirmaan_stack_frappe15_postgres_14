@@ -147,7 +147,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                             </Link>)
                         }
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ItemsHoverCard order_list={Array.isArray(data.service_order_list?.list) ? data.service_order_list.list : []} isSR />
+                             <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
                         </div>
                     </div>
                 );

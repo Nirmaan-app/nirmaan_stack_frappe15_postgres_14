@@ -16,13 +16,12 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
-import { Projects, Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { Projects as ProjectsType, ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
 import { formatToLocalDateTimeString } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
 import {
-  FrappeDoc,
   useFrappeDocTypeEventListener,
   useFrappeGetDoc,
   useFrappeGetDocList,
@@ -75,8 +74,11 @@ import {
 } from "../../components/ui/select";
 import { Separator } from "../../components/ui/separator";
 import NewCustomer from "../customers/add-new-customer";
-import {KeyedMutator} from 'swr'
 import { ProjectQueryKeys } from "./project";
+import { Customers } from "@/types/NirmaanStack/Customers";
+import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
+import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
+import { Address } from "@/types/NirmaanStack/Address";
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -92,6 +94,7 @@ const projectFormSchema = z.object({
   }),
   project_type: z.string().optional(),
   project_value: z.string().optional(),
+  project_value_gst: z.string().optional(),
   address_line_1: z
     .string({
       required_error: "Address Line 1 Required",
@@ -176,12 +179,80 @@ interface SelectOption {
 //     work_package: string;
 // }
 
+
+const formatWorkPackagesForForm = (data: ProjectsType | undefined): ProjectFormValues['project_work_packages']['work_packages'] => {
+
+  if (!data) return [];
+  // Transform `project_wp_category_makes` (child table) to frontend's nested structure
+  const transformedWpConfigForForm: ProjectFormValues['project_work_packages']['work_packages'] = [];
+  const wpCategoryMap: Record<string, Record<string, { name: string; makes: SelectOption[] }>> = {};
+
+
+  // const reformattedWorkPackages = JSON.parse(data?.project_work_packages || "{}")?.work_packages?.map((workPackage) => {
+  //   const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
+  //     name: category.name,
+  //     makes: category.makes.map((make) => ({ label: make, value: make })), // Extract only the labels
+  //   }));
+
+  //   return {
+  //     ...workPackage,
+  //     category_list: {
+  //       list: updatedCategoriesList,
+  //     },
+  //   };
+  // });
+
+
+  if (data.project_wp_category_makes && Array.isArray(data.project_wp_category_makes)) {
+    data.project_wp_category_makes.forEach(childRow => {
+      if (!childRow.procurement_package || !childRow.category) return;
+
+      if (!wpCategoryMap[childRow.procurement_package]) {
+        wpCategoryMap[childRow.procurement_package] = {};
+      }
+      if (!wpCategoryMap[childRow.procurement_package][childRow.category]) {
+        wpCategoryMap[childRow.procurement_package][childRow.category] = {
+          name: childRow.category, // This should be category DocName
+          makes: [],
+        };
+      }
+      if (childRow.make) { // Make is optional
+        // We need make label for ReactSelect. Assuming Make DocName is also its label for now,
+        // or you might need to fetch MakeList to map make DocName to make_name (label).
+        // For simplicity, if make DocName is sufficient for display in ReactSelect, use it.
+        // If your original JSON stored make labels, and your ReactSelect expects {label, value},
+        // you'll need to fetch Makelist to get make_name for the label.
+        // The current form Zod schema expects makes as {label, value}.
+        // Let's assume 'childRow.make' is the Make DocName (value) and we need to find its label.
+        // This part might require fetching all makes if not already available.
+        // For now, to match Zod schema, let's assume make DocName is used for both label and value if label isn't readily available.
+        // A better approach would be to fetch make_list and find the label.
+        wpCategoryMap[childRow.procurement_package][childRow.category].makes.push({
+          label: childRow.make, // Placeholder: Ideally, fetch actual make_name (label) from Makelist
+          value: childRow.make,
+        });
+      }
+    });
+  }
+
+  Object.keys(wpCategoryMap).forEach(wpName => {
+    transformedWpConfigForForm.push({
+      work_package_name: wpName,
+      category_list: {
+        list: Object.values(wpCategoryMap[wpName]),
+      },
+    });
+  });
+
+  return transformedWpConfigForForm;
+}
+
 interface EditProjectFormProps {
   toggleEditSheet: () => void;
   // projectMutate: KeyedMutatator<FrappeDoc<Projects>>;
 }
 
-export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
+export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
   const { projectId } = useParams<{ projectId: string }>();
 
   const { data, mutate: projectMutate } = useFrappeGetDoc<ProjectsType>(
@@ -193,10 +264,10 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
   // console.log("projectData", data)
 
   const {
-    data: work_package_list,
-  } = useFrappeGetDocList("Work Packages", {
+    data: procuremeent_packages_list,
+  } = useFrappeGetDocList<ProcurementPackages>("Procurement Packages", {
     fields: ["work_package_name"],
-    limit: 1000,
+    limit: 0,
   });
 
   const {
@@ -204,9 +275,9 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
     isLoading: company_isLoading,
     error: company_error,
     mutate: company_mutate,
-  } = useFrappeGetDocList("Customers", {
+  } = useFrappeGetDocList<Customers>("Customers", {
     fields: ["name", "company_name"],
-    limit: 1000,
+    limit: 0,
   });
 
   const {
@@ -214,15 +285,15 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
     isLoading: project_types_isLoading,
     error: project_types_error,
     mutate: project_types_mutate,
-  } = useFrappeGetDocList("Project Types", {
+  } = useFrappeGetDocList<ProjectTypes>("Project Types", {
     fields: ["name", "project_type_name"],
-    limit: 1000,
+    limit: 0,
   });
 
   const {
     data: project_address,
     mutate: project_address_mutate,
-  } = useFrappeGetDoc("Address", data?.project_address, data?.project_address ? undefined : null);
+  } = useFrappeGetDoc<Address>("Address", data?.project_address, data?.project_address ? undefined : null);
 
   // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
   //     fields: ["*"],
@@ -241,6 +312,7 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
       customer: data?.customer || "",
       project_type: data?.project_type || "",
       project_value: data?.project_value || "",
+      project_value_gst: data?.project_value_gst || "",
       address_line_1: project_address?.address_line1 || "",
       address_line_2: project_address?.address_line2 || "",
       pin: project_address?.pincode || "",
@@ -252,13 +324,11 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
       project_end_date: data?.project_end_date
         ? new Date(data?.project_end_date)
         : new Date(),
-      project_work_packages: data?.project_work_packages
-        ? JSON.parse(data?.project_work_packages)
-        : {
-          work_packages: [],
-        },
+      project_work_packages: {
+        work_packages: formatWorkPackagesForForm(data),
+      },
       project_gst_number: data?.project_gst_number
-        ? JSON.parse(data?.project_gst_number)
+        ? (typeof data?.project_gst_number === "string" ? JSON.parse(data?.project_gst_number) : data?.project_gst_number)
         : {
           list: [
             {
@@ -279,25 +349,15 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
 
   useEffect(() => {
     if (data && project_address) {
-      const reformattedWorkPackages = JSON.parse(data?.project_work_packages || "{}")?.work_packages?.map((workPackage) => {
-        const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
-          name: category.name,
-          makes: category.makes.map((make) => ({ label: make, value: make })), // Extract only the labels
-        }));
 
-        return {
-          ...workPackage,
-          category_list: {
-            list: updatedCategoriesList,
-          },
-        };
-      });
+      const transformedWpConfigForForm = formatWorkPackagesForForm(data);
 
       form.reset({
         project_name: data?.project_name || "",
         customer: data?.customer || "",
         project_type: data?.project_type || "",
-        project_value: data?.project_value || "",
+        project_value: data?.project_value?.toString() || "",
+        project_value_gst: data?.project_value_gst?.toString() || "",
         address_line_1: project_address?.address_line1 || "",
         address_line_2: project_address?.address_line2 || "",
         pin: project_address?.pincode || "",
@@ -305,33 +365,28 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         phone: project_address?.phone || "",
         project_start_date: data?.project_start_date
           ? new Date(data?.project_start_date)
-          : new Date(),
+          : undefined,
         project_end_date: data?.project_end_date
           ? new Date(data?.project_end_date)
-          : new Date(),
+          : undefined,
         project_work_packages: {
-          work_packages: reformattedWorkPackages || [],
+          work_packages: transformedWpConfigForForm,
         },
-        project_gst_number: data?.project_gst_number
-          ? JSON.parse(data?.project_gst_number)
-          : {
-            list: [
-              {
-                location: "Bengaluru",
-                gst: "29ABFCS9095N1Z9",
-              }
-            ]
-          },
-        project_scopes: data?.project_scopes
-          ? JSON.parse(data?.project_scopes)
-          : {
-            scopes: [],
-          },
+        project_gst_number: data?.project_gst_number ? (typeof data.project_gst_number === 'string' ? JSON.parse(data.project_gst_number) : data.project_gst_number) : { list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] },
+
+        project_scopes: data?.project_scopes ? (typeof data.project_scopes === 'string' ? JSON.parse(data.project_scopes) : data.project_scopes) : { scopes: [] },
+
       });
 
-      setPincode(project_address.pincode);
+      // setPincode(project_address.pincode);
+      if (project_address?.pincode) {
+        setPincode(project_address.pincode); // For pincode lookup logic
+        // Also directly set city/state from project_address if available, as pincode_data might be async
+        setCity(project_address.city || "");
+        setState(project_address.state || "");
+      }
     }
-  }, [data, project_address, company, project_types]);
+  }, [data, project_address, form.reset]);
 
   const {
     updateDoc: updateDoc,
@@ -391,6 +446,10 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         throw new Error(
           'City and State are "Not Found", Please Enter a Valid Pincode'
         );
+      }
+
+      if (!values.project_start_date || !values.project_end_date) {
+        toast({ title: "Validation Error", description: "Start and End dates are required.", variant: "destructive" });
         return;
       }
       const formatted_start_date = formatToLocalDateTimeString(
@@ -400,57 +459,131 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
         values.project_end_date
       );
 
-      const reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
-        const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
-          name: category.name,
-          makes: category.makes.map((make) => make.label), // Extract only the labels
-        }));
+      // const reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
+      //   const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
+      //     name: category.name,
+      //     makes: category.makes.map((make) => make.label), // Extract only the labels
+      //   }));
 
-        return {
-          ...workPackage,
-          category_list: {
-            list: updatedCategoriesList,
-          },
-        };
-      });
+      //   return {
+      //     ...workPackage,
+      //     category_list: {
+      //       list: updatedCategoriesList,
+      //     },
+      //   };
+      // });
 
-      const changedValues = {};
-
-      if (values.project_name !== data?.project_name)
-        changedValues["address_title"] = values.project_name;
-      if (values.address_line_1 !== project_address?.address_line1)
-        changedValues["address_line1"] = values.address_line_1;
-      if (values.address_line_2 !== project_address?.address_line2)
-        changedValues["address_line2"] = values.address_line_2;
-      if (city !== project_address?.city) changedValues["city"] = city;
-      if (state !== project_address?.state) changedValues["state"] = state;
-      if (values.pin !== project_address?.pincode)
-        changedValues["pincode"] = values.pin;
-      if (values.email !== project_address?.email_id)
-        changedValues["email_id"] = values.email;
-      if (values.phone !== project_address?.phone)
-        changedValues["phone"] = values.phone;
-
-      if (Object.keys(changedValues).length) {
-        await updateDoc("Address", data?.project_address, changedValues);
+      // --- Transform frontend form's project_work_packages to backend child table structure ---
+      const backendWPCategoryMakes: Omit<ProjectWPCategoryMake, 'name'>[] = [];
+      if (values.project_work_packages?.work_packages) {
+        values.project_work_packages.work_packages.forEach(feWP => {
+          if (feWP.category_list?.list) {
+            feWP.category_list.list.forEach(feCat => {
+              if (feCat.makes && feCat.makes.length > 0) {
+                feCat.makes.forEach(feMake => {
+                  backendWPCategoryMakes.push({
+                    procurement_package: feWP.work_package_name,
+                    category: feCat.name, // feCat.name is Category DocName
+                    make: feMake.value,   // feMake.value is Make DocName
+                  });
+                });
+              } else {
+                // If a category is listed for a WP but has no makes selected,
+                // create a row with make as null (if 'make' is optional in child table)
+                backendWPCategoryMakes.push({
+                  procurement_package: feWP.work_package_name,
+                  category: feCat.name,
+                  make: null, // Or undefined, depending on how backend handles optional Link
+                });
+              }
+            });
+          }
+        });
       }
 
-      await updateDoc("Projects", projectId, {
+      // const changedValues = {};
+
+      // if (values.project_name !== data?.project_name)
+      //   changedValues["address_title"] = values.project_name;
+      // if (values.address_line_1 !== project_address?.address_line1)
+      //   changedValues["address_line1"] = values.address_line_1;
+      // if (values.address_line_2 !== project_address?.address_line2)
+      //   changedValues["address_line2"] = values.address_line_2;
+      // if (city !== project_address?.city) changedValues["city"] = city;
+      // if (state !== project_address?.state) changedValues["state"] = state;
+      // if (values.pin !== project_address?.pincode)
+      //   changedValues["pincode"] = values.pin;
+      // if (values.email !== project_address?.email_id)
+      //   changedValues["email_id"] = values.email;
+      // if (values.phone !== project_address?.phone)
+      //   changedValues["phone"] = values.phone;
+      // --- Update Address Document (remains largely the same) ---
+      const changedAddressValues: Record<string, any> = {};
+      // ... (your existing logic for changedAddressValues is good) ...
+      if (values.project_name !== data?.project_name) changedAddressValues["address_title"] = values.project_name;
+      if (values.address_line_1 !== project_address?.address_line1) changedAddressValues["address_line1"] = values.address_line_1;
+      if (values.address_line_2 !== project_address?.address_line2) changedAddressValues["address_line2"] = values.address_line_2;
+      if (city !== project_address?.city) changedAddressValues["city"] = city; // Use local state 'city'
+      if (state !== project_address?.state) changedAddressValues["state"] = state; // Use local state 'state'
+      if (values.pin !== project_address?.pincode) changedAddressValues["pincode"] = values.pin;
+      if (values.email !== project_address?.email_id) changedAddressValues["email_id"] = values.email;
+      if (values.phone !== project_address?.phone) changedAddressValues["phone"] = values.phone;
+
+      // if (Object.keys(changedValues).length) {
+      //   await updateDoc("Address", data?.project_address, changedValues);
+      // }
+
+      if (data?.project_address && Object.keys(changedAddressValues).length > 0) {
+        await updateDoc("Address", data.project_address, changedAddressValues);
+      }
+
+      // --- Prepare Project Update Payload ---
+      const projectUpdatePayload: Partial<ProjectsType> & { name: string } = {
         project_name: values.project_name,
         customer: values.customer,
         project_type: values.project_type,
-        project_value: parseNumber(values.project_value),
-        project_gst_number: values.project_gst_number,
+        project_value: parseNumber(values.project_value).toString(), // Frappe might expect string for Data/Currency
+        project_value_gst: parseNumber(values.project_value_gst).toString(),
+        // GST and Scopes: Assuming they are still JSON fields and frontend sends them correctly
+        project_gst_number: typeof values.project_gst_number === 'string' ? values.project_gst_number : JSON.stringify(values.project_gst_number),
+        project_scopes: typeof values.project_scopes === 'string' ? values.project_scopes : JSON.stringify(values.project_scopes),
+
         project_start_date: formatted_start_date,
         project_end_date: formatted_end_date,
+        // project_city and project_state in Projects are usually read-only, fetched from Address.
+        // If you need to update them directly on Project, ensure they are not read-only.
         project_city: city,
         project_state: state,
-        project_work_packages: { work_packages: reformattedWorkPackages },
-        project_scopes: values.project_scopes,
-      });
+
+        // NEW: Assign the transformed child table data
+        project_wp_category_makes: backendWPCategoryMakes,
+
+        // OLD JSON field should be cleared or not sent if removed from DocType
+        // project_work_packages: null, // Explicitly clear if field still exists but unused
+      };
+
+      // If project_work_packages field is fully removed from Projects DocType, remove it from payload:
+      // delete projectUpdatePayload.project_work_packages;
+
+      // await updateDoc("Projects", projectId!, {
+      //   project_name: values.project_name,
+      //   customer: values.customer,
+      //   project_type: values.project_type,
+      //   project_value: parseNumber(values.project_value),
+      //   project_gst_number: values.project_gst_number,
+      //   project_start_date: formatted_start_date,
+      //   project_end_date: formatted_end_date,
+      //   project_city: city,
+      //   project_state: state,
+      //   project_work_packages: { work_packages: reformattedWorkPackages },
+      //   project_scopes: values.project_scopes,
+      // });
+      await updateDoc("Projects", projectId!, projectUpdatePayload);
 
       await projectMutate();
-      await project_address_mutate();
+      if (data?.project_address) {
+        await project_address_mutate(); // Revalidate SWR cache for the address
+      }
 
       toast({
         title: "Success!",
@@ -459,11 +592,11 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
       });
 
       toggleEditSheet();
-    } catch (error) {
-      console.log("error while updating project", error);
+    } catch (error: any) { // Catch any error
+      console.error("Error while updating project:", error);
       toast({
-        title: "Failed!",
-        description: `${error?.message}`,
+        title: "Update Failed!",
+        description: error?.message || "An unknown error occurred.",
         variant: "destructive",
       });
     }
@@ -483,7 +616,7 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
     })) || [];
 
   const wp_list =
-    work_package_list?.map((item) => ({
+    procuremeent_packages_list?.map((item) => ({
       work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
 
@@ -587,7 +720,27 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
                 return (
                   <FormItem className="lg:flex lg:items-center gap-4">
                     <FormLabel className="md:basis-3/12">
-                      Project Value
+                      Project Value (excl.GST)
+                    </FormLabel>
+                    <div className="flex flex-col items-start md:basis-2/4">
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </div>
+                  </FormItem>
+                );
+              }}
+            />
+
+            <FormField
+              control={form.control}
+              name="project_value_gst"
+              render={({ field }) => {
+                return (
+                  <FormItem className="lg:flex lg:items-center gap-4">
+                    <FormLabel className="md:basis-3/12">
+                      Project Value (incl. GST)
                     </FormLabel>
                     <div className="flex flex-col items-start md:basis-2/4">
                       <FormControl>
@@ -937,139 +1090,6 @@ export const EditProjectForm : React.FC<EditProjectFormProps> = ({ toggleEditShe
           </div>
 
           <Separator className="my-6" />
-          {/* <p className="text-sky-600 font-semibold pb-6">
-            Package Specification
-          </p> */}
-          {/* <FormField
-            control={form.control}
-            name="project_work_packages"
-            render={() => (
-              <FormItem>
-                <div className="mb-4">
-                  <div className="font-semibold">Edit work packages.</div>
-                </div>
-                {wp_list.map((item) => (
-                  <Accordion
-                    type="single"
-                    collapsible
-                    // value={
-                    //   form
-                    //     .getValues()
-                    //     .project_work_packages.work_packages.find(
-                    //       (d) => d.work_package_name === item.work_package_name
-                    //     )?.work_package_name
-                    // }
-                    className="w-full"
-                  >
-                    <AccordionItem value={item.work_package_name}>
-                      <AccordionTrigger>
-                        <FormField
-                          key={item.work_package_name}
-                          control={form.control}
-                          name="project_work_packages.work_packages"
-                          render={({ field }) => {
-                            return (
-                              <FormItem
-                                key={item.work_package_name}
-                                className="flex flex-row items-start space-x-3 space-y-0"
-                              >
-                                <FormControl>
-                                  <Checkbox
-                                    disabled={
-                                      field.value.length === 1 &&
-                                      field.value?.[0].work_package_name ===
-                                        item.work_package_name
-                                    }
-                                    checked={field.value?.some(
-                                      (i) =>
-                                        i.work_package_name ===
-                                        item.work_package_name
-                                    )}
-                                    onCheckedChange={(checked) => {
-                                      const categoryOptions = []
-                                      const selectedCategories = categoriesList?.filter(cat => cat.work_package === item.work_package_name)
-                                      selectedCategories?.forEach(cat => {
-                                          categoryOptions.push({
-                                              // name: cat.category_name,
-                                              // makes: []
-                                              label: cat.category_name,
-                                              value: cat.category_name
-                                          })
-                                      })
-                                      return checked
-                                          ? field.onChange([...field.value, { work_package_name: item.work_package_name, category_list : {list : categoryOptions} }])
-                                          : field.onChange(
-                                              field.value?.filter(
-                                                  (value) => value.work_package_name !== item.work_package_name
-                                              )
-                                          )
-                                    }}
-                                  />
-                                </FormControl>
-                                <FormLabel className="text-sm font-normal">
-                                  {item.work_package_name}
-                                </FormLabel>
-                              </FormItem>
-                            );
-                          }}
-                        />
-                      </AccordionTrigger>
-                      <AccordionContent>
-        <FormField
-          key={`${item.work_package_name}-categories`}
-          control={form.control}
-          name="project_work_packages.work_packages"
-          render={({ field }) => {
-            const selectedWorkPackage = field.value?.find(
-              (wp) => wp.work_package_name === item.work_package_name
-            );
-            const selectedCategories =
-              selectedWorkPackage?.category_list?.list || [];
-            const categoryOptions = categoriesList
-              ?.filter((cat) => cat.work_package === item.work_package_name)
-              .map((cat) => ({
-                label: cat.category_name,
-                value: cat.category_name,
-              }));
-
-            return (
-              <FormItem className="p-3">
-                <ReactSelect
-                  isMulti
-                  options={categoryOptions}
-                  value={selectedCategories}
-                  onChange={(selected) => {
-                    const updatedWorkPackages = [...(field.value || [])];
-                    const workPackageIndex = updatedWorkPackages.findIndex(
-                      (wp) => wp.work_package_name === item.work_package_name
-                    );
-
-                    if (workPackageIndex > -1) {
-                      updatedWorkPackages[workPackageIndex].category_list.list =
-                        selected;
-                    } else {
-                      updatedWorkPackages.push({
-                        work_package_name: item.work_package_name,
-                        category_list: { list: selected },
-                      });
-                    }
-
-                    field.onChange(updatedWorkPackages);
-                  }}
-                />
-              </FormItem>
-            );
-          }}
-        />
-      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                ))}
-                <FormMessage />
-              </FormItem>
-            )}
-          /> */}
-
           {wp_list?.length > 0 && (
             <WorkPackageSelection form={form} wp_list={wp_list} />
           )}
@@ -1251,7 +1271,7 @@ const WorkPackageSelection = ({ form, wp_list }) => {
                       ?.filter((cat) => cat.work_package === item.work_package_name)
                       ?.map((cat) => {
                         const categoryMakeOptions = categoryMakeList?.filter((make) => make.category === cat.name);
-                        const makeOptions = categoryMakeOptions.map((make) => ({
+                        const makeOptions = categoryMakeOptions?.map((make) => ({
                           label: make.make,
                           value: make.make,
                         }));

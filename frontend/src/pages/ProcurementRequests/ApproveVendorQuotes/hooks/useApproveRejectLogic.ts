@@ -1,320 +1,254 @@
-// src/features/procurement/approve-reject-quotes/hooks/useApproveRejectLogic.ts
+// file: /workspace/development/frappe-bench/apps/nirmaan_stack/frontend/src/pages/ProcurementRequests/ApproveVendorQuotes/hooks/useApproveRejectLogic.ts
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useToast } from "@/components/ui/use-toast"; // Adjust path
-import { ProcurementRequest, ProcurementItem, RFQData } from "@/types/NirmaanStack/ProcurementRequests"; // Adjust path
-import { Vendors } from "@/types/NirmaanStack/Vendors"; // Adjust path
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"; // Adjust path
-// import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations"; // Adjust path
-import { SelectionState, VendorDataSourceItem, VendorWiseData, VendorItemDetails } from '../types'; // Adjust path
+import { useToast } from "@/components/ui/use-toast";
+import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import {
+    ApproveQuotesPRDoc, VendorItemDetailsToDisplay, VendorGroupForTable, SelectionState,
+    TargetRateDetailFromAPI, FrappeTargetRateApiResponse, mapApiQuotesToApprovedQuotations,
+    ApprovedQuotationForHoverCard, DynamicPaymentTerms // ✨ IMPORT new type
+} from '../types';
 import { ApprovePayload, SendBackPayload, useQuoteApprovalApi } from './useQuoteApprovalApi';
 import { v4 as uuidv4 } from "uuid";
-import { KeyedMutator } from 'swr';
-import { FrappeDoc, useFrappeGetCall } from 'frappe-react-sdk';
+import { useFrappeGetCall } from 'frappe-react-sdk';
+import { parseNumber } from '@/utils/parseNumber';
 import getLowestQuoteFilled from '@/utils/getLowestQuoteFilled';
-// import getThreeMonthsLowestFiltered from '@/utils/getThreeMonthsLowest';
 
-// --- Define TypeScript Interfaces for the new API response ---
-// (These should match what you defined previously based on your custom API)
-interface ApiSelectedQuotation { // Child item from Target Rates
-    name: string;
-    item_id?: string | null;
-    item_name?: string | null;
-    vendor_name?: string | null;
-    procurement_order?: string | null;
-    unit?: string | null;
-    quantity?: string | null;
-    quote?: string | null;
-    city?: string | null;
-    state?: string | null;
-    category?: string | null;
-    procurement_package?: string | null;
-    make?: string | null;
-    dispatch_date?: string | null;
-    idx: number;
-    // Add other fields as returned by your API for selected_quotations_items
-}
-
-interface TargetRateDetailFromAPI { // Parent Target Rate info from API
-    name: string; // Target Rate docname
-    item_name?: string | null;
-    unit?: string | null;
-    rate?: string | null; // This is the target rate value
-    item_id?: string | null; // This is the key to match with ProcurementItem.name
-    creation?: string;
-    modified?: string;
-    selected_quotations_items: ApiSelectedQuotation[];
-}
-
-interface FrappeTargetRateApiResponse { // Typical Frappe API response structure
-    message: TargetRateDetailFromAPI[];
-}
-// --- End API response interfaces ---
-
-// Define Props
 interface UseApproveRejectLogicProps {
     prId?: string;
-    initialPrData?: ProcurementRequest;
+    initialPrData?: ApproveQuotesPRDoc;
     vendorList?: Vendors[];
-    // quotesData?: ApprovedQuotations[];
     usersList?: NirmaanUsers[];
-    prMutate: KeyedMutator<FrappeDoc<ProcurementRequest>>; // Specific mutator
+    prMutate: any;
 }
 
-// Define Return Type (expose state and handlers needed by View)
 export interface UseApproveRejectLogicReturn {
-    orderData?: ProcurementRequest; // Local copy
-    vendorDataSource: VendorDataSourceItem[];
+    orderData?: ApproveQuotesPRDoc;
+    vendorDataSource: VendorGroupForTable[];
     selectionMap: SelectionState;
     isApproveDialogOpen: boolean;
     isSendBackDialogOpen: boolean;
     comment: string;
-    isLoading: boolean; // Combined loading state for actions
-    isPrEditable: boolean; // Can the user approve/reject?
+    isLoading: boolean;
+    isPrEditable: boolean;
+    targetRatesDataMap: Map<string, TargetRateDetailFromAPI>;
     handleSelectionChange: (newSelection: SelectionState) => void;
     handleCommentChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
     toggleApproveDialog: () => void;
     toggleSendBackDialog: () => void;
     handleApproveConfirm: () => Promise<void>;
     handleSendBackConfirm: () => Promise<void>;
-    getVendorName: (vendorId: string | undefined) => string; // Pass down if needed by view/table
-    getUserName: (userId: string | undefined) => string; // Pass down if needed by view/table
-    // Include any other state/handlers needed by the View
+    getVendorName: (vendorId: string | undefined) => string;
+    getUserName: (userId: string | undefined) => string;
+    dynamicPaymentTerms: DynamicPaymentTerms; // ✨ EXPOSE state
+    setDynamicPaymentTerms: React.Dispatch<React.SetStateAction<DynamicPaymentTerms>>; // ✨ EXPOSE setter
 }
 
-export const useApproveRejectLogic = ({
-    prId,
-    initialPrData,
-    vendorList = [],
-    // quotesData = [],
-    usersList = [],
-    prMutate,
-}: UseApproveRejectLogicProps): UseApproveRejectLogicReturn => {
+export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], usersList = [], prMutate }: UseApproveRejectLogicProps): UseApproveRejectLogicReturn => {
     const { toast } = useToast();
     const navigate = useNavigate();
     const { approveSelection, sendBackSelection, rejectCustomPr, isLoading: isActionApiLoading } = useQuoteApprovalApi(prId);
 
-    // --- State ---
-    const [orderData, setOrderData] = useState<ProcurementRequest | undefined>(undefined);
+    const [orderData, setOrderData] = useState<ApproveQuotesPRDoc | undefined>(undefined);
     const [selectionMap, setSelectionMap] = useState<SelectionState>(new Map());
     const [isApproveDialogOpen, setApproveDialog] = useState<boolean>(false);
     const [isSendBackDialogOpen, setSendBackDialog] = useState<boolean>(false);
     const [comment, setComment] = useState<string>("");
-
-    // --- State for the new API call ---
     const [itemIdsForTargetRateAPI, setItemIdsForTargetRateAPI] = useState<string[]>([]);
+    
+    // ✨ ADD state for dynamic payment terms
+    const [dynamicPaymentTerms, setDynamicPaymentTerms] = useState<DynamicPaymentTerms>({});
 
-    // --- Effects ---
-    // Initialize local state and parse JSON fields safely
+    // ... (useEffect for processing initialPrData is unchanged) ...
     useEffect(() => {
+        // console.log("initialPrData", initialPrData)
         if (initialPrData) {
-            try {
-                // Filter only 'Pending' items for this view's list
-                const pendingItems = (typeof initialPrData.procurement_list === "string" ? JSON.parse(initialPrData.procurement_list)?.list : initialPrData.procurement_list?.list || [])
-                    .filter((item: ProcurementItem) => item.status === 'Pending');
+            let processedPrData = { ...initialPrData };
+            const pendingItems = processedPrData.order_list?.filter(item => item.status === 'Pending') || [];
+            processedPrData.order_list = Array.isArray(pendingItems) ? pendingItems : [];
 
-                // Safe parsing of RFQ data
-                let parsedRfqData: RFQData = { selectedVendors: [], details: {} }; // Default empty
-                if (initialPrData.rfq_data && typeof initialPrData.rfq_data === 'object') {
-                    parsedRfqData = initialPrData.rfq_data; // Assume already object if not string
-                } else if (typeof initialPrData.rfq_data === 'string') {
-                    parsedRfqData = JSON.parse(initialPrData.rfq_data || "{}");
+            if (typeof initialPrData.rfq_data === 'string') {
+                try {
+                    processedPrData.rfq_data = JSON.parse(initialPrData.rfq_data || 'null') || { selectedVendors: [], details: {} };
+                } catch (e) {
+                    console.error("Error parsing initialPrData.rfq_data", e);
+                    processedPrData.rfq_data = { selectedVendors: [], details: {} };
                 }
-
-                setOrderData({
-                    ...initialPrData,
-                    procurement_list: { list: pendingItems },
-                    rfq_data: parsedRfqData,
-                    // category_list might not be needed directly if grouping by vendor
-                });
-
-                // Extract item_ids (assuming item.name in ProcurementItem is the item_id)
-                const ids = pendingItems.map((item: ProcurementItem) => item.name).filter(id => !!id);
-                setItemIdsForTargetRateAPI(ids as string[]);
-            } catch (error) {
-                console.error("Error processing initial PR data:", error);
-                toast({ title: "Error", description: "Failed to load PR details.", variant: "destructive" });
-                setOrderData(undefined); // Reset on error
-                setItemIdsForTargetRateAPI([]);
+            } else if (!initialPrData.rfq_data) {
+                processedPrData.rfq_data = { selectedVendors: [], details: {} };
             }
+
+            setOrderData(processedPrData);
+
+            const pendingItemActualIds = pendingItems
+                .filter(item => item.item_id)
+                .map(item => item.item_id!);
+            setItemIdsForTargetRateAPI(pendingItemActualIds);
         } else {
-            setOrderData(undefined); // Reset if initialPrData is undefined
+            setOrderData(undefined);
             setItemIdsForTargetRateAPI([]);
         }
-    }, [initialPrData, toast]);
+    }, [initialPrData]);
 
-    // --- Fetch Target Rates using the new custom API ---
+
+    // ... (useFrappeGetCall for target rates is unchanged) ...
     const {
         data: targetRatesApiResponse,
         isLoading: targetRatesLoading,
         error: targetRatesError
     } = useFrappeGetCall<FrappeTargetRateApiResponse>(
-        'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list', // YOUR_CUSTOM_APP_NAME.api_module.function_name
-        {
-            item_ids_json: itemIdsForTargetRateAPI.length > 0 ? JSON.stringify(itemIdsForTargetRateAPI) : undefined,
-            // order_by: "item_id asc" // Optional: if your API supports it and it's beneficial
-        },
-        // SWR Key: make it dependent on itemIds to refetch if they change
-        itemIdsForTargetRateAPI.length > 0 ? `target_rates_for_items_${itemIdsForTargetRateAPI.sort().join('_')}` : null,
-        {
-            revalidateOnFocus: false, // Or your preferred SWR config
-            // enabled: itemIdsForTargetRateAPI.length > 0, // SWR fetches if key is not null
-        }
+        'nirmaan_stack.api.target_rates.get_target_rates_for_item_list.get_target_rates_for_item_list',
+        { item_ids_json: itemIdsForTargetRateAPI.length > 0 ? JSON.stringify(itemIdsForTargetRateAPI) : undefined },
+        itemIdsForTargetRateAPI.length > 0 ? `target_rates_for_pr_items_${prId}_${itemIdsForTargetRateAPI.sort().join('_')}` : null,
+        { revalidateOnFocus: false }
     );
 
+
+    // ... (all other useMemos and useCallbacks before handleApproveConfirm are unchanged) ...
     const targetRatesDataMap = useMemo(() => {
         const map = new Map<string, TargetRateDetailFromAPI>();
-        if (targetRatesApiResponse?.message) {
-            targetRatesApiResponse.message.forEach(tr => {
-                if (tr.item_id) { // Ensure item_id exists for mapping
-                    map.set(tr.item_id, tr);
-                }
-            });
-        }
+        targetRatesApiResponse?.message?.forEach(tr => {
+            if (tr.item_id) map.set(tr.item_id, tr);
+        });
         return map;
     }, [targetRatesApiResponse]);
-
-    useEffect(() => {
-        if (targetRatesError) {
-            console.error("Error fetching target rates from custom API:", targetRatesError);
-            toast({ title: "Target Rate API Error", description: "Could not fetch target rates.", variant: "destructive" });
-        }
-    }, [targetRatesError, toast]);
-
-    const isLoading = isActionApiLoading || targetRatesLoading; // Combined loading state
-
-    // --- Memos ---
     const vendorMap = useMemo(() => new Map(vendorList.map(v => [v.name, v.vendor_name])), [vendorList]);
+    const getVendorName = useCallback((id?: string) => id ? vendorMap.get(id) || `Unknown (${id.substring(0, 6)})` : "N/A", [vendorMap]);
+    const getUserName = useCallback((id?: string) => id ? usersList.find(u => u?.name === id)?.full_name || `Unknown (${id.substring(0, 6)})` : "N/A", [usersList]);
+    const getLowestRateFromOriginalRfq = useCallback((itemId: string) => getLowestQuoteFilled(orderData, itemId), [orderData]);
 
-    const getVendorName = useCallback((id: string | undefined) => id ? vendorMap.get(id) || `Unknown (${id.substring(0, 6)})` : "N/A", [vendorMap]);
+ 
 
-    const getUserName = useCallback((id: string | undefined) => id ? usersList.find(u => u?.name === id)?.full_name || `Unknown (${id.substring(0, 6)})` : "N/A", [usersList]);
+    const vendorDataSource = useMemo((): VendorGroupForTable[] => {
+    if (!orderData || !orderData.order_list) return [];
 
-    // Memoize lowest quote lookups (assuming functions are pure)
-    const getLowest = useCallback((itemId: string) => getLowestQuoteFilled(orderData, itemId), [orderData]);
+    const vendorWiseData: Record<string, Omit<VendorGroupForTable, 'vendorId' | 'vendorName' | 'key'>> = {};
 
-    // const getItemAvgRateAndAttributes = useCallback((itemId: string) => getThreeMonthsLowestFiltered(quotesData, itemId), [quotesData]);
+    orderData.order_list.forEach((prItem) => {
+        if (!prItem.vendor || prItem.quote == null) return;
 
-    // Memoize vendor totals calculation
-    const vendorTotals = useMemo(() => {
-        const totals: { [vendorId: string]: number } = {};
-        orderData?.procurement_list?.list?.forEach(item => {
-            if (!item.vendor) return;
-            totals[item.vendor] = (totals[item.vendor] || 0) + (item.quote ?? 0) * (item.quantity ?? 0);
-        });
-        return totals;
-    }, [orderData?.procurement_list.list]);
+        const vendorId = prItem.vendor;
+        if (!vendorWiseData[vendorId]) {
+            vendorWiseData[vendorId] = { totalAmount: 0, items: [], key: uuidv4() };
+        }
 
-    // Memoize the final vendor-wise data transformation
-    const vendorDataSource = useMemo((): VendorDataSourceItem[] => {
-        const data: VendorWiseData = {};
-        orderData?.procurement_list?.list?.forEach(item => {
-            if (!item.vendor) return;
-            const vendorId = item.vendor;
-            const vendorName = getVendorName(vendorId);
-            const amount = (item.quote ?? 0) * (item.quantity ?? 0);
-            // const threeMonthsLowest = getItemAvgRateAndAttributes(item.name)?.averageRate * 0.98;
-            // const contributingQuotes = getItemAvgRateAndAttributes(item.name)?.contributingQuotes;
-            const lowestQuoted = getLowest(item.name) ?? 0;
+        const quantity = parseNumber(prItem.quantity);
+        const selectedRate = parseNumber(prItem.quote);
+        const currentAmount = quantity * selectedRate;
+        const actualItemId = prItem.item_id;
 
-            // Get target rate info from the new API data
-            const targetRateDetail = targetRatesDataMap.get(item.name); // item.name is item_id
+        // Rule 1: Check if the individual item's category is 'Additional Charges'.
+        const isAdditionalChargeItem = prItem.category === 'Additional Charges';
+        
+        // Fetch benchmark data for the item
+        const targetRateDetail = targetRatesDataMap.get(actualItemId);
+        const lowestRateInRfqContext = getLowestRateFromOriginalRfq(actualItemId);
 
-            let currentTargetRate: number = -1;
-            let currentContributingQuotes: ApiSelectedQuotation[] = [];
+        // console.log("DEBUGRFQ: lowestRateInRfqContext", lowestRateInRfqContext);
 
-            if (targetRateDetail && targetRateDetail.rate && targetRateDetail.rate.trim() !== "") {
-                const parsedRate = parseFloat(targetRateDetail.rate);
-                if (!isNaN(parsedRate)) {
-                    currentTargetRate = parsedRate;
+        // --- NEW: Determine if this item is "custom" because it has no RFQ data ---
+        // An item is considered custom if we couldn't find a lowest rate from any RFQ.
+        const isCustomItem = lowestRateInRfqContext === 0;
+        // console.log("DEBUGRFQ: isCustomItem", isCustomItem);
+        // --------------------------------------------------------------------------
+
+        // Calculate Target Amount
+        let targetRateValue: number | undefined;
+        if (targetRateDetail?.rate) {
+            const parsedTargetRate = parseNumber(targetRateDetail.rate);
+            if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
+        }
+        const calculatedTargetAmount = (targetRateValue !== undefined) ? targetRateValue * quantity * 0.98 : undefined;
+
+        // Calculate Lowest Quoted Amount (it's already calculated)
+        const calculatedLowestQuotedAmountInRfq = (lowestRateInRfqContext !== undefined) ? lowestRateInRfqContext * quantity : undefined;
+
+        // Rule 2: Check if at least one benchmark amount exists.
+        const hasBenchmark = calculatedTargetAmount !== undefined || calculatedLowestQuotedAmountInRfq !== undefined;
+
+        const displayItem: VendorItemDetailsToDisplay = {
+            ...prItem,
+            vendor_name: getVendorName(vendorId),
+            amount: currentAmount,
+            lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
+            targetRate: targetRateValue,
+            targetAmount: calculatedTargetAmount,
+            contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+            savingLoss: undefined,
+        };
+        
+        // --- FINAL LOGIC: Apply all rules ---
+        // The item must NOT be custom (i.e., must have RFQ data),
+        // must NOT be an additional charge,
+        // and must have at least one benchmark to compare against.
+        if (!isCustomItem && !isAdditionalChargeItem && hasBenchmark) {
+            let benchmarkAmount: number;
+
+            if (displayItem.targetAmount !== undefined && displayItem.lowestQuotedAmountForItem !== undefined) {
+                benchmarkAmount = Math.min(displayItem.targetAmount, displayItem.lowestQuotedAmountForItem);
+            } else {
+                benchmarkAmount = displayItem.targetAmount || displayItem.lowestQuotedAmountForItem!;
+            }
+            
+            if (!isNaN(currentAmount)) {
+                displayItem.savingLoss = benchmarkAmount - currentAmount;
+            }
+        }
+        // If conditions are false, savingLoss remains undefined.
+
+        vendorWiseData[vendorId].items.push(displayItem);
+        vendorWiseData[vendorId].totalAmount += currentAmount;
+    });
+
+    // The rest of the function remains the same...
+    return Object.entries(vendorWiseData)
+        .map(([vendorId, groupData]) => {
+                        // 1. Calculate ONLY the positive values (savings)
+            const totalSavings = groupData.items.reduce((sum, item) => {
+                // If savingLoss exists AND is greater than 0, add it to the sum.
+                if (item.savingLoss && item.savingLoss > 0) {
+                    return sum + item.savingLoss;
                 }
-            }
-            if (targetRateDetail && targetRateDetail.selected_quotations_items) {
-                currentContributingQuotes = targetRateDetail.selected_quotations_items;
-            }
+                return sum; // Otherwise, do not add it.
+            }, 0);
+             const totalLoss = groupData.items.reduce((sum, item) => {
+                // If savingLoss exists AND is less than 0, add it to the sum.
+                if (item.savingLoss && item.savingLoss < 0) {
+                    return sum + item.savingLoss;
+                }
+                return sum; // Otherwise, do not add it.
+            }, 0);
+            
+            // The existing calculation for the NET total (Savings - Losses)
+            const netSavingLoss = groupData.items.reduce((sum, item) => sum + (item.savingLoss || 0), 0);
 
-            // Adapt ApiSelectedQuotation to the structure expected by HistoricalQuotesHoverCard if needed
-            // For now, assuming it's compatible with `ApprovedQuotations` type or the hover card is flexible
-            const adaptedContributingQuotes = currentContributingQuotes.map(cq => ({
-                // Explicit mapping for clarity and type safety
-                name: cq.name,
-                item_id: cq.item_id,
-                item_name: cq.item_name,
-                vendor_name: cq.vendor_name, // Pass along if available
-                vendor: cq.vendor_name, // Assuming vendor_name can be used for 'vendor' if needed
-                procurement_order: cq.procurement_order,
-                quote: cq.quote,
-                rate: cq.quote, // If 'rate' is expected and 'quote' is the source
-                quantity: cq.quantity,
-                unit: cq.unit,
-                dispatch_date: cq.dispatch_date, // <--- MAP THE dispatch_date
-                make: cq.make,
-                city: cq.city,
-                state: cq.state,
-                category: cq.category,
-                procurement_package: cq.procurement_package,
-                idx: cq.idx,
-            })) as ApprovedQuotations[]; // Cast to ApprovedQuotations
-            // Note: This cast assumes the mapping makes ApiSelectedQuotation compatible.
-            // Review `ApprovedQuotations` type from `src/types/NirmaanStack/ApprovedQuotations.ts`
-            // and ensure all fields expected by HistoricalQuotesHoverCard are correctly mapped or defaulted.
-
-            const itemDetails: VendorItemDetails = {
-                ...item,
-                vendor_name: vendorName,
-                amount,
-                lowestQuotedAmount: lowestQuoted * (item.quantity ?? 0),
-                targetRate: currentTargetRate, // Use the rate from API or -1
-                contributingQuotes: adaptedContributingQuotes,
-                targetAmount: currentTargetRate !== -1 ? currentTargetRate * (item.quantity ?? 0) : undefined, // Undefined if target rate is -1
-                // Calculate saving/loss based on comparison (e.g., lowest vs selected)
-                savingLoss: ((lowestQuoted || (currentTargetRate !== -1 ? currentTargetRate : undefined)) && item.quote)
-                    ? (
-                        (
-                            (lowestQuoted && currentTargetRate !== -1)
-                                ? Math.min(lowestQuoted, currentTargetRate)
-                                : (lowestQuoted || (currentTargetRate !== -1 ? currentTargetRate : 0))
-                        ) - (item.quote ?? 0)
-                    ) * (item.quantity ?? 0)
-                    : undefined,
-            };
-
-            if (!data[vendorId]) {
-                data[vendorId] = {
-                    totalAmount: vendorTotals[vendorId] || 0,
-                    key: uuidv4(),
-                    items: [],
-                };
-            }
-            data[vendorId].items.push(itemDetails);
-        });
-
-        // Calculate potential total saving/loss per vendor
-        Object.values(data).forEach(vendorGroup => {
-            vendorGroup.potentialSavingLoss = vendorGroup.items.reduce((sum, item) => sum + (item.savingLoss ?? 0), 0);
-        });
-
-        return Object.entries(data)
-            .sort(([idA], [idB]) => (getVendorName(idA)).localeCompare(getVendorName(idB)))
-            .map(([vendorId, groupData]) => ({
-                key: groupData.key,
+            return {
                 vendorId,
                 vendorName: getVendorName(vendorId),
                 totalAmount: groupData.totalAmount,
                 items: groupData.items,
-                potentialSavingLoss: groupData.potentialSavingLoss, // Add calculated total saving/loss
-            }));
-    }, [orderData?.procurement_list.list, getVendorName, getLowest, vendorTotals, targetRatesDataMap]);
+                key: groupData.key || uuidv4(),
+                // --- UPDATE THE RETURN OBJECT ---
+                // Keep the original for net value
+                potentialSavingLossForVendor: netSavingLoss,
+                
+                // Add the new, specific values
+                potentialSavings: totalSavings,
+                potentialLoss: totalLoss, // This will be a negative number or 0
+            };
+        })
+        .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+}, [orderData, getVendorName, targetRatesDataMap, vendorMap, getLowestRateFromOriginalRfq]);
 
-    // --- Callbacks ---
-    const handleSelectionChange = useCallback((newSelection: SelectionState) => {
-        setSelectionMap(newSelection);
-    }, []);
 
-    const handleCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setComment(e.target.value);
-    }, []);
 
+
+
+    const handleSelectionChange = useCallback((newSelection: SelectionState) => setSelectionMap(newSelection), []);
+    const handleCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => setComment(e.target.value), []);
     const toggleApproveDialog = useCallback(() => setApproveDialog(prev => !prev), []);
     const toggleSendBackDialog = useCallback(() => setSendBackDialog(prev => !prev), []);
 
@@ -324,169 +258,100 @@ export const useApproveRejectLogic = ({
             return;
         }
 
-        const selectedItemNames: string[] = [];
-        const vendorSelectionMap: { [itemName: string]: string } = {};
+        // console.log("DEBUGRFQ: orderData", orderData,selectionMap);
+        const selectedItemsForPayload: string[] = []; 
+        const vendorSelectionMapForPayload: { [childDocName: string]: string } = {};
 
-        // Flatten the selection map
-        selectionMap.forEach((itemSet, vendorId) => {
-            itemSet.forEach(itemName => {
-                selectedItemNames.push(itemName);
-                vendorSelectionMap[itemName] = vendorId; // Map item name to its selected vendor
+        selectionMap.forEach((selectedChildDocNames, vendorId) => {
+            selectedChildDocNames.forEach(childDocName => {
+                selectedItemsForPayload.push(childDocName);
+                vendorSelectionMapForPayload[childDocName] = vendorId;
             });
         });
 
-        if (selectedItemNames.length === 0) {
+        if (selectedItemsForPayload.length === 0) {
             toast({ title: "No Selection", description: "No valid items found in selection.", variant: "destructive" });
             return;
         }
-
 
         try {
             const payload: ApprovePayload = {
                 project_id: orderData.project,
                 pr_name: orderData.name,
-                selected_items: selectedItemNames,
-                selected_vendors: vendorSelectionMap,
-                custom: !orderData.work_package, // Flag if it's a custom PR
+                selected_items: selectedItemsForPayload,
+                selected_vendors: vendorSelectionMapForPayload,
+                custom: !orderData.work_package,
+                // ✨ ADD dynamic payment terms to the payload
+                payment_terms: JSON.stringify(dynamicPaymentTerms),
             };
-
+            
             const response = await approveSelection(payload);
-
+            console.log("response",response)
             if (response?.message?.status === 200) {
-                toast({ title: "Success!", description: response.message.message || "Items approved successfully.", variant: "success" });
-                setSelectionMap(new Map()); // Clear selection
-                toggleApproveDialog();
-                await prMutate(); // Re-fetch PR data
-                // Navigate only if all items were approved or if custom PR
-                const allItems = orderData.procurement_list.list.map(i => i.name);
-                if (!orderData.work_package || selectedItemNames.length === allItems.length) {
-                    navigate('/purchase-orders?tab=Approve PO'); // Or appropriate destination
+                toast({ title: "Success!", description: response.message.message || "Items approved.", variant: "success" });
+                setSelectionMap(new Map()); toggleApproveDialog(); await prMutate();
+                const allPendingInOrderData = (orderData.order_list || []).map(i => i.name);
+                if (!orderData.work_package || selectedItemsForPayload.length === allPendingInOrderData.length) {
+                    navigate('/purchase-orders?tab=Approve PO');
                 }
-            } else {
-                throw new Error(response?.message?.error || "Approval failed with unknown error.");
-            }
+            } else { throw new Error(response?.message?.error || "Approval failed."); }
         } catch (error: any) {
             console.error("Error approving selection:", error);
-            toast({ title: "Approval Failed!", description: error?.message || "An error occurred during approval.", variant: "destructive" });
+            toast({ title: "Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
-    }, [orderData, selectionMap, approveSelection, prMutate, navigate, toggleApproveDialog, toast]);
+        
+    }, [orderData, selectionMap, approveSelection, prMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms]); // ✨ ADD dependency
 
-
+    // ... (handleSendBackConfirm and isPrEditable are unchanged) ...
     const handleSendBackConfirm = useCallback(async () => {
         if (!orderData) return;
-
-        // Handle custom PR rejection separately
         if (!orderData.work_package) {
             try {
                 await rejectCustomPr(comment);
                 toast({ title: "Success!", description: "Custom PR rejected successfully.", variant: "success" });
-                toggleSendBackDialog();
-                setComment("");
-                await prMutate(); // Re-fetch
-                navigate('/purchase-orders?tab=Approve PO'); // Adjust navigation
+                toggleSendBackDialog(); setComment(""); await prMutate();
+                navigate('/purchase-orders?tab=Approve PO');
             } catch (error: any) {
                 console.error("Error rejecting custom PR:", error);
                 toast({ title: "Rejection Failed!", description: error?.message || "Could not reject custom PR.", variant: "destructive" });
             }
-            return; // Exit function
+            return;
         }
-
-        // Standard PR send back logic
         if (selectionMap.size === 0) {
             toast({ title: "No Selection", description: "Please select items to send back.", variant: "destructive" });
             return;
         }
-
-        const selectedItemNames: string[] = [];
-        selectionMap.forEach((itemSet) => {
-            itemSet.forEach(itemName => {
-                selectedItemNames.push(itemName);
-            });
-        });
-
-        if (selectedItemNames.length === 0) {
-            toast({ title: "No Selection", description: "No valid items found in selection.", variant: "destructive" });
+        const selectedItemsForPayload: string[] = [];
+        selectionMap.forEach(childDocNamesSet => childDocNamesSet.forEach(childDocName => selectedItemsForPayload.push(childDocName)));
+        if (selectedItemsForPayload.length === 0) {
+            toast({ title: "No Selection", description: "No valid items found.", variant: "destructive" });
             return;
         }
-
-
         try {
-            const payload: SendBackPayload = {
-                project_id: orderData.project,
-                pr_name: orderData.name,
-                selected_items: selectedItemNames,
-                comments: comment || undefined, // Send comment only if not empty
-            };
-
+            const payload: SendBackPayload = { project_id: orderData.project, pr_name: orderData.name, selected_items: selectedItemsForPayload, comments: comment || undefined };
             const response = await sendBackSelection(payload);
-
             if (response?.message?.status === 200) {
-                toast({ title: "Success!", description: response.message.message || "Selected items sent back successfully.", variant: "success" });
-                setSelectionMap(new Map()); // Clear selection
-                toggleSendBackDialog();
-                setComment(""); // Clear comment
-                await prMutate(); // Re-fetch PR data
-                // Navigate only if all items were sent back
-                const allItems = orderData.procurement_list.list.map(i => i.name);
-                if (selectedItemNames.length === allItems.length) {
-                    navigate('/purchase-orders?tab=Approve PO'); // Or appropriate destination
+                toast({ title: "Success!", description: response.message.message || "Items sent back.", variant: "success" });
+                setSelectionMap(new Map()); toggleSendBackDialog(); setComment(""); await prMutate();
+                const allPendingInOrderData = (orderData.order_list || []).map(i => i.name!);
+                if (selectedItemsForPayload.length === allPendingInOrderData.length) {
+                    navigate('/purchase-orders?tab=Approve PO');
                 }
-            } else {
-                throw new Error(response?.message?.error || "Send back failed with unknown error.");
-            }
+            } else { throw new Error(response?.message?.error || "Send back failed."); }
         } catch (error: any) {
             console.error("Error sending back selection:", error);
-            toast({ title: "Send Back Failed!", description: error?.message || "An error occurred while sending back items.", variant: "destructive" });
+            toast({ title: "Send Back Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
     }, [orderData, selectionMap, comment, sendBackSelection, rejectCustomPr, prMutate, navigate, toggleSendBackDialog, toast]);
 
-    // Determine if actions should be enabled
-    const isPrEditable = useMemo(() => {
-        return ["Vendor Selected", "Partially Approved"].includes(orderData?.workflow_state || "");
-    }, [orderData?.workflow_state]);
+    const isPrEditable = useMemo(() => ["Vendor Selected", "Partially Approved"].includes(orderData?.workflow_state || ""), [orderData?.workflow_state]);
+    const isLoadingHook = isActionApiLoading || targetRatesLoading;
 
-
-    // --- Return ---
     return {
-        orderData,
-        vendorDataSource,
-        selectionMap,
-        isApproveDialogOpen,
-        isSendBackDialogOpen,
-        comment,
-        isLoading,
-        isPrEditable,
-        handleSelectionChange,
-        handleCommentChange,
-        toggleApproveDialog,
-        toggleSendBackDialog,
-        handleApproveConfirm,
-        handleSendBackConfirm,
-        getVendorName,
-        getUserName
+        orderData, vendorDataSource, selectionMap, isApproveDialogOpen, isSendBackDialogOpen,
+        comment, isLoading: isLoadingHook, isPrEditable, targetRatesDataMap,
+        handleSelectionChange, handleCommentChange, toggleApproveDialog, toggleSendBackDialog,
+        handleApproveConfirm, handleSendBackConfirm, getVendorName, getUserName,
+        dynamicPaymentTerms, setDynamicPaymentTerms, // ✨ EXPORT state and setter
     };
 };
-
-// --- Type for ApprovedQuotations (if needed by HistoricalQuotesHoverCard) ---
-// Ensure this matches the structure expected by the hover card,
-// or adapt the hover card to use ApiSelectedQuotation structure.
-interface ApprovedQuotations {
-    name: string;
-    item_id?: string | null;
-    item_name?: string | null;
-    vendor_name?: string | null;
-    quote?: string | null; // or 'rate'
-    rate?: string | null; // Add if hover card expects 'rate'
-    quantity?: string | null;
-    unit?: string | null;
-    docstatus?: number;
-    // ... any other fields needed by the hover card
-    dispatch_date?: string | null; // <--- ADD THIS FIELD
-    make?: string | null;
-    city?: string | null;
-    state?: string | null;
-    category?: string | null;
-    procurement_package?: string | null;
-    procurement_order?: string | null;
-    idx?: number;
-}

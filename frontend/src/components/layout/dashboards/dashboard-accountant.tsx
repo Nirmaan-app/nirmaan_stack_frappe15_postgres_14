@@ -1,4 +1,4 @@
-import { ClipboardMinus, FileUp, ReceiptText, UsersRound, WalletCards } from "lucide-react";
+import { Banknote, ClipboardMinus, FileUp, Landmark, LandmarkIcon, ReceiptText, UsersRound, WalletCards } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../ui/button";
 
@@ -56,6 +56,18 @@ export const Accountant = () => {
                         title="Project Invoices"
                         icon={<FileUp className="h-8 w-8 text-white" />}
                         onClick={() => navigate("/project-invoices")}
+                        className="bg-red-600"
+                    />
+                    <DashboardCard
+                        title="Project Expenses"
+                        icon={<Landmark className="h-8 w-8 text-white" />}
+                        onClick={() => navigate("/project-expenses")}
+                        className="bg-red-600"
+                    />
+                    <DashboardCard
+                        title="Non Project Expenses"
+                        icon={<Banknote className="h-8 w-8 text-white" />}
+                        onClick={() => navigate("/non-project")}
                         className="bg-red-600"
                     />
                     <DashboardCard

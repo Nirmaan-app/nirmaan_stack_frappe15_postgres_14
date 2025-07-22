@@ -1,573 +1,855 @@
 import { ProcurementHeaderCard } from "@/components/helpers/ProcurementHeaderCard";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { toast } from "@/components/ui/use-toast";
 import { useItemEstimate } from "@/hooks/useItemEstimate";
-import { useUserData } from '@/hooks/useUserData';
-import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { useUserData } from "@/hooks/useUserData";
+import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee, {
+  formatToRoundedIndianRupee,
+} from "@/utils/FormatPrice";
 import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 import { parseNumber } from "@/utils/parseNumber";
-import { ConfigProvider, Table, TableColumnsType } from "antd";
-import TextArea from 'antd/es/input/TextArea';
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import memoize from 'lodash/memoize';
-import { ArrowBigUpDash, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import TextArea from "antd/es/input/TextArea";
+import {
+  useFrappeCreateDoc,
+  useFrappeDocumentEventListener,
+  useFrappeUpdateDoc,
+  useSWRConfig,
+} from "frappe-react-sdk";
+import memoize from "lodash/memoize";
+import {
+  ArrowBigUpDash,
+  CheckCheck,
+  ListChecks,
+  Undo2,
+  CirclePlus,
+    Pencil,
+  
+} from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
-import { v4 as uuidv4 } from "uuid";
-import { CategoryData, CategoryWithChildren, DataItem } from "../ProcurementRequests/VendorQuotesSelection/VendorsSelectionSummary";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useSentBackCategory } from "@/hooks/useSentBackCategory";
+import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
+import { PaymentTermsDialog } from "../ProcurementRequests/VendorQuotesSelection/components/PaymentTermsDialog";
+import {
+  PaymentTermsData,
+  VendorPaymentTerm,
+} from "../ProcurementRequests/VendorQuotesSelection/types/paymentTerms";
+import { PaymentTermsDetailsDisplay } from "../ProcurementRequests/VendorQuotesSelection/components/PaymentTermsDetailsDisplay";
+import { getItemListFromDocument } from "../ProcurementRequests/VendorQuotesSelection/types";
+import { useTargetRatesForItems } from "../ProcurementRequests/VendorQuotesSelection/hooks/useTargetRatesForItems";
 
-export const COLUMN_WIDTHS = {
-    category: "auto",
-    totalAmount: "auto",
-    item: "20%",
-    unit: "5%",
-    quantity: "7%",
-    rate: "10%",
-    vendor: "15%",
-    amount: "12%",
-    lowestQuotedAmount: "10%",
-    threeMonthsLowestAmount: "10%",
-};
+interface DisplayItem extends ProcurementRequestItemDetail {
+  amount?: number; // Calculated amount based on quote
+  vendor_name?: string; // Added by getVendorName
+  lowestQuotedAmount?: number; // From getLowest
+  threeMonthsLowestAmount?: number; // From getItemEstimate (if used)
+  potentialLoss?: number;
+  targetRateValue?:number;
 
-export const columns: TableColumnsType<CategoryData> = [
-    {
-        title: "Category",
-        dataIndex: "category",
-        key: "category",
-        width: COLUMN_WIDTHS.category,
-        render: (text) => <strong className="text-primary">{text}</strong>,
-    },
-    {
-        title: "Total Amount",
-        dataIndex: "totalAmount",
-        key: "amount",
-        width: COLUMN_WIDTHS.totalAmount,
-        render: (text) => <Badge>{formatToIndianRupee(text)}</Badge>,
-    },
-];
-
-export const innerColumns: TableColumnsType<DataItem> = [
-    {
-        title: "Item Name",
-        dataIndex: "item",
-        key: "item",
-        width: COLUMN_WIDTHS.item,
-        render: (text, record) => (
-            <div className="flex flex-col gap-1">
-                <div className="inline items-baseline">
-                    <span>{text}</span>
-                    {record?.comment && (
-                        <HoverCard>
-                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                <div className="relative pb-4">
-                                    <span className="block">{record.comment}</span>
-                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
-                                </div>
-                            </HoverCardContent>
-                        </HoverCard>
-                    )}
-                </div>
-                {record?.make && (
-                    <span className="text-xs">Selected make : <b>{record.make}</b></span>
-                )}
-            </div>
-        )
-    },
-    {
-        title: "Unit",
-        dataIndex: "unit",
-        key: "unit",
-        width: COLUMN_WIDTHS.unit,
-    },
-    {
-        title: "Quantity",
-        dataIndex: "quantity",
-        key: "quantity",
-        width: COLUMN_WIDTHS.quantity,
-    },
-    {
-        title: "Rate",
-        dataIndex: "quote",
-        key: "quote",
-        width: COLUMN_WIDTHS.rate,
-        render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
-    },
-    {
-        title: "Vendor",
-        dataIndex: "vendor_name",
-        key: "vendor",
-        width: COLUMN_WIDTHS.vendor,
-        render: (text) => <span className="italic">{text}</span>,
-    },
-    {
-        title: "Amount",
-        dataIndex: "amount",
-        key: "amount",
-        width: COLUMN_WIDTHS.amount,
-        render: (text, record) => {
-            const amount = text;
-            const lowest3 = record?.threeMonthsLowestAmount;
-
-            if (!lowest3 || !amount) {
-                return <i>{formatToIndianRupee(amount)}</i>;
-            }
-
-            const percentageDifference = ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
-            const isLessThan = amount < lowest3;
-            const isEqual = amount === lowest3;
-            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-            const Icon = isLessThan ? MoveDown : MoveUp;
-
-            return (
-                <div className="flex items-center gap-1">
-                    <i>{formatToIndianRupee(amount)}</i>
-                    {!isEqual && (
-                        <div className={`${colorClass} flex items-center`}>
-                            <span className="text-sm">({`${percentageDifference}%`})</span>
-                            <Icon className="w-4 h-4" />
-                        </div>
-                    )}
-                </div>
-            );
-        },
-    },
-    {
-        title: "Lowest Quoted Amount",
-        dataIndex: "lowestQuotedAmount",
-        key: "lowestQuotedAmount",
-        width: COLUMN_WIDTHS.lowestQuotedAmount,
-        render: (text) => <span className="italic">{text ? formatToIndianRupee(text) : "--"}</span>,
-    },
-    {
-        title: "Target Amount",
-        dataIndex: "threeMonthsLowestAmount",
-        key: "threeMonthsLowestAmount",
-        width: COLUMN_WIDTHS.threeMonthsLowestAmount,
-        render: (text, record) => {
-            const amount = record.amount;
-            const lowest3 = text;
-
-            if (!lowest3) {
-                return <i>--</i>;
-            }
-            const isLessThan = amount < lowest3;
-            const isEqual = amount === lowest3;
-            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
-
-            return <i className={`${!isEqual && colorClass}`}>{formatToIndianRupee(lowest3)}</i>;
-        },
-    },
-];
-
+}
+// Interface for the vendor-wise summary object
+interface VendorWiseApprovalItems {
+  [vendor: string]: {
+    // vendor here is vendor_id (DocName)
+    items: DisplayItem[];
+    total: number; // Total EXCLUDING GST
+    totalInclGst: number; // Total INCLUDING GST
+  };
+}
 
 export const SBQuotesSelectionReview: React.FC = () => {
+  const { sbId } = useParams<{ sbId: string }>();
 
-    const { sbId } = useParams<{ sbId: string }>();
+  if (!sbId) return <div>No Sent Back ID Provided</div>;
+  const navigate = useNavigate();
+  const userData = useUserData();
 
-    if(!sbId) return <div>No Sent Back ID Provided</div>
-    const navigate = useNavigate();
-    const [comment, setComment] = useState<string>("")
-    const userData = useUserData()
+  const { updateDoc: updateDoc, loading: update_loading } =
+    useFrappeUpdateDoc();
+  const { createDoc: createDoc, loading: create_loading } =
+    useFrappeCreateDoc();
 
-    const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
-    const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
+  const { mutate } = useSWRConfig();
 
-    const { mutate } = useSWRConfig()
+  const { getItemEstimate } = useItemEstimate();
+  const [comment, setComment] = useState<string>("");
 
-    const { getItemEstimate } = useItemEstimate()
+  const [orderData, setOrderData] = useState<SentBackCategory | undefined>();
 
-    const [orderData, setOrderData] = useState<SentBackCategory | undefined>();
+  // This function will only run ONCE when the component first mounts.
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermsData>(() => {
+    // Create a unique key for this specific Procurement Request.
+    const storageKey = `SBpaymentTermsDraft_${sbId}`;
+    try {
+      const savedData = localStorage.getItem(storageKey);
+      // If we find saved data, parse it and use it as the initial state.
+      if (savedData) {
+        return JSON.parse(savedData);
+      }
+    } catch (error) {
+      console.error("Failed to parse payment terms from local storage", error);
+    }
+    // If no data is found, or if there's an error, start with an empty object.
+    return {};
+  });
+  // --- ADD THIS ENTIRE useEffect HOOK ---
+  // This hook will run every time the `paymentTerms` state changes.
+  useEffect(() => {
+    // Don't save anything if the paymentTerms object is empty.
+    if (Object.keys(paymentTerms).length > 0) {
+      const storageKey = `SBpaymentTermsDraft_${sbId}`;
+      localStorage.setItem(storageKey, JSON.stringify(paymentTerms));
+    }
+  }, [paymentTerms, sbId]); // The dependency array ensures this runs only when needed.
+  // --- ADDED: State to control which vendor's payment terms are being edited ---
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading, mutate: sent_back_list_mutate } = useFrappeGetDocList<SentBackCategory>("Sent Back Category", {
-        fields: ["*"],
-        filters: [["name", "=", sbId]]
+  const [editingVendor, setEditingVendor] = useState<{
+    id: string;
+    name: string;
+    total: number;
+  } | null>(null);
+
+  const {
+    data: sent_back,
+    isLoading: sent_back_loading,
+    mutate: sent_back_mutate,
+  } = useSentBackCategory(sbId);
+
+  useFrappeDocumentEventListener(
+    "Sent Back Category",
+    sbId,
+    (event) => {
+      console.log("Sent Back document updated (real-time):", event);
+      toast({
+        title: "Document Updated",
+        description: `Sent Back ${event.name} has been modified.`,
+      });
+      sent_back_mutate(); // Re-fetch this specific document
     },
-        sbId ? `Sent Back Category:${sbId}` : null
-    );
+    true // emitOpenCloseEventsOnMount (default)
+  );
 
-    useFrappeDocumentEventListener("Sent Back Category", sbId, (event) => {
-              console.log("Sent Back document updated (real-time):", event);
-              toast({
-                  title: "Document Updated",
-                  description: `Sent Back ${event.name} has been modified.`,
-              });
-              sent_back_list_mutate(); // Re-fetch this specific document
-            },
-            true // emitOpenCloseEventsOnMount (default)
-            )
+  const { data: vendor_list, isLoading: vendor_list_loading } = useVendorsList({
+    vendorTypes: ["Material", "Material & Service"],
+  });
 
-    const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList<Vendors>("Vendors",
-        {
-            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type', 'vendor_state', 'vendor_city'],
-            filters: [["vendor_type", "in", ["Material", "Material & Service"]]],
-            limit: 10000
-        });
+//   useEffect(() => {
+//     if (sent_back) {
+//       const items =
+//         sent_back.order_list && Array.isArray(sent_back.order_list)
+//           ? sent_back.order_list
+//           : [];
+//       setOrderData({ ...sent_back, order_list: items });
+//     }
+//   }, [sent_back]);
 
-    useEffect(() => {
-        if (sent_back_list) {
-            const request = sent_back_list[0]
-            setOrderData(request)
-        }
-    }, [sent_back_list])
+useEffect(() => {
+  if (sent_back) {
+    // Start with a deep copy to avoid mutating server data
+    const newOrderData = JSON.parse(JSON.stringify(sent_back));
 
-    // const getCategoryTotals = useMemo(() => {
-    //   const totals : {[category: string]: number} = {}
-
-    // if(!orderData?.item_list?.list?.length) return totals
-    //   orderData?.item_list?.list?.forEach(item => {
-    //     const category = item.category
-    //     const quote = item.quote || 0
-    //     const quantity = item.quantity
-    //     if(!totals[category]) {
-    //       totals[category] = 0
-    //     }
-    //     totals[category] += quote * quantity
-    //   })
-
-    //   return totals
-    // }, [orderData])
-
-    // const getVendorName = (vendorId : string) => 
-    //   useMemo(() => (vendor_list || [])?.find(v => v?.name === vendorId)?.vendor_name
-    //   , [vendorId, vendor_list])
-
-    const getVendorName = useMemo(() => (vendorId: string | undefined) => {
-        return vendor_list?.find(vendor => vendor?.name === vendorId)?.vendor_name || "";
-    }, [vendor_list]);
-
-    const getLowest = useMemo(() => memoize((itemId: string) => {
-        return getLowestQuoteFilled(orderData, itemId)
-    }, (itemId: string) => itemId), [orderData]);
-
-    // const getFinalVendorQuotesData = useMemo(() => {
-    //   const data : CategoryWithChildren[] = []
-    //   if(orderData?.item_list.list?.length) {
-    //     const procurementList = orderData.item_list.list
-    //     procurementList.forEach(item => {
-    //       const category : string = item.category
-    //       const existingCategory = data?.find(entry => entry[category])
-    //       if(existingCategory) {
-    //         existingCategory[category]?.items.push({
-    //           ...item,
-    //           vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
-    //           amount: (item.quote || 0) * item.quantity,
-    //           threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
-    //           lowestQuotedAmount: getLowest(item.name) * item.quantity,
-    //         })
-    //       } else {
-    //         data.push({
-    //           [category]: {
-    //             totalAmount: getCategoryTotals[category],
-    //             key: uuidv4(),
-    //             items: [{
-    //               ...item,
-    //               vendor_name : item?.vendor ? getVendorName(item?.vendor) : undefined,
-    //               amount: (item.quote || 0) * item.quantity,
-    //               threeMonthsLowestAmount: (getItemEstimate(item.name) * 0.98) * item.quantity,
-    //               lowestQuotedAmount: getLowest(item.name) * item.quantity,
-    //             }]
-    //           }
-    //         })
-    //       }
-    //     })
-    //   }
-    //   return data
-    // }, [orderData, vendor_list])
-
-
-    const handleSubmit = async () => {
-        try {
-            await updateDoc('Sent Back Category', sbId, {
-                workflow_state: "Vendor Selected"
-            });
-
-            if (comment) {
-                await createDoc("Nirmaan Comments", {
-                    comment_type: "Comment",
-                    reference_doctype: "Sent Back Category",
-                    reference_name: sbId,
-                    comment_by: userData?.user_id,
-                    content: comment,
-                    subject: "sb vendors selected",
-                });
-            }
-
-            toast({
-                title: "Success!",
-                description: `Sent Back: ${sbId} sent for Approval!`,
-                variant: "success",
-            });
-
-            await mutate(`${orderData?.type} Sent Back Category`)
-
-            navigate(`/procurement-requests?tab=${orderData?.type}`)
-        } catch (error) {
-            toast({
-                title: "Failed!",
-                description: `Failed to send Sent Back: ${sbId} for Approval.`,
-                variant: "destructive",
-            });
-            console.log("submit_error", error);
-        }
-    };
-
-    interface VendorWiseApprovalItems {
-        [vendor: string]: {
-            items: (ProcurementItem & { potentialLoss?: number })[];
-            total: number;
-        }
+    // 1. Normalize the item list to prevent errors
+    if (!Array.isArray(newOrderData.order_list)) {
+      newOrderData.order_list = [];
     }
 
-    const generateActionSummary = useCallback(() => {
-        let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
-        let approvalOverallTotal: number = 0;
+    // 2. THIS IS THE CRITICAL FIX: Parse rfq_data if it's a string
+    if (typeof newOrderData.rfq_data === 'string' && newOrderData.rfq_data) {
+      try {
+        newOrderData.rfq_data = JSON.parse(newOrderData.rfq_data);
+      } catch (e) {
+        console.error("Failed to parse rfq_data JSON in VendorsSelectionSummary:", e);
+        newOrderData.rfq_data = { selectedVendors: [], details: {} };
+      }
+    }
 
-        orderData?.item_list?.list.forEach((item) => {
-            const vendor = item?.vendor || "";
-            // Approval items segregated by vendor
-            const targetRate = getItemEstimate(item?.name)?.averageRate
-            const lowestItemPrice = targetRate ? targetRate * 0.98 : getLowest(item?.name)
-            const itemTotal = parseNumber(item.quantity * parseNumber(item.quote));
-            if (!vendorWiseApprovalItems[vendor]) {
-                vendorWiseApprovalItems[vendor] = {
-                    items: [],
-                    total: 0,
-                };
-            }
-            if (lowestItemPrice && lowestItemPrice !== parseNumber(item.quote) && lowestItemPrice < parseNumber(item?.quote)) {
-                vendorWiseApprovalItems[vendor].items.push({ ...item, potentialLoss: itemTotal - (parseNumber(item.quantity) * lowestItemPrice) });
-            } else {
-                vendorWiseApprovalItems[vendor].items.push(item);
-            }
-            vendorWiseApprovalItems[vendor].total += itemTotal;
-            approvalOverallTotal += itemTotal;
+    // 3. Ensure rfq_data is a valid object if it was null, undefined, or an empty string
+    if (!newOrderData.rfq_data) {
+      newOrderData.rfq_data = { selectedVendors: [], details: {} };
+    }
+
+    // 4. Set the fully normalized document as our component's working state.
+    setOrderData(newOrderData);
+  }
+}, [sent_back]);
+
+
+  const getVendorName = useMemo(
+    () => (vendorId: string | undefined) => {
+      return (
+        vendor_list?.find((vendor) => vendor?.name === vendorId)?.vendor_name ||
+        ""
+      );
+    },
+    [vendor_list]
+  );
+
+
+const getLowest = useMemo(
+  () =>
+    memoize(
+      (itemId: string): number => {
+        // Guard clause: Ensure the path to the quotes exists in our data.
+        if (!orderData?.rfq_data?.details?.[itemId]?.vendorQuotes) {
+          // Return a very large number so Math.min will ignore it.
+          return Infinity;
+        }
+
+        // Get the object containing all vendor quotes for this specific item.
+        // e.g., { "V-001": { quote: "100" }, "V-002": { quote: "95" } }
+        const allQuotesForItem = orderData.rfq_data.details[itemId].vendorQuotes;
+
+        // 1. Get all quote values from the object.
+        // 2. Convert them from strings to numbers.
+        // 3. Filter out any non-positive values (e.g., 0, null, empty strings that become NaN).
+        const numericQuotes = Object.values(allQuotesForItem)
+          .map((vendorQuote: any) => parseNumber(vendorQuote.quote))
+          .filter(q => q > 0);
+
+        // If after filtering, there are no valid quotes, return Infinity.
+        if (numericQuotes.length === 0) {
+          return Infinity;
+        }
+        
+        // Return the lowest number from the array of valid quotes.
+        return Math.min(...numericQuotes);
+      },
+      // THIS IS THE CORRECTED MEMOIZATION KEY:
+      // It depends on the itemID and the *entire* rfq_data object.
+      // If any quote changes anywhere, the cache will be correctly busted.
+      (itemId: string) => `${itemId}-${JSON.stringify(orderData?.rfq_data)}`
+    ),
+  [orderData] // The function is only recreated if `orderData` itself changes.
+);
+ 
+
+  // --- ADD THIS ENTIRE NEW FUNCTION ---
+  const savePaymentTerms = async (): Promise<boolean> => {
+    // This function will attempt to save the payment terms and return true on success or false on failure.
+
+    // 1. Prepare the data payload, just like before.
+
+    const paymentTermsJsonString = JSON.stringify({ list: paymentTerms });
+
+    // 2. Use a try/catch block to handle potential errors from the API call.
+    try {
+      console.log("Saving payment terms to :", sbId);
+      console.log("Data for SB Payments_terms", paymentTermsJsonString);
+
+      await updateDoc("Sent Back Category", sbId, {
+        payment_terms: paymentTermsJsonString,
+      });
+
+      // 4. Show a success message to the user.
+      toast({
+        title: "SB Payment Terms Saved",
+        description:
+          "Payment terms have been successfully saved to the Sent Back Category.",
+        variant: "success",
+      });
+
+      localStorage.removeItem(`SBpaymentTermsDraft_${sbId}`);
+
+      // 5. Return true to indicate success.
+      return true;
+    } catch (error) {
+      console.error("Failed to save payment terms:", error);
+      toast({
+        title: "Error Saving Terms",
+        description: "Could not save the SB payment terms. Please try again.",
+        variant: "destructive",
+      });
+
+      // 6. Return false to indicate failure.
+      return false;
+    }
+  };
+  const handleConfirmPaymentTerms = (
+    vendorId: string,
+    data: VendorPaymentTerm
+  ) => {
+    setPaymentTerms((prev) => ({
+      ...prev,
+      [vendorId]: data,
+    }));
+    setEditingVendor(null); // Close the dialog
+  };
+
+  const handleSubmit = async () => {
+    try {
+      // --- ADDED: Transform the paymentTerms state into an array for the API payload ---
+      const termsSavedSuccessfully = await savePaymentTerms();
+
+      // --- Step 2: Check if the save was successful. If not, stop here. ---
+      if (!termsSavedSuccessfully) {
+        // The error toast is already shown inside savePaymentTerms, so we just exit.
+        return;
+      }
+
+      await updateDoc("Sent Back Category", sbId, {
+        workflow_state: "Vendor Selected",
+      });
+
+      if (comment) {
+        await createDoc("Nirmaan Comments", {
+          comment_type: "Comment",
+          reference_doctype: "Sent Back Category",
+          reference_name: sbId,
+          comment_by: userData?.user_id,
+          content: comment,
+          subject: "sb vendors selected",
         });
+      }
 
-        return {
-            vendorWiseApprovalItems,
-            approvalOverallTotal,
+      toast({
+        title: "Success!",
+        description: `Sent Back: ${sbId} sent for Approval!`,
+        variant: "success",
+      });
+
+      await mutate(`${orderData?.type} Sent Back Category`);
+
+      navigate(`/procurement-requests?tab=${orderData?.type}`);
+    } catch (error) {
+      toast({
+        title: "Failed!",
+        description: `Failed to send Sent Back: ${sbId} for Approval.`,
+        variant: "destructive",
+      });
+      console.log("submit_error", error);
+    }
+  };
+
+
+  
+     const itemIdsToFetch = useMemo(
+      () => getItemListFromDocument(orderData).map(item => item.item_id).filter(Boolean),
+      [orderData]
+    );
+  
+    // console.log("itemIdsToFetch", itemIdsToFetch)
+    const {targetRatesDataMap } = useTargetRatesForItems(itemIdsToFetch, sbId);
+  
+
+//   const generateActionSummary = useCallback(() => {
+//     let allDelayedItems: DisplayItem[] = [];
+//     let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
+
+//     let approvalOverallTotalExclGst: number = 0;
+//     let approvalOverallTotalInclGst: number = 0;
+//     let delayedItemsTotalExclGst: number = 0;
+//     let delayedItemsTotalInclGst: number = 0;
+
+//     orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
+//       const vendor = item?.vendor;
+//       const quote = parseNumber(item.quote);
+//       const quantity = parseNumber(item.quantity);
+//       const taxRate = parseNumber(item.tax) / 100; // e.g., 18 -> 0.18
+
+//       const baseItemTotal = quantity * quote;
+//       const itemTotalInclGst = baseItemTotal * (1 + taxRate);
+
+//       if (!vendor || !quote) {
+//         allDelayedItems.push(item);
+//         delayedItemsTotalExclGst += baseItemTotal;
+//         delayedItemsTotalInclGst += itemTotalInclGst;
+//       } else {
+//         const targetRate = getItemEstimate(item?.item_id)?.averageRate;
+//         const lowestItemPrice = targetRate
+//           ? targetRate * 0.98
+//           : getLowest(item?.item_id);
+
+//         if (!vendorWiseApprovalItems[vendor]) {
+//           vendorWiseApprovalItems[vendor] = {
+//             items: [],
+//             total: 0,
+//             totalInclGst: 0,
+//           };
+//         }
+
+//         const displayItem: DisplayItem = { ...item, amount: itemTotalInclGst };
+
+//         if (lowestItemPrice && lowestItemPrice < quote) {
+//           displayItem.potentialLoss =
+//             baseItemTotal - quantity * lowestItemPrice;
+//         }
+
+//         vendorWiseApprovalItems[vendor].items.push(displayItem);
+//         vendorWiseApprovalItems[vendor].total += baseItemTotal;
+//         vendorWiseApprovalItems[vendor].totalInclGst += itemTotalInclGst;
+
+//         approvalOverallTotalExclGst += baseItemTotal;
+//         approvalOverallTotalInclGst += itemTotalInclGst;
+//       }
+//     });
+
+//     return {
+//       allDelayedItems,
+//       vendorWiseApprovalItems,
+//       approvalOverallTotal: approvalOverallTotalExclGst,
+//       approvalOverallTotalInclGst,
+//       delayedItemsTotalInclGst,
+//     };
+//   }, [orderData, getLowest, getItemEstimate]);
+
+const generateActionSummary = useCallback(() => {
+  let allDelayedItems: DisplayItem[] = [];
+  let vendorWiseApprovalItems: VendorWiseApprovalItems = {};
+
+  let approvalOverallTotalExclGst: number = 0;
+  let approvalOverallTotalInclGst: number = 0;
+  let delayedItemsTotalExclGst: number = 0;
+  let delayedItemsTotalInclGst: number = 0;
+
+  orderData?.order_list.forEach((item: ProcurementRequestItemDetail) => {
+    const vendor = item?.vendor;
+    const quote = parseNumber(item.quote);
+    const quantity = parseNumber(item.quantity);
+    const taxRate = parseNumber(item.tax) / 100;
+
+    const baseItemTotal = quantity * quote;
+    const itemTotalInclGst = baseItemTotal * (1 + taxRate);
+
+    if (!vendor || !quote) {
+      allDelayedItems.push(item);
+      delayedItemsTotalExclGst += baseItemTotal;
+      delayedItemsTotalInclGst += itemTotalInclGst;
+    } else {
+      // --- THIS IS THE CORE LOGIC UPDATE ---
+
+      // 1. Calculate the targetRateValue exactly as done in the previous screen.
+      const targetRateDetail = targetRatesDataMap?.get(item.item_id);
+      // console.log("targetRateDetail",targetRateDetail)
+
+      let calculatedTargetRate = -1; // Use -1 as a 'not found' value
+      if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
+          const parsedRate = parseNumber(targetRateDetail.rate);
+          if (!isNaN(parsedRate)) {
+              calculatedTargetRate = parsedRate * 0.98; // The 98% logic
+          }
+      }
+
+      // 2. Determine the benchmark for potential loss calculation.
+      // const lowestItemPrice = calculatedTargetRate > 0
+      //   ? calculatedTargetRate
+      //   : getLowest(item.item_id);
+        const lowestItemPrice = calculatedTargetRate > 0
+        && Math.min(calculatedTargetRate
+        , getLowest(item.item_id));
+
+      if (!vendorWiseApprovalItems[vendor]) {
+        vendorWiseApprovalItems[vendor] = {
+          items: [],
+          total: 0,
+          totalInclGst: 0,
         };
-    }, [orderData]);
+      }
 
-    const {
-        vendorWiseApprovalItems,
-        approvalOverallTotal,
-    } = generateActionSummary();
+      // 3. Create the displayItem and add our new `targetRateValue` to it.
+      const displayItem: DisplayItem = {
+        ...item,
+        amount: itemTotalInclGst,
+        targetRateValue: lowestItemPrice, // Store the calculated value
+      };
 
+      // 4. Calculate potential loss using the benchmark.
+      if (lowestItemPrice && lowestItemPrice < quote) {
+        displayItem.potentialLoss = baseItemTotal - quantity * lowestItemPrice;
+      }
 
-    if (sent_back_list_loading || vendor_list_loading) return <LoadingFallback />
+      vendorWiseApprovalItems[vendor].items.push(displayItem);
+      vendorWiseApprovalItems[vendor].total += baseItemTotal;
+      vendorWiseApprovalItems[vendor].totalInclGst += itemTotalInclGst;
 
-    return (
-        <>
-            {orderData &&
-                <div className="flex-1 space-y-4">
-                    <div className="flex items-center">
-                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
-                    </div>
-                    <ProcurementHeaderCard orderData={orderData} sentBack />
-                    {/* <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200 mt-4"> */}
-                    {/* <h2 className="text-lg font-bold mb-3 flex items-center">
-                            <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
-                            Approval Products
-                        </h2> */}
-                    {/* <div className="p-6"> */}
-                    {/* Approval Items Summary */}
-                    {/* {Object.keys(vendorWiseApprovalItems).length > 0 && (
-                                <div className="p-6 rounded-lg bg-green-100 opacity-70">
-                                    <div className="flex items-center mb-2">
-                                        <ListChecks className="h-5 w-5 mr-2 text-green-600" />
-                                        <h3 className="font-medium">Approval Items</h3>
-                                    </div>
-                                    <p className="text-sm">
-                                        These items will be sent to the project lead for approval.
-                                    </p>
-                                    <ul className="list-[number] text-red-700 pl-5 space-y-2">
-                                    {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
-                                        <li key={vendor} className="mt-2 space-y-2">
-                                            <h4 className="text-sm font-medium">
-                                                {getVendorName(vendor)}:
-                                            </h4>
-                                            <ul className="list-disc pl-5 text-black space-y-2">
-                                                {items.map((item) => (
-                                                    <li key={item.name} className="text-xs md:text-sm">
-                                                        {item.item} - {item.quantity} {item.unit} -
-                                                        {formatToIndianRupee(item.quantity * (item.quote || 0))}
-                                                        {item?.potentialLoss && (
-                                                            <span className="ml-2 text-red-700">
-                                                            (You are potentially losing {formatToIndianRupee(item.potentialLoss)} on this product)                                                                                                                </span>
-                                                        )}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                            <p className="text-sm text-black font-medium -ml-5 mt-2">
-                                                Vendor Total: <span className="font-semibold">{formatToIndianRupee(total)}</span>
-                                            </p>
-                                        </li>
-                                    ))}
-                                  </ul>
-                                    <p className="mt-2 font-medium text-end">
-                                    <span className="text-red-700">Overall Total:</span> {formatToIndianRupee(approvalOverallTotal)}
-                                    </p>
+      approvalOverallTotalExclGst += baseItemTotal;
+      approvalOverallTotalInclGst += itemTotalInclGst;
+    }
+  });
+
+  return {
+    allDelayedItems,
+    vendorWiseApprovalItems,
+    approvalOverallTotal: approvalOverallTotalExclGst,
+    approvalOverallTotalInclGst,
+    delayedItemsTotalInclGst,
+  };
+}, [orderData, getLowest, getItemEstimate, targetRatesDataMap]);
+  const {
+    allDelayedItems,
+    vendorWiseApprovalItems,
+    approvalOverallTotal,
+    approvalOverallTotalInclGst,
+    delayedItemsTotalInclGst,
+  } = useMemo(() => generateActionSummary(), [generateActionSummary]);
+
+  // =========================================
+  // --- SECTION E: NEW VALIDATION LOGIC ---
+  // =========================================
+  const allVendorsHaveTerms = useMemo(() => {
+    const approvalVendorIds = Object.keys(vendorWiseApprovalItems);
+    if (approvalVendorIds.length === 0) return true; // No vendors to set terms for
+    return approvalVendorIds.every((id) => !!paymentTerms[id]);
+  }, [vendorWiseApprovalItems, paymentTerms]);
+
+  if (sent_back_loading || vendor_list_loading) return <LoadingFallback />;
+
+  console.log("orderData", orderData);
+  console.log("vendorWiseApprovalItems", vendorWiseApprovalItems); // this is empty why
+  return (
+    <>
+      {orderData && (
+        <div className="flex-1 space-y-4">
+          <div className="flex items-center">
+            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
+              Comparison
+            </h2>
+          </div>
+          <ProcurementHeaderCard orderData={orderData} sentBack />
+          <div className="flex flex-col gap-4">
+            {/* Approval Items Summary */}
+            {Object.keys(vendorWiseApprovalItems).length > 0 && (
+              <div className="p-6 rounded-lg bg-green-50 border border-green-200">
+                {" "}
+                {/* Changed background, removed opacity, added border */}
+                <div className="flex items-center mb-2">
+                  <ListChecks className="h-5 w-5 mr-2 text-green-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    Items for Approval
+                  </h3>{" "}
+                  {/* Slightly bolder heading */}
+                </div>
+                <p className="text-sm text-gray-600 mb-4">
+                  {" "}
+                  {/* Adjusted text color and margin */}
+                  These items have been assigned to vendors and require project
+                  lead approval.
+                </p>
+                {/* Using a definition list style for vendors for better structure */}
+                <dl className="space-y-4">
+                  {Object.entries(vendorWiseApprovalItems).map(
+                    ([vendor, { items, total, totalInclGst }]) => {
+                      const termsForVendor = paymentTerms[vendor];
+
+                      return (
+                        <div
+                          key={vendor}
+                          className="border-t border-green-200 pt-4"
+                        >
+                          <dt className="flex justify-between items-center text-sm border-b border-grey-200 font-medium pb-2">
+                            <p>
+                              Vendor:{" "}
+                              <span className="font-semibold text-red-600">
+                                {getVendorName(vendor)}
+                              </span>
+                            </p>
+
+                            <div>
+                              {termsForVendor ? (
+                                // --- If terms exist, show the summary and an Edit button ---
+                                <div className="flex items-center gap-2">
+                                  <RenderPaymentTermsSummary
+                                    terms={termsForVendor}
+                                  />
+                                  <Button
+                                    variant="outline"
+                                size="sm"
+                                 className="text-primary border-primary justify-start hover:text-white hover:bg-red-600"
+                                    onClick={() =>
+                                      setEditingVendor({
+                                        id: vendor,
+                                        name: getVendorName(vendor),
+                                        total: totalInclGst,
+                                      })
+                                    }
+                                  >
+                                    <Pencil className="mr-2 h-4 w-4 flex-shrink-0" />{" "}
+                                    Edit
+                                  </Button>
                                 </div>
-                            )} */}
-                    <div className="flex flex-col gap-4">
-                        {/* Approval Items Summary */}
-                        {Object.keys(vendorWiseApprovalItems).length > 0 && (
-                            <div className="p-6 rounded-lg bg-green-50 border border-green-200"> {/* Changed background, removed opacity, added border */}
-                                <div className="flex items-center mb-2">
-                                    <ListChecks className="h-5 w-5 mr-2 text-green-600" />
-                                    <h3 className="text-lg font-semibold text-gray-800">Items for Approval</h3> {/* Slightly bolder heading */}
-                                </div>
-                                <p className="text-sm text-gray-600 mb-4"> {/* Adjusted text color and margin */}
-                                    These items have been assigned to vendors and require project lead approval.
-                                </p>
-                                {/* Using a definition list style for vendors for better structure */}
-                                <dl className="space-y-4">
-                                    {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
-                                        <div key={vendor}> {/* Use div instead of li for dl structure */}
-                                            <dt className="text-sm font-medium text-gray-700">
-                                                Vendor: <span className="font-semibold text-gray-900">{getVendorName(vendor)}</span>
-                                            </dt>
-                                            <dd className="mt-1 pl-5"> {/* Indent item details */}
-                                                <ul className="list-disc space-y-1 text-gray-800"> {/* Changed text color, list style */}
-                                                    {items.map((item) => (
-                                                        <li key={item.item} className="text-sm"> {/* Standardized text size */}
-                                                            {item.item}
-                                                            {/* --- Make Name Added Here --- */}
-                                                            {item.make && (
-                                                                <span className="text-gray-500 italic ml-1">({item.make})</span>
-                                                            )}
-                                                            {/* --- End Make Name --- */}
-                                                            <span className="mx-1">-</span> {/* Added separator for clarity */}
-                                                            {item.quantity} {item.unit}
-                                                            <span className="mx-1">-</span> {/* Added separator */}
-                                                            <span className="font-medium">{formatToIndianRupee(item.quantity * (item.quote || 0))}</span>
-                                                            {item?.potentialLoss && (
-                                                                <span className="block text-xs text-red-600 mt-0.5"> {/* Changed display and color slightly */}
-                                                                    Potential Loss: {formatToIndianRupee(item.potentialLoss)}
-                                                                </span>
-                                                            )}
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                                <p className="mt-2 text-sm text-right font-medium text-gray-800"> {/* Aligned right */}
-                                                    Subtotal for {getVendorName(vendor)}: <span className="font-semibold">{formatToIndianRupee(total)}</span>
-                                                </p>
-                                            </dd>
-                                        </div>
-                                    ))}
-                                </dl>
-                                <div className="mt-4 pt-4 border-t border-green-200 text-right"> {/* Added separator line */}
-                                    <p className="text-sm font-medium text-gray-800">
-                                        Approval Overall Total: <span className="text-base font-semibold text-green-700">{formatToRoundedIndianRupee(approvalOverallTotal)}</span> {/* Made total stand out */}
-                                    </p>
-                                </div>
+                              ) : (
+                                // --- If terms don't exist, show the "Add Payment Terms" button ---
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-primary border-primary justify-start hover:text-white hover:bg-red-600"
+                                  onClick={() =>
+                                    setEditingVendor({
+                                      id: vendor,
+                                      name: getVendorName(vendor),
+                                      total: totalInclGst,
+                                    })
+                                  }
+                                >
+                                  <CirclePlus className="mr-2 h-4 w-4 flex-shrink-0" />{" "}
+                                  Add Payment Terms
+                                </Button>
+                              )}
                             </div>
+                          </dt>
+                          {/* // Payment Terms xAnd REPLACE IT with this: */}
+                          <dd className="mt-1 pl-5">
+                            {/* This is the existing list of products. It stays the same. */}
+                            <ul className="list-disc space-y-1 text-gray-800">
+                              {items.map((item) => (
+                                <li key={item.item_id} className="text-sm">
+                                  {item.item_name}
+                                  {item.make && (
+                                    <span className="text-gray-500 italic ml-1">
+                                      ({item.make})
+                                    </span>
+                                  )}
+                                  <span className="mx-1">-</span>{" "}
+                                  {item.quantity} x{" "}
+                                  {formatToIndianRupee(item.quote)}
+                                  <span className="mx-1 text-gray-500">
+                                    +
+                                  </span>{" "}
+                                  {item.tax}% GST
+                                  <span className="mx-1">=</span>{" "}
+                                  <span className="font-medium">
+                                    {formatToIndianRupee(item.amount)}
+                                  </span>
+                                  {item?.potentialLoss && (
+                                    <span className="block text-xs text-red-600 mt-0.5">
+                                      Potential Loss:{" "}
+                                      {formatToIndianRupee(item.potentialLoss)}
+                                    </span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+
+                            {/*
+      --- THIS IS THE NEWLY ADDED LOGIC ---
+      This block checks if payment terms have been set for the current vendor.
+      If they have, it renders our new display component.
+    */}
+                            {(() => {
+                              // 1. Get the payment terms for the *current* vendor in the loop.
+                              const termsForThisVendor = paymentTerms[vendor];
+
+                              // 2. If terms exist for this vendor...
+                              if (termsForThisVendor) {
+                                // 3. ...render our new display component, passing the terms data as a prop.
+                                return (
+                                  <PaymentTermsDetailsDisplay
+                                    terms={termsForThisVendor}
+                                  />
+                                );
+                              }
+
+                              // 4. Otherwise, render nothing.
+                              return null;
+                            })()}
+
+                            {/* This is the existing subtotal display. It stays the same. */}
+                            <div className="mt-2 text-right text-sm font-medium text-gray-800">
+                              <p>
+                                Subtotal:{" "}
+                                <span className="font-semibold">
+                                  {formatToIndianRupee(total)}
+                                </span>
+                              </p>
+                              <p>
+                                Subtotal (inc. GST):{" "}
+                                <span className="font-semibold text-green-700">
+                                  {formatToIndianRupee(totalInclGst)}
+                                </span>
+                              </p>
+                            </div>
+                          </dd>
+                        </div>
+                      );
+                    }
+                  )}
+                </dl>
+                <div className="mt-4 pt-4 border-t border-green-200 text-right">
+                  <p className="text-sm font-medium text-gray-800">
+                    Approval Grand Total:{" "}
+                    <span className="font-semibold">
+                      {formatToRoundedIndianRupee(approvalOverallTotal)}
+                    </span>
+                  </p>
+                  <p className="text-sm font-medium text-gray-800">
+                    Approval Grand Total (inc. GST):{" "}
+                    <span className="text-base font-semibold text-green-700">
+                      {formatToRoundedIndianRupee(approvalOverallTotalInclGst)}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            )}
+            {/* Delayed Items Summary */}
+            {/* {allDelayedItems.length > 0 && (
+                      <div className="p-6 rounded-lg bg-red-50 border border-red-200 space-y-2">
+                        <div className="flex items-center mb-2">
+                          <SendToBack className="h-5 w-5 text-red-600 mr-2" />
+                          <h3 className="text-lg font-semibold text-gray-800">
+                            Delayed Items
+                          </h3>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          These items will be moved to a new 'Delayed Sent Back' list:
+                        </p>
+                        <ul className="list-disc space-y-1 pl-5 text-gray-800">
+                          {allDelayedItems.map((item) => (
+                            <li key={item.item_id} className="text-sm">
+                              {item.item_name}
+                              {item.make && (
+                                <span className="text-gray-500 italic ml-1">
+                                  ({item.make})
+                                </span>
+                              )}
+                              <span className="mx-1">-</span>
+                              {item.quantity} {item.unit}
+                            </li>
+                          ))}
+                        </ul>
+                        {delayedItemsTotalInclGst > 0 && (
+                          <div className="mt-4 pt-4 border-t border-red-200 text-right">
+                            <p className="text-sm font-medium text-gray-800">
+                              Estimated Delayed Total (inc. GST):
+                              <span className="text-base font-semibold text-red-700">
+                                {" "}
+                                {formatToRoundedIndianRupee(delayedItemsTotalInclGst)}
+                              </span>
+                            </p>
+                            <p className="text-xs text-gray-500 italic">
+                              (Based on last entered quotes)
+                            </p>
+                          </div>
                         )}
-                    </div>
-                    {/* </div> */}
-                    {/* </div> */}
-                    {/* <div className='mt-6 overflow-x-auto'>
-              {getFinalVendorQuotesData?.length > 0 ? (
-        <div className="overflow-x-auto">
-          <ConfigProvider
-          
-          >
-            <Table
-              dataSource={getFinalVendorQuotesData
-                ?.sort((a, b) =>
-                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
-                )
-                ?.map((key) => ({
-                  key: Object.values(key)[0]?.key,
-                  totalAmount: Object.values(key)[0]?.totalAmount,
-                  category: Object.keys(key)[0],
-                  items: Object.values(key)[0]?.items,
-                }))}
-              rowClassName={(record) => !record?.totalAmount ? "bg-red-100" : ""}
-              columns={columns}
-              pagination={false}
-              expandable={{
-                defaultExpandAllRows : true,
-                expandedRowRender: (record) => (
-                  <Table
-                    rowClassName={(record) => !record?.amount ? "bg-red-50" : ""}
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.name || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
+                      </div>
+                    )} */}
+          </div>
+
+          <div className="flex flex-col justify-end items-end mr-2 my-4">
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  className="flex items-center gap-1"
+                  disabled={!allVendorsHaveTerms || update_loading}
+                >
+                  <ArrowBigUpDash className="" />
+                  Send for Approval
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>
+                    Have you cross-checked your selections?
+                  </DialogTitle>
+                  <DialogDescription>
+                    {Object.keys(vendorWiseApprovalItems).length !== 0 && (
+                      <div className="flex flex-col gap-2 mt-2 text-start">
+                        <h4 className="font-bold">
+                          Any remarks for the Project Lead?
+                        </h4>
+                        <TextArea
+                          className="border-green-400 focus:border-green-800 bg-green-200"
+                          placeholder="type here..."
+                          value={comment}
+                          onChange={(e) => setComment(e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogDescription className="flex items-center justify-center gap-2">
+                  {create_loading || update_loading ? (
+                    <TailSpin width={60} color={"red"} />
+                  ) : (
+                    <>
+                      <DialogClose>
+                        <Button
+                          variant="secondary"
+                          className="flex items-center gap-1"
+                        >
+                          <Undo2 className="h-4 w-4" />
+                          Cancel
+                        </Button>
+                      </DialogClose>
+                      <Button
+                        variant="default"
+                        onClick={handleSubmit}
+                        className="flex items-center gap-1"
+                      >
+                        <CheckCheck className="h-4 w-4" />
+                        Confirm
+                      </Button>
+                    </>
+                  )}
+                </DialogDescription>
+              </DialogContent>
+            </Dialog>
+            {/* --- ADDED: Validation error message --- */}
+            {!allVendorsHaveTerms && (
+              <p className="text-xs text-red-500 mt-2">
+                Please add payment terms for all vendors before proceeding.
+              </p>
+            )}
+          </div>
+          {editingVendor && (
+            <PaymentTermsDialog
+              isOpen={!!editingVendor}
+              onClose={() => setEditingVendor(null)}
+              vendorName={editingVendor.name}
+              poAmount={editingVendor.total}
+              initialData={paymentTerms[editingVendor.id]}
+              onConfirm={(data) =>
+                handleConfirmPaymentTerms(editingVendor.id, data)
+              }
             />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
+          )}
         </div>
       )}
-              </div> */}
-                    <div className="flex flex-col justify-end items-end mr-2 my-4">
-                        <Dialog>
-                            <DialogTrigger asChild>
-                                <Button className="flex items-center gap-1">
-                                    <ArrowBigUpDash className="" />
-                                    Send for Approval
-                                </Button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[425px]">
-                                <DialogHeader>
-                                    <DialogTitle>Have you cross-checked your selections?</DialogTitle>
-                                    <DialogDescription>
+    </>
+  );
+};
 
-                                        {Object.keys(vendorWiseApprovalItems).length !== 0 && (
-                                            <div className='flex flex-col gap-2 mt-2 text-start'>
-                                                <h4 className='font-bold'>Any remarks for the Project Lead?</h4>
-                                                <TextArea className='border-green-400 focus:border-green-800 bg-green-200' placeholder='type here...' value={comment} onChange={(e) => setComment(e.target.value)} />
-                                            </div>
-                                        )}
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <DialogDescription className='flex items-center justify-center gap-2'>
-                                    {(create_loading || update_loading) ? <TailSpin width={60} color={"red"} /> : (
-                                        <>
-                                            <DialogClose><Button variant="secondary" className="flex items-center gap-1">
-                                                <Undo2 className="h-4 w-4" />
-                                                Cancel</Button></DialogClose>
-                                            <Button variant="default"
-                                                onClick={handleSubmit}
-                                                className="flex items-center gap-1">
-                                                <CheckCheck className="h-4 w-4" />
-                                                Confirm</Button>
-                                        </>
-                                    )}
-                                </DialogDescription>
-                            </DialogContent>
-                        </Dialog>
-                    </div>
-                </div>
-            }
-        </>
-    )
-}
+// This component is now smarter to handle the detailed milestone data.
+const RenderPaymentTermsSummary: React.FC<{ terms: VendorPaymentTerm }> = ({
+  terms,
+}) => {
+  // If for some reason terms are missing, show a fallback.
+  if (!terms.terms || terms.terms.length === 0) {
+    return (
+      <span className="text-xs font-normal text-gray-600">{terms.type}</span>
+    );
+  }
+
+  // Show the breakdown of milestones
+  return (
+    <div className="flex items-center gap-2 text-xs font-normal text-gray-600">
+      <span className="font-medium">{terms.type}:</span>
+      {terms.terms.map((milestone, index) => (
+        <React.Fragment key={milestone.id}>
+          <span>
+            {/* Display the name if it's not a generic default like "1st Payment" */}
+            {/* {milestone.name && !milestone.name.match(/^\d+(st|nd|rd|th) Payment$/i) ? `${milestone.name}: ` : ''} */}
+            <strong>{milestone.percentage.toFixed(0)}%</strong>
+          </span>
+          {/* Add a separator between milestones */}
+          {index < terms.terms.length - 1 && (
+            <span className="text-gray-300">|</span>
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
 
 export default SBQuotesSelectionReview;

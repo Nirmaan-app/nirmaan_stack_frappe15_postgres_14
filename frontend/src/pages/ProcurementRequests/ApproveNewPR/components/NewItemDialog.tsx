@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea'; // Use Textarea for comments
 import ReactSelect from 'react-select';
 import { SelectUnit } from '@/components/helpers/SelectUnit'; // Assuming this is your unit selector
-import { FuzzyMatch, ItemOption, NewItemState, RequestItemState } from '../types';
+import { FuzzyMatch, ItemOption, NewItemState } from '../types';
 import { TailSpin } from 'react-loader-spinner';
 import { parseNumber } from '@/utils/parseNumber';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,7 +33,8 @@ interface NewItemDialogProps {
     isLoading: boolean;
     fuzzyMatches: FuzzyMatch[];
     handleFuzzySearch: (input: string) => void
-    onAddMatchingItem: React.Dispatch<React.SetStateAction<ItemOption | null>>
+      onAddMatchingItem: (itemOption: ItemOption) => void; // Update the function signature
+    //onAddMatchingItem: React.Dispatch<React.SetStateAction<ItemOption | null>>
 }
 
 export const NewItemDialog: React.FC<NewItemDialogProps> = ({
@@ -157,7 +158,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                                                                     category: match.category,
                                                                     tax: parseNumber(categoryOptions.find(c => c.value === match.category)?.tax ?? "0")
                                                                 })
-                                                                onClose()
+                                                                // onClose()
                                                               }}
                                                               disabled={isLoading}
                                                               className='h-7 border-blue-500 text-blue-600 hover:bg-blue-100'

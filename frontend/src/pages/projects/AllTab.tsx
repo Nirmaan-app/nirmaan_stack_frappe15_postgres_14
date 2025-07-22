@@ -53,6 +53,8 @@ export const AllTab: React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProj
     return totalAmountsObject;
   }, [workPackageTotalAmounts, serviceTotalEstdAmt, totalServiceOrdersAmt, getTotalAmountPaid]);
 
+  // console.log("totalsAmounts", totalsAmounts);
+
   const tableRows = useMemo(() => {
     return Object.keys(totalsAmounts)
       .sort((a, b) => a?.localeCompare(b))

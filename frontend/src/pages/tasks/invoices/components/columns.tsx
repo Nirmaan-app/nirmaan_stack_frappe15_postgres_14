@@ -15,181 +15,204 @@ import { parseNumber } from "@/utils/parseNumber";
 
 // --- Helper function for common columns ---
 const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
-getAmount: (orderId: string, statuses: string[]) => number
+    getAmount: (orderId: string, statuses: string[]) => number, getDeliveredAmount?: (orderId: string, type: string) => number,
 ): ColumnDef<InvoiceApprovalTask>[] => [
-    {
-        accessorKey: "task_docname",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Parent Doc" />,
-        cell: ({ row }) => {
-            const docType = row.original.task_doctype;
-            const docName = row.original.task_docname;
-            const isPO = docType === "Procurement Orders";
-            const linkDocName = isPO ? row.original.task_docname.replaceAll("/", "&=") : row.original.task_docname;
-            // IMPROVEMENT: Centralize route generation?
-            const linkTo = docType === "Procurement Orders" ? `/purchase-orders/${linkDocName}?tab=Dispatched+PO` : `/service-requests/${linkDocName}?tab=approved-sr`;
-            return (
-                <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Link to={linkTo} className="text-blue-600 hover:underline">
-                                {docName}
-                            </Link>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>View {docType === "Procurement Orders" ? "PO" : "SR"}: {docName}</p>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
-            );
+        {
+            accessorKey: "task_docname",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Parent Doc" />,
+            cell: ({ row }) => {
+                const docType = row.original.task_doctype;
+                const docName = row.original.task_docname;
+                const isPO = docType === "Procurement Orders";
+                const linkDocName = isPO ? row.original.task_docname.replaceAll("/", "&=") : row.original.task_docname;
+                // IMPROVEMENT: Centralize route generation?
+                const linkTo = docType === "Procurement Orders" ? `/purchase-orders/${linkDocName}?tab=Dispatched+PO` : `/service-requests/${linkDocName}?tab=approved-sr`;
+                return (
+                    <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Link to={linkTo} className="text-blue-600 hover:underline">
+                                    {docName}
+                                </Link>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>View {docType === "Procurement Orders" ? "PO" : "SR"}: {docName}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                );
+            },
+            meta: {
+                exportHeaderName: "Parent Doc",
+                exportValue: (row) => {
+                    return row.task_docname;
+                }
+            }
         },
-        meta: {
-            exportHeaderName: "Parent Doc",
-            exportValue: (row) => {
-                return row.task_docname;
+        {
+            accessorKey: "task_doctype",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+            cell: ({ row }) => (
+                <Badge variant={row.original.task_doctype === "Procurement Orders" ? "secondary" : "outline"}>
+                    {row.original.task_doctype === "Procurement Orders" ? "PO" : "SR"}
+                </Badge>
+            ),
+            filterFn: (row, id, value) => value.includes(row.getValue(id)),
+            meta: {
+                exportHeaderName: "Type",
+                exportValue: (row) => {
+                    return row.task_doctype === "Procurement Orders" ? "PO" : "SR";
+                }
             }
-        }
-    },
-    {
-        accessorKey: "task_doctype",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-        cell: ({ row }) => (
-            <Badge variant={row.original.task_doctype === "Procurement Orders" ? "secondary" : "outline"}>
-                {row.original.task_doctype === "Procurement Orders" ? "PO" : "SR"}
-            </Badge>
-        ),
-        filterFn: (row, id, value) => value.includes(row.getValue(id)),
-        meta: {
-            exportHeaderName: "Type",
-            exportValue: (row) => {
-                return row.task_doctype === "Procurement Orders" ? "PO" : "SR";
-            }
-        }
-    },
-    {
-        id: "po_amount", // PO Amount
-        header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amt" />,
-        cell: ({ row }) => {
-            const totals = getTotalAmount?.(row.original.task_docname, row.original.task_doctype);
-            return <div>
-                {formatToRoundedIndianRupee(parseNumber(totals?.totalWithTax))}
-            </div>
         },
-        size: 150,
-        sortingFn: 'alphanumeric', // Ensure correct numeric sorting
-        meta: {
-            exportHeaderName: "PO Amt",
-            exportValue: (row: InvoiceApprovalTask) => {
-                const totals = getTotalAmount?.(row.task_docname, row.task_doctype);
-                return totals?.totalWithTax;
+        {
+            id: "po_amount", // PO Amount
+            header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amt(incl. GST)" />,
+            cell: ({ row }) => {
+                const totals = getTotalAmount?.(row.original.task_docname, row.original.task_doctype);
+                return <div>
+                    {formatToRoundedIndianRupee(parseNumber(totals?.totalWithTax))}
+                </div>
+            },
+            size: 150,
+            sortingFn: 'alphanumeric', // Ensure correct numeric sorting
+            meta: {
+                exportHeaderName: "PO Amt",
+                exportValue: (row: InvoiceApprovalTask) => {
+                    const totals = getTotalAmount?.(row.task_docname, row.task_doctype);
+                    return totals?.totalWithTax;
+                }
             }
-        }
-    },
-    {
-        id: "amount_paid", // Amount Paid
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
-        cell: ({ row }) => {
-            return <div>
-                {formatToRoundedIndianRupee(parseNumber(getAmount(row.original.task_docname, ["Paid"])))}
-            </div>
         },
-        size: 150,
-        sortingFn: 'alphanumeric', // Ensure correct numeric sorting
-        meta: {
-            exportHeaderName: "Amt Paid",
-            exportValue: (row: InvoiceApprovalTask) => {
-                return getAmount(row.task_docname, ["Paid"]);
+        // --- (THE FIX) Add the new column definition ---
+        {
+            id: "po_amt_delivered",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amt (Delivered)" />,
+            cell: ({ row }) => {
+                if (row.original.task_doctype !== "Procurement Orders") {
+                    return <div>N/A</div>;
+                }
+                // Call the new getter function passed from the table component
+                const deliveredAmount = getDeliveredAmount?.(row.original.task_docname, row.original.task_doctype);
+                console.log("Delivered Amount for PO", row.original.task_docname, deliveredAmount);
+                return <div>{formatToRoundedIndianRupee(deliveredAmount)}</div>;
+            },
+            size: 180,
+            sortingFn: 'alphanumeric',
+            meta: {
+                exportHeaderName: "PO Amt as Per Delivered Qty",
+                exportValue: (row: InvoiceApprovalTask) => {
+                    if (row.task_doctype !== "Procurement Orders") return "N/A";
+                    return getDeliveredAmount?.(row.task_docname, row.task_doctype);
+                }
             }
-        }
-    },
-    {
-        accessorKey: "reference_value_2", // Invoice No
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice No." />,
-        // cell: ({ row }) => <div className="font-medium">{row.original.reference_value_2 || 'N/A'}</div>,
-        cell: ({ row }) => {
-            const invoice_no = row.original.reference_value_2;
-            const attachmentId = row.original.reference_value_4;
-            return (
-                attachmentId ? (
-                    <div className="font-medium text-blue-500">
-                        <HoverCard>
-                            <HoverCardTrigger onClick={() => window.open(`${SITEURL}${attachmentsMap?.[attachmentId]}`, '_blank')}>
-                                {invoice_no}
-                            </HoverCardTrigger>
-                            <HoverCardContent className="w-auto rounded-md shadow-lg">
-                                <img
-                                    src={`${SITEURL}${attachmentsMap?.[attachmentId]}`}
-                                    alt="Payment Screenshot"
-                                    className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
-                                />
-                            </HoverCardContent>
-                        </HoverCard>
-                    </div>
-                ) : (
-                    <div className="font-medium">
-                        {invoice_no}
-                    </div>
-                )
-            );
         },
-        meta: {
-            exportHeaderName: "Invoice No.",
-            exportValue: (row) => {
-                return row.reference_value_2;
+        {
+            id: "amount_paid", // Amount Paid
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid (incl. GST)" />,
+            cell: ({ row }) => {
+                return <div>
+                    {formatToRoundedIndianRupee(parseNumber(getAmount(row.original.task_docname, ["Paid"])))}
+                </div>
+            },
+            size: 150,
+            sortingFn: 'alphanumeric', // Ensure correct numeric sorting
+            meta: {
+                exportHeaderName: "Amt Paid",
+                exportValue: (row: InvoiceApprovalTask) => {
+                    return getAmount(row.task_docname, ["Paid"]);
+                }
             }
-        }
+        },
+        {
+            accessorKey: "reference_value_2", // Invoice No
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice No." />,
+            // cell: ({ row }) => <div className="font-medium">{row.original.reference_value_2 || 'N/A'}</div>,
+            cell: ({ row }) => {
+                const invoice_no = row.original.reference_value_2;
+                const attachmentId = row.original.reference_value_4;
+                return (
+                    attachmentId ? (
+                        <div className="font-medium text-blue-500">
+                            <HoverCard>
+                                <HoverCardTrigger onClick={() => window.open(`${SITEURL}${attachmentsMap?.[attachmentId]}`, '_blank')}>
+                                    {invoice_no}
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-auto rounded-md shadow-lg">
+                                    <img
+                                        src={`${SITEURL}${attachmentsMap?.[attachmentId]}`}
+                                        alt="Payment Screenshot"
+                                        className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
+                                    />
+                                </HoverCardContent>
+                            </HoverCard>
+                        </div>
+                    ) : (
+                        <div className="font-medium">
+                            {invoice_no}
+                        </div>
+                    )
+                );
+            },
+            meta: {
+                exportHeaderName: "Invoice No.",
+                exportValue: (row) => {
+                    return row.reference_value_2;
+                }
+            }
 
-    },
-    {
-        accessorKey: "reference_value_3", // Invoice Amount
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-        cell: ({ row }) => (
-            <div className="">
-                {formatToRoundedIndianRupee(parseNumber(row.original.reference_value_3))}
-            </div>
-        ),
-        sortingFn: 'alphanumeric', // Ensure correct numeric sorting
-        meta: {
-            exportHeaderName: "Invoice Amount",
-            exportValue: (row) => {
-                return row.reference_value_3;
-            }
-        }
-    },
-    {
-        accessorKey: "reference_value_1", // Invoice Date Key
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
-        cell: ({ row }) => {
-            const dateKey = row.original.reference_value_1 || '';
-            const displayDate = dateKey.includes('_') ? dateKey.split('_')[0] : dateKey;
-            try {
-                return displayDate ? formatDate(new Date(displayDate), 'dd-MMM-yyyy') : 'N/A';
-            } catch {
-                return 'Invalid Date'; // Handle potential errors
+        },
+        {
+            accessorKey: "reference_value_3", // Invoice Amount
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount (incl. GST)" />,
+            cell: ({ row }) => (
+                <div className="">
+                    {formatToRoundedIndianRupee(parseNumber(row.original.reference_value_3))}
+                </div>
+            ),
+            sortingFn: 'alphanumeric', // Ensure correct numeric sorting
+            meta: {
+                exportHeaderName: "Invoice Amount",
+                exportValue: (row) => {
+                    return row.reference_value_3;
+                }
             }
         },
-        sortingFn: 'datetime', // Use datetime sorting
-        meta: {
-            exportHeaderName: "Invoice Date",
-            exportValue: (row) => {
-                const dateKey = row.reference_value_1 || '';
+        {
+            accessorKey: "reference_value_1", // Invoice Date Key
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
+            cell: ({ row }) => {
+                const dateKey = row.original.reference_value_1 || '';
                 const displayDate = dateKey.includes('_') ? dateKey.split('_')[0] : dateKey;
-                return displayDate;
+                try {
+                    return displayDate ? formatDate(new Date(displayDate), 'dd-MMM-yyyy') : 'N/A';
+                } catch {
+                    return 'Invalid Date'; // Handle potential errors
+                }
+            },
+            sortingFn: 'datetime', // Use datetime sorting
+            meta: {
+                exportHeaderName: "Invoice Date",
+                exportValue: (row) => {
+                    const dateKey = row.reference_value_1 || '';
+                    const displayDate = dateKey.includes('_') ? dateKey.split('_')[0] : dateKey;
+                    return displayDate;
+                }
             }
-        }
-    },
-    {
-        accessorKey: "creation",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Task Created" />,
-        cell: ({ row }) => <div>{formatDate(new Date(row.original.creation), 'dd-MMM-yyyy HH:mm')}</div>,
-        sortingFn: 'datetime',
-        meta: {
-            exportHeaderName: "Task Created",
-            exportValue: (row) => {
-                return formatDate(new Date(row.creation), 'dd-MMM-yyyy HH:mm')
+        },
+        {
+            accessorKey: "creation",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Task Created" />,
+            cell: ({ row }) => <div>{formatDate(new Date(row.original.creation), 'dd-MMM-yyyy HH:mm')}</div>,
+            sortingFn: 'datetime',
+            meta: {
+                exportHeaderName: "Task Created",
+                exportValue: (row) => {
+                    return formatDate(new Date(row.creation), 'dd-MMM-yyyy HH:mm')
+                }
             }
-        }
-    },
-];
+        },
+    ];
 
 // --- Columns specific to Pending Tasks ---
 export const getPendingTaskColumns = (
@@ -198,9 +221,10 @@ export const getPendingTaskColumns = (
     isProcessing: boolean, // Flag if *any* task action is running
     attachmentsMap?: Record<string, string>,
     getTotalAmount: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
+    getDeliveredAmount: (orderId: string, type: string) => number, // Pass the new getter
     getAmount: (orderId: string, statuses: string[]) => number
 ): ColumnDef<InvoiceApprovalTask>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount), // Include common columns
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getDeliveredAmount, getAmount), // Include common columns
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -254,14 +278,15 @@ export const getPendingTaskColumns = (
     ];
 
 // --- Columns specific to Task History ---
-export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => string, 
-attachmentsMap?: Record<string, string>,
-getTotalAmount: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
-getAmount: (orderId: string, statuses: string[]) => number
+export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => string,
+    attachmentsMap?: Record<string, string>,
+    getTotalAmount: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
+    getDeliveredAmount?: (orderId: string, type: string) => number, // New getter
+    getAmount: (orderId: string, statuses: string[]) => number
 ): ColumnDef<InvoiceApprovalTask>[] => {
 
     return [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount), // Include common columns
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getDeliveredAmount, getAmount), // Include common columns
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,

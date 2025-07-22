@@ -23,19 +23,20 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
+import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 interface ProjectOverviewTabProps {
-  projectData: any;
+  projectData: Projects;
   projectCustomer?: Customers;
   estimatesTotal: number
   totalPOAmountWithGST: number
@@ -49,7 +50,7 @@ interface ProjectOverviewTabProps {
 
 {/* <OverviewSkeleton2 /> */ }
 
-export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, estimatesTotal, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid }) => {
+export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid }) => {
 
   const { role } = useUserData();
   const navigate = useNavigate();
@@ -68,9 +69,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
 
   const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
-    fields: ["*"],
+    fields: ["amount", "name"],
     filters: [['project', '=', projectData?.name]],
-    limit: 1000
+    limit: 0
   })
 
   const totalAmountReceived = getTotalInflowAmount(projectInflows || [])
@@ -79,8 +80,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions",
     {
-      fields: ["*"],
-      limit: 1000,
+      fields: ["user"],
+      limit: 0,
       filters: [
         ["for_value", "=", `${projectData?.name}`],
         ["allow", "=", "Projects"],
@@ -89,14 +90,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
     projectData?.name ? `User Permission, filters(for_value),=,${projectData?.name}` : null
   );
 
-  const {
-    data: usersList,
-    isLoading: usersListLoading,
-    mutate: usersListMutate,
-  } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-    fields: ["*"],
-    limit: 1000,
-  }, "Nirmaan Users");
+  const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate, } = useUsersList()
 
   // Grouping functionality
   const groupedAssignees: { [key: string]: string[] } = useMemo(() => {
@@ -193,6 +187,28 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
     }
   };
 
+  // --- You can compute this within your component or use a useMemo hook for performance ---
+  const uniqueProcurementPackageDisplayNames = useMemo(() => {
+    if (!projectData?.project_wp_category_makes) {
+      return [];
+    }
+
+    // Create a map of Procurement Package DocName -> Display Name
+    const wpNameMap = new Map<string, string>();
+
+    const uniqueWPDocNames = new Set<string>();
+    projectData.project_wp_category_makes.forEach(item => {
+      if (item.procurement_package) {
+        uniqueWPDocNames.add(item.procurement_package);
+      }
+    });
+
+    return Array.from(uniqueWPDocNames)
+      .map(docName => wpNameMap.get(docName) || docName) // Get display name, fallback to DocName
+      .sort((a, b) => a.localeCompare(b)); // Optional: sort them alphabetically
+
+  }, [projectData]);
+
   if (usersListLoading || projectAssigneesLoading || projectTypeLoading || projectInflowsLoading) {
     return <div className="flex items-center h-[40vh] w-full justify-center">
       <TailSpin color={"red"} />{" "}
@@ -244,11 +260,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
             </p>
           </CardDescription>
-          <CardDescription className="space-y-2 md:text-center">
-            <span>Location</span>
-            <p className="font-bold text-black">
-              {projectData?.project_city}, {projectData?.project_state}
-            </p>
+          <CardDescription className="space-y-2 text-center">
+            <span>Project Value (incl. GST)</span>
+            <p className="font-bold text-black">{formatToRoundedIndianRupee(projectData?.project_value_gst)}</p>
           </CardDescription>
 
           <CardDescription className="space-y-2 text-end">
@@ -270,73 +284,66 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
             <p className="font-bold text-black">{formatToRoundedIndianRupee(projectData?.project_value)}</p>
           </CardDescription>
 
-          <CardDescription className="space-y-2 md:text-end">
-            <span>Project GST(s)</span>
-            <ul className="list-disc list-inside space-y-1">
-              {JSON.parse(projectData?.project_gst_number || "{}")?.list?.map((item) => (
-                <li key={item?.location}>
-                  <span className="font-bold">{item?.location}</span>
-                </li>
-              ))}
-            </ul>
+          <CardDescription className="space-y-2 text-end">
+            <span>Location</span>
+            <p className="font-bold text-black">
+              {projectData?.project_city}, {projectData?.project_state}
+            </p>
           </CardDescription>
 
-          <CardDescription className="space-y-2 max-md:text-end">
+
+
+          {/* <CardDescription className="space-y-2 max-md:text-end">
             <span>Total Amount Received</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee(totalAmountReceived)}</p>
-          </CardDescription>
+          </CardDescription> */}
 
-          <CardDescription className="space-y-2 md:text-center">
+          {/* <CardDescription className="space-y-2 md:text-center">
             <span>Total Amount Paid</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}</p>
-          </CardDescription>
-
+          </CardDescription> */}
+          {/* 
           <CardDescription className="space-y-2 text-end">
             <span>Total Amount Due</span>
             <p className="font-bold text-black">{formatToRoundedIndianRupee((totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount)}</p>
-          </CardDescription>
+          </CardDescription> */}
 
           <div className="col-span-3 max-md:col-span-2 flex justify-between">
             <CardDescription className="space-y-2">
               <span>Work Package</span>
               <div className="flex gap-1 flex-wrap">
-                {JSON.parse(
-                  projectData?.project_work_packages
-                ).work_packages?.map((item: any) => (
-                  <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
-                    {item.work_package_name}
-                  </div>
-                ))}
+                {uniqueProcurementPackageDisplayNames.length > 0 ? (
+                  uniqueProcurementPackageDisplayNames.map((displayName, index) => (
+                    <div
+                      key={`${displayName}-${index}`} // Using index if displayNames could somehow not be unique, otherwise displayName is fine
+                      className="flex items-center justify-center rounded-3xl p-1 px-3 text-xs bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]"
+                    >
+                      {displayName}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-gray-500">No work packages assigned.</p> // Or some other placeholder
+                )}
               </div>
             </CardDescription>
 
-            <CardDescription className="space-y-2">
+            {/* <CardDescription className="space-y-2">
               <span>No. of sections in layout</span>
               <p className="font-bold text-black text-end">
                 {projectData?.subdivisions || 1}
               </p>
+            </CardDescription> */}
+            <CardDescription className="space-y-2 md:text-end">
+              <span>Project GST(s)</span>
+              <ul className="list-disc list-inside space-y-1">
+                {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
+                  <li key={item?.location}>
+                    <span className="font-bold">{item?.location}</span>
+                  </li>
+                ))}
+              </ul>
             </CardDescription>
           </div>
-          {/* <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
-                          <CardDescription className="space-y-2">
-                            <span>PO Amount (ex. GST)</span>
-                            <p className="font-bold text-black">{formatToIndianRupee(totalPOAmountWithGST + totalServiceOrdersAmt)}</p>
-                          </CardDescription>
-      
-                          <CardDescription className="space-y-2">
-                            <span>Totals Estimates</span>
-                            <p className="font-bold text-black">
-                              {formatToIndianRupee(estimatesTotal)}
-                            </p>
-                          </CardDescription>
-                      </div> */}
-          {/* <div className="flex max-lg:flex-col max-lg:gap-4 w-full">
-                          <CardDescription className="space-y-2 lg:w-[50%]">
-                            <span>Health Score</span>
-                            <StatusBar currentValue={6} totalValue={10} />
-                          </CardDescription>
-                          
-                      </div> */}
         </CardContent>
       </Card>
       <Card>

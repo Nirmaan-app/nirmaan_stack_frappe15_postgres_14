@@ -20,6 +20,7 @@ import {
     getPaidPaymentReportListOptions,
 } from '@/config/queryKeys';
 import { ProjectInvoice } from '@/types/NirmaanStack/ProjectInvoice';
+import { useCredits } from '@/pages/credits/hooks/useCredits';
 
 // Define the structure for the calculated fields
 export interface ProjectCalculatedFields {
@@ -28,6 +29,8 @@ export interface ProjectCalculatedFields {
     totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
+ totalBalanceCredit: number; // ✨ NEW
+    totalDue: number;           // ✨ NEW
     // You can add more calculated fields here if needed, e.g., totalCredit
 }
 
@@ -42,6 +45,8 @@ export interface UseProjectReportCalculationsResult {
     mutateInflows: () => Promise<any>;
     mutateProjectInvoice: () => Promise<any>;
     mutatePayments: () => Promise<any>;
+    mutatePaymentTerms: () => Promise<any>; // ✨ NEW mutator
+
     mutateProjectExpenses: () => Promise<any>; // --- (Indicator) NEW: Mutator for Project Expenses ---
 }
 
@@ -58,6 +63,8 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
     const inflowQueryKey = queryKeys.projectInflows.list(inflowOptions);
     const projectInvoiceQueryKey = queryKeys.projectInvoices.list(projectInvoiceOptions);
     const paymentQueryKey = queryKeys.projectPayments.list(paymentOptions);
+
+    const {data:CreditData}=useCredits()
 
     const { data: purchaseOrders, isLoading: isLoadingPOs, error: errorPOs, mutate: mutatePOs } =
         useFrappeGetDocList<ProcurementOrder>(poQueryKey[0], poOptions as GetDocListArgs<FrappeDoc<ProcurementOrder>>, poQueryKey);
@@ -160,6 +167,38 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         return projectTotals;
     }, [purchaseOrders, serviceRequests]);
 
+
+    
+
+        const getProjectCreditAndDue = useMemo(() => 
+        memoize((projId: string): { totalBalanceCredit: number; totalDue: number } => {
+            if (!CreditData || !projId) {
+                return { totalBalanceCredit: 0, totalDue: 0 };
+            }
+
+            return CreditData.reduce(
+                (totals, term) => {
+                    if (term.project === projId) {
+                        const amount = parseNumber(term.amount);
+
+                        // Rule for 'totalBalanceCredit'
+                        if (term.status === "Created") {
+                            totals.totalBalanceCredit += amount;
+                        }
+
+                        // Rule for 'totalDue'
+                        if (term.status !== "Paid" && term.status !== "Created") {
+                            totals.totalDue += amount;
+                        }
+                    }
+                    return totals;
+                },
+                { totalBalanceCredit: 0, totalDue: 0 }
+            );
+        }), 
+    [CreditData]); // This calculation depends only on CreditData
+
+
     // --- Memoized Function for Per-Project Calculation ---
     const getProjectCalculatedFields = useCallback(
         memoize((projectId: string): ProjectCalculatedFields | null => {
@@ -189,6 +228,9 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
             // The new combined total
             const totalOutflow = poSrPaymentOutflow + projectExpenseOutflow;
 
+                        // ✨ Call your new memoized function to get the credit/due totals
+            const { totalBalanceCredit, totalDue } = getProjectCreditAndDue(projectId);
+
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
 
@@ -198,12 +240,14 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
                 totalProjectInvoiced: parseNumber(totalProjectInvoiced),
                 totalInflow: parseNumber(totalInflow),
                 totalOutflow: parseNumber(totalOutflow),
+                totalBalanceCredit: totalBalanceCredit, // ✨ Add the new value
+                totalDue: totalDue,     
             };
         }),
         [
             // Add the new map to the dependency array
             posByProject, srsByProject, totalInflowByProject, totalProjectInvoiceByProject, totalOutflowByProject, totalPoSrInvoicedByProject,
-            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments
+            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments,getProjectCreditAndDue,CreditData
         ]
     );
 

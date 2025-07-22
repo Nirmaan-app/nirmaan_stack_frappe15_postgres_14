@@ -8,4 +8,4 @@ export const PO_REPORTS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     // Add originalDoc.status if you want to search by PO status string
 ];
 
-export const PO_REPORTS_DATE_COLUMNS: string[] = ["creation", "dispatch_date"];
+export const PO_REPORTS_DATE_COLUMNS: string[] = ["creation", "dispatch_date","latest_delivery_date","latest_payment_date"];

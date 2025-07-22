@@ -107,7 +107,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
                         </Link>
                         {/* Ensure order_list structure is correct for hover card */}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           <ItemsHoverCard order_list={Array.isArray(data.order_list?.list) ? data.order_list.list : []} />
+                           <ItemsHoverCard parentDocId={data} parentDoctype={"Procurement Orders"} childTableName="items" />
                         </div>
                          {data?.custom === "true" && (<Badge className="text-xs">Custom</Badge>)}
                     </div>

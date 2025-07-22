@@ -24,7 +24,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
-import { ProcurementItem } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_SB_FIELDS_TO_FETCH, SB_DATE_COLUMNS, SB_SEARCHABLE_FIELDS } from "./config/sentBackCategoryTables.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -52,9 +52,9 @@ export const ApproveSelectSentBack: React.FC = () => {
     // --- Memoized Calculations & Options ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
 
-    const getTotal = useMemo(() => memoize((itemList: { list: ProcurementItem[] } | undefined | null): number => {
+    const getTotal = useMemo(() => memoize((order_list: ProcurementRequestItemDetail[]): number => {
         let total = 0;
-        const items = Array.isArray(itemList?.list) ? itemList.list : [];
+        const items = Array.isArray(order_list) ? order_list : [];
         items.forEach((item) => {
             // Assuming quote is the relevant field for sent back items needing re-approval
             total += parseNumber((item.quote || 0) * item.quantity);
@@ -103,7 +103,11 @@ export const ApproveSelectSentBack: React.FC = () => {
                         <Badge variant="secondary" className="text-xs">{data.type || 'Unknown Type'}</Badge>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             {/* Pass correct item structure to hover card */}
-                            <ItemsHoverCard order_list={Array.isArray(data.item_list?.list) ? data.item_list.list : []} isSB />
+                            <ItemsHoverCard 
+                                parentDocId={data}
+                                parentDoctype={DOCTYPE} 
+                                childTableName={"order_list"} 
+                            isSB />
                         </div>
                     </div>
                 );
@@ -169,12 +173,12 @@ export const ApproveSelectSentBack: React.FC = () => {
         },
         {
             id: "sent_back_value", header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
-            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.item_list))}</p>),
+            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original.order_list))}</p>),
             size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Value",
                 exportValue: (row: SentBackCategory) => {
-                    return formatToRoundedIndianRupee(getTotal(row.item_list))
+                    return formatToRoundedIndianRupee(getTotal(row.order_list))
                 }
             }
         }
@@ -190,13 +194,11 @@ export const ApproveSelectSentBack: React.FC = () => {
 
     // --- Use the Server Data Table Hook ---
     const {
-        table, data, totalCount, isLoading: listIsLoading, error: listError,
+        table, totalCount, isLoading: listIsLoading, error: listError,
         // globalFilter, setGlobalFilter,
         // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Use item search state
         selectedSearchField, setSelectedSearchField,
         searchTerm, setSearchTerm,
-        isRowSelectionActive,
-        refetch,
     } = useServerDataTable<SentBackCategory>({
         doctype: DOCTYPE,
         columns: columns,

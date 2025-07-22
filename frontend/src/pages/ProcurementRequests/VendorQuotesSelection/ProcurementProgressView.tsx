@@ -1,4 +1,4 @@
-import React from 'react';
+import React ,{useMemo} from 'react';
 import { SelectVendorQuotesTable } from './SelectVendorQuotesTable';
 import { AddVendorsDialog } from './components/AddVendorsDialog';
 import { RevertPRDialog } from './components/RevertPRDialog';
@@ -7,21 +7,23 @@ import { ModeSwitcher } from './components/ModeSwitcher';
 import GenerateRFQDialog from './components/GenerateRFQDialog';
 
 import { TailSpin } from 'react-loader-spinner';
-import { UseProcurementProgressLogicReturn } from './hooks/useProcurementProgressLogic';
 import { ProcurementHeaderCard } from '@/components/helpers/ProcurementHeaderCard';
 import { Button } from '@/components/ui/button';
 import { CirclePlus, Info, Undo2 } from 'lucide-react';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { ProcurementProgressLogicReturn } from './types';
+
+import {VendorChargesTable} from "./components/VendorChargesTable";
 
 // Props are the entire return type of the logic hook
-type ProcurementProgressViewProps = UseProcurementProgressLogicReturn;
+type ProcurementProgressViewProps = ProcurementProgressLogicReturn;
 
 export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = ({
     mode,
     currentDocument,
-    formData,
-    setFormData, // Pass down to SelectVendorQuotesTable
-    selectedVendorQuotes,
+    rfqFormData,
+    setRfqFormData, // Pass down to SelectVendorQuotesTable
+    finalSelectedQuotes,
     isLoading, // This is now the isLoading from useProcurementActions
     isUpdatingDocument, // Can combine this with isLoading if desired
     isRedirecting,
@@ -34,6 +36,12 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     otherEditors,
     // isDocumentReadOnlyByWorkflow,
     canContinueToReview,
+    //--Additional Charges Change
+     onAddCharges,
+    onUpdateCharge,
+    onDeleteCharge,
+    //---
+    availableChargeTemplates,
     getFullName,
     handleModeChange,
     handleTempVendorSelectionInDialog,
@@ -41,13 +49,14 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     handleDeleteVendorFromRFQ,
     handleQuoteChange,
     handleMakeChange,
-    handleVendorQuoteSelectionForItem,
+    handleTaxChange, // MODIFIED: Destructure the new handler
+    handleFinalVendorSelectionForItem,
     handleProceedToReview,
-    handleRevertPRChanges,
+    handleRevertSelections,
     toggleAddVendorsDialog,
     toggleRevertDialog,
     toggleVendorSheet,
-    updateCurrentDocumentItemList, // For SelectVendorQuotesTable
+    updateCurrentDocumentStateItemList, // For SelectVendorQuotesTable
 }) => {
 
 
@@ -65,12 +74,11 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
             </div>
         );
     }
-    
+
     // Determine if actions should be disabled (read-only workflow or another editor)
     // For now, let's assume 'otherEditors' implies read-only for simplicity
     // const isEffectivelyReadOnly = isDocumentReadOnlyByWorkflow || otherEditors.length > 0;
-
-
+ 
     return (
         <>
             {/* Other Editors Banner */}
@@ -87,64 +95,78 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                     <div className="flex items-center gap-4 max-sm:w-full">
                         <h2 className="text-lg font-semibold">RFQ List</h2>
                         <div className="flex items-center gap-1">
-                            <ModeSwitcher currentMode={mode} onModeChange={handleModeChange} 
+                            <ModeSwitcher currentMode={mode} onModeChange={handleModeChange}
                             // disabled={isEffectivelyReadOnly && mode === 'edit'} 
                             />
-                                                             {/* Info Tooltip */}
-                                 <HoverCard>
-                                     <HoverCardTrigger aria-label="Mode Information">
-                                         <Info className="h-4 w-4 text-blue-500 cursor-help" />
-                                     </HoverCardTrigger>
-                                     <HoverCardContent className="w-60 text-sm">
-                                         {mode === "edit" ? (
-                                            <div>
-                                                <p className="font-semibold mb-2 tracking-tight">Edit Mode:</p>
-                                                <ul className="list-disc list-inside space-y-1 text-xs">
-                                                    <li>Add vendors via the <strong>Add Vendors</strong> button.</li>
-                                                    <li>Enter quotes/makes in the table.</li>
-                                                    <li>Switch to <b>View</b> mode to select the final quotes for each item.</li>
-                                                </ul>
-                                            </div>
-                                        ) : (
-                                            <div>
-                                                <p className="font-semibold mb-2 tracking-tight">View Mode:</p>
-                                                <ul className="list-disc list-inside space-y-1 text-xs">
-                                                    <li>Select the desired vendor quote for each item by clicking the corresponding item/vendor quote card.</li>
-                                                    <li>Click <b>Continue</b> ({currentDocument?.doctype === "Sent Back Category" ? "you must not leave any items vendor quote unselected" : "enabled when at least one quote is selected"}) to proceed to the final review.</li>
-                                                </ul>
-                                            </div>
-                                        )}
-                                    </HoverCardContent>
-                                </HoverCard>
+                            {/* Info Tooltip */}
+                            <HoverCard>
+                                <HoverCardTrigger aria-label="Mode Information">
+                                    <Info className="h-4 w-4 text-blue-500 cursor-help" />
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-60 text-sm">
+                                    {mode === "edit" ? (
+                                        <div>
+                                            <p className="font-semibold mb-2 tracking-tight">Edit Mode:</p>
+                                            <ul className="list-disc list-inside space-y-1 text-xs">
+                                                <li>Add vendors via the <strong>Add Vendors</strong> button.</li>
+                                                <li>Enter quotes/makes in the table.</li>
+                                                <li>Switch to <b>View</b> mode to select the final quotes for each item.</li>
+                                            </ul>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <p className="font-semibold mb-2 tracking-tight">View Mode:</p>
+                                            <ul className="list-disc list-inside space-y-1 text-xs">
+                                                <li>Select the desired vendor quote for each item by clicking the corresponding item/vendor quote card.</li>
+                                                <li>Click <b>Continue</b> ({currentDocument?.doctype === "Sent Back Category" ? "you must not leave any items vendor quote unselected" : "enabled when at least one quote is selected"}) to proceed to the final review.</li>
+                                            </ul>
+                                        </div>
+                                    )}
+                                </HoverCardContent>
+                            </HoverCard>
                         </div>
                     </div>
                     <div className="flex gap-2 items-center">
-                        {mode === "edit" 
-                        // && !isEffectivelyReadOnly 
-                        && (
-                            <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary">
-                                <CirclePlus className="mr-2 h-4 w-4" /> Add {formData.selectedVendors.length > 0 ? "More" : ""} Vendors
-                            </Button>
-                        )}
+                        {mode === "edit"
+                            // && !isEffectivelyReadOnly 
+                            && (<>  
+                                <Button onClick={toggleAddVendorsDialog} variant="outline" size="sm" className="text-primary border-primary">
+                                    <CirclePlus className="mr-2 h-4 w-4" /> Add {rfqFormData.selectedVendors.length > 0 ? "More" : ""} Vendors
+                                </Button>
+                            </>
+
+                            )}
                         <GenerateRFQDialog orderData={currentDocument} /> {/* Assuming GenerateRFQDialog can handle PR or SBC */}
                     </div>
                 </div>
 
                 <SelectVendorQuotesTable
                     currentDocument={currentDocument}
-                    formData={formData}
-                    setFormData={setFormData} // Pass down for MakesSelection
-                    selectedVendorQuotes={selectedVendorQuotes}
+                    formData={rfqFormData}
+                    setFormData={setRfqFormData} // Pass down for MakesSelection
+                    selectedVendorQuotes={finalSelectedQuotes}
                     // setSelectedVendorQuotes={setSelectedVendorQuotes} // Pass down
                     mode={mode}
                     targetRatesData={targetRatesDataMap}
                     onQuoteChange={handleQuoteChange}
                     onMakeChange={handleMakeChange}
-                    onVendorSelectForItem={handleVendorQuoteSelectionForItem}
+                    onTaxChange={handleTaxChange} // MODIFIED: Pass the handler down
+                    onVendorSelectForItem={handleFinalVendorSelectionForItem}
                     onDeleteVendorFromRFQ={handleDeleteVendorFromRFQ}
-                    // isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
-                    updateCurrentDocumentItemList={updateCurrentDocumentItemList} // Pass the updater
+                    //isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
+                    updateCurrentDocumentItemList={updateCurrentDocumentStateItemList} // Pass the updater
                 />
+                 {/* --- THIS IS THE EXACT PLACE TO ADD THE NEW COMPONENT --- */}
+        <VendorChargesTable
+             mode={mode}
+                // isReadOnly={isReadOnly} // Pass isReadOnly if you have it
+                vendors={rfqFormData.selectedVendors}
+                rfqData={rfqFormData}
+                availableChargeTemplates={availableChargeTemplates}
+                    onAddCharges={onAddCharges}
+                    onUpdateCharge={onUpdateCharge}
+                    onDeleteCharge={onDeleteCharge}
+        />
 
                 <div className="flex justify-between items-end mt-6 pt-4 border-t">
                     {(currentDocument.workflow_state === "Approved" || currentDocument.workflow_state === "In Progress") && mode !== 'review' ? (
@@ -172,13 +194,13 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
             <RevertPRDialog
                 isOpen={isRevertDialogOpen}
                 onClose={toggleRevertDialog}
-                onConfirm={handleRevertPRChanges}
+                onConfirm={handleRevertSelections}
                 isLoading={isUpdatingDocument || isRedirecting === "revert"}
             />
             <VendorSheet isOpen={isVendorSheetOpen} onClose={toggleVendorSheet} />
 
-                 {/* Global Loading Overlay */}
-             {showLoadingOverlay && (
+            {/* Global Loading Overlay */}
+            {showLoadingOverlay && (
                 <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-60 z-[999]">
                     <div className="bg-white p-6 rounded-lg shadow-xl text-center flex items-center gap-4">
                         <TailSpin color="red" height={30} width={30} />
@@ -189,3 +211,4 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
         </>
     );
 };
+

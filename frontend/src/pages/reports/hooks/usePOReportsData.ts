@@ -20,6 +20,7 @@ export interface POReportRowData {
     name: string;
     // type: 'PO' | 'SR';
     creation: string;
+    total_amount?: number;
     project: string;
     projectName?: string;
     vendor: string;
@@ -28,6 +29,7 @@ export interface POReportRowData {
     invoiceAmount: number;
     amountPaid: number;
     originalDoc: ProcurementOrder; //| ServiceRequests;
+    
 }
 
 interface UsePOReportsDataResult {
@@ -69,6 +71,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         mutate: mutatePOs,
     } = useFrappeGetDocList<ProcurementOrder>(poQueryKey[0], poOptions as GetDocListArgs<FrappeDoc<ProcurementOrder>>, poQueryKey);
 
+    // console.log("purchaseOrdersUSEPOPERORTS", purchaseOrders);
     // const {
     //     data: serviceRequests,
     //     isLoading: srLoading,
@@ -181,7 +184,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
 
         // Process Purchase Orders
         (purchaseOrders || []).forEach(po => {
-            const { totalAmt } = getPOTotal(po, po.loading_charges, po.freight_charges); // Assuming totalAmt includes tax
+            const { totalAmt } = getPOTotal(po); // Assuming totalAmt includes tax
             combinedData.push({
                 name: po.name,
                 // type: 'PO',
@@ -190,7 +193,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                 projectName: projectMap[po.project] || po.project_name || po.project,
                 vendor: po.vendor,
                 vendorName: vendorMap[po.vendor] || po.vendor_name || po.vendor,
-                totalAmount: parseNumber(totalAmt),
+                totalAmount: parseNumber(po.total_amount),
                 invoiceAmount: getTotalInvoiceAmount(po.invoice_data),
                 amountPaid: paymentsMap[po.name] || 0, // Look up pre-calculated paid amount
                 originalDoc: po,

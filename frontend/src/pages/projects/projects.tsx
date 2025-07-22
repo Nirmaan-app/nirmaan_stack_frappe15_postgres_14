@@ -37,7 +37,7 @@ import {
 } from './config/projectTable.config';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
-
+import { useCredits } from "../credits/hooks/useCredits";
 // --- Constants ---
 const DOCTYPE = 'Projects';
 
@@ -52,6 +52,8 @@ export interface ProcessedProjectForTable extends ProjectsType {
   calculatedTotalInvoiced: number;
   calculatedTotalInflow: number;
   calculatedTotalOutflow: number;
+  relatedTotalBalanceCredit: number;
+  relatedTotalDue: number;
   // prStatusCounts?: Record<string, number>; // For the status count badge display
 }
 
@@ -125,9 +127,18 @@ export const Projects: React.FC<ProjectsProps> = ({
   //     "Procurement Requests", { fields: ["name", "project", "workflow_state", "procurement_list"], limit: 100000 }, "PRs_For_ProjectsList" // Fetch all for counts
   // );
 
+  const { data: CreditData } = useCredits()
+
+
+  // console.log("CreditData", CreditData);
+
   const { data: poData, isLoading: poDataLoading, error: poDataError } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders", { fields: ["name", "project", "status", "order_list", "invoice_data", "loading_charges", "freight_charges"], filters: [["status", "!=", "Merged"]], limit: 100000 }, "POs_For_ProjectsList"
+    "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data"], filters: [["status", "!=", "Merged"]], limit: 100000 }, "POs_For_ProjectsList"
   );
+
+
+
+
   const { data: srData, isLoading: srDataLoading, error: srDataError } = useFrappeGetDocList<ServiceRequests>(
     "Service Requests", { fields: ["name", "project", "status", "service_order_list", "gst"], filters: [["status", "=", "Approved"]], limit: 100000 }, "SRs_For_ProjectsList"
   );
@@ -145,7 +156,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   const projectTypeOptions = useMemo(() => projectTypesList?.map(pt => ({ label: pt.name, value: pt.name })) || [], [projectTypesList]);
 
   const getProjectFinancials = useMemo(() => {
-    if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0 });
+    if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses || !CreditData) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0 });
 
     // Pre-group data for efficiency
     const posByProject = memoize((projId: string) => poData.filter(po => po.project === projId));
@@ -153,16 +164,28 @@ export const Projects: React.FC<ProjectsProps> = ({
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
+    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status === "Created"));
+    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
 
     return memoize((projectId: string) => {
+      // console.log("projectId",projectId);
       const relatedPOs = posByProject(projectId);
       const relatedSRs = srsByProject(projectId);
       const relatedInflows = inflowsByProject(projectId);
       const relatedPayments = paymentsByProject(projectId);
       const relatedExpenses = expensesByProject(projectId);
+      const relatedTotalBalanceCredit = creditsByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+      const relatedTotalDue = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
-      let totalInvoiced = 0;
-      relatedPOs.forEach(po => totalInvoiced += getPOTotal(po, parseNumber(po.loading_charges), parseNumber(po.freight_charges))?.totalAmt || 0);
+      // let totalInvoiced = 0;
+
+      // console.log("DueByProject",relatedTotalBalanceCredit,relatedTotalDue);
+
+      // console.log("realatedPO", relatedPOs);
+
+      // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
+      let totalInvoiced = getPOTotal(relatedPOs)?.totalAmt || 0;
+
       relatedSRs.forEach(sr => {
         const srVal = getSRTotal(sr); // Assuming getSRTotal returns value without GST
         totalInvoiced += sr.gst === "true" ? srVal * 1.18 : srVal;
@@ -175,9 +198,11 @@ export const Projects: React.FC<ProjectsProps> = ({
         calculatedTotalInvoiced: totalInvoiced,
         calculatedTotalInflow: totalInflow,
         calculatedTotalOutflow: totalOutflow,
+        relatedTotalBalanceCredit,
+        relatedTotalDue
       };
     });
-  }, [poData, srData, projectInflows, projectPayments]);
+  }, [poData, srData, projectInflows, projectPayments, projectExpenses, CreditData]);
 
 
   // const prStatusCountsByProject = useMemo(() => {
@@ -270,12 +295,15 @@ export const Projects: React.FC<ProjectsProps> = ({
       id: "project_financials", header: "Financials (Lakhs)",
       cell: ({ row }) => {
         const financials = getProjectFinancials(row.original.name); // Calculate for current project row
+        // console.log("financials", row.original.name);
         return (
           <div className="font-medium flex flex-col gap-1 text-xs min-w-[180px]">
-            <div className="flex justify-between"><span>Value:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(row.original.project_value) / 100000)} L</span></div>
+            <div className="flex justify-between"><span>Value (excl. GST):</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(row.original.project_value) / 100000)} L</span></div>
             <div className="flex justify-between"><span>PO Amt:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L</span></div>
             <div className="flex justify-between"><span>Inflow:</span> <span className="text-green-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L</span></div>
             <div className="flex justify-between"><span>Outflow:</span> <span className="text-red-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L</span></div>
+            <div className="flex justify-between"><span>Total Balance Credit:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span></div>
+            <div className="flex justify-between"><span>Total Due Not Paid:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span></div>
           </div>
         );
       },
@@ -307,7 +335,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     defaultSort: 'creation desc',
     enableRowSelection: false, // No selection needed for this overview table
     additionalFilters: staticFilters,
-    shouldCache: true,
+    // shouldCache: true,
   });
 
   // // --- Transform fetched project data to include calculated financials and PR counts ---

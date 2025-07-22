@@ -2,7 +2,6 @@ import React from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ListChecks, MessageCircleMore, Trash } from 'lucide-react';
-import { PRItem } from '../types';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -14,12 +13,13 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { PRItemUIData } from '../types';
 
 
 interface RequestedItemTableProps {
-    items: PRItem[];
-    onAction: (item: PRItem) => void; // Opens the detailed action dialog
-    onDelete: (item: PRItem) => void; // Directly rejects/deletes the request
+    items: PRItemUIData[];
+    onAction: (item: PRItemUIData) => void; // Opens the detailed action dialog
+    onDelete: (item: PRItemUIData) => void; // Directly rejects/deletes the request
     category: string
 }
 
@@ -36,9 +36,9 @@ export const RequestedItemTable: React.FC<RequestedItemTableProps> = ({ items, o
             </TableHeader>
             <TableBody>
                 {items.map((item) => (
-                    <TableRow key={item.name} className="hover:bg-yellow-100/50">
+                    <TableRow key={item.item_id} className="hover:bg-yellow-100/50">
                         <TableCell className="text-sm py-2 align-top">
-                            {item.item}
+                            {item.item_name}
                             {item.comment && (
                                 <div className="flex items-start gap-1 mt-1 border border-gray-200 rounded p-1 text-xs text-muted-foreground max-w-md">
                                     <MessageCircleMore className="w-3 h-3 flex-shrink-0 mt-0.5" />
@@ -66,7 +66,7 @@ export const RequestedItemTable: React.FC<RequestedItemTableProps> = ({ items, o
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Reject Requested Product?</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                Are you sure you want to reject the request for product "{item.item}"? This will remove it from the PR permanently.
+                                                Are you sure you want to reject the request for product "{item.item_name}"? This will remove it from the PR permanently.
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>

@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Download, Edit2, FileText, PlusCircle, MoreHorizontal, Trash2, DollarSign } from "lucide-react";
+import { TailSpin } from 'react-loader-spinner'; // Assuming this is your spinner
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,7 +12,15 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import { useFrappeDeleteDoc } from "frappe-react-sdk"; // For delete
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+
+import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk"; // For delete
 import { useToast } from "@/components/ui/use-toast"; // For delete feedback
 
 // --- UI Components ---
@@ -27,13 +36,14 @@ import {
 } from "@/components/ui/alert-dialog"; // For delete confirmation
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from '@/hooks/useServerDataTable'; // Your hook
+import { useServerDataTable, AggregationConfig } from '@/hooks/useServerDataTable'; // Your hook
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
 
 // --- Types ---
 import { NonProjectExpenses as NonProjectExpensesType } from "@/types/NirmaanStack/NonProjectExpenses";
+import { ExpenseType } from "@/types/NirmaanStack/ExpenseType"; // Import the type
 
 // --- Config ---
 import {
@@ -51,6 +61,30 @@ import { useUserData } from "@/hooks/useUserData";
 
 const DOCTYPE = 'Non Project Expenses';
 
+// NEW: Configuration for the summary card aggregations
+const NPE_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' }
+];
+
+// NEW: Helper component to display active filters in the summary card
+const AppliedFiltersDisplay = ({ filters, search }) => {
+    const hasFilters = filters.length > 0 || !!search;
+    if (!hasFilters) {
+        return <p className="text-sm text-gray-500">Overview of all non-project expenses.</p>;
+    }
+    return (
+        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
+            <span className="font-medium">Filtered by:</span>
+            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
+            {filters.map(filter => (
+                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
+                    {filter.id.replace(/_/g, ' ')}
+                </span>
+            ))}
+        </div>
+    );
+};
+
 interface NonProjectExpensesPageProps {
     urlContext?: string;
 }
@@ -67,6 +101,15 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
     const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // For delete operation
 
     const urlSyncKey = useMemo(() => `npe_${urlContext}`, [urlContext]);
+    // --- (2) NEW: Fetch data for the Expense Type filter ---
+    const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
+        'Expense Type',
+        {
+            fields: ['name', 'expense_name'], // Fetch name for value, expense_name for label
+            filters: [["non_project", "=", "1"]], // Assuming non project filter is needed
+            limit: 0 // Fetch all records
+        }
+    );
 
     // State for update dialogs (define these first as handlers depend on them)
     const [isPaymentUpdateDialogOpen, setIsPaymentUpdateDialogOpen] = useState(false);
@@ -110,6 +153,23 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         }
     };
 
+    // --- (3) NEW: Prepare options for the faceted filter ---
+    const expenseTypeOptions = useMemo(() =>
+        expenseTypes?.map(et => ({
+            label: et.expense_name || et.name, // Use the display name, fallback to the raw name
+            value: et.name,                    // The value must be the raw name used in the main data
+        })) || [],
+        [expenseTypes]
+    );
+
+    // --- (4) NEW: Define the facet filter configuration object ---
+    const facetFilterOptions = useMemo(() => ({
+        type: { // This key 'type' MUST match the column's accessorKey
+            title: "Expense Type",
+            options: expenseTypeOptions,
+        },
+    }), [expenseTypeOptions]);
+
     // Now define columns, using the handlers
     // This `columnsDefinition` will be passed to both useServerDataTable and DataTable
     const columnsDefinition = useMemo<ColumnDef<NonProjectExpensesType>[]>(() => [
@@ -117,56 +177,56 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             accessorKey: "payment_date",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />,
             cell: ({ row }) => <div className="font-medium ">{row.original.payment_date ? formatDate(row.original.payment_date) : '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Payment Date", exportValue: (row) => row.payment_date ? formatDate(row.payment_date) : '--' }
         },
         {
             accessorKey: "invoice_date",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
             cell: ({ row }) => <div className="font-medium ">{row.original.invoice_date ? formatDate(row.original.invoice_date) : '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Invoice Date", exportValue: (row) => row.invoice_date ? formatDate(row.invoice_date) : '--' }
         },
         {
             accessorKey: "type",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Expense Type" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.type}>{row.original.type}</div>,
-            size: 100,
+            enableColumnFilter: true, // UPDATED: Explicitly enable filtering for clarity
             meta: { exportHeaderName: "Expense Type", exportValue: (row) => row.type }
         },
         {
             accessorKey: "description",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.description}>{row.original.description || '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Description", exportValue: (row) => row.description || '--' }
         },
         {
             accessorKey: "comment",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Comment" />,
             cell: ({ row }) => <div className="font-medium " title={row.original.comment}>{row.original.comment || '--'}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Comment", exportValue: (row) => row.comment || '--' }
         },
         {
             accessorKey: "amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-end" />,
             cell: ({ row }) => <div className="font-medium ">{formatToRoundedIndianRupee(row.original.amount)}</div>,
-            size: 100,
+
             meta: { exportHeaderName: "Amount", exportValue: (row) => formatForReport(row.amount) }
         },
         {
             accessorKey: "payment_ref",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Ref" />,
             cell: ({ row }) => <div className="font-medium">{row.original.payment_ref || '--'}</div>,
-            size: 60,
+
             meta: { exportHeaderName: "Payment Ref", exportValue: (row) => row.payment_ref || '--' }
         },
         {
             accessorKey: "invoice_ref",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Ref" />,
             cell: ({ row }) => <div className="font-medium">{row.original.invoice_ref || '--'}</div>,
-            size: 60,
+
             meta: { exportHeaderName: "Invoice Ref", exportValue: (row) => row.invoice_ref || '--' }
         },
         {
@@ -192,7 +252,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                     </div>
                 )
             },
-            size: 60,
+
             enableSorting: false,
             meta: { excludeFromExport: true }
         },
@@ -236,7 +296,6 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                     </div>
                 );
             },
-            size: 60,
             meta: { excludeFromExport: true }
         },
     ], [handleOpenPaymentUpdateDialog, handleOpenInvoiceUpdateDialog, handleOpenEditDialog, handleOpenDeleteConfirmation]);
@@ -246,6 +305,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         table, data, totalCount, isLoading, error,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
         refetch,
+        aggregates, // NEW
+        isAggregatesLoading, // NEW
+        columnFilters // NEW: To display applied filters
     } = useServerDataTable<NonProjectExpensesType>({
         doctype: DOCTYPE,
         columns: columnsDefinition, // *** PASS THE DEFINED COLUMNS HERE ***
@@ -254,6 +316,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         urlSyncKey: urlSyncKey,
         defaultSort: 'payment_date desc',
         enableRowSelection: false, // Or true if actions on rows are needed
+        aggregatesConfig: NPE_AGGREGATES_CONFIG, // NEW: Pass the config
     });
 
 
@@ -266,7 +329,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             <DataTable<NonProjectExpensesType>
                 table={table} // This table instance is now created with columns
                 columns={columnsDefinition} // Pass the same columns definition for export/etc.
-                isLoading={isLoading}
+                isLoading={isLoading || expenseTypesLoading}
                 error={error}
                 totalCount={totalCount}
                 searchFieldOptions={NPE_SEARCHABLE_FIELDS} // Make sure this is an array of SearchFieldOption
@@ -275,10 +338,48 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
                 // facetFilterOptions={facetFilterOptions} // Define if needed
+                facetFilterOptions={facetFilterOptions}
                 dateFilterColumns={NPE_DATE_COLUMNS}
                 showExportButton={true}
                 onExport={'default'}
                 exportFileName={`Non_Project_Expenses_${urlContext}`}
+                // NEW: Pass the fully constructed summary card as a prop
+                summaryCard={
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardTitle className="text-lg">Non Project Expenses Summary</CardTitle>
+                            <CardDescription>
+                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            {isAggregatesLoading ? (
+                                <div className="flex justify-center items-center h-16">
+                                    <TailSpin height={24} width={24} color="#4f46e5" />
+                                </div>
+                            ) : aggregates ? (
+                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
+                                    <div className="justify-center sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Amount</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                        </dd>
+                                    </div>
+                                    <div className="justify-center sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Entries</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
+                                            {totalCount}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            ) : (
+                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                    No summary data available.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                }
             // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
             />
             <NewNonProjectExpense refetchList={refetch} />
