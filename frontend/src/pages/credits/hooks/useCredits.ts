@@ -17,6 +17,11 @@ import {
 
 } from "../credits.constant";
 
+// --- (2) NEW: Import types for Projects and Vendors ---
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { useFrappeGetDocList } from "frappe-react-sdk";
+
 
 
 export const useCredits = () => {
@@ -38,36 +43,43 @@ export const useCredits = () => {
     urlStateManager.updateParam("status", newStatus === "All" ? null : newStatus);
   }, []);
 
-   // ✅ 2. Create state to hold the column filters from the data table
+  const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
+    "Projects", { fields: ["name", "project_name"], limit: 0 }
+  );
+  const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>(
+    "Vendors", { fields: ["name", "vendor_name"], limit: 0 }
+  );
+
+  // ✅ 2. Create state to hold the column filters from the data table
 
   const additionalFilters = useMemo(() => {
 
-    const filters = [['status', '!=', 'Merged'],['PO Payment Terms', 'payment_type', '=', 'Credit']
+    const filters = [['status', '!=', 'Merged'], ['PO Payment Terms', 'payment_type', '=', 'Credit']
     ];
 
     if (currentStatus !== "All") {
-      filters.push(['status', '!=', 'Merged'],['PO Payment Terms', 'status', '=', currentStatus],);
+      filters.push(['status', '!=', 'Merged'], ['PO Payment Terms', 'status', '=', currentStatus],);
     }
-     // --- NEW LOGIC ---
+    // --- NEW LOGIC ---
     // Translate TanStack column filters into Frappe API filters
-// console.log()
+    // console.log()
     return filters;
   }, [currentStatus]);
 
-  const { table,data,...tableProps } = useServerDataTable<PoPaymentTermRow>({
+  const { table, data, ...tableProps } = useServerDataTable<PoPaymentTermRow>({
     doctype: PO_PAYMENT_TERM_DOCTYPE,
-  columns: useMemo(() => getCreditsColumns(navigate), [navigate]), 
+    columns: useMemo(() => getCreditsColumns(navigate), [navigate]),
     fetchFields: TERM_LIST_FIELDS_TO_FETCH,
     searchableFields: TERM_SEARCHABLE_FIELDS,
     dateFilterColumns: TERM_DATE_COLUMNS,
-    defaultSort: "due_date asc",
+    defaultSort: '`tabPO Payment Terms`.due_date asc',
     urlSyncKey: "credits_terms_list",
     additionalFilters: additionalFilters,
   });
 
   // console.log("CreditsTable",tableProps)
 
-const paymentTermStatusOptionsWithCounts = useMemo(() => {
+  const paymentTermStatusOptionsWithCounts = useMemo(() => {
     return PAYMENT_TERM_STATUS_OPTIONS.map(option => {
       const count = creditsCounts[option.value.toLowerCase() as keyof typeof creditsCounts] || 0;
       return {
@@ -76,6 +88,24 @@ const paymentTermStatusOptionsWithCounts = useMemo(() => {
       };
     });
   }, [creditsCounts]);
+
+  const facetFilterOptions = useMemo(() => {
+    const dynamicOptions = { ...CREDIT_FACET_FILTER_OPTIONS };
+
+    // Populate project options
+    dynamicOptions.project_name.options = projects?.map(p => ({
+      label: p.project_name,
+      value: p.project_name // Filtering by name directly
+    })) || [];
+
+    // Populate vendor options
+    dynamicOptions.vendor_name.options = vendors?.map(v => ({
+      label: v.vendor_name,
+      value: v.vendor_name // Filtering by name directly
+    })) || [];
+
+    return dynamicOptions;
+  }, [projects, vendors]);
 
   // console.log("paymentTermStatusOptionsWithCounts", data);
 
@@ -87,7 +117,7 @@ const paymentTermStatusOptionsWithCounts = useMemo(() => {
     TERM_SEARCHABLE_FIELDS,
     TERM_DATE_COLUMNS,
     PAYMENT_TERM_STATUS_OPTIONS: paymentTermStatusOptionsWithCounts,
-    facetFilterOptions: CREDIT_FACET_FILTER_OPTIONS,
+    facetFilterOptions: facetFilterOptions,
     ...tableProps,
   };
 };
