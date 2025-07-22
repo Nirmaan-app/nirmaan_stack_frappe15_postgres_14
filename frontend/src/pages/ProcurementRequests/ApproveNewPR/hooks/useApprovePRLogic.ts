@@ -246,16 +246,16 @@ export const useApprovePRLogic = ({
     //     });
     // }, [orderData?.order_list, orderData?.work_package, projectDoc, categoryList]); // allCategories is needed
 
-const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
-    // Return the list directly from the orderData state, with a fallback to an empty array.
-    return orderData?.category_list?.list ?? [];
-}, [orderData?.category_list]); // The only dependency is the category_list itself.  
+    const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
+        // Return the list directly from the orderData state, with a fallback to an empty array.
+        return orderData?.category_list?.list ?? [];
+    }, [orderData?.category_list]); // The only dependency is the category_list itself.  
 
     // Replace old category derivations with ones based on displayedCategoriesWithMakes
     const addedCategoriesForDisplay = useMemo(() =>
         displayedCategoriesWithMakes.filter(c => c.status !== 'Request' && (addedItems.some(item => item.category === c.name)))
         , [displayedCategoriesWithMakes, addedItems]);
-        
+
 
 
     const requestedCategoriesForDisplay = useMemo(() =>
@@ -427,7 +427,7 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
 
     // --- Item Management Actions ---
 
-    const handleAddItemToList = useCallback(async(selectedMake?: string) => {
+    const handleAddItemToList = useCallback(async (selectedMake?: string) => {
         if (!currentItemOption || !currentQuantity || !orderData) return;
 
         const quantityValue = parseNumber(currentQuantity);
@@ -526,7 +526,7 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
             });
         }
 
-        
+
 
         // setOrderData(prev => {
         //     if (!prev) return null;
@@ -536,7 +536,7 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
         //         ...(categoryNeedsUpdate ? { category_list: { list: updatedCategoryList } } : {})
         //     }
         // });
-           // Reset form
+        // Reset form
         // setCurrentItemOption(null);
         // setCurrentQuantity('');
         // setShowNewItemsCard(false); // Close the add item card
@@ -544,9 +544,9 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
         // toast({ title: "Item Added", description: `"${newItemForOrderList.item_name}" added successfully.`, variant: "success" });
 
 
-// ------- Backend Updated lagic--------
+        // ------- Backend Updated lagic--------
 
-           try {
+        try {
             // --- 1. Persist changes to the backend ---
             await updateDoc("Procurement Requests", orderData.name, {
                 order_list: updatedList, // Send the full updated list of items
@@ -586,9 +586,9 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
                 description: "Could not save the new item to the PR. Please try again.",
                 variant: "destructive",
             });
-        } 
-     
-       // -------
+        }
+
+        // -------
     }, [currentItemOption, currentQuantity, orderData, undoStack, toast, setShowNewItemsCard, projectDoc]);
 
 
@@ -648,7 +648,7 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
 
 
 
-    const handleSaveEditedItem = useCallback(async() => {
+    const handleSaveEditedItem = useCallback(async () => {
         if (!editItem || !editItem.item_id || !orderData) return;
 
         const quantityValue = parseNumber(editItem.quantity)
@@ -669,11 +669,11 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
         setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
 
         // --------new Add-----
-         await updateDoc("Procurement Requests", orderData.name, {
-                order_list: updatedList, // Send the current state
-                category_list: orderData.category_list, // Send the current state   
-            });
-// ----------
+        await updateDoc("Procurement Requests", orderData.name, {
+            order_list: updatedList, // Send the current state
+            category_list: orderData.category_list, // Send the current state   
+        });
+        // ----------
         setIsEditItemDialogOpen(false);
         setEditItem(null); // Reset edit state
         toast({ title: "Item Updated", description: `"${editItem.item_name}" updated successfully.`, variant: "success" });
@@ -681,44 +681,99 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
     }, [editItem, orderData, toast]);
 
 
-    const handleDeleteItem = useCallback((itemToDelete: PRItemUIData | EditItemState | RequestItemState) => { // Can delete from main list or edit dialog
-        if (!itemToDelete || !itemToDelete.item_name || !orderData) return;
+    // const handleDeleteItem = useCallback((itemToDelete: PRItemUIData | EditItemState | RequestItemState) => { // Can delete from main list or edit dialog
+    //     if (!itemToDelete || !itemToDelete.item_name || !orderData) return;
 
-        const item = orderData.order_list.find(i => i.name === itemToDelete.name);
+    //     const item = orderData.order_list.find(i => i.name === itemToDelete.name);
 
- // --- NEW VALIDATION ---
-        // Check if this is the last item in the list.
+    //     // --- NEW VALIDATION ---
+    //     // Check if this is the last item in the list.
+    //     if (orderData.order_list.length <= 1) {
+    //         toast({
+    //             title: "Action Not Allowed",
+    //             description: "Cannot delete the last item from a Procurement Request.",
+    //             variant: "destructive",
+    //         });
+    //         if (isEditItemDialogOpen) {
+    //             setIsEditItemDialogOpen(false);
+    //         }
+    //         return; // Exit the function
+    //     }
+    //     // --- END VALIDATION ---
+
+    //     if (item) {
+    //         // Add to undo stack only if it wasn't just a 'Request' status item
+    //         if (item.status !== "Request") {
+    //             setUndoStack(prev => [...prev, item]);
+    //         }
+
+    //         const updatedList = orderData.order_list.filter(i => i.name !== itemToDelete.name);
+    //         setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
+
+    //         toast({ title: "Item Removed", description: `"${item.item_name}" removed.`, variant: "default" }); // Use default variant for removal
+    //     }
+
+    //     // Close dialogs if deletion happened from there
+    //     if (isEditItemDialogOpen) setIsEditItemDialogOpen(false);
+    //     if (isRequestItemDialogOpen) setIsRequestItemDialogOpen(false); // If rejecting/deleting request item
+    //     setEditItem(null);
+    //     setRequestItem(null);
+    // }, [orderData, toast, isEditItemDialogOpen, isRequestItemDialogOpen]);
+
+    // --- (REFACTORED) This is the handler that gets the bug fix ---
+    const handleDeleteItem = useCallback(async (itemToDelete: PRItemUIData | EditItemState) => {
+        if (!itemToDelete?.name || !orderData) return;
+
+        const itemNameForToast = itemToDelete.item_name || 'the item';
+
+        // --- NEW VALIDATION (Unchanged from your code, which is good) ---
         if (orderData.order_list.length <= 1) {
             toast({
                 title: "Action Not Allowed",
                 description: "Cannot delete the last item from a Procurement Request.",
                 variant: "destructive",
             });
-            if (isEditItemDialogOpen) {
-            setIsEditItemDialogOpen(false);
+            if (isEditItemDialogOpen) setIsEditItemDialogOpen(false);
+            return;
         }
-            return; // Exit the function
-        }
-        // --- END VALIDATION ---
 
-        if (item) {
-            // Add to undo stack only if it wasn't just a 'Request' status item
-            if (item.status !== "Request") {
-                setUndoStack(prev => [...prev, item]);
-            }
+        // --- THE FIX: Persist the deletion to the backend immediately ---
+        // 1. Calculate the intended new list of items.
+        const updatedList = orderData.order_list.filter(i => i.name !== itemToDelete.name);
 
-            const updatedList = orderData.order_list.filter(i => i.name !== itemToDelete.name);
+        try {
+            // 2. Call `updateDoc` to save the new, shorter list to the server.
+            await updateDoc("Procurement Requests", orderData.name, {
+                order_list: updatedList,
+                // We don't need to update category_list here, as the useEffect will handle it
+                // on the subsequent state update.
+            });
+
+            // 3. On successful save, update the local state.
             setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
 
-            toast({ title: "Item Removed", description: `"${item.item_name}" removed.`, variant: "default" }); // Use default variant for removal
+            // 4. Add the item to the undo stack as before.
+            const itemToUndo = orderData.order_list.find(i => i.name === itemToDelete.name);
+            if (itemToUndo) {
+                setUndoStack(prev => [...prev, itemToUndo]);
+            }
+
+            toast({ title: "Item Removed", description: `"${itemNameForToast}" was removed and the PR has been saved.`, variant: "default" });
+
+            // Close dialog if deletion happened from there
+            if (isEditItemDialogOpen) setIsEditItemDialogOpen(false);
+            setEditItem(null);
+
+        } catch (error) {
+            console.error("Failed to delete item from PR:", error);
+            toast({
+                title: "Deletion Failed",
+                description: `Could not remove "${itemNameForToast}" from the PR. Please try again.`,
+                variant: "destructive",
+            });
         }
 
-        // Close dialogs if deletion happened from there
-        if (isEditItemDialogOpen) setIsEditItemDialogOpen(false);
-        if (isRequestItemDialogOpen) setIsRequestItemDialogOpen(false); // If rejecting/deleting request item
-        setEditItem(null);
-        setRequestItem(null);
-    }, [orderData, toast, isEditItemDialogOpen, isRequestItemDialogOpen]);
+    }, [orderData, updateDoc, toast, isEditItemDialogOpen]); // Add `updateDoc` to dependency array
 
     const handleUndoDelete = useCallback(() => {
         if (undoStack.length === 0 || !orderData) return;
@@ -742,40 +797,40 @@ const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
     }, [undoStack, orderData, toast]);
 
     // In useApprovePRLogic.ts, after other handlers
-// Action required deletion Happens here
-const handleRejectRequestItem = useCallback(async (itemToReject: PRItemUIData) => {
-    if (!itemToReject?.name || !orderData) return;
+    // Action required deletion Happens here
+    const handleRejectRequestItem = useCallback(async (itemToReject: PRItemUIData) => {
+        if (!itemToReject?.name || !orderData) return;
 
-    const itemNameForToast = itemToReject.item_name || 'the requested item';
-    
-    // The new list without the rejected item
-    const updatedList = orderData.order_list.filter(i => i.name !== itemToReject.name);
+        const itemNameForToast = itemToReject.item_name || 'the requested item';
 
-    try {
-        // --- 1. Persist the change to the backend ---
-        await updateDoc("Procurement Requests", orderData.name, {
-            order_list: updatedList,
-        });
+        // The new list without the rejected item
+        const updatedList = orderData.order_list.filter(i => i.name !== itemToReject.name);
 
-        // --- 2. Update local state on success ---
-        setOrderData(prev => (prev ? { ...prev, order_list: updatedList } : null));
+        try {
+            // --- 1. Persist the change to the backend ---
+            await updateDoc("Procurement Requests", orderData.name, {
+                order_list: updatedList,
+            });
 
-        toast({
-            title: "Request Rejected",
-            description: `Request for "${itemNameForToast}" was permanently rejected.`,
-            variant: "success",
-        });
+            // --- 2. Update local state on success ---
+            setOrderData(prev => (prev ? { ...prev, order_list: updatedList } : null));
 
-    } catch (error) {
-        console.error("Failed to reject request:", error);
-        toast({
-            title: "Action Failed",
-            description: `Could not reject the request for "${itemNameForToast}". Please try again.`,
-            variant: "destructive",
-        });
-    }
+            toast({
+                title: "Request Rejected",
+                description: `Request for "${itemNameForToast}" was permanently rejected.`,
+                variant: "success",
+            });
 
-}, [orderData, updateDoc, toast]);
+        } catch (error) {
+            console.error("Failed to reject request:", error);
+            toast({
+                title: "Action Failed",
+                description: `Could not reject the request for "${itemNameForToast}". Please try again.`,
+                variant: "destructive",
+            });
+        }
+
+    }, [orderData, updateDoc, toast]);
     // --- New Item Creation ---
     const handleOpenNewItemDialog = useCallback(() => {
         // --- ADD THIS LINE ---
@@ -846,18 +901,18 @@ const handleRejectRequestItem = useCallback(async (itemToReject: PRItemUIData) =
         }
     }, [newItem, currentCategoryForNewItem, orderData, createDoc, itemMutate, toast]);
 
-//---- HandleSelectiong Existing Item of matching item_id
-const handleSelectExistingItemFromNewDialog = useCallback((selectedItem: ItemOption) => {
-    // 1. Set the state for the AddItemForm
-    setCurrentItemOption(selectedItem);
+    //---- HandleSelectiong Existing Item of matching item_id
+    const handleSelectExistingItemFromNewDialog = useCallback((selectedItem: ItemOption) => {
+        // 1. Set the state for the AddItemForm
+        setCurrentItemOption(selectedItem);
 
-    // 2. Close the NewItemDialog
-    setIsNewItemDialogOpen(false);
+        // 2. Close the NewItemDialog
+        setIsNewItemDialogOpen(false);
 
-    // 3. Re-open the AddItemForm
-    setShowNewItemsCard(true);
+        // 3. Re-open the AddItemForm
+        setShowNewItemsCard(true);
 
-}, [setCurrentItemOption, setIsNewItemDialogOpen, setShowNewItemsCard]); // Add dependencies
+    }, [setCurrentItemOption, setIsNewItemDialogOpen, setShowNewItemsCard]); // Add dependencies
 
     // --- Request Item Handling ---
     const handleFuzzySearch = useCallback((input: string) => {
@@ -1013,7 +1068,7 @@ const handleSelectExistingItemFromNewDialog = useCallback((selectedItem: ItemOpt
             toast({ title: "Approval Failed", description: error?.message || "Could not approve the requested item.", variant: "destructive" });
         }
 
-    }, [requestItem, orderData, categoryList, projectDoc, createDoc, updateDoc, itemMutate, prMutate, toast, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches,workPackage]); // Added projectDoc, updateDoc, prMutate dependencies
+    }, [requestItem, orderData, categoryList, projectDoc, createDoc, updateDoc, itemMutate, prMutate, toast, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches, workPackage]); // Added projectDoc, updateDoc, prMutate dependencies
 
 
     const handleAddMatchingItem = useCallback((match: Item, originalRequest: RequestItemState) => {
@@ -1031,50 +1086,125 @@ const handleSelectExistingItemFromNewDialog = useCallback((selectedItem: ItemOpt
             return;
         }
 
-        const currentList = orderData.order_list;
+        // const currentList = orderData.order_list;
 
-        // Check if the *matching* item is already in the list (excluding the original request itself)
-        const isDuplicate = currentList.some(item => item.item_id === match.name && item.item_name !== originalRequest.item_name);
+        // // Check if the *matching* item is already in the list (excluding the original request itself)
+        // const isDuplicate = currentList.some(item => item.item_id === match.name && item.item_name !== originalRequest.item_name);
+        // if (isDuplicate) {
+        //     toast({
+        //         title: "Duplicate Item",
+        //         description: `Item "${match.item_name}" is already in the list.`,
+        //         variant: "destructive",
+        //     });
+        //     return;
+        // }
+
+        // // 1. Remove the original 'Request' item
+        // let updatedList = currentList.filter(item => item.item_id !== originalRequest.item_id);
+
+        // // 2. Add the matching item
+        // const itemToAdd: Omit<PRItemUIData, 'name' | 'creation' | 'modified' | 'parent' | 'parentfield' | 'parenttype' | 'docstatus' | 'idx' | 'owner' | 'modified_by'> = {
+        //     item_id: match.name,
+        //     item_name: match.item_name, // docname of the matching item
+        //     unit: match.unit_name,
+        //     quantity: quantityValue, // Use quantity from original request
+        //     procurement_package: workPackage,
+        //     category: match.category,
+        //     tax: parseNumber(categoryDoc.tax),
+        //     status: "Pending",
+        //     // comment: originalRequest.comment // Carry over comment? Decide policy.
+        // };
+        // updatedList.push(itemToAdd as PRItemUIData);
+
+
+        // setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
+
+        // toast({
+        //     title: "Success",
+        //     description: `"${match.item_name}" added, replacing requested item "${originalRequest.item_name}".`,
+        //     variant: "success"
+        // });
+
+        // setIsRequestItemDialogOpen(false);
+        // setRequestItem(null);
+        // setFuzzyMatches([]);
+        const currentOrderList = orderData.order_list;
+        const currentCategoryList = orderData.category_list.list;
+
+        const isDuplicate = currentOrderList.some(item => item.item_id === match.name && item.name !== originalRequest.name);
         if (isDuplicate) {
-            toast({
-                title: "Duplicate Item",
-                description: `Item "${match.item_name}" is already in the list.`,
-                variant: "destructive",
-            });
+            toast({ title: "Duplicate Item", description: `"${match.item_name}" is already in the list.`, variant: "destructive" });
             return;
         }
 
-        // 1. Remove the original 'Request' item
-        let updatedList = currentList.filter(item => item.item_id !== originalRequest.item_id);
-
-        // 2. Add the matching item
+        // --- 2. Prepare the new "Pending" item (Unchanged) ---
         const itemToAdd: Omit<PRItemUIData, 'name' | 'creation' | 'modified' | 'parent' | 'parentfield' | 'parenttype' | 'docstatus' | 'idx' | 'owner' | 'modified_by'> = {
             item_id: match.name,
-            item_name: match.item_name, // docname of the matching item
+            item_name: match.item_name,
             unit: match.unit_name,
-            quantity: quantityValue, // Use quantity from original request
+            quantity: quantityValue,
             procurement_package: workPackage,
             category: match.category,
             tax: parseNumber(categoryDoc.tax),
             status: "Pending",
-            // comment: originalRequest.comment // Carry over comment? Decide policy.
         };
-        updatedList.push(itemToAdd as PRItemUIData);
 
+        // --- 3. Create the updated order list (Unchanged) ---
+        // First, remove the original 'Request' item.
+        let updatedOrderList = currentOrderList.filter(item => item.name !== originalRequest.name);
+        // Then, add the new matching item.
+        updatedOrderList.push(itemToAdd as PRItemUIData);
 
-        setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
+        // --- 4. (THE FIX) Surgically update the category list ---
+        let updatedCategoryList = [...currentCategoryList];
 
+        // 4a. Ensure the category for the NEWLY ADDED item exists with 'Pending' status.
+        const newItemsCategoryExistsAsPending = updatedCategoryList.some(
+            cat => cat.name === itemToAdd.category && cat.status === 'Pending'
+        );
+        if (!newItemsCategoryExistsAsPending) {
+            // It doesn't exist, so we need to add it.
+            // We can derive its makes from the project document.
+            const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, workPackage || "");
+            const baselineMakes = initialMakesMap[itemToAdd.category] || [];
+            updatedCategoryList.push({
+                name: itemToAdd.category,
+                status: 'Pending',
+                makes: baselineMakes.length > 0 ? baselineMakes : undefined,
+            });
+        }
+
+        // 4b. Check if the category of the ORIGINAL REQUESTED item is still needed.
+        const originalCategoryName = originalRequest.category;
+        const otherItemsInOriginalCategory = updatedOrderList.some(
+            item => item.category === originalCategoryName && item.status === 'Request'
+        );
+
+        // If no other items with 'Request' status exist in that category, remove its 'Request' entry.
+        if (!otherItemsInOriginalCategory) {
+            updatedCategoryList = updatedCategoryList.filter(
+                cat => !(cat.name === originalCategoryName && cat.status === 'Request')
+            );
+        }
+
+        // --- 5. Update the main state ONCE with both updated lists ---
+        setOrderData(prev => prev ? {
+            ...prev,
+            order_list: updatedOrderList,
+            category_list: { list: updatedCategoryList }
+        } : null);
+
+        // --- 6. Close dialog and show success message (Unchanged) ---
         toast({
             title: "Success",
             description: `"${match.item_name}" added, replacing requested item "${originalRequest.item_name}".`,
             variant: "success"
         });
-
         setIsRequestItemDialogOpen(false);
         setRequestItem(null);
         setFuzzyMatches([]);
 
-    }, [orderData, categoryList, toast]);
+    }, [orderData, categoryList, toast, workPackage, projectDoc, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches]);
 
     // --- PR Actions (Approve, Reject, Delete) ---
 

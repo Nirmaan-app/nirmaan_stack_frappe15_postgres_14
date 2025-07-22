@@ -19,6 +19,7 @@ import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { PaymentScreenshotDialog } from '@/pages/vendors/components/PaymentScreenshotDialog';
 import { SRRequestPaymentDialog } from './SRRequestPaymentDialog';
+import { useUserData } from '@/hooks/useUserData';
 
 
 interface SRPaymentsSectionProps {
@@ -60,16 +61,17 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
     const [deletePayment, setDeletePayment] = useState<ProjectPayments | null>(null);
 
     const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
+    const { role } = useUserData();
 
     const handleDeletePayment = async () => {
         if (!deletePayment) return;
         try {
             await deleteDoc("Project Payments", deletePayment.name);
-            toast({ title: "Success", description: "Payment deleted successfully."});
+            toast({ title: "Success", description: "Payment deleted successfully." });
             mutatePayments();
             setDeletePayment(null);
         } catch (error: any) {
-            toast({ title: "Error", description: `Failed to delete payment: ${error.message}`, variant: "destructive"});
+            toast({ title: "Error", description: `Failed to delete payment: ${error.message}`, variant: "destructive" });
         }
     };
 
@@ -144,9 +146,9 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
                                 Request Payment
                             </Button>
                         )}
-                        {canRecordPaidEntry && (
-                             <Button size="sm" variant="default" className="text-xs" onClick={() => setIsNewPaymentDialogOpen(true)}>
-                                <SquarePlus className="mr-2 h-4 w-4"/> Record Paid Entry
+                        {canRecordPaidEntry && ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role) && (
+                            <Button size="sm" variant="default" className="text-xs" onClick={() => setIsNewPaymentDialogOpen(true)}>
+                                <SquarePlus className="mr-2 h-4 w-4" /> Record Paid Entry
                             </Button>
                         )}
                     </div>
@@ -213,7 +215,7 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
                 />
             )}
             {deletePayment && (
-                 <AlertDialog open={!!deletePayment} onOpenChange={() => setDeletePayment(null)}>
+                <AlertDialog open={!!deletePayment} onOpenChange={() => setDeletePayment(null)}>
                     <AlertDialogContent>
                         <AlertDialogHeader>
                             <AlertDialogTitle>Delete Payment {deletePayment.name}?</AlertDialogTitle>

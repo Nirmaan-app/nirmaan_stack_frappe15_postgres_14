@@ -69,7 +69,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 
   // Initialize original order
   useEffect(() => {
-    if (data?.items.length>0) {
+    if (data?.items.length > 0) {
       // const parsedOrder = data?.items;
       setOriginalOrder(data?.items);
     }
@@ -84,77 +84,77 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   }, [showEdit]);
 
 
-// --- BEFORE ---
-/*
-const handleNewlyDeliveredChange = useCallback(
-  (item: PurchaseOrderItem, value: string) => {
-    const MAX_ALLOWED_QUANTITY = 20; // Static value
-    // ...
-  },
-  []
-);
-*/
+  // --- BEFORE ---
+  /*
+  const handleNewlyDeliveredChange = useCallback(
+    (item: PurchaseOrderItem, value: string) => {
+      const MAX_ALLOWED_QUANTITY = 20; // Static value
+      // ...
+    },
+    []
+  );
+  */
 
-// --- AFTER (The New Dynamic Logic) ---
-const handleNewlyDeliveredChange = useCallback(
-  (item: PurchaseOrderItem, value: string) => {
-    // 1. Calculate the remaining quantity for this specific item.
-    const alreadyDelivered = item.received_quantity ?? 0;
-    const remainingQuantity = item.quantity - alreadyDelivered;
+  // --- AFTER (The New Dynamic Logic) ---
+  const handleNewlyDeliveredChange = useCallback(
+    (item: PurchaseOrderItem, value: string) => {
+      // 1. Calculate the remaining quantity for this specific item.
+      const alreadyDelivered = item.received_quantity ?? 0;
+      const remainingQuantity = item.quantity - alreadyDelivered;
 
-    // 2. Determine the maximum allowed input. If remaining is negative (over-delivered), max is 0.
-    //    Math.max is a clean way to handle this.
-    const maxAllowed = Math.max(0, remainingQuantity);
+      // 2. Determine the maximum allowed input. If remaining is negative (over-delivered), max is 0.
+      //    Math.max is a clean way to handle this.
+      const maxAllowed = Math.max(0, remainingQuantity);
 
-    // 3. Handle the user clearing the input (no changes needed here)
-    if (value === '') {
-      setNewlyDeliveredQuantities((prev) => {
-        const updated = { ...prev };
-        delete updated[item.name];
-        return updated;
-      });
-      return;
-    }
+      // 3. Handle the user clearing the input (no changes needed here)
+      if (value === '') {
+        setNewlyDeliveredQuantities((prev) => {
+          const updated = { ...prev };
+          delete updated[item.name];
+          return updated;
+        });
+        return;
+      }
 
-    // 4. Parse the input value (no changes needed here)
-    const numericValue = parseNumber(value);
+      // 4. Parse the input value (no changes needed here)
+      const numericValue = parseNumber(value);
 
-    // 5. Enforce the DYNAMIC maximum limit.
-    const cappedValue = Math.min(numericValue, maxAllowed);
+      // 5. Enforce the DYNAMIC maximum limit.
+      const cappedValue = Math.min(numericValue, maxAllowed);
 
-    // 6. Update the state with the capped value (no changes needed here)
-    setNewlyDeliveredQuantities((prev) => ({
-      ...prev,
-      [item.name]: String(cappedValue),
-    }));
-  },
-  [] // No dependencies needed as 'item' is passed directly
-);
+      // 6. Update the state with the capped value (no changes needed here)
+      setNewlyDeliveredQuantities((prev) => ({
+        ...prev,
+        [item.name]: String(cappedValue),
+      }));
+    },
+    [] // No dependencies needed as 'item' is passed directly
+  );
 
 
   // --- (Indicator) MODIFIED LOGIC: This now builds the history log based on the new input state ---
   const transformChangesToDeliveryData = useCallback(() => {
 
 
-  // 1. First, parse the 'delivery_data' string into a JavaScript object.
-  const deliveryDataString = data?.delivery_data; 
-const parsedDeliveryObject = safeJsonParse(data.delivery_data, {}); 
-// This will turn "{\"data\":{...}}" into { data: {...} }
+    // 1. First, parse the 'delivery_data' string into a JavaScript object.
+    const deliveryDataString = data?.delivery_data;
+    const parsedDeliveryObject = safeJsonParse(data.delivery_data, {});
+    // This will turn "{\"data\":{...}}" into { data: {...} }
 
-// 2. Now you can safely access the 'data' property on the newly parsed object.
-const deliveryHistory = parsedDeliveryObject.data || {};
-// This will give you the object you actually want: { "2025-07-16": {...} }
+    // 2. Now you can safely access the 'data' property on the newly parsed object.
+    const deliveryHistory = parsedDeliveryObject.data || {};
+    // This will give you the object you actually want: { "2025-07-16": {...} }
 
-// 3. Now you can count the keys as intended.
-const numberOfPreviousDeliveries = Object.keys(deliveryHistory).length;
-const newNoteNumber = numberOfPreviousDeliveries + 1;
+    // 3. Now you can count the keys as intended.
+    const numberOfPreviousDeliveries = Object.keys(deliveryHistory).length;
+    const newNoteNumber = numberOfPreviousDeliveries + 1;
 
-// console.log('Final delivery history object:', deliveryHistory);
-// console.log('Number of previous deliveries:', numberOfPreviousDeliveries);
+    // console.log('Final delivery history object:', deliveryHistory);
+    // console.log('Number of previous deliveries:', numberOfPreviousDeliveries);
 
     const deliveryData: DeliveryDataType = {
       [deliveryDate]: {
-        note_no:String(newNoteNumber),
+        note_no: String(newNoteNumber),
         items: [],
         updated_by: userData?.user_id,
       }
@@ -170,7 +170,7 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
       const alreadyDelivered = originalItem.received_quantity ?? 0;
       const newTotal = alreadyDelivered + newlyDeliveredQty;
 
-      
+
 
       deliveryData[deliveryDate].items.push({
         item_id: itemId,
@@ -182,7 +182,7 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
     });
 
     return deliveryData;
-  }, [newlyDeliveredQuantities, originalOrder, userData, deliveryDate,data]);
+  }, [newlyDeliveredQuantities, originalOrder, userData, deliveryDate, data]);
 
   // Handle file upload
   const uploadAttachment = useCallback(async () => {
@@ -346,12 +346,12 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
                 <TableRow>
                   <TableHead className="w-[40%] min-w-[200px]">Item Name</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead>Ordered</TableHead>
+                  <TableHead>Quantity Ordered</TableHead>
                   {/* --- (Indicator) MODIFIED HEADERS: Dynamically change based on edit mode --- */}
                   {showEdit ? (
                     <>
-                      <TableHead>Already Delivered</TableHead>
-                      <TableHead>Newly Delivered</TableHead>
+                      <TableHead>Quantity Received Previously</TableHead>
+                      <TableHead>Quantity Newly Delivered</TableHead>
                     </>
                   ) : (
                     <TableHead>Total Received</TableHead>
@@ -362,8 +362,8 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
                 {originalOrder.map((item) => {
                   const alreadyDelivered = item.received_quantity ?? 0;
                   const isFullyDelivered = alreadyDelivered >= item.quantity;
-                    const remainingQuantity = item.quantity - alreadyDelivered;
-  const maxInput = Math.max(0, remainingQuantity);
+                  const remainingQuantity = item.quantity - alreadyDelivered;
+                  const maxInput = Math.max(0, remainingQuantity);
 
 
                   return (
@@ -413,11 +413,11 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
                               onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
                               placeholder="0"
                               className="w-24"
-                                min={0}
-                             max={maxInput}
-                                            disabled={isFullyDelivered}
+                              min={0}
+                              max={maxInput}
+                              disabled={isFullyDelivered}
 
-                                
+
                             />
                           </TableCell>
                         </>
@@ -442,8 +442,8 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
               {originalOrder.map(item => {
                 const alreadyDelivered = item.received_quantity ?? 0;
                 const isFullyDelivered = alreadyDelivered >= item.quantity;
-                 const remainingQuantity = item.quantity - alreadyDelivered;
-  const maxInput = Math.max(0, remainingQuantity);
+                const remainingQuantity = item.quantity - alreadyDelivered;
+                const maxInput = Math.max(0, remainingQuantity);
 
                 return (
                   <div key={`mobile-card-${item.name}`} className="p-4">
@@ -457,11 +457,11 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
                     <Table className="text-sm">
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="h-8 px-2">Ordered</TableHead>
+                          <TableHead className="h-8 px-2">Qty Ordered</TableHead>
                           {showEdit ? (
                             <>
-                              <TableHead className="h-8 px-2">Delivered</TableHead>
-                              <TableHead className="h-8 px-2 text-center">Newly Delivered</TableHead>
+                              <TableHead className="h-8 px-2">Qty Already Received</TableHead>
+                              <TableHead className="h-8 px-2 text-center">Qty Newly Received</TableHead>
                             </>
                           ) : (
                             <TableHead className="h-8 px-2">Total Received</TableHead>
@@ -501,8 +501,8 @@ const newNoteNumber = numberOfPreviousDeliveries + 1;
                                   placeholder="0"
                                   className="w-full h-9 p-1 text-center"
                                   min={0}
-                                            max={maxInput} 
-                                            disabled={isFullyDelivered}
+                                  max={maxInput}
+                                  disabled={isFullyDelivered}
                                 />
                               </TableCell>
                             </>
