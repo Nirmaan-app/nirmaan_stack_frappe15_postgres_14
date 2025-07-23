@@ -36,7 +36,7 @@ def generate_versions(doc, method):
         }
         # JSON fields are usually already strings or dicts/lists that json.dumps can handle
         # but if they contain nested datetime objects, serialize_dates would catch them too.
-        data["changed"].append(["order_list", doc.order_list, []])
+        # data["changed"].append(["order_list", doc.order_list, []])
         data["changed"].append(["category_list", doc.category_list, []])
         data["changed"].append(["pr_details", serialize_dates(pr_details), []])
     
