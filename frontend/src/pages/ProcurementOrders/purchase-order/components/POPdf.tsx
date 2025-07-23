@@ -346,7 +346,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                         </td>
                         <td className="py-2 text-xs whitespace-nowrap text-wrap">
                           {item.item_name?.toUpperCase()}
-                          {item.make !== "" && (
+                          {item.make && (
                             <p className="text-xs italic font-semibold text-gray-500">
                               -{" "}{item.make?.toUpperCase()}
                             </p>
