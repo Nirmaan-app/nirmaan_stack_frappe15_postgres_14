@@ -131,6 +131,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
             cell: ({ row }) => {
                 const invoice_no = row.original.reference_value_2;
                 const attachmentId = row.original.reference_value_4;
+                // console.log("attachmentsMap",attachmentsMap)
                 return (
                     attachmentId ? (
                         <div className="font-medium text-blue-500">

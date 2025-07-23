@@ -125,7 +125,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
 
         
         const parsedVersionData = JSON.parse(latestVersion.data);
-        console.log("Amended Po version data",parsedVersionData.remove)
+        // console.log("Amended Po version data",parsedVersionData.remove)
         
         let reconstructedItems = [...po_data.items,];
 
@@ -137,7 +137,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
             });
         }
         
-        console.log("Amended Po version data",reconstructedItems)
+        // console.log("Amended Po version data",reconstructedItems)
 
         
         if (parsedVersionData.row_changed) {
@@ -160,9 +160,9 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
         const originalNames = reconstructedItems.map((item:any) => item.name);
         const combinedNames = new Set([...currentNames, ...originalNames]);
 
-        console.log("Amended PORe",reconstructedItems)
-        console.log("Amended POOR",originalMap)
-        console.log("Amended POCo",combinedNames)
+        // console.log("Amended PORe",reconstructedItems)
+        // console.log("Amended POOR",originalMap)
+        // console.log("Amended POCo",combinedNames)
 
         return { originalItems: reconstructedItems, originalItemsMap: originalMap, allItemNames: combinedNames };
 
@@ -182,7 +182,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                 
             } else {
 
-                console.log("Reverting Amended PO",originalItems)
+                // console.log("Reverting Amended PO",originalItems)
                 
                 // await updateDoc("Procurement Orders", po_data.name, {
                 //     status: "PO Approved",
@@ -194,7 +194,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                     items: originalItems
                 });
 
-                console.log("result",result)
+                // console.log("result",result)
                 if (result.status !== 200) {
                     toast({
                         title: "Revert Failed",
