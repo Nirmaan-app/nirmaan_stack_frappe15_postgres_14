@@ -94,7 +94,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
                 }
                 // Call the new getter function passed from the table component
                 const deliveredAmount = getDeliveredAmount?.(row.original.task_docname, row.original.task_doctype);
-                console.log("Delivered Amount for PO", row.original.task_docname, deliveredAmount);
+                // console.log("Delivered Amount for PO",deliveredAmount);
                 return <div>{formatToRoundedIndianRupee(deliveredAmount)}</div>;
             },
             size: 180,

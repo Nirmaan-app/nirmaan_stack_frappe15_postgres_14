@@ -164,7 +164,8 @@ export const getTotalInvoiceAmount = memoize(
   }, (order: any) => JSON.stringify(order));
 
 
-// --- THIS IS THE NEW, SIMPLIFIED FUNCTION ---
+// --- THIS IS THE NEW, SIMPLIFIED FUNCTION --- its specially for frontend caculation to 
+// items [array of cal]
 export const getPreviewTotal = (orderData: PurchaseOrderItem[]): POTotals => {
   // If there's no order, return zeroed values
   if (!orderData) {
