@@ -133,7 +133,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-04-25 01:09:39.414546",
+ "modified": "2025-07-23 14:00:24.179890",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Task",
@@ -224,6 +224,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
