@@ -33,7 +33,7 @@ interface POPdfProps {
 }
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+  "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
 
 export const POPdf: React.FC<POPdfProps> = ({
   po,
