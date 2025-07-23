@@ -36,15 +36,83 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
       exportValue: (row: POReportRowData) => row.name,
     },
   },
+  // {
+  //   accessorKey: "creation",
+  //   header: ({ column }) => (
+  //     <DataTableColumnHeader column={column} title="Date Created" />
+  //   ),
+  //   cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
+  //   meta: {
+  //     exportValue: (row: POReportRowData) => formatDate(row.creation),
+  //     exportHeaderName: "Date Created",
+  //   },
+  //   filterFn: dateFilterFn,
+  // },
   {
-    accessorKey: "creation",
+    id: "latest_delivery_date",
+    accessorFn: (row) => row.originalDoc.latest_delivery_date, // Explicitly tell the table where to get the data
+
+    // accessorKey: "latest_delivery_date",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Date Created" />
+      <DataTableColumnHeader column={column} title={
+
+        <div className="text-left whitespace-normal">
+          Latest Delivery Date
+        </div>
+
+      } />
     ),
-    cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
+    cell: ({ row }) => {
+      // We can now use row.getValue() which is cleaner, as it uses the accessorFn
+      //   console.log("row.getValue('latest_delivery_date')", row);
+      const latest_delivery_date = row.getValue("latest_delivery_date") as string | undefined;
+      return (
+        <div>
+          {latest_delivery_date ? formatDate(latest_delivery_date) : "N/A"}
+        </div>
+      );
+    },
     meta: {
-      exportValue: (row: POReportRowData) => formatDate(row.creation),
-      exportHeaderName: "Date Created",
+      exportValue: (row: POReportRowData) => {
+        const poDoc = row.originalDoc as ProcurementOrder;
+        return poDoc.latest_delivery_date
+          ? formatDate(poDoc.latest_delivery_date)
+          : "N/A";
+      },
+      exportHeaderName: "Latest Delivery Date",
+    },
+    filterFn: dateFilterFn,
+  },
+  {
+    id: "latest_payment_date",
+
+    accessorFn: (row) => row.originalDoc.latest_payment_date, // Explicitly tell the table
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title={
+
+        <div className="text-left whitespace-normal">
+          Latest Payment Date
+        </div>
+
+      } />
+    ),
+    cell: ({ row }) => {
+      // We can now use row.getValue() which is cleaner, as it uses the accessorFn
+      const latest_payment_date = row.getValue("latest_payment_date") as string | undefined;
+      return (
+        <div>
+          {latest_payment_date ? formatDate(latest_payment_date) : "N/A"}
+        </div>
+      );
+    },
+    meta: {
+      exportValue: (row: POReportRowData) => {
+        const poDoc = row.originalDoc as ProcurementOrder;
+        return poDoc.latest_payment_date
+          ? formatDate(poDoc.latest_payment_date)
+          : "N/A";
+      },
+      exportHeaderName: "Latest Payment Date",
     },
     filterFn: dateFilterFn,
   },
@@ -133,74 +201,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
       isNumeric: true,
     },
   },
-  {
-    id: "latest_delivery_date",
-    accessorFn: (row) => row.originalDoc.latest_delivery_date, // Explicitly tell the table where to get the data
 
-    // accessorKey: "latest_delivery_date",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title={
-
-        <div className="text-left whitespace-normal">
-          Latest Delivery Date
-        </div>
-
-      } />
-    ),
-    cell: ({ row }) => {
-      // We can now use row.getValue() which is cleaner, as it uses the accessorFn
-      //   console.log("row.getValue('latest_delivery_date')", row);
-      const latest_delivery_date = row.getValue("latest_delivery_date") as string | undefined;
-      return (
-        <div>
-          {latest_delivery_date ? formatDate(latest_delivery_date) : "N/A"}
-        </div>
-      );
-    },
-    meta: {
-      exportValue: (row: POReportRowData) => {
-        const poDoc = row.originalDoc as ProcurementOrder;
-        return poDoc.latest_delivery_date
-          ? formatDate(poDoc.latest_delivery_date)
-          : "N/A";
-      },
-      exportHeaderName: "Latest Delivery Date",
-    },
-    filterFn: dateFilterFn,
-  },
-  {
-    id: "latest_payment_date",
-
-    accessorFn: (row) => row.originalDoc.latest_payment_date, // Explicitly tell the table
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title={
-
-        <div className="text-left whitespace-normal">
-          Latest Payment Date
-        </div>
-
-      } />
-    ),
-    cell: ({ row }) => {
-      // We can now use row.getValue() which is cleaner, as it uses the accessorFn
-      const latest_payment_date = row.getValue("latest_payment_date") as string | undefined;
-      return (
-        <div>
-          {latest_payment_date ? formatDate(latest_payment_date) : "N/A"}
-        </div>
-      );
-    },
-    meta: {
-      exportValue: (row: POReportRowData) => {
-        const poDoc = row.originalDoc as ProcurementOrder;
-        return poDoc.latest_payment_date
-          ? formatDate(poDoc.latest_payment_date)
-          : "N/A";
-      },
-      exportHeaderName: "Latest Payment Date",
-    },
-    filterFn: dateFilterFn,
-  },
 ];
 
 export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [

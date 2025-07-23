@@ -41,7 +41,8 @@ export default function POReports() {
 
     // 2. Dynamically determine columns based on selectedReportType
     const tableColumnsToDisplay = useMemo(() => getPOReportColumns(selectedReportType, role), [selectedReportType]);
-    const delta = 100;
+    const payment_delta = 100;
+    const invoice_delta = 500;
 
     // 3. Perform the report-specific dynamic filtering on the client side.
     // This `currentDisplayData` is what will be shown in the table.
@@ -64,7 +65,7 @@ export default function POReports() {
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
                     if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
-                        return parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - delta;
+                        return parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - invoice_delta;
                     }
                     return false;
                 });
@@ -73,7 +74,7 @@ export default function POReports() {
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
                     if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
-                        return parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + delta;
+                        return parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + payment_delta;
                     }
                     return false;
                 });
@@ -111,7 +112,7 @@ export default function POReports() {
         }
         // console.log(`POReports: Filtered data count: ${filtered.length}`);
         return filtered;
-    }, [allPOsForReports, selectedReportType, delta]);
+    }, [allPOsForReports, selectedReportType, payment_delta, invoice_delta]);
 
     // 4. Initialize useServerDataTable in clientData mode
     // console.log("currentDisplayData", currentDisplayData);
