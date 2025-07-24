@@ -10,7 +10,7 @@ import { useReactToPrint } from 'react-to-print';
 import { Separator } from "../ui/separator";
 import { Switch } from "../ui/switch";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs"
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
 const { Sider, Content } = Layout;
 

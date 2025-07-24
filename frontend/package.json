@@ -56,7 +56,7 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.460.0",
     "papaparse": "^5.5.2",
-    "pdfjs-dist": "^4.0.379",
+    "pdfjs-dist": "^3.4.120",
     "react": "^18.2.0",
     "react-day-picker": "^8.10.0",
     "react-dom": "^18.2.0",
