@@ -5,7 +5,7 @@ import { useUsersList } from '@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH, getInvoiceTaskStaticFilters, INVOICE_TASK_DATE_COLUMNS, INVOICE_TASK_SEARCHABLE_FIELDS } from '../config/InvoiceTaskTable.config';
 import { useUserData } from '@/hooks/useUserData';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
-import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeGetDocList,useFrappePostCall } from 'frappe-react-sdk';
 import { InvoiceApprovalTask } from '@/types/NirmaanStack/Task';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -25,28 +25,81 @@ export const TaskHistoryTable: React.FC = () => {
 
     const {data: usersList} = useUsersList()
 
-    const {getTotalAmount} = useOrderTotals()
+    const {getTotalAmount,getDeliveredAmount} = useOrderTotals()
     const {getAmount} = useOrderPayments()
 
     const [attachmentIds, setAttachmentIds] = React.useState<string[]>([]);
+    const [attachmentsData, setAttachmentsData] = React.useState<NirmaanAttachment[] | string | undefined>(undefined);
 
-    const { data: attachmentsData, isLoading: attachmentsLoading, error: attachmentsError } = useFrappeGetDocList<NirmaanAttachment>(
-            "Nirmaan Attachments", {
-                fields: ["name", "attachment"], // Fetch only what's needed
-                filters: attachmentIds.length > 0 ? [["name", "in", attachmentIds]] : [],
-                limit: attachmentIds.length || 1, // Fetch all relevant, or 1 if none to avoid error
-            }, 
-            attachmentIds.length > 0 ? `attachments_for_invoice_tasks_${attachmentIds.join('_')}` : null
+    // const { data: attachmentsData, isLoading: attachmentsLoading, error: attachmentsError } = useFrappeGetDocList<NirmaanAttachment>(
+    //         "Nirmaan Attachments", {
+    //             fields: ["name", "attachment"], // Fetch only what's needed
+    //             filters: attachmentIds.length > 0 ? [["name", "in", attachmentIds]] : [],
+    //             limit:1, // Fetch all relevant, or 1 if none to avoid error
+    //         }, 
+    //         attachmentIds.length > 0 ? `attachments_for_invoice_tasks_${attachmentIds.join('_')}` : null
     
-        );
+    //     );
+
+ const {
+        call: fetchAttachments, // We get a function to call manually
+        // data: attachmentsData,
+        loading: attachmentsLoading,
+        error: attachmentsError
+    } = useFrappePostCall<NirmaanAttachment[]>('nirmaan_stack.api.tasks.attachment_names.get_attachments_by_name');
+
+    // console.log("attachmentsData",attachmentsData)
+    // --- This effect now calls our POST endpoint ---
+    // In your TaskHistoryTable.tsx component
+
+// --- This effect now calls our POST endpoint ---
+useEffect(() => {
+    // Define an async function inside the effect
+    const performFetch = async () => {
+        // Only fetch if we have IDs to look for
+        if (attachmentIds && attachmentIds.length > 0) {
+            // It's good practice to wrap async calls in a try...catch block
+            try {
+                // Now you can safely use await
+                const response =await fetchAttachments({
+                    // The parameter name must match the Python function's argument
+                    attachment_names: attachmentIds 
+                });
+                // console.log("response",response?.message)
+                setAttachmentsData(response?.message);
+            } catch (err) {
+                // If fetchAttachments rejects, the error will be caught here.
+                // The `useFrappePostCall` hook will also populate its `error` state.
+                console.error("An error occurred while calling fetchAttachments:", err);
+            }
+        }
+    };
+
+    // Call the function to execute it
+    performFetch();
     
-    const attachmentsMap = useMemo(() => {
-        if (!attachmentsData) return {};
-        return attachmentsData.reduce((acc, item) => {
-            if (item.name && item.attachment) acc[item.name] = item.attachment;
+}, [attachmentIds, fetchAttachments]); // Add fetchAttachments to dependencies
+   
+
+    
+  const attachmentsMap = useMemo(() => {
+    // console.log(typeof attachmentsData, attachmentsData)
+        if (!attachmentsData && !attachmentsLoading) {   
+            return []; // Handles initial undefined state
+        }
+
+        let parsedData = attachmentsData||[];
+    
+        if (!Array.isArray(parsedData)) return {}; // Ensure it's an array before reducing
+
+        return parsedData.reduce((acc, item) => {
+            if (item && item.name && item.attachment) {
+                acc[item.name] = item.attachment;
+            }
             return acc;
         }, {} as Record<string, string>);
-    }, [attachmentsData]);
+    }, [attachmentsData,attachmentsLoading]);
+
     
     const getUserName = useCallback((id: string | undefined): string => {
         if (!id) return '';
@@ -65,7 +118,7 @@ export const TaskHistoryTable: React.FC = () => {
     ]), [])
 
     // Columns don't depend on actions here, so Memo has no dynamic dependencies
-    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName, attachmentsMap, getTotalAmount, getAmount), [usersList, attachmentsMap, getTotalAmount, getAmount]);
+    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount), [usersList, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount]);
 
     // --- Main Data Table Hook ---
     const {

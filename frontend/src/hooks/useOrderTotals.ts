@@ -35,6 +35,7 @@ export const useOrderTotals = () => {
         const order = purchaseOrders?.find(i => i?.name === orderId);
         // --- (FIXED) Directly return the result of the corrected getPOTotal ---
         // The new getPOTotal already returns the object in the desired shape.
+        // console.log("getPOTotal", orderId, type, order);
         return getPOTotal(order);
       }
       if (['Service Requests', 'Service Order'].includes(type)) {
@@ -51,9 +52,9 @@ export const useOrderTotals = () => {
   // --- (THE FIX) Create a new memoized getter for the delivered amount ---
   const getDeliveredAmount = useMemo(
     () => memoize((orderId: string, type: string): number => {
-      if (['Procurement Orders', 'Purchase Order'].includes(type)) {
+      if (['Procurement Orders'].includes(type)) {
         const order = purchaseOrders?.find(i => i?.name === orderId);
-        console.log("getDeliveredAmount", orderId, type, order);
+        // console.log("getDeliveredAmount", orderId, type, order);
         // Directly return the pre-calculated value from the document
         return order?.po_amount_delivered
       }

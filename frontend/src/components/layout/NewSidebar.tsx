@@ -410,7 +410,7 @@ export function NewSidebar() {
         {
           key: '/project-expenses',
           icon: Landmark,
-          label: 'Project Expenses',
+          label: 'Misc. Project Expenses',
         },
       ]
       : []),
@@ -565,7 +565,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

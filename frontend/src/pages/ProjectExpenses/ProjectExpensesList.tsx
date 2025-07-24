@@ -225,7 +225,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                 summaryCard={
                     <Card>
                         <CardHeader className="p-4">
-                            <CardTitle className="text-lg">Project Expenses Summary</CardTitle>
+                            <CardTitle className="text-lg">Misc. Project Expenses Summary</CardTitle>
                             <CardDescription>
                                 <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
                             </CardDescription>

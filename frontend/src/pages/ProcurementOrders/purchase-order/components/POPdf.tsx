@@ -3,7 +3,7 @@ import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import {
   ProcurementOrder,
   PurchaseOrderItem,
-  PaymentTerm,POTotals
+  PaymentTerm, POTotals
 } from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
@@ -20,9 +20,9 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 interface POPdfProps {
   po: ProcurementOrder | null;
   orderData?: PurchaseOrderItem[];
-paymentTerms?: PaymentTerm[];
-  // includeComments: boolean
-  POTotals?:POTotals;
+  paymentTerms?: PaymentTerm[];
+  includeComments: boolean
+  POTotals?: POTotals;
   // advance: number
   // materialReadiness: number
   // afterDelivery: number
@@ -33,11 +33,12 @@ paymentTerms?: PaymentTerm[];
 }
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+  "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js";
 
 export const POPdf: React.FC<POPdfProps> = ({
   po,
   orderData,
+  includeComments,
   POTotals,
   paymentTerms,
   poPdfSheet,
@@ -46,8 +47,8 @@ export const POPdf: React.FC<POPdfProps> = ({
   if (!po) return <div>No PO ID Provided</div>;
   const componentRef = useRef<HTMLDivElement>(null);
 
-   const finalPaymentTerms = paymentTerms && paymentTerms.length > 0 ? paymentTerms : po?.payment_terms;
-  
+  const finalPaymentTerms = paymentTerms && paymentTerms.length > 0 ? paymentTerms : po?.payment_terms;
+
   const { data: attachmentsData } = useFrappeGetDocList(
     "Nirmaan Attachments",
     {
@@ -333,20 +334,31 @@ export const POPdf: React.FC<POPdfProps> = ({
                     return (
                       <tr
                         key={index}
-                        className={`${
-                          !parseNumber(po?.loading_charges) &&
+                        className={`${!parseNumber(po?.loading_charges) &&
                           !parseNumber(po?.freight_charges) &&
                           index === length - 1 &&
                           "border-b border-black"
-                        } page-break-inside-avoid ${
-                          index === 15 ? "page-break-before" : ""
-                        }`}
+                          } page-break-inside-avoid ${index === 15 ? "page-break-before" : ""
+                          }`}
                       >
                         <td className="py-2 px-2 text-sm whitespace-nowrap w-[7%]">
                           {index + 1}.
                         </td>
                         <td className="py-2 text-xs whitespace-nowrap text-wrap">
                           {item.item_name?.toUpperCase()}
+                          {item.make && (
+                            <p className="text-xs italic font-semibold text-gray-500">
+                              -{" "}{item.make?.toUpperCase()}
+                            </p>
+                          )}
+                          {item.comment && includeComments && (
+                            <div className="flex gap-1 items-start block p-1">
+                              <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                              <div className="text-xs text-gray-400">
+                                {item.comment}
+                              </div>
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
                           {item.unit}
@@ -396,8 +408,8 @@ export const POPdf: React.FC<POPdfProps> = ({
 
                     <td className="space-y-4 py-4 text-sm font-bold whitespace-nowrap">
                       <div className="ml-4">
-                      {formatToIndianRupee(POTotals?.totalBase)}
-                    </div>
+                        {formatToIndianRupee(POTotals?.totalBase)}
+                      </div>
                       <div className="ml-4">
                         {formatToIndianRupee(POTotals?.totalTax)}
                       </div>
@@ -406,7 +418,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                         {formatToIndianRupee(
                           (POTotals?.grandTotal -
                             Math.round(POTotals?.grandTotal)) *
-                            -1
+                          -1
                         )}
                       </div>
                       <div className="ml-4">
