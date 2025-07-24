@@ -180,7 +180,7 @@ const Project: React.FC = () => {
     return <LoadingFallback />
   }
 
-  if (isLoading || projectCustomerLoading ) {
+  if (isLoading || projectCustomerLoading) {
     return <LoadingFallback />
   }
 
@@ -283,15 +283,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // Effect to sync URL "page" param TO activePage state (for popstate/direct URL load)
   useEffect(() => {
     const unsubscribe = urlStateManager.subscribe("page", (_, value) => {
-        const newPage = (value || PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
-        if (activePage !== newPage) {
-            setActivePage(newPage);
-        }
+      const newPage = (value || PROJECT_PAGE_TABS.OVERVIEW) as ProjectPageTabValue;
+      if (activePage !== newPage) {
+        setActivePage(newPage);
+      }
     });
     // Ensure initial sync if URL already has the param
     const currentUrlPage = urlStateManager.getParam("page") as ProjectPageTabValue | null;
     if (currentUrlPage && activePage !== currentUrlPage) {
-        setActivePage(currentUrlPage);
+      setActivePage(currentUrlPage);
     }
     return unsubscribe;
   }, [activePage, initialActivePage]); // Rerun if initialTab logic changes or tab changes externally
@@ -367,7 +367,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     },
     // --- (Indicator) NEW MENU ITEM ---
     {
-      label: "Project Expenses",
+      label: "Misc. Project Expenses",
       key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
     }
   ], [role]);
@@ -482,7 +482,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
-      fields: ["name","procurement_request", "status","amount","tax_amount","total_amount" ,"invoice_data"] as const,
+      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data"] as const,
       filters: [
         ["project", "=", projectId],
         ["status", "!=", "Merged"],
@@ -527,20 +527,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     return { poAmount, srAmount, projectExpensesAmount, totalAmount: poAmount + srAmount + projectExpensesAmount };
   }, [projectPayments, projectExpenses]);
 
-const totalPosRaised = useMemo(() => {
-  // 1. Guard Clause: This part is correct and should be kept.
-  if (!po_data || po_data.length === 0) {
-    return 0;
-  }
+  const totalPosRaised = useMemo(() => {
+    // 1. Guard Clause: This part is correct and should be kept.
+    if (!po_data || po_data.length === 0) {
+      return 0;
+    }
 
-  // 2. Corrected `reduce` implementation
-  return po_data.reduce((accumulator, currentOrder) => {
-    // For each order, add its 'amount' to the running total (accumulator).
-    // The parseNumber helper gracefully handles cases where 'amount' might be null or not a number.
-    return accumulator + parseNumber(currentOrder.amount);
-  }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
+    // 2. Corrected `reduce` implementation
+    return po_data.reduce((accumulator, currentOrder) => {
+      // For each order, add its 'amount' to the running total (accumulator).
+      // The parseNumber helper gracefully handles cases where 'amount' might be null or not a number.
+      return accumulator + parseNumber(currentOrder.amount);
+    }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
 
-}, [po_data]);
+  }, [po_data]);
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
 
@@ -760,75 +760,75 @@ const totalPosRaised = useMemo(() => {
 
   useEffect(() => {
     if (data && data.project_wp_category_makes) {
-        // Step 1: Extract unique procurement package DocNames from the child table
-        const uniqueWPDocNames = new Set<string>();
-        data.project_wp_category_makes.forEach((item: ProjectWPCategoryMake) => {
-            if (item.procurement_package) {
-                uniqueWPDocNames.add(item.procurement_package);
-            }
-        });
+      // Step 1: Extract unique procurement package DocNames from the child table
+      const uniqueWPDocNames = new Set<string>();
+      data.project_wp_category_makes.forEach((item: ProjectWPCategoryMake) => {
+        if (item.procurement_package) {
+          uniqueWPDocNames.add(item.procurement_package);
+        }
+      });
 
-        // Step 2: Create options from these unique DocNames
-        // For the label, you'd ideally use the display name (e.g., work_package_name)
-        // For now, let's assume the DocName itself can be used as a label,
-        // or you have a way to map it (e.g., from a fetched list of all Procurement Packages).
+      // Step 2: Create options from these unique DocNames
+      // For the label, you'd ideally use the display name (e.g., work_package_name)
+      // For now, let's assume the DocName itself can be used as a label,
+      // or you have a way to map it (e.g., from a fetched list of all Procurement Packages).
 
-        // --- Placeholder for mapping DocName to Display Name ---
-        // Example: if you fetched 'allProcurementPackages'
-        // const wpNameMap = new Map<string, string>();
-        // allProcurementPackages?.forEach(pkg => {
-        //     if (pkg.name && pkg.work_package_name) {
-        //         wpNameMap.set(pkg.name, pkg.work_package_name);
-        //     }
-        // });
-        // --- End Placeholder ---
+      // --- Placeholder for mapping DocName to Display Name ---
+      // Example: if you fetched 'allProcurementPackages'
+      // const wpNameMap = new Map<string, string>();
+      // allProcurementPackages?.forEach(pkg => {
+      //     if (pkg.name && pkg.work_package_name) {
+      //         wpNameMap.set(pkg.name, pkg.work_package_name);
+      //     }
+      // });
+      // --- End Placeholder ---
 
-        const workPackageOptions = Array.from(uniqueWPDocNames).map(wpDocName => {
-            // const label = wpNameMap.get(wpDocName) || wpDocName; // Use display name if available
-            const label = wpDocName; // Using DocName as label for now
-            return { label: label, value: wpDocName };
-        });
+      const workPackageOptions = Array.from(uniqueWPDocNames).map(wpDocName => {
+        // const label = wpNameMap.get(wpDocName) || wpDocName; // Use display name if available
+        const label = wpDocName; // Using DocName as label for now
+        return { label: label, value: wpDocName };
+      });
 
-        // Step 3: Construct the full options list including "All", "Services"
-        const finalOptions = [
-            { label: "All", value: "All" },
-            ...workPackageOptions,
-            // { label: "Tool & Equipments", value: "Tool & Equipments" }, // This was commented out
-            { label: "Services", value: "Services" }, // Assuming "Services" is always an option
-        ].sort((a, b) => {
-            if (a.label === "All") return -1;
-            if (b.label === "All") return 1;
-            return a.label.localeCompare(b.label);
-        });
-        
-        setOptions(finalOptions);
+      // Step 3: Construct the full options list including "All", "Services"
+      const finalOptions = [
+        { label: "All", value: "All" },
+        ...workPackageOptions,
+        // { label: "Tool & Equipments", value: "Tool & Equipments" }, // This was commented out
+        { label: "Services", value: "Services" }, // Assuming "Services" is always an option
+      ].sort((a, b) => {
+        if (a.label === "All") return -1;
+        if (b.label === "All") return 1;
+        return a.label.localeCompare(b.label);
+      });
 
-        // Step 4: Set makeOptions (which seems to be a filtered version of finalOptions)
-        // Your original logic for makeOptions: options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label))
-        // Since "Tool & Equipments" is commented out, it might just be:
-        const filteredMakeOptions = finalOptions.filter(
-            option => !["All", "Services"].includes(option.label)
-        );
-        setMakeOptions(filteredMakeOptions);
-        
-        // setSelectedPackage("All"); // If you need to reset a selection
+      setOptions(finalOptions);
+
+      // Step 4: Set makeOptions (which seems to be a filtered version of finalOptions)
+      // Your original logic for makeOptions: options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label))
+      // Since "Tool & Equipments" is commented out, it might just be:
+      const filteredMakeOptions = finalOptions.filter(
+        option => !["All", "Services"].includes(option.label)
+      );
+      setMakeOptions(filteredMakeOptions);
+
+      // setSelectedPackage("All"); // If you need to reset a selection
 
     } else if (data && !data.project_wp_category_makes) {
-        // Handle case where project data is loaded but the child table is empty or missing
-        // This might mean no work packages are configured for the project yet.
-        const defaultOptions = [
-            { label: "All", value: "All" },
-            { label: "Services", value: "Services" },
-        ].sort((a, b) => {
-            if (a.label === "All") return -1;
-            if (b.label === "All") return 1;
-            return a.label.localeCompare(b.label);
-        });
-        setOptions(defaultOptions);
-        setMakeOptions(defaultOptions.filter(opt => !["All", "Services"].includes(opt.label)));
+      // Handle case where project data is loaded but the child table is empty or missing
+      // This might mean no work packages are configured for the project yet.
+      const defaultOptions = [
+        { label: "All", value: "All" },
+        { label: "Services", value: "Services" },
+      ].sort((a, b) => {
+        if (a.label === "All") return -1;
+        if (b.label === "All") return 1;
+        return a.label.localeCompare(b.label);
+      });
+      setOptions(defaultOptions);
+      setMakeOptions(defaultOptions.filter(opt => !["All", "Services"].includes(opt.label)));
     }
-}, [data, setOptions, setMakeOptions]); // Add setOptions and setMakeOptions to dependencies if they are stable
-                                       // If allProcurementPackages is fetched, add it to dependencies too.
+  }, [data, setOptions, setMakeOptions]); // Add setOptions and setMakeOptions to dependencies if they are stable
+  // If allProcurementPackages is fetched, add it to dependencies too.
 
 
   const handleStatusChange = useCallback((value: string) => {

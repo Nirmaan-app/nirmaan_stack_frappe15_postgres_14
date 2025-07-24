@@ -19,7 +19,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
 ): ColumnDef<InvoiceApprovalTask>[] => [
         {
             accessorKey: "task_docname",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Parent Doc" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="PO/SR ID" />,
             cell: ({ row }) => {
                 const docType = row.original.task_doctype;
                 const docName = row.original.task_docname;
@@ -43,7 +43,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
                 );
             },
             meta: {
-                exportHeaderName: "Parent Doc",
+                exportHeaderName: "PO/SR ID",
                 exportValue: (row) => {
                     return row.task_docname;
                 }
@@ -67,7 +67,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
         },
         {
             id: "po_amount", // PO Amount
-            header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amt(incl. GST)" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Amt(incl. GST)" />,
             cell: ({ row }) => {
                 const totals = getTotalAmount?.(row.original.task_docname, row.original.task_doctype);
                 return <div>
@@ -77,7 +77,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
             size: 150,
             sortingFn: 'alphanumeric', // Ensure correct numeric sorting
             meta: {
-                exportHeaderName: "PO Amt",
+                exportHeaderName: "Total PO Amt (incl. GST)",
                 exportValue: (row: InvoiceApprovalTask) => {
                     const totals = getTotalAmount?.(row.task_docname, row.task_doctype);
                     return totals?.totalWithTax;
@@ -100,7 +100,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
             size: 180,
             sortingFn: 'alphanumeric',
             meta: {
-                exportHeaderName: "PO Amt as Per Delivered Qty",
+                exportHeaderName: "PO Amt (Delivered)",
                 exportValue: (row: InvoiceApprovalTask) => {
                     if (row.task_doctype !== "Procurement Orders") return "N/A";
                     return getDeliveredAmount?.(row.task_docname, row.task_doctype);
@@ -118,7 +118,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
             size: 150,
             sortingFn: 'alphanumeric', // Ensure correct numeric sorting
             meta: {
-                exportHeaderName: "Amt Paid",
+                exportHeaderName: "Amt Paid (incl. GST)",
                 exportValue: (row: InvoiceApprovalTask) => {
                     return getAmount(row.task_docname, ["Paid"]);
                 }
@@ -165,7 +165,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
         },
         {
             accessorKey: "reference_value_3", // Invoice Amount
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount (incl. GST)" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Amt (incl. GST)" />,
             cell: ({ row }) => (
                 <div className="">
                     {formatToRoundedIndianRupee(parseNumber(row.original.reference_value_3))}
@@ -173,7 +173,7 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
             ),
             sortingFn: 'alphanumeric', // Ensure correct numeric sorting
             meta: {
-                exportHeaderName: "Invoice Amount",
+                exportHeaderName: "Invoice Amt (incl. GST)",
                 exportValue: (row) => {
                     return row.reference_value_3;
                 }

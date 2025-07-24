@@ -226,7 +226,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                         </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="payment_by" className="text-right">Paid By <sup className="text-destructive">*</sup></Label>
+                        <Label htmlFor="payment_by" className="text-right">Requested By <sup className="text-destructive">*</sup></Label>
                         <div className="col-span-3">
                             <Select value={formState.payment_by} onValueChange={(val) => handleInputChange('payment_by', val)} disabled={isLoadingOverall}>
                                 <SelectTrigger className={formErrors.payment_by ? "border-destructive" : ""}><SelectValue placeholder="Select user..." /></SelectTrigger>
