@@ -25,6 +25,44 @@ export const getPOTotal = (order: ProcurementOrder): { total: number, totalGst: 
   return { total, totalGst, totalWithTax };
 };
 
+export const getPOSTotals = (order: ProcurementOrder): { total: number, totalGst: number, totalWithTax: number } => {
+
+  // console.log("orders",orders)
+  // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
+  if (!order) {
+    return { total: 0, totalGst: 0, totalWithTax: 0 };
+  }
+
+  const totals = order?.reduce(
+    (acc, item) => {
+     
+
+      const itemBaseAmount = parseNumber(item.amount);
+      const itemTaxAmount = parseNumber(item.tax_amount);
+      const totalAmount = parseNumber(item.total_amount);
+
+      acc.total += itemBaseAmount;
+      acc.totalGst += itemTaxAmount;
+      acc.totalWithTax+= totalAmount;
+
+      return acc;
+    },
+    { total: 0, totalGst: 0,totalWithTax:0 }
+  );
+
+
+  // 2. Directly access the pre-calculated fields from the document, using parseNumber for safety.
+  
+
+  // 3. Return the extracted totals.
+   return {
+    totalWithTax: totals.totalWithTax,
+    total: totals.totalBase,
+    totalGst: totals.totalTax,
+  };
+};
+
+
 
 export const getSRTotal = memoize(
   (order: any) => {

@@ -73,7 +73,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const { data: CreditData } = useCredits()
 
-  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status === "Created"));
+  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
   const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
 
   const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
@@ -114,17 +114,17 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       style: ""
     },
 
-    // {
-    //   label: "Total Amount Paid",
-    //   value: getTotalAmountPaid.totalAmount,
-    //   style: "text-red-600",
-    //   // --- (Indicator) NEW: Add breakdown data for hover card ---
-    //   breakdown: {
-    //     poAmount: getTotalAmountPaid.poAmount,
-    //     srAmount: getTotalAmountPaid.srAmount,
-    //     projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
-    //   }
-    // },
+    {
+      label: "Total Amount Paid",
+      value: getTotalAmountPaid.totalAmount,
+      style: "text-red-600",
+      // --- (Indicator) NEW: Add breakdown data for hover card ---
+      breakdown: {
+        poAmount: getTotalAmountPaid.poAmount,
+        srAmount: getTotalAmountPaid.srAmount,
+        projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
+      }
+    },
     // {
     //   label: "Total Amount Due",
     //   value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
@@ -146,7 +146,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       style: ""
     },
     {
-      label: "Total Balance Credit",
+      label: "Total Liabilities",
       value: relatedTotalBalanceCredit,
       style: ""
     },

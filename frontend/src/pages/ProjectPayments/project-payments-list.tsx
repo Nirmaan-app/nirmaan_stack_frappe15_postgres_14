@@ -392,7 +392,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                     const amount = getTotalAmount(row.original.name, row.original.type)
                     return <div className="font-medium">
                         {/* {formatToRoundedIndianRupee(amount?.totalWithTax)} */}
-                        {formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.total)}
+                        {formatToIndianRupee(getTotalAmount(row.original.name, row.original.type)?.totalWithTax)}
 
                     </div>
                 },
