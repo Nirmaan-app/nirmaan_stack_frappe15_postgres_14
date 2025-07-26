@@ -182,7 +182,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
                         const amount = parseNumber(term.amount);
 
                         // Rule for 'totalBalanceCredit'
-                        if (term.status === "Created") {
+                        if (term.status !=="Paid") {
                             totals.totalBalanceCredit += amount;
                         }
 

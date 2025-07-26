@@ -17,7 +17,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalInflowAmount, getPOTotal, getSRTotal, getTotalAmountPaid, getTotalExpensePaid } from "@/utils/getAmounts";
+import { getTotalInflowAmount,getPOSTotals, getPOTotal, getSRTotal, getTotalAmountPaid, getTotalExpensePaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
@@ -164,7 +164,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
-    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status === "Created"));
+    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
     const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
 
     return memoize((projectId: string) => {
@@ -181,15 +181,16 @@ export const Projects: React.FC<ProjectsProps> = ({
 
       // console.log("DueByProject",relatedTotalBalanceCredit,relatedTotalDue);
 
-      // console.log("realatedPO", relatedPOs);
 
       // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
-      let totalInvoiced = getPOTotal(relatedPOs)?.totalAmt || 0;
+      let totalInvoiced = getPOSTotals(relatedPOs)?.totalWithTax || 0;
+      // console.log("totalInvoiced",totalInvoiced)
 
       relatedSRs.forEach(sr => {
         const srVal = getSRTotal(sr); // Assuming getSRTotal returns value without GST
         totalInvoiced += sr.gst === "true" ? srVal * 1.18 : srVal;
       });
+      // console.log("realatedPOSR", totalInvoiced);
 
       const totalInflow = getTotalInflowAmount(relatedInflows);
       const totalOutflow = getTotalAmountPaid(relatedPayments) + getTotalExpensePaid(relatedExpenses); // Already filtered for "Paid"
@@ -302,7 +303,7 @@ export const Projects: React.FC<ProjectsProps> = ({
             <div className="flex justify-between"><span>PO Amt:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L</span></div>
             <div className="flex justify-between"><span>Inflow:</span> <span className="text-green-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L</span></div>
             <div className="flex justify-between"><span>Outflow:</span> <span className="text-red-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L</span></div>
-            <div className="flex justify-between"><span>Total Balance Credit:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span></div>
+            <div className="flex justify-between"><span>Total Liabilities:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span></div>
             <div className="flex justify-between"><span>Total Due Not Paid:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span></div>
           </div>
         );

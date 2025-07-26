@@ -126,7 +126,7 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
    // --- ✨ THIS IS THE FIX FOR YOUR NEW COLUMNS ---
   {
     id: "totalBalanceCredit", // A unique ID for the column
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Balance Due" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Liabilities" />,
     // Pass the correct accessor string that matches the key in ProjectCalculatedFields
     cell: (props) => <CalculatedCell {...props} accessor="totalBalanceCredit" formatter={formatValueToLakhsString} />,
     meta: { 

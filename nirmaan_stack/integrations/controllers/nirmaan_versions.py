@@ -146,13 +146,20 @@ def remove_amend_version(doc, method):
     print(f"--- [DEBUG] Nirmaan Version data: {frappe.as_json(pre_amendment_data)}")
 
     # 3. INSPECT THE 'BEFORE' AND 'AFTER' ITEM LISTS
-    original_items_list = next(
-        (change[1] for change in pre_amendment_data.get('changed', []) if change[0] == "items"), []
-    )
+    # original_items_list = next(
+    #     (change[1] for change in pre_amendment_data.get('changed', []) if change[0] == "items"), []
+    # )
+    removed_item_dicts = [
+    removed_row[1] for removed_row in pre_amendment_data.get('removed', []) if removed_row[0] == "items"
+]
+    explicitly_removed_pr_item_ids = {
+    item.get('procurement_request_item') for item in removed_item_dicts
+}
     procurement_order = frappe.get_doc("Procurement Orders", doc.docname)
     approved_items_list = [item.as_dict() for item in procurement_order.items]
 
-    print(f"--- [DEBUG] Original items list (from Nirmaan Version): {frappe.as_json(original_items_list)}")
+    print(f"--- [DEBUG] Proof list of removed PR item IDs: {explicitly_removed_pr_item_ids}")
+    print(f"--- [DEBUG] Removed items list (from Nirmaan Version): {frappe.as_json(removed_item_dicts)}")
     print(f"--- [DEBUG] Approved items list (from current PO): {frappe.as_json(approved_items_list)}")
 
 
@@ -171,7 +178,7 @@ def remove_amend_version(doc, method):
         return
 
     # 5. SEE WHAT HAPPENS INSIDE THE FINAL LOOP
-    original_items_dict = {item.get('item_name'): item for item in original_items_list}
+    # original_items_dict = {item.get('item_name'): item for item in original_items_list}
     approved_items_dict = {item.get('item_name'): item for item in approved_items_list}
     pr_was_modified = False
 
@@ -182,16 +189,23 @@ def remove_amend_version(doc, method):
 
         if final_po_item:
             print(f"--- [DEBUG] PR item '{pr_item.item_id}' ({pr_item.item_name}) FOUND in final PO. Current PR status: '{pr_item.status}'")
-            if pr_item.status == "Deleted":
+            if pr_item.status:
                 pr_item.status = "Approved"
                 pr_was_modified = True
                 print(f"--- [DEBUG] ---> Action: Changed PR item status to 'Active'.")
         else:
             print(f"--- [DEBUG] PR item '{pr_item.item_id}' ({pr_item.item_name}) NOT FOUND in final PO. Current PR status: '{pr_item.status}'")
-            if pr_item.status != "Deleted":
-                pr_item.status = "Deleted"
-                pr_was_modified = True
-                print(f"--- [DEBUG] ---> Action: Changed PR item status to 'Deleted'.")
+            if pr_item.name in explicitly_removed_pr_item_ids:
+                # This item's unique row ID was found in the set of removed items.
+                if pr_item.status != "Deleted":
+                    pr_item.status = "Deleted"
+                    pr_was_modified = True
+                    print(f"--- [ACTION] PR item '{pr_item.item_name}' was explicitly removed. Marking as 'Deleted'.")
+            else:
+                # The item is not in the final PO, but was not in the 'removed' list.
+                # This can happen if the item was never sent to the PO in the first place.
+                # No action is needed in this case.
+                print(f"--- [INFO] PR item '{pr_item.item_name}' not in final PO, but wasn't in the removed list. No action taken.")
 
     if pr_was_modified:
         print(f"--- [DEBUG] PR was modified. Attempting to save PR {procurement_request.name}...")

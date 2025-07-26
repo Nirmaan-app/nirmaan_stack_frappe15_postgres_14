@@ -3,7 +3,10 @@
 import { Radio } from "antd";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { useCredits } from "./hooks/useCredits"; // Import our new hook
-import { PoPaymentTermRow } from "@types/NirmaanStack/POPaymentTerms";
+// import { PoPaymentTermRow } from "@types/NirmaanStack/POPaymentTerms";
+
+import { RequestPaymentDialog } from "@/components/dialogs/RequestPaymentDialog";
+import {EditTermsDialog} from "../ProcurementOrders/purchase-order/components/POPaymentTermsCard";
 
 const CreditsPage = () => {
   // 1. Get all state, props, and handlers from our custom hook.
@@ -21,6 +24,13 @@ const CreditsPage = () => {
     PAYMENT_TERM_STATUS_OPTIONS,
     facetFilterOptions,
     TERM_SEARCHABLE_FIELDS,TERM_DATE_COLUMNS,
+        // --- MODIFICATION: Destructure the new props from the hook ---
+    termToRequest,
+    setTermToRequest,
+    handleConfirmRequestPayment,
+    isRequestingPayment,
+   
+
   
   } = useCredits();
 
@@ -67,6 +77,16 @@ const CreditsPage = () => {
         onExport="default"
         exportFileName={`Credit_payment_terms_${currentStatus.toLowerCase()}`}
       />
+       {/* --- MODIFICATION: Render the dialog here --- */}
+      <RequestPaymentDialog
+        isOpen={!!termToRequest}
+        onClose={() => setTermToRequest(null)}
+        term={termToRequest}
+        onConfirm={handleConfirmRequestPayment}
+        isLoading={isRequestingPayment}
+      />
+
+
     </div>
   );
 };

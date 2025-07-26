@@ -200,12 +200,12 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         {
             id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value" />,
             cell: ({ row }) => {
-                const totalValue = getTotalAmount(row.original.document_name, row.original.document_type).total;
+                const totalValue = getTotalAmount(row.original.document_name, row.original.document_type).totalWithTax;
                 return <div className="font-medium pr-2">{formatToRoundedIndianRupee(totalValue)}</div>;
             }, size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "PO Value",
-                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmount(row.document_name, row.document_type).total),
+                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmount(row.document_name, row.document_type).totalWithTax),
             }
         },
         {

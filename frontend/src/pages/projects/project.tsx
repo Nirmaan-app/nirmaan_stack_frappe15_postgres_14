@@ -325,9 +325,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     //     key: "projectTracking",
     //   }
     //   : null,
-    {
-      label: "PR Summary",
-      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+    // {
+    //   label: "PR Summary",
+    //   key: PROJECT_PAGE_TABS.PR_SUMMARY,
+    // },
+     {
+      label: "Financials",
+      key: PROJECT_PAGE_TABS.FINANCIALS,
     },
     {
       label: "SR Summary",
@@ -349,10 +353,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "Project Spends",
       key: PROJECT_PAGE_TABS.SPENDS,
     },
-    {
-      label: "Financials",
-      key: PROJECT_PAGE_TABS.FINANCIALS,
+     {
+      label: "PR Summary",
+      key: PROJECT_PAGE_TABS.PR_SUMMARY,
     },
+    // {
+    //   label: "Financials",
+    //   key: PROJECT_PAGE_TABS.FINANCIALS,
+    // },
     {
       label: "Project Estimates",
       key: PROJECT_PAGE_TABS.ESTIMATES
