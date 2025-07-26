@@ -329,7 +329,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     //   label: "PR Summary",
     //   key: PROJECT_PAGE_TABS.PR_SUMMARY,
     // },
-     {
+    {
       label: "Financials",
       key: PROJECT_PAGE_TABS.FINANCIALS,
     },
@@ -353,7 +353,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "Project Spends",
       key: PROJECT_PAGE_TABS.SPENDS,
     },
-     {
+    {
       label: "PR Summary",
       key: PROJECT_PAGE_TABS.PR_SUMMARY,
     },
@@ -1022,7 +1022,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </AlertDialog>
             </>
           )}
-          <div className="flex flex-col items-start ml-2 text-sm max-sm:text-xs">
+          {/* <div className="flex flex-col items-start ml-2 text-sm max-sm:text-xs">
             <CustomHoverCard
               totalPosRaised={totalPosRaised}
               totalServiceOrdersAmt={totalServiceOrdersAmt}
@@ -1037,7 +1037,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             </div>
             <div>
               <span className="whitespace-nowrap">Total Amt Paid: </span>
-              {/* --- (Indicator) MODIFIED: Wrap the amount in the new hover card --- */}
               <AmountBreakdownHoverCard
                 poAmount={getTotalAmountPaid.poAmount}
                 srAmount={getTotalAmountPaid.srAmount}
@@ -1048,7 +1047,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                 </span>
               </AmountBreakdownHoverCard>
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
 
