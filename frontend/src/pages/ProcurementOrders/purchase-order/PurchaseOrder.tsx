@@ -1554,13 +1554,13 @@ export const PurchaseOrder = ({
                   <col className="w-[50%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
                   {["Partially Delivered", "Delivered"].includes(
                     PO?.status
                   ) && <col className="w-[5%]" />}
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
                 </colgroup>
                 <thead className="bg-red-100">
                   <tr className="text-sm font-semibold text-gray-700">
@@ -1576,6 +1576,13 @@ export const PurchaseOrder = ({
                     <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
                       Qty
                     </th>
+                    {["Partially Delivered", "Delivered"].includes(
+                      PO?.status
+                    ) && (
+                        <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                          Delivered Quantity
+                        </th>
+                      )}
                     <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
                       Rate
                     </th>
@@ -1588,13 +1595,7 @@ export const PurchaseOrder = ({
                     <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
                       Amount (incl.GST)
                     </th>
-                    {["Partially Delivered", "Delivered"].includes(
-                      PO?.status
-                    ) && (
-                        <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                          Delivered Quantity
-                        </th>
-                      )}
+
                   </tr>
                 </thead>
               </table>
@@ -1614,13 +1615,14 @@ export const PurchaseOrder = ({
                   <col className="w-[50%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
                   {["Partially Delivered", "Delivered"].includes(
                     PO?.status
                   ) && <col className="w-[5%]" />}
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+
                 </colgroup>
                 <tbody className="divide-y divide-gray-200">
                   {PO?.items?.map((item, index) => (
@@ -1658,7 +1660,19 @@ export const PurchaseOrder = ({
                       <td className="text-center py-2 align-top">
                         {item.quantity}
                       </td>
-
+                      {/* OD (Conditional) */}
+                      {["Partially Delivered", "Delivered"].includes(
+                        PO?.status
+                      ) && (
+                          <td
+                            className={`text-center py-2 align-top ${item?.received_quantity === item?.quantity
+                              ? "text-green-600"
+                              : "text-red-700"
+                              }`}
+                          >
+                            {item?.received_quantity || 0}
+                          </td>
+                        )}
                       {/* Rate */}
                       <td className="text-center py-2 align-top">
                         {formatToIndianRupee(item?.quote)}
@@ -1681,19 +1695,7 @@ export const PurchaseOrder = ({
                         )}
                       </td>
 
-                      {/* OD (Conditional) */}
-                      {["Partially Delivered", "Delivered"].includes(
-                        PO?.status
-                      ) && (
-                          <td
-                            className={`text-center py-2 align-top ${item?.received_quantity === item?.quantity
-                                ? "text-green-600"
-                                : "text-red-700"
-                              }`}
-                          >
-                            {item?.received_quantity || 0}
-                          </td>
-                        )}
+
                     </tr>
                   ))}
                 </tbody>
