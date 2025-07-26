@@ -109,7 +109,7 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams,useSearchParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
@@ -145,6 +145,7 @@ export const PurchaseOrder = ({
   const navigate = useNavigate();
   const params = useParams();
   const id = summaryPage ? params.poId : params.id;
+  // console.log("ID",id,params)
 
   if (!id) return <div>No PO ID Provided</div>;
 
@@ -161,10 +162,12 @@ export const PurchaseOrder = ({
     error: poError,
     mutate: poMutate,
   } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
-  //  const { data: pos } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
 
 
-  // --- FIX 2: PASS THE ENTIRE 'PO' OBJECT, NOT 'orderData.list' ---
+  //editing PO terms 
+
+  
+ 
   const { triggerHistoryPrint, PrintableHistoryComponent } =
     usePrintHistory(PO);
 
@@ -181,6 +184,23 @@ export const PurchaseOrder = ({
     },
     true // emitOpenCloseEventsOnMount (default)
   );
+    const [searchParams] = useSearchParams();
+
+    const [openAccordionItems, setOpenAccordionItems] = useState(false);
+
+
+  // --- MODIFICATION: Update the useEffect to also control the accordion ---
+  useEffect(() => {
+    // Check if the 'isEditing' parameter from the URL is 'true'
+    if (searchParams.get('isEditing') === 'true') {
+      // 1. Open the dialog
+      
+      // 2. ALSO, open the "Payment Details" accordion
+      // We ensure we don't add duplicates by checking first
+      setOpenAccordionItems(true);
+    }
+  }, [searchParams]); // This effect still runs on load and if URL params change.
+
 
   const { errors, isValid } = usePOValidation(PO);
   const [invoicePO, setInvoicePO] = useState<ProcurementOrder | null>(null);
@@ -696,11 +716,7 @@ export const PurchaseOrder = ({
     if (hasExistingReturn || willCreateReturn) {
       toast({
         title: "Amendment Blocked: Overpayment",
-        description: `This change would create a negative balance. New total (${newTotalAmountForValidation.toFixed(
-          2
-        )}) cannot be less than the locked amount (${lockedAmount.toFixed(
-          2
-        )}).`,
+        description: `This change would create a negative balance. New total (${newTotalAmountForValidation}) cannot be less than the locked amount (${lockedAmount}).`,
         variant: "destructive",
         duration: 8000,
       });
@@ -1438,7 +1454,8 @@ export const PurchaseOrder = ({
       <Card className="rounded-sm  md:col-span-3 p-2">
         <Accordion
           type="multiple"
-          // defaultValue={tab !== "Delivered PO" ? ["transac&payments"] : []}
+          defaultValue={openAccordionItems == true ? ["transac&payments"] : []}
+          // value={openAccordionItems}
           className="w-full"
         >
           <AccordionItem key="transac&payments" value="transac&payments">
@@ -1471,6 +1488,7 @@ export const PurchaseOrder = ({
                   getTotal={getTotal}
                   poMutate={poMutate}
                   projectPaymentsMutate={poPaymentsMutate}
+                
                 // advance={advance}
                 // materialReadiness={materialReadiness}
                 // afterDelivery={afterDelivery}
@@ -1554,13 +1572,13 @@ export const PurchaseOrder = ({
                   <col className="w-[50%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
                   {["Partially Delivered", "Delivered"].includes(
                     PO?.status
                   ) && <col className="w-[5%]" />}
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
                 </colgroup>
                 <thead className="bg-red-100">
                   <tr className="text-sm font-semibold text-gray-700">
@@ -1576,6 +1594,13 @@ export const PurchaseOrder = ({
                     <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
                       Qty
                     </th>
+                    {["Partially Delivered", "Delivered"].includes(
+                      PO?.status
+                    ) && (
+                        <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
+                          Delivered Quantity
+                        </th>
+                      )}
                     <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
                       Rate
                     </th>
@@ -1588,13 +1613,7 @@ export const PurchaseOrder = ({
                     <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
                       Amount (incl.GST)
                     </th>
-                    {["Partially Delivered", "Delivered"].includes(
-                      PO?.status
-                    ) && (
-                        <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                          Delivered Quantity
-                        </th>
-                      )}
+
                   </tr>
                 </thead>
               </table>
@@ -1614,13 +1633,14 @@ export const PurchaseOrder = ({
                   <col className="w-[50%]" />
                   <col className="w-[10%]" />
                   <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
                   {["Partially Delivered", "Delivered"].includes(
                     PO?.status
                   ) && <col className="w-[5%]" />}
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+
                 </colgroup>
                 <tbody className="divide-y divide-gray-200">
                   {PO?.items?.map((item, index) => (
@@ -1658,7 +1678,19 @@ export const PurchaseOrder = ({
                       <td className="text-center py-2 align-top">
                         {item.quantity}
                       </td>
-
+                      {/* OD (Conditional) */}
+                      {["Partially Delivered", "Delivered"].includes(
+                        PO?.status
+                      ) && (
+                          <td
+                            className={`text-center py-2 align-top ${item?.received_quantity === item?.quantity
+                              ? "text-green-600"
+                              : "text-red-700"
+                              }`}
+                          >
+                            {item?.received_quantity || 0}
+                          </td>
+                        )}
                       {/* Rate */}
                       <td className="text-center py-2 align-top">
                         {formatToIndianRupee(item?.quote)}
@@ -1681,19 +1713,7 @@ export const PurchaseOrder = ({
                         )}
                       </td>
 
-                      {/* OD (Conditional) */}
-                      {["Partially Delivered", "Delivered"].includes(
-                        PO?.status
-                      ) && (
-                          <td
-                            className={`text-center py-2 align-top ${item?.received_quantity === item?.quantity
-                                ? "text-green-600"
-                                : "text-red-700"
-                              }`}
-                          >
-                            {item?.received_quantity || 0}
-                          </td>
-                        )}
+
                     </tr>
                   ))}
                 </tbody>

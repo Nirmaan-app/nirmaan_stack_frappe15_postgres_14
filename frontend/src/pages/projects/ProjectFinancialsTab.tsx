@@ -73,7 +73,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const { data: CreditData } = useCredits()
 
-  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status === "Created"));
+  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
   const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
 
   const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
@@ -103,51 +103,44 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const amountsSummaryItems = useMemo(() => [
     {
-      label: "Total Amount Received",
+      label: "Total Inflow Amount",
       value: totalInflowAmount,
       style: "text-green-600 underline",
       onClick: () => toggleInflowPaymentsDialog()
     },
-    {
-      label: "Total SR Amount (Incl. GST)",
-      value: getAllSRsTotalWithGST,
-      style: ""
-    },
-
-    // {
-    //   label: "Total Amount Paid",
-    //   value: getTotalAmountPaid.totalAmount,
-    //   style: "text-red-600",
-    //   // --- (Indicator) NEW: Add breakdown data for hover card ---
-    //   breakdown: {
-    //     poAmount: getTotalAmountPaid.poAmount,
-    //     srAmount: getTotalAmountPaid.srAmount,
-    //     projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
-    //   }
-    // },
-    // {
-    //   label: "Total Amount Due",
-    //   value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
-    //   style: "text-red-600"
-    // },
     {
       label: "Total PO Amount (Incl. GST)",
       value: totalPOAmountWithGST,
       style: ""
     },
     {
-      label: "Total Client Invoiced Value",
+      label: "Total SR Amount (Incl. GST)",
+      value: getAllSRsTotalWithGST,
+      style: ""
+    },
+    {
+      label: "Total Client Invoiced (Incl. GST)",
       value: totalProjectInvoiceAmount,
       style: ""
     },
     {
-      label: "Total Due Not Paid",
-      value: relatedTotalDue,
+      label: "Total Liabilities",
+      value: relatedTotalBalanceCredit,
       style: ""
     },
+
+
+    // {
+    //   label: "Total Amount Due",
+    //   value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
+    //   style: "text-red-600"
+    // },
+
+
+
     {
-      label: "Total Balance Credit",
-      value: relatedTotalBalanceCredit,
+      label: "Total Due Not Paid",
+      value: relatedTotalDue,
       style: ""
     },
     {
@@ -155,6 +148,19 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       value: `${projectData?.project_value}`,
       style: ""
     },
+    {
+      label: "Total Amount Paid",
+      value: getTotalAmountPaid.totalAmount,
+      style: "text-red-600",
+      // --- (Indicator) NEW: Add breakdown data for hover card ---
+      breakdown: {
+        poAmount: getTotalAmountPaid.poAmount,
+        srAmount: getTotalAmountPaid.srAmount,
+        projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
+      }
+    },
+
+
 
 
   ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, CreditData])

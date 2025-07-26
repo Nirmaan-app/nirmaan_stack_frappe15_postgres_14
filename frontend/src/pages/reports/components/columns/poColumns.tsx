@@ -414,12 +414,14 @@ export const getPOReportColumns = (
       : [...basePOColumns];
   console.log("reportType", reportType);
 
-  // if (reportType === 'Dispatched for 3 days'|| reportType === 'Pending Invoices') {
-  //         columnsToDisplay.push(latestDeliveryDateColumn);
-  //         columnsToDisplay.push(latestPaymentDateColumn);
-  //     }
   if (reportType === "Dispatched for 3 days") {
-    columnsToDisplay.push(dispatchedDateColumn);
+    // Filter out the 'latest_delivery_date' column if it exists
+    columnsToDisplay = columnsToDisplay.filter(
+      (col) => (col as any).id !== "latest_delivery_date"
+    );
+    
+    // Insert the 'dispatchedDateColumn' at the second position (index 1)
+    columnsToDisplay.splice(1, 0, dispatchedDateColumn);
   }
   // You could add more conditional columns here for other report types if needed
   return columnsToDisplay;

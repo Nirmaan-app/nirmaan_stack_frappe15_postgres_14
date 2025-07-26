@@ -66,34 +66,77 @@ def approve_amend_po_with_payment_terms(po_name: str):
                         "payment_type": payment_type,
                         "due_date": due_date
                     })
-
-            # =================== UPDATED LOGIC IS HERE ===================
-            ## CASE B: REDUCE LOGIC (Updated with confirmed LIFO logic) ##
-            elif current_total < previous_total:
-                reduction_amount = previous_total - current_total
-                
-                # We iterate in reverse (LIFO) to reduce from the last payment terms first.
-                for term in reversed(modifiable_terms):
-                    if reduction_amount <= 0: 
-                        break # Stop if we have nothing left to reduce.
+            
+            # # =================== UPDATED LOGIC IS HERE ===================
+            # ## CASE B: REDUCE LOGIC (Updated with confirmed LIFO logic) ##
+            # elif current_total < previous_total:
+            #     reduction_amount = previous_total - current_total
+            #     print(f"REDUCTION AMT: {reduction_amount}")
+            #     print(f"Pervious Total: {previous_total}")
+            #     print(f"Current Total: {current_total}")
+            #     # We iterate in reverse (LIFO) to reduce from the last payment terms first.
+            #     for term in reversed(modifiable_terms):
+            #         if reduction_amount <= 0.01: 
+            #             break # Stop if we have nothing left to reduce.
                     
-                    term_amount = flt(term.amount)
-                    if reduction_amount >= term_amount:
-                        # The reduction is larger than this term, so wipe out the term.
-                        reduction_amount -= term_amount
-                        term.amount = 0
-                    else:
-                        # The reduction is smaller than this term, so only reduce this term.
-                        term.amount = flt(term.amount) - reduction_amount
-                        reduction_amount = 0 # The entire reduction is now applied.
+            #         term_amount = flt(term.amount)
+            #         if reduction_amount >= term_amount:
+            #             # The reduction is larger than this term, so wipe out the term.
+            #             reduction_amount -= term_amount
+            #             term.amount = 0
+            #         else:
+            #             # The reduction is smaller than this term, so only reduce this term.
+            #             term.amount = flt(term.amount) - reduction_amount
+            #             reduction_amount = 0 # The entire reduction is now applied.
                 
-                # Clean up any terms that have been reduced to zero.
-                terms_to_keep = [t for t in po_doc.payment_terms if not (t.status in ['Created', 'Scheduled'] and flt(t.amount) < 0.01)]
-                po_doc.set("payment_terms", [])
-                for term in terms_to_keep:
-                    po_doc.append("payment_terms", term.as_dict())
-            # =================== END OF UPDATED LOGIC ===================
+            #     # Clean up any terms that have been reduced to zero.
+            #     terms_to_keep = [t for t in po_doc.payment_terms if not (t.status in ['Created', 'Scheduled'] and flt(t.amount) < 0.01)]
+            #     po_doc.set("payment_terms", [])
+            #     for term in terms_to_keep:
+            #         po_doc.append("payment_terms", term.as_dict())
+            # # =================== END OF UPDATED LOGIC ===================
+            ## CASE B: REDUCE LOGIC ##
+            elif current_total < previous_total:
+                reduction_needed = previous_total - current_total
 
+                # Work with dictionaries for safety and reliability
+                locked_term_dicts = [t.as_dict() for t in locked_terms]
+                modifiable_term_dicts = [t.as_dict() for t in modifiable_terms]
+
+                # Apply reduction to modifiable terms (LIFO)
+                for term_dict in reversed(modifiable_term_dicts):
+                    if reduction_needed <= 0.01: break
+                    
+                    term_amount = flt(term_dict.get("amount", 0))
+                    amount_to_deduct = min(term_amount, reduction_needed)
+                    
+                    term_dict["amount"] = term_amount - amount_to_deduct
+                    reduction_needed -= amount_to_deduct
+                
+                # Create the final list of terms to keep
+                final_modifiable_terms = [d for d in modifiable_term_dicts if flt(d.get("amount")) > 0.01]
+                all_final_terms = locked_term_dicts + final_modifiable_terms
+
+                # Replace the entire child table with the new, correct list
+                po_doc.set("payment_terms", all_final_terms)
+            # =================== END OF REDUCE LOGIC ===================
+
+            # --- STEP 3: FINAL CORRECTION & PERCENTAGE RECALCULATION ---
+            # This block runs for both increase and decrease scenarios to guarantee correctness.
+
+            # 1. Calculate the actual sum of payment terms after modification
+            current_payment_sum = sum(flt(t.amount) for t in po_doc.payment_terms)
+
+            # 2. Find any discrepancy due to floating point math or logic
+            discrepancy = current_total - current_payment_sum
+            
+            # 3. If there is a meaningful discrepancy, adjust the last modifiable term
+            if abs(discrepancy) > 0.01:
+                # Find the last term that isn't locked
+                last_adjustable_term = next((t for t in reversed(po_doc.payment_terms) if t.status not in ["Paid", "Requested", "Approved"]), None)
+                if last_adjustable_term:
+                    last_adjustable_term.amount = flt(last_adjustable_term.amount) + discrepancy
+            
             # --- CONSOLIDATED PERCENTAGE RECALCULATION (Unchanged) ---
             if current_total > 0:
                 for term in po_doc.payment_terms:

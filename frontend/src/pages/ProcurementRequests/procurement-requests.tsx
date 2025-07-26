@@ -31,6 +31,7 @@ import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
 // --- Types ---
 import { ProcurementRequest, Category } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -145,6 +146,13 @@ export const ProcurementRequests: React.FC = () => {
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { notifications, mark_seen_notification } = useNotificationStore();
 
+    const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
+        "Procurement Packages", {
+        fields: ["work_package_name"],
+        orderBy: { field: "work_package_name", order: "asc" },
+        limit: 0,
+    }, "All_Work_Packages_For_PR_Page_Filter");
+
     // --- Dialog State for Delete ---
     const [deleteDialog, setDeleteDialog] = useState(false); // Replaced UserContext for local state
     const toggleDeleteDialog = () => setDeleteDialog(prev => !prev);
@@ -154,6 +162,14 @@ export const ProcurementRequests: React.FC = () => {
 
     // --- Memoized Options and Counts ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
+
+    const userOptions = useMemo(() => userList?.map(u => ({ label: u.full_name, value: (u.full_name === "Administrator" ? "Administrator" : u.name) })) || [], [userList]);
+
+    const workPackageOptions = useMemo(() => {
+        const packages = wp_list?.map(wp => ({ label: wp.work_package_name!, value: wp.work_package_name! })) || [];
+        packages.unshift({ label: "Custom", value: "" });
+        return packages;
+    }, [wp_list]);
 
     const { counts } = useDocCountStore();
 
@@ -255,7 +271,7 @@ export const ProcurementRequests: React.FC = () => {
             }
         },
         {
-            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+            accessorKey: "creation", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Created" />,
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.getValue("creation"))}</div>,
             size: 150,
             meta: {
@@ -283,7 +299,7 @@ export const ProcurementRequests: React.FC = () => {
         {
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
-            size: 150,
+            enableColumnFilter: true, size: 150,
         },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
@@ -306,6 +322,7 @@ export const ProcurementRequests: React.FC = () => {
                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
             }, size: 180,
+            enableColumnFilter: true,
             meta: {
                 exportHeaderName: "Created By",
                 exportValue: (row) => {
@@ -342,7 +359,7 @@ export const ProcurementRequests: React.FC = () => {
                 excludeFromExport: true,
             }
         } as ColumnDef<ProcurementRequest>] : []),
-    ], [tab, role, notifications, projectOptions, userList, handleNewPRSeen]); // Dependencies for columns
+    ], [tab, role, notifications, projectOptions, userList, workPackageOptions, handleNewPRSeen]); // Dependencies for columns
 
 
     const statusOptions = useMemo(() => [
@@ -364,7 +381,9 @@ export const ProcurementRequests: React.FC = () => {
     const facetFilterOptionsForDataTable = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
         workflow_state: { title: "Status", options: statusOptions },
-    }), [projectOptions]);
+        work_package: { title: "Package", options: workPackageOptions },
+        owner: { title: "Created By", options: userOptions }
+    }), [projectOptions, statusOptions, workPackageOptions, userOptions]); // Add new dependencies
 
 
     // --- useServerDataTable Hook Instantiation for Data Table Tabs ---
@@ -373,8 +392,8 @@ export const ProcurementRequests: React.FC = () => {
         [tab]);
 
     // --- Combined Loading & Error States ---
-    const isSupportingDataLoading = projectsLoading || userListLoading;
-    const supportingDataError = projectsError || userError;
+    const isSupportingDataLoading = projectsLoading || userListLoading || wpLoading;
+    const supportingDataError = projectsError || userError || wpError;
 
     const handleConfirmDelete = async () => {
         if (deleteFlagged) {

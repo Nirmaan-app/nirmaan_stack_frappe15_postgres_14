@@ -51,6 +51,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
+import {useSearchParams} from "react-router-dom";
 import { format, isToday, isPast } from "date-fns"; // A great library for date handling
 
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -68,6 +69,8 @@ interface POPaymentTermsCardProps {
   PO: ProcurementOrder | null;
   poMutate: any;
   projectPaymentsMutate: any;
+  isEditTermsOpenmanual: boolean;
+  setEditTermsOpenmanual: (isOpen: boolean) => void;
 }
 
 // =================================================================================
@@ -126,7 +129,9 @@ export const getAllocationStatusMessage = (
 
   return null;
 };
-const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
+
+// this compoent reuse to Credits resheduled dialog
+export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
   const {
     control,
     handleSubmit,
@@ -137,7 +142,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
   } = useForm({
     defaultValues: {
       payment_terms:
-        po.payment_terms?.map((term) => ({
+        po?.payment_terms?.map((term) => ({
           ...term,
           percentage: Number(term.percentage) || 0,
           amount: (Number(term.amount) || 0).toFixed(2),
@@ -167,7 +172,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
   };
 
   const [totalAmount, setTotalAmount] = useState(
-    () => calculateTotals(po.payment_terms).amount
+    () => calculateTotals(po?.payment_terms).amount
   );
 
   useEffect(() => {
@@ -183,7 +188,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
   // MODIFIED: Added smarter logic to auto-fill new terms
   const handleAddTerm = () => {
     const currentTotal = calculateTotals(getValues().payment_terms).amount;
-    const remaining = Number(po.total_amount) - currentTotal;
+    const remaining = Number(po?.total_amount) - currentTotal;
 
     // if (remaining <= 0) {
     //   toast({
@@ -212,8 +217,8 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
   // --- CHANGE 2: Modify the mismatch check ---
   // Allow submission if the absolute difference is less than 1.
   const isTotalAmountMismatched =
-    Math.abs(totalAmount - Number(po.total_amount)) >= 1;
-  const remainingAmount = Number(po.total_amount) - totalAmount;
+    Math.abs(totalAmount - Number(po?.total_amount)) >= 1;
+  const remainingAmount = Number(po?.total_amount) - totalAmount;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -221,7 +226,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
         <DialogContent className="sm:max-w-4xl bg-white p-6 rounded-lg shadow-xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold text-gray-800 text-center">
-              Edit {po.payment_terms?.[0]?.payment_type || "Payment"} Terms
+              Edit {po?.payment_terms?.[0]?.payment_type || "Payment"} Terms
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSave)}>
@@ -236,7 +241,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                 <div className="w-[15%] text-right text-sm font-medium text-muted-foreground">
                   Percentage (%)
                 </div>
-                {po.payment_terms?.[0]?.payment_type === "Credit" && (
+                {po?.payment_terms?.[0]?.payment_type === "Credit" && (
                   <div className="w-[20%] text-center text-sm font-medium text-muted-foreground">
                     Due Date
                   </div>
@@ -294,7 +299,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                             <Input
                               placeholder="e.g., On Delivery"
                               className={`h-9 w-full ${
-                                errors.payment_terms?.[index]?.label
+                                errors?.payment_terms?.[index]?.label
                                   ? "border-red-500"
                                   : ""
                               }`}
@@ -364,7 +369,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                           ).toFixed(2)}`}
                         />
                       </div>
-                      {po.payment_terms?.[0]?.payment_type === "Credit" && (
+                      {po?.payment_terms?.[0]?.payment_type === "Credit" && (
                         <div className="w-[20%] px-1">
                           <Controller
                             name={`payment_terms.${index}.due_date`}
@@ -402,7 +407,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                               <Input
                                 type="date"
                                 className={`h-9 ${
-                                  errors.payment_terms?.[index]?.due_date
+                                  errors?.payment_terms?.[index]?.due_date
                                     ? "border-red-500"
                                     : ""
                                 }`}
@@ -449,7 +454,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                     {formatToIndianRupee(totalAmount)}
                   </div>
                   <div className="w-[15%] text-right text-base font-bold text-gray-800">
-                    {calculateTotals(watchedTerms).percentage.toFixed(2)}%
+                    {calculateTotals(watchedTerms)?.percentage.toFixed(2)}%
                   </div>
                 </div>
                 {/* NEW: Remaining amount display */}
@@ -463,7 +468,7 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                 </div>
               </div>
             </div>
-            {Object.values(errors.payment_terms || {}).map(
+            {Object.values(errors?.payment_terms || {}).map(
               (error: any, index) =>
                 (error.due_date || error.label) && (
                   <div
@@ -511,7 +516,9 @@ const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
     </Dialog>
   );
 };
-const EditGstNotesDialog = ({
+
+
+ const EditGstNotesDialog = ({
   isOpen,
   onClose,
   po,
@@ -834,7 +841,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   estimatesViewing,
   summaryPage,
   poMutate,
-  projectPaymentsMutate,
+  projectPaymentsMutate
 }) => {
   if (!PO)
     return (
@@ -860,10 +867,21 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     "nirmaan_stack.api.payments.project_payments.create_project_payment"
   );
 
+   const [searchParams] = useSearchParams();
+
   const [updatingTermName, setUpdatingTermName] = useState<string | null>(null);
   const [isEditTermsOpen, setEditTermsOpen] = useState(false);
   const [isEditGstNotesOpen, setEditGstNotesOpen] = useState(false);
   const [termToRequest, setTermToRequest] = useState<PaymentTerm | null>(null);
+
+    // --- ADD: useEffect to check the URL when the component mounts ---
+  useEffect(() => {
+    // Check if the 'isEditing' parameter from the URL is 'true'
+    if (searchParams.get('isEditing') === 'true') {
+      // If it is, programmatically open the dialog by setting the state.
+      setEditTermsOpen(true);
+    }
+  }, [searchParams]); // This effect runs once on load and if the URL params change.
 
   const isReadOnly = accountsPage || estimatesViewing || summaryPage;
 

@@ -133,8 +133,9 @@ useEffect(() => {
                         // Loop through the items array of the fetched PO
                         fullPoDoc.items.forEach(item => {
                             // --- THE CRITICAL FIX IS HERE ---
+                            // console.log("item",item)
                             // Add the actual Item ID to the set, not the row's unique name.
-                            newIdSet.add(item.name);
+                            newIdSet.add(item.procurement_request_item);
                         });
                     }
                 } catch (err) {
@@ -207,8 +208,10 @@ useEffect(() => {
     }
 
     const getItemStatus = useMemo(() => (prItemDetail: ProcurementRequestItemDetail) => {
+        // console.log("PO Item List",poItemList,prItemDetail)
+
         // prItemDetail.item_id is the Item DocName
-        return poItemList.has(prItemDetail.item_id) ? "Ordered" : "In Progress";
+        return poItemList.has(prItemDetail.name) ? "Ordered" : "In Progress";
     }, [poItemList]);
 
 
@@ -474,7 +477,8 @@ useEffect(() => {
                                 if (itemsForCategory.length === 0 && reqItemsForCategory.length === 0) {
                                     return null; // Don't render table if no items for this category
                                 }
-
+                                // console.log("itemsForCategory",itemsForCategory)
+                              
                                 return (
                                     <div className="overflow-x-auto w-full" key={cat.name}>
                                         <Table>
@@ -504,7 +508,10 @@ useEffect(() => {
                                                         </TableCell>
                                                         <TableCell>{item.unit}</TableCell>
                                                         <TableCell>{item.quantity}</TableCell>
-                                                        <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge></TableCell>
+                                                        <TableCell><Badge variant="outline">
+                                                            {/* {item.status === "Pending" ? "Pending" : getItemStatus(item)} */}
+                                                            {item.status==="Approved"?"ordered":"In Progress"}
+                                                            </Badge></TableCell>
                                                     </TableRow>
                                                 ))}
                                                 {/* Display "requested" items */}
