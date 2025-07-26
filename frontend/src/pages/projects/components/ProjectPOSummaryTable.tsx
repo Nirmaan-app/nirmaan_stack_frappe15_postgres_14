@@ -36,6 +36,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { omit } from "lodash";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { useCredits } from "@/pages/credits/hooks/useCredits";
 
 // Fields to fetch for the PO Summary table list view
 export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
@@ -201,6 +202,14 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         },
         !!projectId ? `PaidPaymentsForPOSummary_${projectId || "all"}` : null
     );
+
+    const { data: CreditData } = useCredits()
+
+    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
+    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
+
+    const relatedTotalBalanceCredit = creditsByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+    const relatedTotalDue = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
     const vendorOptions = useMemo(
         () =>
@@ -570,6 +579,22 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                     <span className="text-green-600 font-semibold">
                                         {formatToRoundedIndianRupee(
                                             poAggregates.total_amount_paid_for_pos
+                                        )}
+                                    </span>
+                                </p>
+                                <p>
+                                    <span className="font-medium">Total Liabilities:</span>{" "}
+                                    <span className="text-yellow-600 font-semibold">
+                                        {formatToRoundedIndianRupee(
+                                            relatedTotalBalanceCredit
+                                        )}
+                                    </span>
+                                </p>
+                                <p>
+                                    <span className="font-medium">Total Due Not Paid:</span>{" "}
+                                    <span className="text-red-600 font-semibold">
+                                        {formatToRoundedIndianRupee(
+                                            relatedTotalDue
                                         )}
                                     </span>
                                 </p>

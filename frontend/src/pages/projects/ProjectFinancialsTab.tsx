@@ -103,17 +103,51 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const amountsSummaryItems = useMemo(() => [
     {
-      label: "Total Amount Received",
+      label: "Total Inflow Amount",
       value: totalInflowAmount,
       style: "text-green-600 underline",
       onClick: () => toggleInflowPaymentsDialog()
+    },
+    {
+      label: "Total PO Amount (Incl. GST)",
+      value: totalPOAmountWithGST,
+      style: ""
     },
     {
       label: "Total SR Amount (Incl. GST)",
       value: getAllSRsTotalWithGST,
       style: ""
     },
+    {
+      label: "Total Client Invoiced (Incl. GST)",
+      value: totalProjectInvoiceAmount,
+      style: ""
+    },
+    {
+      label: "Total Liabilities",
+      value: relatedTotalBalanceCredit,
+      style: ""
+    },
 
+
+    // {
+    //   label: "Total Amount Due",
+    //   value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
+    //   style: "text-red-600"
+    // },
+
+
+
+    {
+      label: "Total Due Not Paid",
+      value: relatedTotalDue,
+      style: ""
+    },
+    {
+      label: "Project Value (Excl. GST)",
+      value: `${projectData?.project_value}`,
+      style: ""
+    },
     {
       label: "Total Amount Paid",
       value: getTotalAmountPaid.totalAmount,
@@ -125,36 +159,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
         projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
       }
     },
-    // {
-    //   label: "Total Amount Due",
-    //   value: (totalPOAmountWithGST + getAllSRsTotalWithGST) - getTotalAmountPaid.totalAmount,
-    //   style: "text-red-600"
-    // },
-    {
-      label: "Total PO Amount (Incl. GST)",
-      value: totalPOAmountWithGST,
-      style: ""
-    },
-    {
-      label: "Total Client Invoiced Value",
-      value: totalProjectInvoiceAmount,
-      style: ""
-    },
-    {
-      label: "Total Due Not Paid",
-      value: relatedTotalDue,
-      style: ""
-    },
-    {
-      label: "Total Liabilities",
-      value: relatedTotalBalanceCredit,
-      style: ""
-    },
-    {
-      label: "Project Value (Excl. GST)",
-      value: `${projectData?.project_value}`,
-      style: ""
-    },
+
+
 
 
   ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, CreditData])

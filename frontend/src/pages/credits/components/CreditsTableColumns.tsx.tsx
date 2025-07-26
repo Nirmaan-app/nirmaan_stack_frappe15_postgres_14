@@ -70,182 +70,184 @@ export const getCreditsColumns = (
   onRequestPayment: (term: PoPaymentTermRow) => void,
   currentStatus: string
 ): ColumnDef<PoPaymentTermRow>[] => {
-    
-     const columns: ColumnDef<PoPaymentTermRow>[] =  [
-  {
-    accessorKey: "name",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="PO Number" />
-    ),
-    cell: ({ row }) => {
-      // URL-encode the name to handle special characters like "/"
-      const encodedPoName = encodeURIComponent(row.original.name);
-       console.log("status",currentStatus)
- 
-      return (
-        // <Link
-        //   to="#" // Use a placeholder link
-        //   onClick={(e) => {
-        //     e.preventDefault(); // Prevent default link behavior
-        //     // Use the navigate function that was passed in
-        //     navigate(`/purchase-orders/${encodedPoName}?tab=PO%20Approved`);
-        //   }}
-        //   className="text-blue-600 hover:underline font-mono"
-        // >
-        //   {/* Display the original, un-encoded name */}
-        //   {row.original.name}
-        // </Link>
-        <div>
+
+  const columns: ColumnDef<PoPaymentTermRow>[] = [
+    {
+      accessorKey: "name",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="PO Number" />
+      ),
+      cell: ({ row }) => {
+        // URL-encode the name to handle special characters like "/"
+        const { name, postatus } = row.original;
+        const encodedPoName = name.replace(/\//g, "&="); // Encode slashes
+        const encodedPoStatus = postatus?.replace(" ", "%20");
+        // console.log("status", currentStatus)
+
+        return (
+          <Link
+            to="#" // Use a placeholder link
+            onClick={(e) => {
+              e.preventDefault(); // Prevent default link behavior
+              // Use the navigate function that was passed in
+              navigate(`/purchase-orders/${encodedPoName}?tab=${encodedPoStatus}`)
+            }}
+            className="text-blue-600 hover:underline font-mono"
+          >
+            {/* Display the original, un-encoded name */}
             {row.original.name}
-        </div>
-      );
+          </Link>
+          // <div>
+          //     {row.original.name}
+          // </div>
+        );
+      },
     },
-  },
-  {
-    // Text -> Left Align (Default)
-    accessorKey: "vendor_name",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Vendor" />
-    ),
-    enableColumnFilter: true, // This is correct, it enables the filter UI
-  },
-  {
-    // Text -> Left Align (Default)
-    accessorKey: "project_name",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Project" />
-    ),
-    enableColumnFilter: true, // This is correct, it enables the filter UI
-  },
-
-  {
-    // Badge -> Center Align
-    accessorKey: "`tabPO Payment Terms`.status",
-    header: ({ column }) => <div>Status</div>,
-    // header: ({ column }) => (
-    //     <div className="flex justify-end">
-    //         <DataTableColumnHeader column={column} title="Status" />
-    //     </div>
-    // ),
-    cell: ({ row }) => {
-      // 2. Get the status from the row
-      const status = row.original.status as string;
-
-      // 3. Render the StatusBadge component in a centered div
-      return (
-        <div className="flex justify-start">
-          <StatusBadge status={row.original.status} />
-        </div>
-      );
+    {
+      // Text -> Left Align (Default)
+      accessorKey: "vendor_name",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Vendor" />
+      ),
+      enableColumnFilter: true, // This is correct, it enables the filter UI
     },
-    // enableColumnFilter: true,
-    // filterFn: 'auto', // Keep this or let it default
-  },
+    {
+      // Text -> Left Align (Default)
+      accessorKey: "project_name",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Project" />
+      ),
+      enableColumnFilter: true, // This is correct, it enables the filter UI
+    },
 
-  {
-    // Number -> Right Align
-    accessorKey: "total_amount",
-    header: ({ column }) => (
-      <div className="flex justify-end">
-        <DataTableColumnHeader column={column} title="PO Amount" />
-      </div>
-    ),
-    cell: ({ row }) => (
-      <div className="text-left font-mono pr-4">
-        {formatToRoundedIndianRupee(row.original.total_amount)}
-      </div>
-    ),
-  },
-  {
-    // Number -> Right Align
-    accessorKey: "amount",
-    header: ({ column }) => (
-      <div className="flex justify-end">
-        <DataTableColumnHeader column={column} title="Amount" />
-      </div>
-    ),
-    cell: ({ row }) => (
-      <div className="text-left font-mono pr-4">
-        {formatToRoundedIndianRupee(row.original.amount)}
-      </div>
-    ),
-  },
-  {
-    // Date -> Center Align
-    accessorKey: "due_date",
-    header: ({ column }) => (
-      <div className="flex justify-center">
-        <DataTableColumnHeader column={column} title="Due Date" />
-      </div>
-    ),
-    cell: ({ row }) => (
-      <div className="text-center">{formatDate(row.original.due_date)}</div>
-    ),
-  },
-// ...(currentStatus=="Scheduled"?[
-//   {
-//     accessorKey: "ptname",
-//     header: () => (
-//       <div className=" text-center flex justify-end">
-//         {/* <DataTableColumnHeader column={column} title="Actions" />
-//          */}
-//         Actions
-//       </div>
-//     ),
-//     cell: ({ row }) => {
-//       const status = row.original.status;
-//       const postatus= row.original.postatus?.replace(" ","%20"); 
-//        const encodedPoName = encodeURIComponent(row.original.name);
-//        console.log("status",currentStatus)
-//       return (
-//         <div className="text-center font-mono pr-4">
-//             {status=="Scheduled"?(
-//  <DropdownMenu>
-//             <DropdownMenuTrigger asChild>
-//               <Button variant="ghost" className="h-8 w-4 p-0">
-//                 <span className="sr-only">Open menu</span>
-//                 <MoreHorizontal className="h-4 w-4" />
-//               </Button>
-//             </DropdownMenuTrigger>
-//             <DropdownMenuContent align="start">
-//               {/* {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
-//                                         <PencilIcon className="mr-2 h-4 w-4" /> Edit Expense
-//                                     </DropdownMenuItem>} */}
-//               <DropdownMenuItem
-//                 className="p-0" // Remove padding to let our custom style take over
-//               >
-//                 {/* The 'w-full' makes the entire menu item clickable */}
-//                 <div
-//                   className="flex items-center px-2 py-1.5 text-sm w-full cursor-pointer text-green-700 font-semibold"
-//                   onClick={() => onRequestPayment(row.original)}
-//                 >
-//                   <DollarSign className="mr-2 h-4 w-4" />
-//                   <span>Request Payment</span>
-//                 </div>
-//               </DropdownMenuItem>
-//               <DropdownMenuSeparator />
-//               <DropdownMenuItem
-//                 onClick={(e) => {e.preventDefault(); // Prevent default link behavior
-//             // Use the navigate function that was passed in
-//             navigate(`/purchase-orders/${encodedPoName}?tab=${postatus}&isEditing=true`)}}
-//                 className="cursor-pointer"
-//               >
-//                 <PencilIcon className="mr-2 h-4 w-4" />
-//                 <span>Reschedule / Edit</span>
-//               </DropdownMenuItem>
-             
-//             </DropdownMenuContent>
-//           </DropdownMenu>
-//             ):"--"}
-         
-//         </div>
-//       );
-//     },
-//     meta: { excludeFromExport: true },
-//   },
-// ]:[])
+    {
+      // Badge -> Center Align
+      accessorKey: "`tabPO Payment Terms`.status",
+      header: ({ column }) => <div>Status</div>,
+      // header: ({ column }) => (
+      //     <div className="flex justify-end">
+      //         <DataTableColumnHeader column={column} title="Status" />
+      //     </div>
+      // ),
+      cell: ({ row }) => {
+        // 2. Get the status from the row
+        const status = row.original.status as string;
 
-];
+        // 3. Render the StatusBadge component in a centered div
+        return (
+          <div className="flex justify-start">
+            <StatusBadge status={row.original.status} />
+          </div>
+        );
+      },
+      // enableColumnFilter: true,
+      // filterFn: 'auto', // Keep this or let it default
+    },
+
+    {
+      // Number -> Right Align
+      accessorKey: "total_amount",
+      header: ({ column }) => (
+        <div className="flex justify-end">
+          <DataTableColumnHeader column={column} title="PO Amount" />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="text-left font-mono pr-4">
+          {formatToRoundedIndianRupee(row.original.total_amount)}
+        </div>
+      ),
+    },
+    {
+      // Number -> Right Align
+      accessorKey: "amount",
+      header: ({ column }) => (
+        <div className="flex justify-end">
+          <DataTableColumnHeader column={column} title="Amount" />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="text-left font-mono pr-4">
+          {formatToRoundedIndianRupee(row.original.amount)}
+        </div>
+      ),
+    },
+    {
+      // Date -> Center Align
+      accessorKey: "due_date",
+      header: ({ column }) => (
+        <div className="flex justify-center">
+          <DataTableColumnHeader column={column} title="Due Date" />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="text-center">{formatDate(row.original.due_date)}</div>
+      ),
+    },
+    // ...(currentStatus=="Scheduled"?[
+    //   {
+    //     accessorKey: "ptname",
+    //     header: () => (
+    //       <div className=" text-center flex justify-end">
+    //         {/* <DataTableColumnHeader column={column} title="Actions" />
+    //          */}
+    //         Actions
+    //       </div>
+    //     ),
+    //     cell: ({ row }) => {
+    //       const status = row.original.status;
+    //       const postatus= row.original.postatus?.replace(" ","%20"); 
+    //        const encodedPoName = encodeURIComponent(row.original.name);
+    //        console.log("status",currentStatus)
+    //       return (
+    //         <div className="text-center font-mono pr-4">
+    //             {status=="Scheduled"?(
+    //  <DropdownMenu>
+    //             <DropdownMenuTrigger asChild>
+    //               <Button variant="ghost" className="h-8 w-4 p-0">
+    //                 <span className="sr-only">Open menu</span>
+    //                 <MoreHorizontal className="h-4 w-4" />
+    //               </Button>
+    //             </DropdownMenuTrigger>
+    //             <DropdownMenuContent align="start">
+    //               {/* {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
+    //                                         <PencilIcon className="mr-2 h-4 w-4" /> Edit Expense
+    //                                     </DropdownMenuItem>} */}
+    //               <DropdownMenuItem
+    //                 className="p-0" // Remove padding to let our custom style take over
+    //               >
+    //                 {/* The 'w-full' makes the entire menu item clickable */}
+    //                 <div
+    //                   className="flex items-center px-2 py-1.5 text-sm w-full cursor-pointer text-green-700 font-semibold"
+    //                   onClick={() => onRequestPayment(row.original)}
+    //                 >
+    //                   <DollarSign className="mr-2 h-4 w-4" />
+    //                   <span>Request Payment</span>
+    //                 </div>
+    //               </DropdownMenuItem>
+    //               <DropdownMenuSeparator />
+    //               <DropdownMenuItem
+    //                 onClick={(e) => {e.preventDefault(); // Prevent default link behavior
+    //             // Use the navigate function that was passed in
+    //             navigate(`/purchase-orders/${encodedPoName}?tab=${postatus}&isEditing=true`)}}
+    //                 className="cursor-pointer"
+    //               >
+    //                 <PencilIcon className="mr-2 h-4 w-4" />
+    //                 <span>Reschedule / Edit</span>
+    //               </DropdownMenuItem>
+
+    //             </DropdownMenuContent>
+    //           </DropdownMenu>
+    //             ):"--"}
+
+    //         </div>
+    //       );
+    //     },
+    //     meta: { excludeFromExport: true },
+    //   },
+    // ]:[])
+
+  ];
 
 
   if (currentStatus === "Scheduled") {
@@ -254,9 +256,9 @@ export const getCreditsColumns = (
       header: () => <div className="text-center">Actions</div>,
       cell: ({ row }) => {
         const { status, name, postatus } = row.original;
-        const encodedPoName = encodeURIComponent(name);
-        const encodedPoStatus = postatus?.replace(" ","%20"); 
-        
+        const encodedPoName = name.replace(/\//g, "&="); // Encode slashes
+        const encodedPoStatus = postatus?.replace(" ", "%20");
+
         return (
           <div className="flex justify-center">
             {status === "Scheduled" ? (
