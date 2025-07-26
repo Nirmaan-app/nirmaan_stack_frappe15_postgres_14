@@ -19,6 +19,7 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 // --- Types ---
 import { ProcurementRequest, ProcurementItem, Category } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -48,8 +49,26 @@ export const ApprovePR: React.FC = () => {
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { notifications, mark_seen_notification } = useNotificationStore();
 
+    // --- (2) NEW: Fetch Work Packages for the filter dropdown ---
+    const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
+        "Procurement Packages", {
+        fields: ["work_package_name"],
+        orderBy: { field: "work_package_name", order: "asc" },
+        limit: 0,
+    }, "All_Work_Packages_For_PR_Filter");
+
+
     // --- Memoized Options ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
+
+    const userOptions = useMemo(() => userList?.map(u => ({ label: u.full_name, value: (u.full_name === "Administrator" ? "Administrator" : u.name) })) || [], [userList]);
+
+    const workPackageOptions = useMemo(() => {
+        const packages = wp_list?.map(wp => ({ label: wp.work_package_name!, value: wp.work_package_name! })) || [];
+        // Add a "Custom" option for PRs without a linked package
+        packages.unshift({ label: "Custom", value: "" });
+        return packages;
+    }, [wp_list]);
 
     // --- Notification Handling ---
     const handleNewPRSeen = useCallback((notification: NotificationType | undefined) => {
@@ -139,7 +158,8 @@ export const ApprovePR: React.FC = () => {
         },
         {
             accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
-            cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
+            cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "Custom"}</div>,
+            enableColumnFilter: true,
             size: 150,
             meta: {
                 exportHeaderName: "Package",
@@ -171,6 +191,7 @@ export const ApprovePR: React.FC = () => {
                 const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
                 return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
             }, size: 180,
+            enableColumnFilter: true,
             meta: {
                 exportHeaderName: "Created By",
                 exportValue: (row) => {
@@ -194,13 +215,15 @@ export const ApprovePR: React.FC = () => {
             }
         },
         // Removed Estimated Price column as per original component's commented-out code
-    ], [notifications, projectOptions, userList, handleNewPRSeen]); // Removed getTotal dependency
+    ], [notifications, projectOptions, workPackageOptions, userList, handleNewPRSeen]); // Removed getTotal dependency
 
 
-    // --- Faceted Filter Options ---
+    // --- (6) UPDATED: Faceted Filter Options ---
     const facetFilterOptions = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
-    }), [projectOptions]);
+        work_package: { title: "Package", options: workPackageOptions },
+        owner: { title: "Created By", options: userOptions }
+    }), [projectOptions, workPackageOptions, userOptions]);
 
     // --- Use the Server Data Table Hook ---
     const {
@@ -226,8 +249,8 @@ export const ApprovePR: React.FC = () => {
 
 
     // --- Combined Loading State & Error Handling ---
-    const isLoading = projectsLoading || userListLoading;
-    const error = projectsError || userError || listError;
+    const isLoading = projectsLoading || userListLoading || wpLoading;
+    const error = projectsError || userError || listError || wpError;
 
     if (error) {
         return (
