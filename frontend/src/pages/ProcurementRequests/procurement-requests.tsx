@@ -192,7 +192,7 @@ export const ProcurementRequests: React.FC = () => {
     const allTabs = useMemo(() =>
         [
             { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{counts.pr.all}</span></div>), value: "All PRs" },
-            { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
+            // { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
         ]
         , [counts, role])
 

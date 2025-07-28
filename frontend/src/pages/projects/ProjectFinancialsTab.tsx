@@ -149,6 +149,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       style: ""
     },
     {
+      label: "Project Value (Incl. GST)",
+      value: `${projectData?.project_value_gst}`,
+      style: ""
+    },
+    {
       label: "Total Amount Paid",
       value: getTotalAmountPaid.totalAmount,
       style: "text-red-600",
@@ -163,6 +168,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
 
 
+
   ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, CreditData])
 
 
@@ -171,10 +177,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       label: "All Payments",
       value: "All Payments"
     },
-    {
-      label: "All Orders",
-      value: "All Orders"
-    },
+    // {
+    //   label: "All Orders",
+    //   value: "All Orders"
+    // },
     {
       label: "All PO Invoices",
       value: "All PO Invoices"
