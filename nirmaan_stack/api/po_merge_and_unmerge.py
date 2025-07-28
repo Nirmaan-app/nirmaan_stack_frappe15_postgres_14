@@ -1,5 +1,6 @@
 import frappe
 import json
+from frappe.utils import flt,getdate, nowdate
 
 @frappe.whitelist()
 def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_terms: list):
@@ -67,6 +68,8 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
 
         # --- STEP 3: Build the payment terms child table using the manually calculated total ---
         for term_dict in payment_terms:
+            today = getdate(nowdate())
+
             percentage = 0
             if grand_total_amount > 0:
                 amount = float(term_dict.get('amount', 0))
@@ -74,7 +77,9 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
             
             term_dict['percentage'] = round(percentage, 2)
             term_dict['status'] = "Created"
-            
+            if term_dict.get("payment_type") == "Credit" and term_dict.get("due_date"):
+                if getdate(term_dict.get("due_date")) <= today:
+                    term_dict['status'] = "Scheduled"
             new_po_doc.append("payment_terms", term_dict)
         
         

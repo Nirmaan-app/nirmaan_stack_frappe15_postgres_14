@@ -50,8 +50,8 @@ import {
   AlertTriangle,
   TriangleAlert,
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
-import {useSearchParams} from "react-router-dom";
+import React, { useEffect, useMemo, useState,useCallback } from "react";
+import {useSearchParams,useNavigate} from "react-router-dom";
 import { format, isToday, isPast } from "date-fns"; // A great library for date handling
 
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -867,7 +867,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     "nirmaan_stack.api.payments.project_payments.create_project_payment"
   );
 
-   const [searchParams] = useSearchParams();
+ const [searchParams, setSearchParams] = useSearchParams(); // Use setSearchParams as well
+ const navigate = useNavigate(); // Use navigate as well
 
   const [updatingTermName, setUpdatingTermName] = useState<string | null>(null);
   const [isEditTermsOpen, setEditTermsOpen] = useState(false);
@@ -880,8 +881,26 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     if (searchParams.get('isEditing') === 'true') {
       // If it is, programmatically open the dialog by setting the state.
       setEditTermsOpen(true);
+     
+    }else{
+       setEditTermsOpen(false);
     }
-  }, [searchParams]); // This effect runs once on load and if the URL params change.
+  }, []); // This effect runs once on load and if the URL params change.
+
+
+   const cleanupEditUrlParam = useCallback(() => {
+    // Only run if the parameter actually exists
+    if (searchParams.get('isEditing') === 'true') {
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete('isEditing');
+      
+      // Update the URL without reloading or adding to history
+      navigate(`?${newSearchParams.toString()}`, { replace: true });
+    }
+  }, [navigate, searchParams]); // Dependencies for useCallback
+  
+  
+  
 
   const isReadOnly = accountsPage || estimatesViewing || summaryPage;
 
@@ -961,10 +980,12 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     }
   };
 
+
+
   const handleSave = async (dataToSave: Partial<ProcurementOrder>) => {
     try {
       await updateDoc("Procurement Orders", PO.name, dataToSave);
-
+     cleanupEditUrlParam()
       poMutate();
       setEditTermsOpen(false);
       setEditGstNotesOpen(false);
@@ -1023,8 +1044,6 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 
     try {
       await handleSave({ payment_terms: updatedTerms });
-      poMutate();
-
       toast({
         title: "Success",
         description: "Payment terms updated.",
@@ -1176,7 +1195,9 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
       {isEditTermsOpen && (
         <EditTermsDialog
           isOpen={isEditTermsOpen}
-          onClose={() => setEditTermsOpen(false)}
+          onClose={() => {
+            cleanupEditUrlParam()
+            setEditTermsOpen(false)}}
           po={PO}
           onSave={handleSaveTerms}
           isLoading={isUpdatingDoc}
