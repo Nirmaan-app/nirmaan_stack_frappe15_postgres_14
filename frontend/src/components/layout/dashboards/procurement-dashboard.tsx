@@ -59,7 +59,7 @@ export default function ProcurementDashboard() {
                     <Link to="/procurement-requests?tab=Delayed">
                         <p className="text-center py-6 font-bold text-gray-500">Skipped PR</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.sb.delayed.pending|| 0}
+                            {counts.sb.delayed.pending || 0}
                         </p>
                     </Link>
                 </Card>
@@ -71,7 +71,7 @@ export default function ProcurementDashboard() {
                         </p>
                     </Link>
                 </Card>
-                </div>
+            </div>
             <div className="flex items-center space-y-2">
                 <h2 className=" font-bold tracking-tight">Service Requests</h2>
             </div>
@@ -120,6 +120,14 @@ export default function ProcurementDashboard() {
                         <p className="text-center py-6 font-bold text-gray-500">Dispatched PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">
                             {counts.po['Dispatched'] || 0}
+                        </p>
+                    </Link>
+                </Card>
+                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Link to="/purchase-orders?tab=Partially+Delivered+PO">
+                        <p className="text-center py-6 font-bold text-gray-500">Partially Delivered PO</p>
+                        <p className="text-center text-red-400 text-xl font-bold py-6">
+                            {counts.po['Partially Delivered'] || 0}
                         </p>
                     </Link>
                 </Card>
