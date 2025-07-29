@@ -130,6 +130,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
             header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
             cell: ({ row }) => <Link to={`/projects/${row.original.projects}`} className="text-blue-600 hover:underline">{getProjectName(row.original.projects)}</Link>,
             enableColumnFilter: true,
+            meta: { exportValue: (row) => getProjectName(row.projects) }
         } as ColumnDef<ProjectExpenses>] : []),
         { accessorKey: "payment_date", header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />, cell: ({ row }) => <div className="font-medium">{formatDate(row.original.payment_date)}</div> },
         { accessorKey: "type", header: "Expense Type", cell: ({ row }) => <div className="truncate" title={row.original.expense_type_name || row.original.type}>{row.original.expense_type_name || row.original.type}</div>, meta: { exportValue: (row) => row.expense_type_name || row.type }, enableColumnFilter: true, },
@@ -137,7 +138,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
         { accessorKey: "comment", header: "Comment", cell: ({ row }) => <div className="truncate max-w-xs" title={row.original.comment}>{row.original.comment}</div> },
         { accessorKey: "vendor", header: "Vendor", cell: ({ row }) => <div className="truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>, meta: { exportValue: (row) => getVendorName(row.vendor) }, enableColumnFilter: true },
         { accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-center" />, cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>, meta: { exportValue: (row) => formatForReport(row.amount) } },
-        { accessorKey: "payment_by", header: "Requested By", cell: ({ row }) => <div className="truncate" title={getUserName(row.original.payment_by)}>{getUserName(row.original.payment_by)}</div>, meta: { exportValue: (row) => getUserName(row.payment_by) }, enableColumnFilter: true, },
+        { accessorKey: "payment_by", header: "Payment By", cell: ({ row }) => <div className="truncate" title={getUserName(row.original.payment_by)}>{getUserName(row.original.payment_by)}</div>, meta: { exportValue: (row) => getUserName(row.payment_by) }, enableColumnFilter: true, },
 
         {
             id: "actions",
