@@ -18,43 +18,43 @@ def get_source_document_financials(source_doc: frappe.model.document.Document) -
     total_value_without_gst = 0.0 # This will be (sum of item base amounts) + additional charges before their GST
 
     if source_doc.doctype == "Procurement Orders":
-        items_base_total = 0.0  # Sum of (qty * rate) for all items
-        items_gst_total = 0.0   # Sum of GST calculated for all items
+        items_base_total = source_doc.get("amount")  # Sum of (qty * rate) for all items
+        items_gst_total = source_doc.get("tax_amount")  # Sum of GST calculated for all items
 
-        order_list_data = source_doc.get("order_list")
-        if isinstance(order_list_data, str):
-            try:
-                order_list_data = json.loads(order_list_data) # Use json.loads for plain Python
-            except json.JSONDecodeError:
-                frappe.log_error(f"Invalid JSON in order_list for PO {source_doc.name}", frappe.get_traceback())
-                order_list_data = {} # Default to empty if parse fails
+        # order_list_data = source_doc.get("order_list")
+        # if isinstance(order_list_data, str):
+        #     try:
+        #         order_list_data = json.loads(order_list_data) # Use json.loads for plain Python
+        #     except json.JSONDecodeError:
+        #         frappe.log_error(f"Invalid JSON in order_list for PO {source_doc.name}", frappe.get_traceback())
+        #         order_list_data = {} # Default to empty if parse fails
 
-        if order_list_data and isinstance(order_list_data.get("list"), list):
-            for item in order_list_data.get("list"):
-                if not isinstance(item, dict): continue # Skip malformed items
+        # if order_list_data and isinstance(order_list_data.get("list"), list):
+        #     for item in order_list_data.get("list"):
+        #         if not isinstance(item, dict): continue # Skip malformed items
 
-                qty = flt(item.get("quantity"))
-                rate = flt(item.get("quote")) # Assuming 'quote' is the rate field in PO items
-                tax_percent = flt(item.get("tax")) # e.g., 18 for 18%
+        #         qty = flt(item.get("quantity"))
+        #         rate = flt(item.get("quote")) # Assuming 'quote' is the rate field in PO items
+        #         tax_percent = flt(item.get("tax")) # e.g., 18 for 18%
 
-                item_base_amount = qty * rate
-                item_gst_amount = item_base_amount * (tax_percent / 100.0)
+        #         item_base_amount = qty * rate
+        #         item_gst_amount = item_base_amount * (tax_percent / 100.0)
 
-                items_base_total += item_base_amount
-                items_gst_total += item_gst_amount
+        #         items_base_total += item_base_amount
+        #         items_gst_total += item_gst_amount
         
-        loading_charges = flt(source_doc.get("loading_charges"))
-        freight_charges = flt(source_doc.get("freight_charges"))
+        # loading_charges = flt(source_doc.get("loading_charges"))
+        # freight_charges = flt(source_doc.get("freight_charges"))
 
-        # Assuming GST on additional charges is fixed at 18% as per your frontend logic
-        gst_on_loading_charges = loading_charges * 0.18
-        gst_on_freight_charges = freight_charges * 0.18
+        # # Assuming GST on additional charges is fixed at 18% as per your frontend logic
+        # gst_on_loading_charges = loading_charges * 0.18
+        # gst_on_freight_charges = freight_charges * 0.18
         
-        total_additional_charges_gst = gst_on_loading_charges + gst_on_freight_charges
-        total_additional_charges_base = loading_charges + freight_charges
+        # total_additional_charges_gst = gst_on_loading_charges + gst_on_freight_charges
+        # total_additional_charges_base = loading_charges + freight_charges
 
-        total_value_without_gst = items_base_total + total_additional_charges_base
-        payable_total = items_base_total + items_gst_total + total_additional_charges_base + total_additional_charges_gst
+        total_value_without_gst = items_base_total
+        payable_total = items_base_total + items_gst_total
 
     elif source_doc.doctype == "Service Requests":
         service_items_base_total = 0.0
