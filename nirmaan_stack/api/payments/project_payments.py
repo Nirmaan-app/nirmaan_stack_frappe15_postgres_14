@@ -94,6 +94,11 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
         pending = get_total_pending(src)
         available = totals.get("payable_total") - paid - pending
 
+        if amount > (available + 10):
+            frappe.throw(_(
+                "Maximum amount you can request is {0} (available balance)"
+            ).format(frappe.format_value(available, "Currency")))
+
         
         pay = frappe.new_doc("Project Payments")
         pay.update({
