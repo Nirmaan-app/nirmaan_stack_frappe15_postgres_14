@@ -109,7 +109,7 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useNavigate, useParams,useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
@@ -166,8 +166,8 @@ export const PurchaseOrder = ({
 
   //editing PO terms 
 
-  
- 
+
+
   const { triggerHistoryPrint, PrintableHistoryComponent } =
     usePrintHistory(PO);
 
@@ -184,9 +184,9 @@ export const PurchaseOrder = ({
     },
     true // emitOpenCloseEventsOnMount (default)
   );
-    const [searchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
-    const [openAccordionItems, setOpenAccordionItems] = useState(false);
+  const [openAccordionItems, setOpenAccordionItems] = useState(false);
 
 
   // --- MODIFICATION: Update the useEffect to also control the accordion ---
@@ -194,7 +194,7 @@ export const PurchaseOrder = ({
     // Check if the 'isEditing' parameter from the URL is 'true'
     if (searchParams.get('isEditing') === 'true') {
       // 1. Open the dialog
-      
+
       // 2. ALSO, open the "Payment Details" accordion
       // We ensure we don't add duplicates by checking first
       setOpenAccordionItems(true);
@@ -894,7 +894,7 @@ export const PurchaseOrder = ({
       setSelectedMake(null); // CORRECT: Reset selectedMake
       toggleAmendEditItemDialog();
     },
-    [orderData, quantity, selectedMake, toggleAmendEditItemDialog]
+    [orderData, quantity, tax, selectedMake, toggleAmendEditItemDialog]
   ); // CORRECT: Dependency is on selectedMake
   // NEW `handleDelete`
   const handleDelete = useCallback(
@@ -954,9 +954,7 @@ export const PurchaseOrder = ({
           const originalItem = lastOperation.item as PurchaseOrderItem;
           return {
             ...item,
-            makes: { list: lastOperation.previousMakeList! },
-            // also restore the primary 'make' field
-            make: originalItem.make,
+            makes: lastOperation.previousMakeList!,
           };
         }
         return item;
@@ -1488,7 +1486,7 @@ export const PurchaseOrder = ({
                   getTotal={getTotal}
                   poMutate={poMutate}
                   projectPaymentsMutate={poPaymentsMutate}
-                
+
                 // advance={advance}
                 // materialReadiness={materialReadiness}
                 // afterDelivery={afterDelivery}
@@ -2078,7 +2076,7 @@ export const PurchaseOrder = ({
                             onValueChange={(value) => {
                               // console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
                               // console.log("tax", value);
-                              setTax(Number(value));
+                              setTax(value);
                               // onTaxChange(amendEditItem.item_id, value);
                             }}
                           // disabled={mode === "view" || isReadOnly}
