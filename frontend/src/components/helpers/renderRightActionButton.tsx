@@ -165,13 +165,14 @@ export const RenderRightActionButton = ({
             </>
           )}
           <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
-            {role === "Nirmaan Admin Profile" ? "New PR" : "Urgent PR"}
+            {/* {role === "Nirmaan Admin Profile" ? "New PR" : "Urgent PR"} */}
+            New PR
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
+          {/* <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
             New Custom PR
-          </DropdownMenuItem>
+          </DropdownMenuItem> */}
           <DropdownMenuItem onClick={() => navigate("/service-requests-list")}>
-            Service Request
+            New Service Request
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
