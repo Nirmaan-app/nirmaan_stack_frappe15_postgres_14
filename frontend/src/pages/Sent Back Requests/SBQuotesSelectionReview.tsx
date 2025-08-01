@@ -116,6 +116,25 @@ export const SBQuotesSelectionReview: React.FC = () => {
   }, [paymentTerms, sbId]); // The dependency array ensures this runs only when needed.
   // --- ADDED: State to control which vendor's payment terms are being edited ---
 
+//cleanUP of Pyament Local Storage
+
+    useEffect(() => {
+      // This function will be called when the component is about to unmount.
+      const cleanup = () => {
+        // Create the specific key for this PR's payment terms draft.
+        const storageKey = `SBpaymentTermsDraft_${sbId}`;
+        
+        // Remove the item from localStorage.
+        localStorage.removeItem(storageKey);
+        
+        console.log(`Cleaned up payment terms for SBPR: ${sbId}`);
+      };
+  
+      // React calls the returned function when the component unmounts.
+      return cleanup;
+  
+    }, [sbId]);
+     
   const [editingVendor, setEditingVendor] = useState<{
     id: string;
     name: string;
@@ -323,6 +342,7 @@ const getLowest = useMemo(
       await mutate(`${orderData?.type} Sent Back Category`);
 
       navigate(`/procurement-requests?tab=${orderData?.type}`);
+      
     } catch (error) {
       toast({
         title: "Failed!",
@@ -506,8 +526,41 @@ const generateActionSummary = useCallback(() => {
 
   if (sent_back_loading || vendor_list_loading) return <LoadingFallback />;
 
-  console.log("orderData", orderData);
-  console.log("vendorWiseApprovalItems", vendorWiseApprovalItems); // this is empty why
+  // console.log("orderData", orderData);
+  // console.log("vendorWiseApprovalItems", vendorWiseApprovalItems); // this is empty why
+
+  if (orderData?.workflow_state !== "Pending") {
+    return (
+      <div className="flex items-center justify-center h-[90vh]">
+        <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+          <h2 className="text-2xl font-semibold text-gray-800">Heads Up!</h2>
+          <p className="text-gray-600 text-lg">
+            Hey there, the PR:{" "}
+            <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+            is no longer available in the{" "}
+            <span className="italic">In Progress</span> state. The current state
+            is{" "}
+            <span className="font-semibold text-blue-600">
+              {orderData?.workflow_state}
+            </span>{" "}
+            And the last modification was done by{" "}
+            <span className="font-medium text-gray-900">
+              {orderData?.modified_by === "Administrator"
+                && orderData?.modified_by
+              }
+            </span>
+            !
+          </p>
+          <button
+            className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+            onClick={() => navigate("/procurement-requests")}
+          >
+            Go Back to PR List
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <>
       {orderData && (

@@ -401,6 +401,13 @@ export const appRoutes: RouteObject[] = [
             ],
           },
           {
+            path: "item-price", // Keep separate from debug or merge?
+            children: [
+              { index: true, element: <ApprovedQuotationsPage /> },
+              { path: ":poId", lazy: () => import("@/components/POSummary") },
+            ],
+          },
+          {
             path: "debug",
             children: [
               { index: true, element: <ApprovedQuotationsPage /> }, // Same component as approved-quotes?
