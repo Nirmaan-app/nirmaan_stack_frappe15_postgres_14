@@ -32,7 +32,7 @@ def sidebar_counts(user: str) -> str:
     po_map["all"] = sum(q for _, q, _ in po_status_counts)
 
     # --- Procurement Requests (needs JSON) --------------------------
-    pr_fields = ["workflow_state", "procurement_list"]
+    pr_fields = ["workflow_state", "order_list"]
     pr_docs = frappe.get_all(
         "Procurement Requests",
         filters={
@@ -71,8 +71,8 @@ def sidebar_counts(user: str) -> str:
         if d.workflow_state == "Pending":
             pr_counts["pending"] += 1
         elif d.workflow_state in ("Vendor Selected", "Partially Approved"):
-            plist = d.procurement_list or {}
-            pending_inside = any(i.get("status") == "Pending" for i in plist.get("list", []))
+            order_list_items = d.order_list or[]
+            pending_inside = any(i.get("status") == "Pending" for i in order_list_items)
             pr_counts["approve"] += 1 if pending_inside else 0
         elif d.workflow_state == "Approved":
             pr_counts["approved"] += 1
@@ -90,7 +90,7 @@ def sidebar_counts(user: str) -> str:
 
 
     # --- Sent Back Category (needs JSON) ----------------------------
-    sb_fields = ["workflow_state", "item_list", "type"]
+    sb_fields = ["workflow_state", "order_list", "type"]
     sb_docs = frappe.get_all(
         "Sent Back Category",
         filters={
@@ -121,7 +121,8 @@ def sidebar_counts(user: str) -> str:
     sb_counts["all"] = len(sb_docs)
     for d in sb_docs:
         if d.workflow_state in ("Vendor Selected", "Partially Approved"):
-            if any(i.get("status") == "Pending" for i in (d.item_list or {}).get("list", [])):
+            order_list_items = d.order_list or[]
+            if any(i.get("status") == "Pending" for i in order_list_items):
                 sb_counts["approve"] += 1
         elif d.type == "Rejected":
             if d.workflow_state == "Pending":
