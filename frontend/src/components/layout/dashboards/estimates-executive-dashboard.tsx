@@ -61,7 +61,7 @@ export const EstimatesExecutive = () => {
                         </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center">
-                        <Link to="/approved-quotes">
+                        <Link to="/all-AQs">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
                                     Approved Quotations

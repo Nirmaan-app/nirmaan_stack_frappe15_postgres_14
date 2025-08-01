@@ -69,7 +69,7 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
       id: "approved-quotations",
       title: "Approved Quotations",
       doctype: "Approved Quotations",
-      linkTo: "/approved-quotes",
+      linkTo: "/all-AQs",
       Icon: Boxes,
       dataCy: "admin-dashboard-approved-quotes-card",
     },
