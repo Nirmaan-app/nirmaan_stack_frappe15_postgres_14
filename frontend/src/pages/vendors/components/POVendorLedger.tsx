@@ -71,40 +71,66 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
             });
     };
 
-    const calculateLedger = useCallback((
+   const calculateLedger = useCallback((
         baseData: EnrichedPO[] | undefined,
         type: 'po' | 'invoice',
         startBalance: number
     ): LedgerEntry[] => {
         if (!baseData) return [];
+
         const allEntries: Omit<LedgerEntry, 'balance'>[] = [];
+
         baseData.forEach(po => {
             if (type === 'po') {
-                allEntries.push({ date: po.creation, transactionType: 'PO Created', project: po.project_name || 'N/A', details: `PO: ${po.name || 'N/A'}`, amount: po.total_amount, payment: 0 });
+                allEntries.push({
+                    date: po.creation,
+                    transactionType: 'PO Created',
+                    project: po.project_name || 'N/A',
+                    details: `PO: ${po.name || 'N/A'}`,
+                    amount: po.total_amount,
+                    payment: 0
+                });
             } else {
                 po.invoices.forEach(invoice => {
-                    allEntries.push({ date: invoice.date, transactionType: 'Invoice Recorded', project: po.project_name || 'N/A', details: `Invoice No: ${invoice.invoice_no}\nStatus: ${invoice.status}`, amount: invoice.amount, payment: 0 });
+                    // **MODIFIED LOGIC**
+                    const isCreditNote = invoice.amount < 0;
+                    allEntries.push({
+                        date: invoice.date,
+                        // If amount is negative, it's a Credit Note
+                        transactionType: isCreditNote ? 'Credit Note Recorded' : 'Invoice Recorded',
+                        project: po.project_name || 'N/A',
+                        // Add PO ID to invoice details
+                        details: `Invoice No: ${invoice.invoice_no}\nFor PO: ${po.name}`,
+                        amount: invoice.amount, // This will now correctly handle negative amounts
+                        payment: 0
+                    });
                 });
             }
+
             po.project_payments.forEach(payment => {
-                const isNegative = payment.amount < 0;
-                let transactionType: LedgerEntry['transactionType'] = 'Payment Made';
-                let details = `UTR: ${payment.utr || 'N/A'}\nFor PO: ${po.name}`;
-                if (isNegative) {
-                    transactionType = type === 'po' ? 'Refund Received' : 'Credit Note Received';
-                    details = `${transactionType} against PO: ${po.name}`;
-                }
-                allEntries.push({ date: payment.creation, transactionType, project: po.project_name || 'N/A', details, amount: 0, payment: payment.amount });
+                // **MODIFIED LOGIC**
+                const isRefund = payment.amount < 0;
+                allEntries.push({
+                    date: payment.creation,
+                    // If payment is negative, it's a Refund
+                    transactionType: isRefund ? 'Refund Received' : 'Payment Made',
+                    project: po.project_name || 'N/A',
+                    details: `UTR: ${payment.utr || 'N/A'}\nFor PO: ${po.name}`,
+                    amount: 0,
+                    payment: payment.amount
+                });
             });
         });
+
         allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
         let runningBalance = startBalance;
         return allEntries.map(entry => {
+            // For credit notes, the negative amount is added to the balance
             runningBalance += entry.amount - entry.payment;
             return { ...entry, balance: runningBalance };
         });
     }, []);
-
     const poLedgerFlattenedData = useMemo(() => calculateLedger(poDataFromApi, 'po', openingBalance), [poDataFromApi, openingBalance, calculateLedger]);
     const invoiceLedgerFlattenedData = useMemo(() => calculateLedger(poDataFromApi, 'invoice', openingBalance), [poDataFromApi, openingBalance, calculateLedger]);
 
@@ -162,8 +188,8 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
         ];
 
         const openingBalanceRow = {
-            date: '', transactionType: '', project: '', details: '',
-            amount: '', payment: 'Opening Balance', balance: (openingBalance / 100).toFixed(2),
+            date: '', transactionType: '', project: '', details: 'Opening Balance',
+            amount: '', payment: '', balance: (openingBalance).toFixed(2),
         };
         
         const formattedTransactionData = processedItems.map(item => ({
@@ -171,16 +197,16 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
             transactionType: item.transactionType,
             project: item.project,
             details: item.details.replace(/\n/g, ' | '),
-            amount: item.amount > 0 ? (item.amount/100).toFixed(2) : '',
-            payment: item.payment !== 0 ? (item.payment/100).toFixed(2) : '',
-            balance: (item.balance/100).toFixed(2)
+            amount: item.amount > 0 ? (item.amount).toFixed(2) : '',
+            payment: item.payment !== 0 ? (item.payment).toFixed(2) : '',
+            balance: (item.balance).toFixed(2)
         }));
 
         const footerRow = {
             date: '', transactionType: '', project: '', details: 'Closing Balance / Totals',
-            amount: (totals.amount / 100).toFixed(2),
-            payment: (totals.payment / 100).toFixed(2),
-            balance: (endBalance / 100).toFixed(2)
+            amount: (totals.amount).toFixed(2),
+            payment: (totals.payment).toFixed(2),
+            balance: (endBalance).toFixed(2)
         };
 
         const dataToExport = [ openingBalanceRow, ...formattedTransactionData, footerRow ];

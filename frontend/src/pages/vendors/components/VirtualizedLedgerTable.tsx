@@ -40,15 +40,17 @@ const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ balance, onSave, 
 
     return (
         <TableRow className="bg-gray-100 hover:bg-gray-100">
-            <TableCell colSpan={6} className="px-2 py-1 font-semibold text-gray-700 text-right">
+            <TableCell colSpan={4} className="px-2 py-1 font-semibold text-gray-700 text-right">
                 Opening Balance
             </TableCell>
+            <TableCell className="px-2 py-1 text-right font-mono font-semibold">{""}</TableCell>
+                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{""}</TableCell>
             <TableCell className="px-2 py-1 text-right">
                 <div className="flex items-center justify-end gap-2">
                     <Input
                         type="number"
-                        value={editableBalance / 100}
-                        onChange={(e) => setEditableBalance(Number(e.target.value) * 100)} 
+                        value={editableBalance}
+                        onChange={(e) => setEditableBalance(Number(e.target.value))} 
                         onBlur={handleSave}
                         onKeyDown={handleKeyDown}
                         className="h-8 w-32 text-right font-mono"
@@ -119,7 +121,7 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
           <TableRow>
             <TableHead className="px-2 py-1 min-w-[180px] font-semibold">
                 <AdvancedDateFilter
-                    title="Filter by Date"
+                    // title="Filter by Date"
                     value={dateFilter}
                     onChange={onSetDateFilter}
                 />
@@ -160,9 +162,9 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
         <TableFooter className="sticky bottom-0 bg-gray-100">
             <TableRow>
                 <TableCell colSpan={4} className="px-2 py-1 font-semibold text-gray-700 text-right"> Totals & Closing Balance </TableCell>
-                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.amount / 100)}</TableCell>
-                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.payment / 100)}</TableCell>
-                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(endBalance / 100)}</TableCell>
+                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.amount)}</TableCell>
+                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.payment)}</TableCell>
+                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(endBalance)}</TableCell>
             </TableRow>
         </TableFooter>
       </Table>
