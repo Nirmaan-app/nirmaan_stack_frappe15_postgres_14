@@ -13,12 +13,11 @@ def get_po_ledger_data(vendor_id):
     if not vendor_id:
         frappe.throw("Vendor ID is a required parameter.")
 
-    # 1. Get PO data
     vendor_pos = frappe.get_all(
-        "Procurement Orders",
-        filters={"vendor": vendor_id, "status": ["!=", "Merged"]},
-        fields=["name", "creation", "total_amount", "project_name", "vendor_name", "invoice_data"]
-    )
+            "Procurement Orders",
+            filters={"vendor": vendor_id, "status": ["!=", "Merged"], "creation": [">=", "2025-04-01"]},
+            fields=["name", "creation", "total_amount", "project_name", "vendor_name", "invoice_data"]
+        )
 
     if not vendor_pos:
         return []
@@ -33,9 +32,10 @@ def get_po_ledger_data(vendor_id):
         # Find linked payments
         payments = frappe.get_all(
             "Project Payments",
-            filters={ "vendor": vendor_id, "document_type": "Procurement Orders", "document_name": po_name, "status": "Paid" },
+            filters={ "vendor": vendor_id, "document_type": "Procurement Orders", "document_name": po_name, "status": "Paid", "payment_date": [">=", "2025-04-01"] },
             fields=["name", "payment_date", "creation", "amount", "utr", "tds"]
         )
+
         # --- FIX: Convert payment amounts to paise (integer) ---
         for payment in payments:
             payment['amount'] = int(round((frappe.utils.flt(payment.get('amount')) or 0) * 100))
@@ -56,6 +56,9 @@ def get_po_ledger_data(vendor_id):
         po["invoices"] = parsed_invoices
 
     return vendor_pos
+
+
+    
 # import frappe
 
 # @frappe.whitelist()

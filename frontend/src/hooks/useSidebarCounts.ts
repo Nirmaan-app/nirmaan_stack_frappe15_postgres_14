@@ -20,7 +20,7 @@ export const useSidebarCounts = (user: string | null | undefined) => {
 
   return useSWR<SidebarCountsData>(user ? [API_PATH, user] : null, fetcher, {
     revalidateOnFocus: false,
-    refreshInterval  : 1000 * 60 * 5,   // 5-minute auto refresh
+    refreshInterval  : 1000 * 60 * 2,   // 5-minute auto refresh
   });
 };
 

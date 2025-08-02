@@ -169,7 +169,7 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/approved-quotes">
+                    <Link to="/all-AQs">
                         <p className="text-center py-6 font-bold text-gray-500">Approved Quotations</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6">{(approved_quotes_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                             : (approved_quotes)}

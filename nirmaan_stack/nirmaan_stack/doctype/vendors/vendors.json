@@ -25,7 +25,8 @@
   "bank_name",
   "bank_branch",
   "vendor_taxation_details_section",
-  "vendor_gst"
+  "vendor_gst",
+  "opening_balance"
  ],
  "fields": [
   {
@@ -134,12 +135,17 @@
    "fieldname": "bank_branch",
    "fieldtype": "Data",
    "label": "Bank Branch"
+  },
+  {
+   "fieldname": "opening_balance",
+   "fieldtype": "Float",
+   "label": "Opening Balance"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-04-02 14:49:27.955832",
+ "modified": "2025-08-01 18:18:27.163797",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",
@@ -230,6 +236,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

@@ -90,7 +90,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "Service Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
         { label: "Approved Quotes", key: "approvedQuotes" },
-        { label: "PO Vendor Ledger", key: "poVendorLedger" },
+        { label: "Vendor Ledger", key: "poVendorLedger" },
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
     const handleMenuClick: MenuProps["onClick"] = useCallback(e => setCurrentTab(e.key), []);
