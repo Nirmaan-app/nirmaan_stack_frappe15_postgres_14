@@ -27,7 +27,7 @@ def get_po_ledger_data(vendor_id):
         po_name = po.get("name")
         
         # --- FIX: Convert PO total_amount to paise (integer) ---
-        po['total_amount'] = int(round((po.get('total_amount') or 0) * 100))
+        po['total_amount'] = int(round((po.get('total_amount') or 0)))
 
         # Find linked payments
         payments = frappe.get_all(
@@ -38,7 +38,7 @@ def get_po_ledger_data(vendor_id):
 
         # --- FIX: Convert payment amounts to paise (integer) ---
         for payment in payments:
-            payment['amount'] = int(round((frappe.utils.flt(payment.get('amount')) or 0) * 100))
+            payment['amount'] = int(round((frappe.utils.flt(payment.get('amount')) or 0)))
         po["project_payments"] = payments
         
         # Parse Invoice JSON
@@ -49,7 +49,7 @@ def get_po_ledger_data(vendor_id):
             for date, invoice_details in invoice_data_dict["data"].items():
                 if isinstance(invoice_details, dict):
                     # --- FIX: Convert invoice amount to paise (integer) ---
-                    invoice_details['amount'] = int(round((frappe.utils.flt(invoice_details.get('amount')) or 0) * 100))
+                    invoice_details['amount'] = int(round((frappe.utils.flt(invoice_details.get('amount')) or 0)))
                     invoice_details["date"] = date
                     parsed_invoices.append(invoice_details)
         
