@@ -11,9 +11,12 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { TableSkeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+// MODIFIED: Import Card components and a spinner
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TailSpin } from 'react-loader-spinner';
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useServerDataTable, AggregationConfig } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { memoize } from "lodash";
@@ -26,6 +29,30 @@ import { DEFAULT_INFLOW_FIELDS_TO_FETCH, INFLOW_SEARCHABLE_FIELDS, INFLOW_DATE_C
 import { getCustomerListOptions, getProjectListOptions, queryKeys } from "@/config/queryKeys";
 
 const DOCTYPE = 'Project Inflows';
+
+// NEW: Configuration for the summary card aggregations
+const INFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' }
+];
+
+// NEW: Helper component to display active filters in the summary card
+const AppliedFiltersDisplay = ({ filters, search }) => {
+    const hasFilters = filters.length > 0 || !!search;
+    if (!hasFilters) {
+        return <p className="text-sm text-gray-500">Overview of all inflow payments.</p>;
+    }
+    return (
+        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
+            <span className="font-medium">Filtered by:</span>
+            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
+            {filters.map(filter => (
+                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
+                    {filter.id.replace(/_/g, ' ')}
+                </span>
+            ))}
+        </div>
+    );
+};
 
 interface SelectOption { label: string; value: string; }
 
@@ -103,6 +130,9 @@ export function InflowReportTable() {
     const {
         table, totalCount, isLoading: listIsLoading, error: listError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
+        aggregates, // NEW
+        isAggregatesLoading, // NEW
+        columnFilters // NEW
     } = useServerDataTable<ProjectInflows>({
         doctype: DOCTYPE,
         columns: columns,
@@ -110,6 +140,7 @@ export function InflowReportTable() {
         searchableFields: INFLOW_SEARCHABLE_FIELDS,
         urlSyncKey: 'inflow_report_table', // A unique key for this report instance
         defaultSort: 'payment_date desc',
+        aggregatesConfig: INFLOW_AGGREGATES_CONFIG, // NEW: Pass the config
     });
 
     const isLoadingOverall = projectsLoading || customersLoading || listIsLoading;
@@ -140,6 +171,43 @@ export function InflowReportTable() {
             showExportButton={true}
             onExport={'default'}
             exportFileName={'Inflow_Payments_Report'}
+            // NEW: Pass the fully constructed summary card as a prop
+            summaryCard={
+                <Card>
+                    <CardHeader className="p-4">
+                        <CardTitle className="text-lg">Inflow Report Summary</CardTitle>
+                        <CardDescription>
+                            <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-4 pt-0">
+                        {isAggregatesLoading ? (
+                            <div className="flex justify-center items-center h-16">
+                                <TailSpin height={24} width={24} color="#4f46e5" />
+                            </div>
+                        ) : aggregates ? (
+                            <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
+                                <div className="flex justify-between sm:block">
+                                    <dt className="font-semibold text-gray-600">Total Amount Received</dt>
+                                    <dd className="sm:text-right font-bold text-lg text-green-600">
+                                        {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                    </dd>
+                                </div>
+                                <div className="flex justify-between sm:block">
+                                    <dt className="font-semibold text-gray-600">Total Payments</dt>
+                                    <dd className="sm:text-right font-bold text-lg text-green-600">
+                                        {totalCount}
+                                    </dd>
+                                </div>
+                            </dl>
+                        ) : (
+                            <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                No summary data available.
+                            </p>
+                        )}
+                    </CardContent>
+                </Card>
+            }
         />
     );
 }
