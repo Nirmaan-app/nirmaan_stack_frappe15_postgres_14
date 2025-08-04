@@ -449,15 +449,18 @@ export function useServerDataTable<TData extends { name: string }>({
             urlStateManager.subscribe(`${keyPrefix}filters`, (_, value) => {
                 // Update state only if decoded value differs from current state JSON stringified
                 const decoded = decodeFiltersFromUrl(value);
-                if (JSON.stringify(columnFilters) !== JSON.stringify(decoded)) {
-                    setColumnFilters(decoded);
-                }
+                setColumnFilters(currentFilters => {
+                    if (JSON.stringify(currentFilters) !== JSON.stringify(decoded)) {
+                        return decoded;
+                    }
+                    return currentFilters;
+                });
             }),
             // --- END MODIFICATION ---
         ];
         // Return cleanup function to unsubscribe all
         return () => subscriptions.forEach(unsub => unsub());
-    }, [urlSyncKey, defaultInitialSearchField, columnFilters]); // Add columnFilters here to compare on popstate update
+    }, [urlSyncKey, defaultInitialSearchField]); // Add columnFilters here to compare on popstate update
 
 
     // Update URL when local state changes (avoiding infinite loops)
