@@ -138,14 +138,14 @@
   },
   {
    "fieldname": "opening_balance",
-   "fieldtype": "Text",
+   "fieldtype": "Data",
    "label": "Opening Balance"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-02 14:10:47.466432",
+ "modified": "2025-08-04 13:23:00.956684",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

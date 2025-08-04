@@ -124,7 +124,7 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
 
         allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        let runningBalance = startBalance;
+        let runningBalance = Number(startBalance);
         return allEntries.map(entry => {
             // For credit notes, the negative amount is added to the balance
             runningBalance += entry.amount - entry.payment;
@@ -189,7 +189,7 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
 
         const openingBalanceRow = {
             date: '', transactionType: '', project: '', details: 'Opening Balance',
-            amount: '', payment: '', balance: (openingBalance).toFixed(2),
+            amount: '', payment: '', balance: Number(openingBalance).toFixed(2),
         };
         
         const formattedTransactionData = processedItems.map(item => ({
@@ -197,16 +197,16 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
             transactionType: item.transactionType,
             project: item.project,
             details: item.details.replace(/\n/g, ' | '),
-            amount: item.amount > 0 ? (item.amount).toFixed(2) : '',
-            payment: item.payment !== 0 ? (item.payment).toFixed(2) : '',
-            balance: (item.balance).toFixed(2)
+            amount: item.amount > 0 ? Number(item.amount).toFixed(2) : '',
+            payment: item.payment !== 0 ? Number(item.payment).toFixed(2) : '',
+            balance: Number(item.balance).toFixed(2)
         }));
 
         const footerRow = {
             date: '', transactionType: '', project: '', details: 'Closing Balance / Totals',
-            amount: (totals.amount).toFixed(2),
-            payment: (totals.payment).toFixed(2),
-            balance: (endBalance).toFixed(2)
+            amount: Number(totals.amount).toFixed(2),
+            payment: Number(totals.payment).toFixed(2),
+            balance: Number(endBalance).toFixed(2)
         };
 
         const dataToExport = [ openingBalanceRow, ...formattedTransactionData, footerRow ];

@@ -49,7 +49,7 @@ const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ balance, onSave, 
                 <div className="flex items-center justify-end gap-2">
                     <Input
                         type="number"
-                        value={editableBalance}
+                        value={Number(editableBalance).toString()}
                         onChange={(e) => setEditableBalance(Number(e.target.value))} 
                         onBlur={handleSave}
                         onKeyDown={handleKeyDown}
