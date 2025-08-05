@@ -1,3 +1,5 @@
+// // src/pages/vendors/components/VirtualizedLedgerTable.tsx
+
 // src/pages/vendors/components/VirtualizedLedgerTable.tsx
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -7,58 +9,45 @@ import { SimpleFacetedFilter } from '../../projects/components/SimpleFacetedFilt
 import { LedgerTableRow, LedgerEntry } from './LedgerTableRow';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Save } from 'lucide-react';
+import { Save,Pencil } from 'lucide-react';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import { AdvancedDateFilter, DateFilterValue } from './AdvancedDateFilter';
 
 
 // Define an interface for the props of the editable opening balance row
 interface OpeningBalanceRowProps {
-    balance: number;
-    onSave: (newBalance: number) => void;
+    activeTab: 'poLedger' | 'invoicesLedger';
+    poAmount: number;
+    invoiceAmount: number;
+    paymentAmount: number;
+    calculatedBalance: number;
+    onEdit: () => void;
     isSaving: boolean;
 }
 
-const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ balance, onSave, isSaving }) => {
-    const [editableBalance, setEditableBalance] = useState(balance);
+const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ activeTab, poAmount, invoiceAmount, paymentAmount, calculatedBalance, onEdit, isSaving }) => {
 
-    useEffect(() => {
-        setEditableBalance(balance);
-    }, [balance]);
+    const openingAmount = activeTab === 'poLedger' ? poAmount : invoiceAmount;
 
-    const handleSave = () => {
-        if (editableBalance !== balance) {
-            onSave(editableBalance);
-        }
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            handleSave();
-        }
-    };
-
-    return (
-        <TableRow className="bg-gray-100 hover:bg-gray-100">
-            <TableCell colSpan={4} className="px-2 py-1 font-semibold text-gray-700 text-right">
+   
+       return (
+        <TableRow className="bg-gray-100 hover:bg-gray-100 sticky top-[0px] z-10">
+            <TableCell colSpan={4} className="px-2 py-2 font-semibold text-gray-700 text-right">
                 Opening Balance
             </TableCell>
-            <TableCell className="px-2 py-1 text-right font-mono font-semibold">{""}</TableCell>
-                <TableCell className="px-2 py-1 text-right font-mono font-semibold">{""}</TableCell>
-            <TableCell className="px-2 py-1 text-right">
+            <TableCell className="px-2 py-2 text-right font-mono font-semibold">
+                {formatToRoundedIndianRupee(openingAmount)}
+            </TableCell>
+            <TableCell className="px-2 py-2 text-right font-mono font-semibold">
+                {formatToRoundedIndianRupee(paymentAmount)}
+            </TableCell>
+            <TableCell className="px-2 py-2 text-right">
                 <div className="flex items-center justify-end gap-2">
-                    <Input
-                        type="number"
-                        value={Number(editableBalance).toString()}
-                        onChange={(e) => setEditableBalance(Number(e.target.value))} 
-                        onBlur={handleSave}
-                        onKeyDown={handleKeyDown}
-                        className="h-8 w-32 text-right font-mono"
-                        disabled={isSaving}
-                        aria-label="Opening Balance"
-                    />
-                    <Button size="icon" onClick={handleSave} disabled={isSaving || editableBalance === balance} className="h-8 w-8 flex-shrink-0">
-                        <Save className="h-4 w-4" />
+                    <span className="font-mono font-semibold w-32 text-right">
+                        {formatToRoundedIndianRupee(calculatedBalance)}
+                    </span>
+                    <Button size="icon" onClick={onEdit} disabled={isSaving} className="h-8 w-8 flex-shrink-0">
+                        <Pencil className="h-4 w-4" />
                     </Button>
                 </div>
             </TableCell>
@@ -66,37 +55,47 @@ const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ balance, onSave, 
     );
 }
 
-// Update the main component's props interface
+
+
 interface VirtualizedLedgerTableProps {
   items: LedgerEntry[];
   activeSubTab: 'poLedger' | 'invoicesLedger';
   projectOptions: { label: string; value: string }[];
   projectFilter: Set<string>;
   onSetProjectFilter: (selected: Set<string>) => void;
+  // New props for balancing figures
   openingBalance: number;
-  onSaveOpeningBalance: (newBalance: number) => void;
+  poAmountBalancing: number;
+  invoiceBalancing: number;
+  paymentBalancing: number;
+  onEditBalancing: () => void; // Function to open the dialog
   isSavingBalance: boolean;
   totals: { amount: number; payment: number; };
   endBalance: number;
-  // Props for the date filter
   dateFilter: DateFilterValue | undefined;
   onSetDateFilter: (filter: DateFilterValue | undefined) => void;
 }
 
+
 export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (props) => {
   const { 
-    items, 
+        items, 
     activeSubTab, 
     projectOptions, 
     projectFilter, 
     onSetProjectFilter, 
-    openingBalance, 
-    onSaveOpeningBalance, 
+    // Destructure new props
+    openingBalance,
+    poAmountBalancing,
+    invoiceBalancing,
+    paymentBalancing,
+    onEditBalancing,
     isSavingBalance, 
     totals, 
     endBalance,
     dateFilter,
     onSetDateFilter
+
   } = props;
   
   const parentRef = useRef<HTMLDivElement>(null);
@@ -139,11 +138,16 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Payments</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Balance</TableHead>
           </TableRow>
-          <OpeningBalanceRow 
-            balance={openingBalance} 
-            onSave={onSaveOpeningBalance} 
+                   <OpeningBalanceRow 
+            activeTab={activeSubTab}
+            poAmount={poAmountBalancing}
+            invoiceAmount={invoiceBalancing}
+            paymentAmount={paymentBalancing}
+            calculatedBalance={openingBalance}
+            onEdit={onEditBalancing}
             isSaving={isSavingBalance}
           />
+
         </TableHeader>
         <TableBody>
           {paddingTop > 0 && (<TableRow><td colSpan={colSpan} style={{ height: `${paddingTop}px` }} /></TableRow>)}
@@ -172,7 +176,6 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
   );
 };
 
-// Before Date Filter is added...
 
 // import React, { useState, useEffect, useRef } from 'react';
 // import { useVirtualizer } from '@tanstack/react-virtual';
@@ -183,6 +186,8 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
 // import { Button } from '@/components/ui/button';
 // import { Save } from 'lucide-react';
 // import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
+// import { AdvancedDateFilter, DateFilterValue } from './AdvancedDateFilter';
+
 
 // // Define an interface for the props of the editable opening balance row
 // interface OpeningBalanceRowProps {
@@ -212,16 +217,17 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
 
 //     return (
 //         <TableRow className="bg-gray-100 hover:bg-gray-100">
-//             {/* --- PADDING REDUCED and ALIGNMENT CORRECTED --- */}
-//             <TableCell colSpan={6} className="px-2 py-1 font-semibold text-gray-700">
+//             <TableCell colSpan={4} className="px-2 py-1 font-semibold text-gray-700 text-right">
 //                 Opening Balance
 //             </TableCell>
+//             <TableCell className="px-2 py-1 text-right font-mono font-semibold">{""}</TableCell>
+//                 <TableCell className="px-2 py-1 text-right font-mono font-semibold">{""}</TableCell>
 //             <TableCell className="px-2 py-1 text-right">
 //                 <div className="flex items-center justify-end gap-2">
 //                     <Input
 //                         type="number"
-//                         value={editableBalance / 100}
-//                         onChange={(e) => setEditableBalance(Number(e.target.value) * 100)} 
+//                         value={Number(editableBalance).toString()}
+//                         onChange={(e) => setEditableBalance(Number(e.target.value))} 
 //                         onBlur={handleSave}
 //                         onKeyDown={handleKeyDown}
 //                         className="h-8 w-32 text-right font-mono"
@@ -249,6 +255,9 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
 //   isSavingBalance: boolean;
 //   totals: { amount: number; payment: number; };
 //   endBalance: number;
+//   // Props for the date filter
+//   dateFilter: DateFilterValue | undefined;
+//   onSetDateFilter: (filter: DateFilterValue | undefined) => void;
 // }
 
 // export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (props) => {
@@ -262,7 +271,9 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
 //     onSaveOpeningBalance, 
 //     isSavingBalance, 
 //     totals, 
-//     endBalance 
+//     endBalance,
+//     dateFilter,
+//     onSetDateFilter
 //   } = props;
   
 //   const parentRef = useRef<HTMLDivElement>(null);
@@ -270,7 +281,7 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
 //   const rowVirtualizer = useVirtualizer({
 //     count: items.length,
 //     getScrollElement: () => parentRef.current,
-//     estimateSize: () => 48, // Adjusted size for more compact rows
+//     estimateSize: () => 48,
 //     overscan: 10,
 //   });
 
@@ -285,8 +296,14 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
 //       <Table>
 //         <TableHeader className='bg-gray-50 sticky top-0 z-10'>
 //           <TableRow>
-//             {/* --- PADDING AND MIN-WIDTH REDUCED ON ALL TABLE HEADERS --- */}
-//             <TableHead className="px-2 py-1 min-w-[100px] font-semibold">Date</TableHead>
+//             <TableHead className="px-2 py-1 min-w-[180px] font-semibold">
+//                 <AdvancedDateFilter
+//                     // title="Filter by Date"
+//                     value={dateFilter}
+//                     onChange={onSetDateFilter}
+//                 />
+//                 Date
+//             </TableHead>
 //             <TableHead className="px-2 py-1 min-w-[150px] font-semibold">Transactions</TableHead>
 //             <TableHead className="px-2 py-1 min-w-[180px] font-semibold">
 //                 <div className="flex items-center gap-1">
@@ -321,11 +338,10 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
 //         </TableBody>
 //         <TableFooter className="sticky bottom-0 bg-gray-100">
 //             <TableRow>
-//                 {/* --- PADDING REDUCED and ALIGNMENT CORRECTED --- */}
-//                 <TableCell colSpan={4} className="px-2 py-1 font-semibold text-gray-700">Closing Balance (based on filters)</TableCell>
-//                 <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.amount / 100)}</TableCell>
-//                 <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.payment / 100)}</TableCell>
-//                 <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(endBalance / 100)}</TableCell>
+//                 <TableCell colSpan={4} className="px-2 py-1 font-semibold text-gray-700 text-right"> Totals & Closing Balance </TableCell>
+//                 <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.amount)}</TableCell>
+//                 <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(totals.payment)}</TableCell>
+//                 <TableCell className="px-2 py-1 text-right font-mono font-semibold">{formatToRoundedIndianRupee(endBalance)}</TableCell>
 //             </TableRow>
 //         </TableFooter>
 //       </Table>
