@@ -145,17 +145,71 @@ def update_order_items(original: list, modified: dict) -> list:
     # Return the original list, which now contains the modified objects.
     return original
 
-def calculate_order_status(order: list) -> str:
-    """Determine order status based on received quantities"""
-    total_items = len(order)
-    delivered_items = sum(
-        1 for item in order 
-        if item.get("quantity", 0) <= item.get("received_quantity", 0)
-    )
+# def calculate_order_status(order: list) -> str:
+#     """Determine order status based on received quantities"""
+#     total_items = len(order)
+#     delivered_items = sum(
+#         1 for item in order 
+#         if item.get("quantity", 0) <= item.get("received_quantity", 0)
+#     )
     
+#     if delivered_items == total_items:
+#         return "Delivered"
+#     return "Partially Delivered"
+def calculate_order_status(order: list) -> str:
+    """
+    Determine order status based on received quantities.
+    - If a quantity is a float, a tolerance (delta) is applied.
+    - Otherwise, a direct comparison is used.
+    """
+    if not order:
+        return "Empty" # It's good practice to handle empty lists
+
+    total_items = len(order)
+    delivered_items = 0
+    delta = 2.5
+    
+    print(f"\n--- Processing New Order ---")
+    print(f"DEBUGCOS: Total items: {total_items}, Delta tolerance: {delta}")
+    
+    for i, item in enumerate(order):
+        print(f"\nItem {i+1}: {item}")
+        
+        quantity = item.get("quantity", 0)
+        received = item.get("received_quantity", 0)
+        
+        # Check if either value is a float to decide which logic to use
+        is_float_quantity = quantity%1 != 0 or received%1 != 0
+        
+        item_is_delivered = False
+        
+        if is_float_quantity:
+            # --- Logic for FLOAT quantities ---
+            # Correctly grouped condition: (A or B) and C
+            print("  -> Detected float quantity. Applying delta logic.")
+            # The comparison must be inside the if block
+            if (quantity - ((quantity * delta)/100)) <= received:
+                item_is_delivered = True
+            print(f"  DEBUG (float): Check: ({quantity} - {((quantity * delta)/100)}) <= {received} ? -> {item_is_delivered}")
+            
+        else:
+            # --- Logic for INTEGER quantities ---
+            print("  -> Using standard integer logic.")
+            if quantity <= received:
+                item_is_delivered = True
+            print(f"  DEBUG (int): Check: {quantity} <= {received} ? -> {item_is_delivered}")
+
+        if item_is_delivered:
+            delivered_items += 1
+            
+    print("\n--- Final Calculation ---")
+    print(f"DEBUG: Total delivered items: {delivered_items}")
+
     if delivered_items == total_items:
         return "Delivered"
-    return "Partially Delivered"
+    else:
+        return "Partially Delivered"
+
 
 def add_delivery_history(po, new_data: dict) -> None:
     """Append delivery data with unique timestamps for duplicate dates."""
