@@ -85,6 +85,19 @@ export interface AggregationConfig {
     function: 'sum' | 'avg' | 'count' | 'min' | 'max';
 }
 
+// NEW: Interfaces for Group By functionality
+export interface GroupByConfig {
+    groupByField: string;
+    aggregateField: string;
+    aggregateFunction: 'sum' | 'count' | 'avg';
+    limit?: number;
+}
+export interface GroupByResultItem {
+    group_key: string; // The value of the field we grouped by (e.g., "Office Supplies")
+    aggregate_value: number; // The result of the aggregation (e.g., 5000)
+}
+
+
 
 export interface ServerDataTableConfig<TData> {
     doctype: string;
@@ -122,6 +135,7 @@ export interface ServerDataTableConfig<TData> {
     defaultSort?: string;
 
     aggregatesConfig?: AggregationConfig[]; // NEW: Configuration for summary card
+    groupByConfig?: GroupByConfig; // NEW
 
     /** Key for storing/retrieving state in URL. If not provided, URL sync is disabled */
     urlSyncKey?: string;
@@ -181,6 +195,7 @@ export interface ServerDataTableResult<TData> {
     // --- NEW: For Summary Card ---
     aggregates: Record<string, number> | null;
     isAggregatesLoading: boolean;
+    groupByResult: GroupByResultItem[] | null; // NEW
     // ----------------------------
 
 
@@ -234,6 +249,7 @@ export function useServerDataTable<TData extends { name: string }>({
     fetchFields,
     searchableFields,
     aggregatesConfig, // NEW
+    groupByConfig, // NEW
     // defaultSearchField,
     // globalSearchFieldList = [], // This is used to populate current_search_fields for global search
     additionalFilters = [],
@@ -306,7 +322,7 @@ export function useServerDataTable<TData extends { name: string }>({
 
 
     const apiEndpoint = 'nirmaan_stack.api.data-table.get_list_with_count_enhanced'; // Get Frappe call method from context
-    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any } }>(apiEndpoint); // Get Frappe call method from context
+    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint); // Get Frappe call method from context
 
     // --- SWR Mutate for Cache Invalidation ---
     const { mutate } = useSWRConfig();
@@ -384,6 +400,7 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- NEW: State for Aggregates ---
     const [aggregates, setAggregates] = useState<Record<string, number> | null>(null);
     const [isAggregatesLoading, setIsAggregatesLoading] = useState(false);
+    const [groupByResult, setGroupByResult] = useState<GroupByResultItem[] | null>(null); // NEW STATE
     // ---------------------------------
 
 
@@ -583,6 +600,7 @@ export function useServerDataTable<TData extends { name: string }>({
             aggregates_config: aggregatesConfig && aggregatesConfig.length > 0
                 ? JSON.stringify(aggregatesConfig)
                 : undefined,
+            group_by_config: groupByConfig ? JSON.stringify(groupByConfig) : undefined, // NEW
             // -----------
         };
 
@@ -604,10 +622,12 @@ export function useServerDataTable<TData extends { name: string }>({
                 // Update SWR cache manually after successful fetch if needed elsewhere?
                 // mutate(currentQueryKey, response, false); // Update cache without revalidation
                 setAggregates(response.message.aggregates || null); // Set aggregates data
+                setGroupByResult(response.message.group_by_result || null); // NEW
             } else {
                 console.warn('Custom API call successful but no message received.');
                 setData([]); setTotalCount(0);
                 setAggregates(null); // Reset on error/no message
+                setGroupByResult(null); // NEW
             }
         } catch (err: any) {
             console.error("Error fetching data via custom backend adapter:", err);
@@ -615,6 +635,7 @@ export function useServerDataTable<TData extends { name: string }>({
             setError(err instanceof Error ? err : new Error(errorMessage));
             setData([]); setTotalCount(0);
             setAggregates(null); // Reset on error
+            setGroupByResult(null); // NEW
         } finally {
             setIsLoading(false); // Set loading false when fetch completes
             setIsAggregatesLoading(false); // Stop aggregates loading
@@ -633,7 +654,8 @@ export function useServerDataTable<TData extends { name: string }>({
         JSON.stringify(additionalFilters),
         // internalTrigger,
         requirePendingItems,
-        clientData, clientTotalCount, aggregatesConfig // Add clientData and clientTotalCount to dependencies
+        clientData, clientTotalCount, aggregatesConfig, // Add clientData and clientTotalCount to dependencies
+        groupByConfig // NEW
         // isLoading // Remove isLoading from here to prevent loops if it's part of the logic above
     ]);
 
@@ -817,6 +839,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // --- NEW: Return aggregate data and loading state ---
         aggregates,
         isAggregatesLoading,
+        groupByResult, // NEW
         // ----------------------------------------------------
     };
 }

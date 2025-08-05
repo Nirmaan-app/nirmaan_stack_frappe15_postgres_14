@@ -7,7 +7,7 @@ import { useFrappeDeleteDoc, useFrappeGetDocList, FrappeDoc, GetDocListArgs } fr
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
-import { useServerDataTable, AggregationConfig } from "@/hooks/useServerDataTable";
+import { useServerDataTable, AggregationConfig, GroupByConfig } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import memoize from 'lodash/memoize';
@@ -43,6 +43,14 @@ interface ProjectExpensesListProps {
 const PE_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
+
+// NEW: Configuration for the "Top 5" group by request
+const PE_GROUP_BY_CONFIG: GroupByConfig = {
+    groupByField: 'type',
+    aggregateField: 'amount',
+    aggregateFunction: 'sum',
+    limit: 5,
+};
 
 // NEW: Helper component to display active filters in the summary card
 const AppliedFiltersDisplay = ({ filters, search }) => {
@@ -184,7 +192,8 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
         setSelectedSearchField,     // <-- Destructure this 
         aggregates, // NEW
         isAggregatesLoading, // NEW
-        columnFilters // NEW
+        columnFilters, // NEW
+        groupByResult // NEW
     } = useServerDataTable<ProjectExpenses>({
         doctype: DOCTYPE,
         columns: columns,
@@ -194,6 +203,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
         // --- (Indicator) Static filter is now conditional ---
         additionalFilters: projectId ? [["projects", "=", projectId]] : [],
         aggregatesConfig: PE_AGGREGATES_CONFIG, // NEW: Pass the aggregation config
+        groupByConfig: PE_GROUP_BY_CONFIG, // NEW: Pass the group by config
     });
 
     const isLoadingLookups = vendorsLoading || usersLoading || expenseTypesLoading || (!projectId && projectsLoading);
@@ -222,7 +232,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                 onSearchTermChange={setSearchTerm}
                 selectedSearchField={selectedSearchField}
                 onSelectedSearchFieldChange={setSelectedSearchField}
-                // NEW: Pass the fully constructed summary card as a prop
+                // MODIFIED: Pass the enhanced summary card
                 summaryCard={
                     <Card>
                         <CardHeader className="p-4">
@@ -233,26 +243,46 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                         </CardHeader>
                         <CardContent className="p-4 pt-0">
                             {isAggregatesLoading ? (
-                                <div className="flex justify-center items-center h-16">
+                                <div className="flex justify-center items-center h-24">
                                     <TailSpin height={24} width={24} color="#4f46e5" />
                                 </div>
                             ) : aggregates ? (
-                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-                                    <div className="justify-between sm:block">
-                                        <dt className="font-semibold text-gray-600">Total Expense Amount</dt>
-                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
-                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
-                                        </dd>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                                    {/* Section 1: Overall Totals */}
+                                    <div className="space-y-2">
+                                        <h4 className="font-semibold text-gray-700">Overall Totals</h4>
+                                        <dl className="space-y-1">
+                                            <div className="flex justify-between text-sm">
+                                                <dt className="text-muted-foreground">Total Expense Amount</dt>
+                                                <dd className="font-medium text-blue-600">{formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}</dd>
+                                            </div>
+                                            <div className="flex justify-between text-sm">
+                                                <dt className="text-muted-foreground">Total Entries</dt>
+                                                <dd className="font-medium">{totalCount}</dd>
+                                            </div>
+                                        </dl>
                                     </div>
-                                    <div className="justify-between sm:block">
-                                        <dt className="font-semibold text-gray-600">Total Entries</dt>
-                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
-                                            {totalCount}
-                                        </dd>
+                                    {/* Section 2: Top Expense Types */}
+                                    <div className="space-y-2">
+                                        <h4 className="font-semibold text-gray-700">Top Expense Types</h4>
+                                        {groupByResult && groupByResult.length > 0 ? (
+                                            <ul className="space-y-1">
+                                                {groupByResult.map((item) => (
+                                                    <li key={item.group_key} className="flex justify-between text-sm">
+                                                        <span className="text-muted-foreground truncate pr-2" title={getExpenseTypeName(item.group_key)}>
+                                                            {getExpenseTypeName(item.group_key)}
+                                                        </span>
+                                                        <span className="font-medium whitespace-nowrap">{formatToRoundedIndianRupee(item.aggregate_value)}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-sm text-muted-foreground text-center pt-4">No expense type breakdown available.</p>
+                                        )}
                                     </div>
-                                </dl>
+                                </div>
                             ) : (
-                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                <p className="text-sm text-center text-muted-foreground h-24 flex items-center justify-center">
                                     No summary data available.
                                 </p>
                             )}

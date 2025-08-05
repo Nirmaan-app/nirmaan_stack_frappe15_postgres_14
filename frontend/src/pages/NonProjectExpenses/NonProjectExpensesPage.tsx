@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/alert-dialog"; // For delete confirmation
 
 // --- Hooks & Utils ---
-import { useServerDataTable, AggregationConfig } from '@/hooks/useServerDataTable'; // Your hook
+import { useServerDataTable, AggregationConfig, GroupByConfig } from '@/hooks/useServerDataTable'; // Your hook
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -65,6 +65,14 @@ const DOCTYPE = 'Non Project Expenses';
 const NPE_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
+
+// NEW: Configuration for the "Top 5" group by request
+const NPE_GROUP_BY_CONFIG: GroupByConfig = {
+    groupByField: 'type',
+    aggregateField: 'amount',
+    aggregateFunction: 'sum',
+    limit: 5,
+};
 
 // NEW: Helper component to display active filters in the summary card
 const AppliedFiltersDisplay = ({ filters, search }) => {
@@ -307,7 +315,8 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         refetch,
         aggregates, // NEW
         isAggregatesLoading, // NEW
-        columnFilters // NEW: To display applied filters
+        columnFilters, // NEW: To display applied filters
+        groupByResult // NEW
     } = useServerDataTable<NonProjectExpensesType>({
         doctype: DOCTYPE,
         columns: columnsDefinition, // *** PASS THE DEFINED COLUMNS HERE ***
@@ -317,6 +326,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         defaultSort: 'payment_date desc',
         enableRowSelection: false, // Or true if actions on rows are needed
         aggregatesConfig: NPE_AGGREGATES_CONFIG, // NEW: Pass the config
+        groupByConfig: NPE_GROUP_BY_CONFIG, // NEW: Pass the group by config
     });
 
 
@@ -354,26 +364,44 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                         </CardHeader>
                         <CardContent className="p-4 pt-0">
                             {isAggregatesLoading ? (
-                                <div className="flex justify-center items-center h-16">
+                                <div className="flex justify-center items-center h-24">
                                     <TailSpin height={24} width={24} color="#4f46e5" />
                                 </div>
                             ) : aggregates ? (
-                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-                                    <div className="justify-center sm:block">
-                                        <dt className="font-semibold text-gray-600">Total Amount</dt>
-                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
-                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
-                                        </dd>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                                    {/* Section 1: Overall Totals */}
+                                    <div className="space-y-2">
+                                        <h4 className="font-semibold text-gray-700">Overall Totals</h4>
+                                        <dl className="space-y-1">
+                                            <div className="flex justify-between text-sm">
+                                                <dt className="text-muted-foreground">Total Amount</dt>
+                                                <dd className="font-medium text-blue-600">{formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}</dd>
+                                            </div>
+                                            <div className="flex justify-between text-sm">
+                                                <dt className="text-muted-foreground">Total Entries</dt>
+                                                <dd className="font-medium">{totalCount}</dd>
+                                            </div>
+                                        </dl>
                                     </div>
-                                    <div className="justify-center sm:block">
-                                        <dt className="font-semibold text-gray-600">Total Entries</dt>
-                                        <dd className="sm:text-right font-bold text-lg text-blue-600">
-                                            {totalCount}
-                                        </dd>
+                                    {/* Section 2: Top Expense Types */}
+                                    <div className="space-y-2">
+                                        <h4 className="font-semibold text-gray-700">Top Expense Types</h4>
+                                        {groupByResult && groupByResult.length > 0 ? (
+                                            <ul className="space-y-1">
+                                                {groupByResult.map((item) => (
+                                                    <li key={item.group_key} className="flex justify-between text-sm">
+                                                        <span className="text-muted-foreground truncate pr-2" title={item.group_key}>{item.group_key}</span>
+                                                        <span className="font-medium whitespace-nowrap">{formatToRoundedIndianRupee(item.aggregate_value)}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-sm text-muted-foreground text-center pt-4">No expense type breakdown available.</p>
+                                        )}
                                     </div>
-                                </dl>
+                                </div>
                             ) : (
-                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                <p className="text-sm text-center text-muted-foreground h-24 flex items-center justify-center">
                                     No summary data available.
                                 </p>
                             )}
