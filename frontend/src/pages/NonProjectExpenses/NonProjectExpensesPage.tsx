@@ -95,9 +95,10 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 
 interface NonProjectExpensesPageProps {
     urlContext?: string;
+    DisableAction?:boolean;
 }
 
-export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ urlContext = "npe_default" }) => {
+export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ urlContext = "npe_default",DisableAction=false }) => {
     const {
         toggleNewNonProjectExpenseDialog,
         setEditNonProjectExpenseDialog, // NEW
@@ -177,6 +178,50 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             options: expenseTypeOptions,
         },
     }), [expenseTypeOptions]);
+
+    const actionColumn: ColumnDef<NonProjectExpensesType> = {
+        id: "actions",
+        header: () => <div className="text-right">Actions</div>, // Added text-right for alignment
+        cell: ({ row }) => {
+            const expense = row.original;
+            return (
+                <div className="text-right"> {/* Ensure parent div is also text-right */}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                                <span className="sr-only">Open menu</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
+                                <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
+                            </DropdownMenuItem>}
+                            <DropdownMenuItem onClick={() => handleOpenPaymentUpdateDialog(expense)}>
+                                <DollarSign className="mr-2 h-4 w-4" /> Update Payment
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleOpenInvoiceUpdateDialog(expense)}>
+                                <FileText className="mr-2 h-4 w-4" /> Update Invoice
+                            </DropdownMenuItem>
+                            {role === "Nirmaan Admin Profile" &&
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        onClick={() => handleOpenDeleteConfirmation(expense)}
+                                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
+                                    </DropdownMenuItem>
+                                </>
+                            }
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            );
+        },
+        meta: { excludeFromExport: true }
+    };
+
 
     // Now define columns, using the handlers
     // This `columnsDefinition` will be passed to both useServerDataTable and DataTable
@@ -264,48 +309,49 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             enableSorting: false,
             meta: { excludeFromExport: true }
         },
-        {
-            id: "actions",
-            header: () => <div>Actions</div>,
-            cell: ({ row }) => {
-                const expense = row.original;
-                return (
-                    <div> {/* Ensure parent div is also text-right */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className="h-8 w-8 p-0">
-                                    <span className="sr-only">Open menu</span>
-                                    <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
-                                    <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
-                                </DropdownMenuItem>}
-                                <DropdownMenuItem onClick={() => handleOpenPaymentUpdateDialog(expense)}>
-                                    <DollarSign className="mr-2 h-4 w-4" /> Update Payment
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleOpenInvoiceUpdateDialog(expense)}>
-                                    <FileText className="mr-2 h-4 w-4" /> Update Invoice
-                                </DropdownMenuItem>
-                                {role === "Nirmaan Admin Profile" &&
-                                    <>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                            onClick={() => handleOpenDeleteConfirmation(expense)}
-                                            className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                                        >
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
-                                        </DropdownMenuItem>
-                                    </>
-                                }
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                );
-            },
-            meta: { excludeFromExport: true }
-        },
+        ...(!DisableAction ? [actionColumn] : [])
+        // {
+        //     id: "actions",
+        //     header: () => <div>Actions</div>,
+        //     cell: ({ row }) => {
+        //         const expense = row.original;
+        //         return (
+        //             <div> {/* Ensure parent div is also text-right */}
+        //                 <DropdownMenu>
+        //                     <DropdownMenuTrigger asChild>
+        //                         <Button variant="ghost" className="h-8 w-8 p-0">
+        //                             <span className="sr-only">Open menu</span>
+        //                             <MoreHorizontal className="h-4 w-4" />
+        //                         </Button>
+        //                     </DropdownMenuTrigger>
+        //                     <DropdownMenuContent align="end">
+        //                         {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
+        //                             <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
+        //                         </DropdownMenuItem>}
+        //                         <DropdownMenuItem onClick={() => handleOpenPaymentUpdateDialog(expense)}>
+        //                             <DollarSign className="mr-2 h-4 w-4" /> Update Payment
+        //                         </DropdownMenuItem>
+        //                         <DropdownMenuItem onClick={() => handleOpenInvoiceUpdateDialog(expense)}>
+        //                             <FileText className="mr-2 h-4 w-4" /> Update Invoice
+        //                         </DropdownMenuItem>
+        //                         {role === "Nirmaan Admin Profile" &&
+        //                             <>
+        //                                 <DropdownMenuSeparator />
+        //                                 <DropdownMenuItem
+        //                                     onClick={() => handleOpenDeleteConfirmation(expense)}
+        //                                     className="text-destructive focus:text-destructive focus:bg-destructive/10"
+        //                                 >
+        //                                     <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
+        //                                 </DropdownMenuItem>
+        //                             </>
+        //                         }
+        //                     </DropdownMenuContent>
+        //                 </DropdownMenu>
+        //             </div>
+        //         );
+        //     },
+        //     meta: { excludeFromExport: true }
+        // },
     ], [handleOpenPaymentUpdateDialog, handleOpenInvoiceUpdateDialog, handleOpenEditDialog, handleOpenDeleteConfirmation]);
 
     // Now call useServerDataTable, passing the defined columns
