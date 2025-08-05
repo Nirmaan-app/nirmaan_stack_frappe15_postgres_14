@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
 
-export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report';
+export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)'|'Outflow Report(Non-Project)';
 // Define the specific report options for POs
 export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 3 days';
 

@@ -17,7 +17,8 @@ const SRReports = React.lazy(() => import('./components/SRReports'));
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Cash Sheet', value: 'Cash Sheet' },
     { label: 'Inflow Report', value: 'Inflow Report' },
-    { label: 'Outflow Report', value: 'Outflow Report' },
+    { label: 'Outflow Report(Project)', value: 'Outflow Report(Project)' },
+    { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
 ];
 
 const poReportOptions: { label: string; value: POReportOption }[] = [

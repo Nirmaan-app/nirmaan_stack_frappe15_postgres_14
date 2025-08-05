@@ -18,6 +18,7 @@ import { formatDate } from "@/utils/FormatDate";
 
 import { InflowReportTable } from './InflowReportTable';
 import { OutflowReportTable } from './outflowReportTable';
+import {NonProjectExpensesPage} from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 
 // Define base fields for Projects doctype fetch
 const projectBaseFields: (keyof Projects)[] = [
@@ -142,8 +143,11 @@ export default function ProjectReports() {
     if (selectedReportType === 'Inflow Report') {
         return <InflowReportTable />;
     }
-    if(selectedReportType === 'Outflow Report') {
+    if(selectedReportType === 'Outflow Report(Project)') {
         return <OutflowReportTable />;
+    }
+     if(selectedReportType === 'Outflow Report(Non-Project)') {
+        return <NonProjectExpensesPage DisableAction={true} />;
     }
 
     // Default to Cash Sheet report if it's selected or if no specific project report is chosen
