@@ -17,6 +17,7 @@ import { parseNumber } from "@/utils/parseNumber"; // For custom export credit c
 import { formatDate } from "@/utils/FormatDate";
 
 import { InflowReportTable } from './InflowReportTable';
+import { OutflowReportTable } from './outflowReportTable';
 
 // Define base fields for Projects doctype fetch
 const projectBaseFields: (keyof Projects)[] = [
@@ -140,6 +141,9 @@ export default function ProjectReports() {
     // --- MODIFICATION 4: Conditionally render the correct report component ---
     if (selectedReportType === 'Inflow Report') {
         return <InflowReportTable />;
+    }
+    if(selectedReportType === 'Outflow Report') {
+        return <OutflowReportTable />;
     }
 
     // Default to Cash Sheet report if it's selected or if no specific project report is chosen
