@@ -25,8 +25,11 @@
   "bank_name",
   "bank_branch",
   "vendor_taxation_details_section",
+  "invoice_balancing",
   "vendor_gst",
-  "opening_balance"
+  "po_amount_balance",
+  "payment_balance",
+  "invoice_balance"
  ],
  "fields": [
   {
@@ -137,15 +140,30 @@
    "label": "Bank Branch"
   },
   {
-   "fieldname": "opening_balance",
-   "fieldtype": "Data",
-   "label": "Opening Balance"
+   "fieldname": "invoice_balancing",
+   "fieldtype": "Column Break",
+   "label": "Invoice Balancing"
+  },
+  {
+   "fieldname": "po_amount_balance",
+   "fieldtype": "Currency",
+   "label": "Po Amount Balance"
+  },
+  {
+   "fieldname": "payment_balance",
+   "fieldtype": "Currency",
+   "label": "Payment Balance"
+  },
+  {
+   "fieldname": "invoice_balance",
+   "fieldtype": "Currency",
+   "label": "Inovice Balance"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-04 13:23:00.956684",
+ "modified": "2025-08-05 17:53:49.667205",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

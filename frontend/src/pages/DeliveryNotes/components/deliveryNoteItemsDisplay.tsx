@@ -95,18 +95,53 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   );
   */
 
-  // --- AFTER (The New Dynamic Logic) ---
+  // // --- AFTER (The New Dynamic Logic) ---
+  // const handleNewlyDeliveredChange = useCallback(
+  //   (item: PurchaseOrderItem, value: string) => {
+  //     // 1. Calculate the remaining quantity for this specific item.
+  //     const alreadyDelivered = item.received_quantity ?? 0;
+  //     const remainingQuantity = item.quantity - alreadyDelivered;
+
+  //     // 2. Determine the maximum allowed input. If remaining is negative (over-delivered), max is 0.
+  //     //    Math.max is a clean way to handle this.
+  //     const maxAllowed = Math.max(0, remainingQuantity);
+
+  //     // 3. Handle the user clearing the input (no changes needed here)
+  //     if (value === '') {
+  //       setNewlyDeliveredQuantities((prev) => {
+  //         const updated = { ...prev };
+  //         delete updated[item.name];
+  //         return updated;
+  //       });
+  //       return;
+  //     }
+
+  //     // 4. Parse the input value (no changes needed here)
+  //     const numericValue = parseFloat(value);
+
+  //     // 5. Enforce the DYNAMIC maximum limit.
+  //     const cappedValue = Math.min(numericValue, maxAllowed);
+
+  //     // 6. Update the state with the capped value (no changes needed here)
+  //     setNewlyDeliveredQuantities((prev) => ({
+  //       ...prev,
+  //       [item.name]: String(cappedValue),
+  //     }));
+  //   },
+  //   [] // No dependencies needed as 'item' is passed directly
+  // );
+
+    // --- AFTER (The Corrected Dynamic Logic) ---
   const handleNewlyDeliveredChange = useCallback(
     (item: PurchaseOrderItem, value: string) => {
-      // 1. Calculate the remaining quantity for this specific item.
+      // 1. Calculate the remaining quantity for this specific item (no changes here).
       const alreadyDelivered = item.received_quantity ?? 0;
       const remainingQuantity = item.quantity - alreadyDelivered;
 
-      // 2. Determine the maximum allowed input. If remaining is negative (over-delivered), max is 0.
-      //    Math.max is a clean way to handle this.
+      // 2. Determine the maximum allowed input (no changes here).
       const maxAllowed = Math.max(0, remainingQuantity);
 
-      // 3. Handle the user clearing the input (no changes needed here)
+      // 3. Handle the user clearing the input (no changes here).
       if (value === '') {
         setNewlyDeliveredQuantities((prev) => {
           const updated = { ...prev };
@@ -116,16 +151,27 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
         return;
       }
 
-      // 4. Parse the input value (no changes needed here)
-      const numericValue = parseNumber(value);
+      // --- FIX STARTS HERE ---
 
-      // 5. Enforce the DYNAMIC maximum limit.
-      const cappedValue = Math.min(numericValue, maxAllowed);
+      // 4. Validate the input format. Only allow numbers and a single decimal point.
+      //    This regex ensures strings like "1..2" or "abc" are rejected immediately.
+      //    It allows for an empty string before the dot (e.g., ".5") and partial numbers (e.g., "5.").
+      const isValidFormat = /^[0-9]*\.?[0-9]*$/.test(value);
+      if (!isValidFormat) {
+        return; // Ignore invalid characters and prevent state update.
+      }
 
-      // 6. Update the state with the capped value (no changes needed here)
+      // 5. Parse the input value.
+      const numericValue = parseFloat(value);
+
+      // 6. Conditionally update the state.
+      //    - If the number exceeds the max, we FORCE the state to be the max allowed.
+      //    - Otherwise, we trust the user's input string to preserve formatting like "1." or "5.0".
+      const finalValue = numericValue > maxAllowed ? String(maxAllowed) : value;
+
       setNewlyDeliveredQuantities((prev) => ({
         ...prev,
-        [item.name]: String(cappedValue),
+        [item.name]: finalValue,
       }));
     },
     [] // No dependencies needed as 'item' is passed directly
@@ -413,7 +459,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                               onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
                               placeholder="0"
                               className="w-24"
-                              min={0}
+                              min={0.00}
                               max={maxInput}
                               disabled={isFullyDelivered}
 
@@ -496,6 +542,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                                 )} */}
                                 <Input
                                   type="number"
+                                  step="any"
                                   value={newlyDeliveredQuantities[item.name] ?? ''}
                                   onChange={(e) => handleNewlyDeliveredChange(item, e.target.value)}
                                   placeholder="0"

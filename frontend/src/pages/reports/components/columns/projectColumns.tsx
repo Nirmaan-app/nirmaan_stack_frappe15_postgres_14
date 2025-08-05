@@ -43,7 +43,8 @@ const CalculatedCell: React.FC<{
   formatter: (value: number | undefined) => string;
   isLink?: boolean;
   projectId?: string;
-}> = ({ row, table, accessor, formatter, isLink = false, projectId }) => {
+    linkToReport?: 'Inflow Report' | 'Outflow Report';
+}> = ({ row, table, accessor, formatter, isLink = false, projectId,linkToReport }) => {
   const meta = table.options.meta as ProjectTableMeta | undefined;
 
   if (!meta || typeof meta.getProjectCalculatedFields !== 'function') {
@@ -70,17 +71,22 @@ const CalculatedCell: React.FC<{
 
   const displayValue = <div className="tabular-nums">{formatter(valueToFormat)}</div>;
 
-  if (isLink && projectId) {
+  if (isLink && projectId && linkToReport) {
     // 1. Define the filter structure for tanstack-table
     const filters = [{ id: 'project', value: [projectId] }];
 
     // 2. Stringify and Base64 encode the filter array.
     const encodedFilters = btoa(JSON.stringify(filters));
 
-    const reportType = encodeURIComponent('Inflow Report');
+    const reportType = encodeURIComponent(linkToReport);
 
+     const urlSyncKey = linkToReport === 'Inflow Report' 
+      ? 'inflow_report_table' 
+      : 'outflow_report_table';
     // 3. Construct the URL with the correct sync key ('inflow_report_table') + '_filters'
-    const targetUrl = `/reports?tab=projects&report=${reportType}&inflow_report_table_filters=${encodedFilters}`;
+    // const targetUrl = `/reports?tab=projects&report=${reportType}&inflow_report_table_filters=${encodedFilters}`;
+    const targetUrl = `/reports?tab=projects&report=${reportType}&${urlSyncKey}_filters=${encodedFilters}`;
+    
     return (
       <Link to={targetUrl} className="text-blue-600 hover:underline">
         {displayValue}
@@ -118,13 +124,13 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
     id: "totalInflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Inflow" />,
     // This now correctly passes isLink and projectId to our updated CalculatedCell
-    cell: (props) => <CalculatedCell {...props} accessor="totalInflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name} />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalInflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name} linkToReport="Inflow Report" />,
     meta: { exportHeaderName: "Inflow", isNumeric: true }
   },
   {
     id: "totalOutflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name}  linkToReport="Outflow Report"/>,
     meta: { exportHeaderName: "Outflow", isNumeric: true }
   },
   {
