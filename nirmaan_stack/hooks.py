@@ -231,7 +231,8 @@ scheduler_events = {
 	# ],
 	"daily": [
 		"nirmaan_stack.populate_target_rates.populate_target_rates",
-		"nirmaan_stack.tasks.payment_term_worker.update_payment_term_status"
+		"nirmaan_stack.tasks.payment_term_worker.update_payment_term_status",
+        "nirmaan_stack.tasks.item_status_update.update_item_status"
     
 	],
    
@@ -247,9 +248,9 @@ scheduler_events = {
 # 		"nirmaan_stack.tasks.monthly"
 # 	],
     #  "cron": {
-        # "31 14 * * *": [
-        #     "nirmaan_stack.populate_target_rates.populate_target_rates"
-        # ],
+    #     "12 15 * * *": [
+    #         "nirmaan_stack.tasks.item_status_update.update_item_status"
+    #     ],
        
        
     #  }
