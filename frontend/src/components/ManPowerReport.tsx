@@ -38,6 +38,7 @@ import { toast } from "./ui/use-toast";
 export const ManPowerReport = () => {
 
   const {selectedProject, setSelectedProject} = useContext(UserContext)
+  // console.log(selectedProject)
   const navigate = useNavigate();
   const {
     data: projectData,
@@ -77,18 +78,48 @@ export const ManPowerReport = () => {
     selectedProject ? undefined : null
   );
 
-  useEffect(() => {
-    if (projectData?.project_work_packages) {
-      const selectedWorkPackages = JSON.parse(
-        projectData.project_work_packages
-      ).work_packages.map((wp: any) => wp.work_package_name);
+  // useEffect(() => {
+  //   if (projectData?.project_work_packages) {
+  //     const selectedWorkPackages = JSON.parse(
+  //       projectData.project_work_packages
+  //     ).work_packages.map((wp: any) => wp.work_package_name);
+
+  //     const filteredDetails = fullManpowerDetails.filter((item) => {
+  //       if (item.key === "always") {
+  //         return true; // Always include these roles
+  //       }
+  //       if (item.key === "default") {
+  //         // Include ELV Team for everything else
+  //         return ![
+  //           "Electrical Work",
+  //           "Fire Fighting System",
+  //           "Data & Networking",
+  //           "HVAC System",
+  //         ].some((key) => selectedWorkPackages.includes(key));
+  //       }
+  //       return selectedWorkPackages.includes(item.key);
+  //     });
+
+  //     setManpowerDetails(filteredDetails);
+  //   }
+  // }, [projectData]);
+
+  // console.log("manpowerDetails", manpowerDetails)
+// --- CORRECTED useEffect ---
+
+useEffect(() => {
+  // Only proceed if projectData and the specific field exist and are a non-empty string.
+  if (projectData?.project_work_packages && typeof projectData.project_work_packages === 'string') {
+    try {
+      const parsedData = JSON.parse(projectData.project_work_packages);
+      // Also check if the nested 'work_packages' array exists
+      const selectedWorkPackages = parsedData.work_packages?.map((wp) => wp.work_package_name) || [];
 
       const filteredDetails = fullManpowerDetails.filter((item) => {
         if (item.key === "always") {
-          return true; // Always include these roles
+          return true;
         }
         if (item.key === "default") {
-          // Include ELV Team for everything else
           return ![
             "Electrical Work",
             "Fire Fighting System",
@@ -100,11 +131,16 @@ export const ManPowerReport = () => {
       });
 
       setManpowerDetails(filteredDetails);
+    } catch (error) {
+      console.error("Failed to parse project_work_packages JSON:", error);
+      // If parsing fails, reset to the full, unfiltered list as a safe fallback.
+      setManpowerDetails(fullManpowerDetails);
     }
-  }, [projectData]);
-
-  // console.log("manpowerDetails", manpowerDetails)
-
+  } else {
+    // If there are no work packages, just use the full list.
+    setManpowerDetails(fullManpowerDetails);
+  }
+}, [projectData]); // Keep the dependency array
   const handleChange = (selectedItem: any) => {
     setSelectedProject(selectedItem ? selectedItem.value : null);
     if(selectedItem) {
@@ -236,6 +272,23 @@ Total - ${total.toString().padStart(2, "0")} Nos.
     }
   };
 
+  // At the top of your ManPowerReport component function, BEFORE the return statement:
+
+let workPackages = []; // Default to an empty array
+
+// Safely parse the work packages
+if (projectData?.project_work_packages) {
+  try {
+    const parsed = JSON.parse(projectData.project_work_packages);
+    // Ensure the nested property exists before assigning
+    if (Array.isArray(parsed.work_packages)) {
+      workPackages = parsed.work_packages;
+    }
+  } catch (e) {
+    console.error("Error parsing work packages for display:", e);
+    // workPackages remains an empty array, so the .map() below won't crash
+  }
+}
   // console.log("editReport", editReport)
 
   if (projectLoading || manpowerLoading) return <h1>Loading</h1>;
@@ -445,13 +498,26 @@ Total - ${total.toString().padStart(2, "0")} Nos.
                   <div className="flex flex-col gap-2">
                     <strong>Work Packages:</strong>
                     <div className="flex gap-1 flex-wrap">
-                      {JSON.parse(
+                      {/* {JSON.parse(
                         projectData?.project_work_packages
                       ).work_packages?.map((item: any) => (
                         <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
                           {item.work_package_name}
                         </div>
-                      ))}
+                      ))} */}
+                      {workPackages.length > 0 ? (
+      workPackages.map((item:any, idx:number) => (
+        <div 
+          key={idx} // It's better to use a unique ID from the item if available, but index is a fallback
+          className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]"
+        >
+          {item.work_package_name}
+        </div>
+      ))
+    ) : (
+      // Provide a clear message when no work packages are found or specified
+      <span className="text-sm text-gray-500">No work packages specified.</span>
+    )}
                     </div>
                   </div>
                   <div>
