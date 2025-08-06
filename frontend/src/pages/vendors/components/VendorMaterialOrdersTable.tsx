@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo,useState, useEffect } from 'react';
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table'; // Your new DataTable
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -15,6 +15,9 @@ import { useOrderTotals } from '@/hooks/useOrderTotals';
 import { useOrderPayments } from '@/hooks/useOrderPayments';
 import { PO_STATUS_OPTIONS } from '@/pages/ProcurementOrders/purchase-order/config/purchaseOrdersTable.config';
 
+// src/components/cells/OrderCategoriesCell.tsx
+
+
 interface VendorMaterialOrdersTableProps {
     vendorId: string;
     // Pass necessary lookup data as props to avoid re-fetching or prop drilling deeply
@@ -24,7 +27,7 @@ interface VendorMaterialOrdersTableProps {
 
 // Fields needed for this specific table
 const PO_TABLE_FIELDS: (keyof ProcurementOrder | 'name')[] = [
-    "name", "status", "creation", "project", "project_name", "procurement_request", "order_list"
+    "name", "status", "creation", "project", "project_name", "procurement_request","amount","tax_amount","total_amount","po_amount_delivered",
 ];
 const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "PO ID", default: true },
@@ -40,12 +43,15 @@ const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 
+
+
+
 export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps> = ({
     vendorId,
     projectOptions,
     procurementRequests,
 }) => {
-
+//  console.log("projectOptions",projectOptions)
     const getWorkPackage = useCallback((prName?: string) => {
         if (!prName || !procurementRequests) return "--";
         return procurementRequests.find(pr => pr.name === prName)?.work_package || "--";
@@ -61,15 +67,17 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         status: { title: "Status", options: PO_STATUS_OPTIONS },
     }), [projectOptions]);
 
-    const getCategoriesFromOrderList = useCallback((orderListJson?: { list: PurchaseOrderItem[] } | string) => {
-        let items: PurchaseOrderItem[] = [];
-        if (typeof orderListJson === 'string') {
-            try { items = JSON.parse(orderListJson).list || []; } catch (e) { items = []; }
-        } else if (orderListJson?.list) {
-            items = orderListJson.list;
-        }
-        return Array.from(new Set(items.map(item => item.category))).slice(0, 3); // Show first 3 unique
-    }, []);
+
+
+    // const getCategoriesFromOrderList = useCallback((orderListJson?: { list: PurchaseOrderItem[] } | string) => {
+    //     let items: PurchaseOrderItem[] = [];
+    //     if (typeof orderListJson === 'string') {
+    //         try { items = JSON.parse(orderListJson).list || []; } catch (e) { items = []; }
+    //     } else if (orderListJson?.list) {
+    //         items = orderListJson.list;
+    //     }
+    //     return Array.from(new Set(items.map(item => item.category))).slice(0, 3); // Show first 3 unique
+    // }, []);
 
 
     const columns = useMemo<ColumnDef<ProcurementOrder>[]>(() => [
@@ -77,15 +85,18 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
             accessorKey: "name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="PO ID" />,
             cell: ({ row }) => {
-                const po = row.original;
+                const data = row.original;
                 return (
                     <div className="flex items-center gap-1.5">
-                        <Link className="text-blue-600 hover:underline font-medium" to={`${po.name.replaceAll("/", "&=")}`}>
-                            {po?.name?.split("/")[1]}
+                        <Link className="text-blue-600 hover:underline font-medium" to={`${data.name.replaceAll("/", "&=")}`}>
+                            {data?.name?.split("/")[1]}
                         </Link>
-                        <ItemsHoverCard order_list={
-                            typeof po.order_list === 'string' ? JSON.parse(po.order_list)?.list : po.order_list?.list || []
-                        } />
+                    
+                                                   <ItemsHoverCard parentDocId={data} parentDoctype={"Procurement Orders"} childTableName="items" />
+                                          
+                                                 
+                                            
+                        
                     </div>
                 );
             }, size: 120,
@@ -103,32 +114,53 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
             cell: ({ row }) => <div className="whitespace-nowrap">{formatDate(row.original.creation)}</div>,
             size: 170,
         },
+        // {
+        //     accessorKey: "procurement_request",
+        //     header: ({ column }) => {
+        //         return (
+        //             <DataTableColumnHeader
+        //                 column={column}
+        //                 title="PR ID"
+        //             />
+        //         );
+        //     },
+        //     cell: ({ row }) => {
+        //         return (
+        //             <div className="min-w-[160px]">
+        //                 {row.getValue("procurement_request")}
+        //             </div>
+        //         );
+        //     },
+        //     size: 180,
+        // },
+        // {
+        //     accessorKey: "project_name",
+        //     header: "Project",
+        //     cell: ({ row }) => {
+        //         return <div className="truncate max-w-[150px]" title={row.original.project_name}>{row.original.project_name}</div>;
+        //     }, size: 180,
+        //      enableColumnFilter: true,
+        // },
+
         {
-            accessorKey: "procurement_request",
-            header: ({ column }) => {
-                return (
-                    <DataTableColumnHeader
-                        column={column}
-                        title="PR ID"
-                    />
-                );
-            },
-            cell: ({ row }) => {
-                return (
-                    <div className="min-w-[160px]">
-                        {row.getValue("procurement_request")}
-                    </div>
-                );
-            },
-            size: 180,
-        },
-        {
-            accessorKey: "project_name",
-            header: "Project",
-            cell: ({ row }) => {
-                return <div className="truncate max-w-[150px]" title={row.original.project_name}>{row.original.project_name}</div>;
-            }, size: 180,
-        },
+       
+        accessorKey: "project", 
+
+       
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+        
+        
+        cell: ({ row }) => {
+            return (
+                <div className="truncate max-w-[150px]" title={row.original.project_name}>
+                    {row.original.project_name}
+                </div>
+            );
+        }, 
+        size: 180,
+        
+    },
+
         {
             id: "work_package",
             header: "Package",
@@ -136,35 +168,76 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
             cell: info => <div className="truncate max-w-[120px]">{info.getValue<string>()}</div>,
             size: 140,
         },
+        // {
+        //     id: "categories",
+        //     header: "Categories",
+        //     accessorFn: row => getCategoriesFromOrderList(row.order_list),
+        //     cell: ({ row }) => {
+        //         const cats = getCategoriesFromOrderList(row.original.order_list);
+        //         return (
+        //             <div className="flex flex-col items-start gap-0.5">
+        //                 {cats.map(c => <Badge key={c} variant="secondary" className="text-xs">{c}</Badge>)}
+        //             </div>
+        //         );
+        //     }, size: 150,
+        // },
+        // {
+        //     id: "categories",
+        //     header: "Categories", // This column cannot be sorted, so no DataTableColumnHeader
+        //     // The cell now just renders our new, smart component, passing the PO ID.
+        //     cell: ({ row }) => <CategoryCell poId={row.original.name} />,
+
+        //     size: 150,
+        // },
         {
-            id: "categories",
-            header: "Categories",
-            accessorFn: row => getCategoriesFromOrderList(row.order_list),
-            cell: ({ row }) => {
-                const cats = getCategoriesFromOrderList(row.original.order_list);
-                return (
-                    <div className="flex flex-col items-start gap-0.5">
-                        {cats.map(c => <Badge key={c} variant="secondary" className="text-xs">{c}</Badge>)}
-                    </div>
-                );
-            }, size: 150,
-        },
-        {
-            id: "order_financials",
-            header: "Order Financials",
-            cell: ({ row }) => {
-                const totals = getTotalAmount(row.original.name, "Procurement Orders");
-                const totalPaid = getAmount(row.original.name, ["Paid"]);
-                return (
-                    <div className="flex flex-col gap-1 text-xs min-w-[200px]">
-                        <div className="flex justify-between"><span>Value (Excl. GST):</span> <span className="font-semibold">{formatToRoundedIndianRupee(totals.total)}</span></div>
-                        <div className="flex justify-between"><span>Value (Incl. GST):</span> <span className="font-semibold">{formatToRoundedIndianRupee(totals.totalWithTax)}</span></div>
-                        <div className="flex justify-between"><span>Amount Paid:</span> <span className="font-semibold">{formatToRoundedIndianRupee(totalPaid)}</span></div>
-                    </div>
-                );
-            }, size: 220,
-        }
-    ], [projectOptions, procurementRequests, getWorkPackage, getCategoriesFromOrderList, getTotalAmount, getAmount]);
+        
+        accessorKey: "amount", 
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Amount (Excl. GST)" className="justify-end" />,
+       
+        cell: ({ row }) => (
+            <div className="text-center font-medium">
+                {formatToRoundedIndianRupee(row.original.amount)}
+            </div>
+        ),
+        size: 180,
+    },
+    {
+        accessorKey: "total_amount",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Amount (Incl. GST)" className="justify-end" />,
+        cell: ({ row }) => (
+            <div className="text-center font-medium">
+                {formatToRoundedIndianRupee(row.original.total_amount)}
+            </div>
+        ),
+        size: 180,
+    },
+    {
+        accessorKey: "po_amount_delivered",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Amount Paid" className="justify-end" />,
+        cell: ({ row }) => (
+            <div className="text-center font-medium text-green-700">
+                {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
+            </div>
+        ),
+        size: 180,
+    },
+        // --- CHANGE END ---
+        // {
+        //     id: "order_financials",
+        //     header: "Order Financials",
+        //     cell: ({ row }) => {
+        //         const totals = getTotalAmount(row.original.name, "Procurement Orders");
+        //         const totalPaid = getAmount(row.original.name, ["Paid"]);
+        //         return (
+        //             <div className="flex flex-col gap-1 text-xs min-w-[200px]">
+        //                 <div className="flex justify-between"><span>Value (Excl. GST):</span> <span className="font-semibold">{formatToRoundedIndianRupee(totals.total)}</span></div>
+        //                 <div className="flex justify-between"><span>Value (Incl. GST):</span> <span className="font-semibold">{formatToRoundedIndianRupee(totals.totalWithTax)}</span></div>
+        //                 <div className="flex justify-between"><span>Amount Paid:</span> <span className="font-semibold">{formatToRoundedIndianRupee(totalPaid)}</span></div>
+        //             </div>
+        //         );
+        //     }, size: 220,
+        // }
+    ], [projectOptions, procurementRequests, getWorkPackage]);
 
     const {
         table,
