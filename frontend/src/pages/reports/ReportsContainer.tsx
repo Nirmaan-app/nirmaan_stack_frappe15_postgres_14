@@ -16,6 +16,9 @@ const SRReports = React.lazy(() => import('./components/SRReports'));
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Cash Sheet', value: 'Cash Sheet' },
+    { label: 'Inflow Report', value: 'Inflow Report' },
+    { label: 'Outflow Report(Project)', value: 'Outflow Report(Project)' },
+    { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
 ];
 
 const poReportOptions: { label: string; value: POReportOption }[] = [
@@ -31,6 +34,9 @@ const srReportOptions: { label: string; value: SROption }[] = [
 
 export default function ReportsContainer() {
     const { role } = useUserData(); // Get current user's role
+    const selectedReportType = useReportStore((state) => state.selectedReportType);
+    const setSelectedReportType = useReportStore((state) => state.setSelectedReportType);
+    const setDefaultReportType = useReportStore((state) => state.setDefaultReportType);
 
     // Determine initial active tab based on role and URL param
     const initialTab = useMemo(() => {
@@ -47,34 +53,66 @@ export default function ReportsContainer() {
 
     const [activeTab, setActiveTab] = useState<string>(initialTab);
 
-    // Sync tab state TO URL
+    // --- THIS IS THE FIX ---
+    // The dependency array is corrected to prevent the infinite loop.
+    // This effect's job is to sync the URL to the state, not to react to its own state changes.
     useEffect(() => {
-        if (urlStateManager.getParam("tab") !== activeTab) {
-            urlStateManager.updateParam("tab", activeTab);
+        const urlTab = getUrlStringParam("tab", null);
+        const urlReport = getUrlStringParam("report", null) as ReportType;
+
+        // Sync Tab from URL
+        if (urlTab && urlTab !== activeTab) {
+            setActiveTab(urlTab);
+        }
+
+        // Sync Report Type from URL
+        if (urlReport) {
+            // No need to check against selectedReportType here, just set it.
+            // This simplifies the logic and prevents cycles.
+            setSelectedReportType(urlReport);
+        } else {
+            // If no report in URL, set the default for the current context.
+            setDefaultReportType(activeTab, role);
+        }
+
+        // Subscribe to browser back/forward navigation
+        const sub1 = urlStateManager.subscribe("tab", (_, v) => setActiveTab(v || initialTab));
+        const sub2 = urlStateManager.subscribe("report", (_, v) => {
+            if (!v) {
+                setDefaultReportType(activeTab, role);
+            } else {
+                setSelectedReportType(v as ReportType);
+            }
+        });
+
+        return () => {
+            sub1();
+            sub2();
+        };
+        // The dependency array is now stable and won't cause loops.
+    }, [activeTab, role, initialTab, setDefaultReportType, setSelectedReportType]);
+
+    const handleTabClick = useCallback((value: string) => {
+        if (activeTab !== value) {
+            // When user clicks a tab, update the URL. The effects above will handle state changes.
+            // Clear report and filter params to ensure a clean state for the new tab.
+            urlStateManager.updateParam("tab", value);
+            urlStateManager.updateParam("report", null);
+            // This is important: Clear the filters specific to the inflow table.
+            urlStateManager.updateParam("inflow_report_table_filters", null);
+            urlStateManager.updateParam("outflow_report_table_filters", null); // Also clear outflow filters
         }
     }, [activeTab]);
 
-    // Sync URL TO tab state (for popstate/direct URL load)
-    useEffect(() => {
-        const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
-            const newUrlTab = value || initialTab; // Fallback to initial if param removed
-            if (activeTab !== newUrlTab) {
-                setActiveTab(newUrlTab);
-            }
-        });
-        return unsubscribe;
-    }, [initialTab, activeTab]);
-
-
-    const selectedReportType = useReportStore((state) => state.selectedReportType);
-    const setSelectedReportType = useReportStore((state) => state.setSelectedReportType);
-    const setDefaultReportType = useReportStore((state) => state.setDefaultReportType);
-
-    // Set default report type when tab or role changes
-    useEffect(() => {
-        // console.log(`Container: Tab changed to ${activeTab}, Role: ${role}. Setting default report type.`);
-        setDefaultReportType(activeTab, role);
-    }, [activeTab, role, setDefaultReportType]);
+    const handleReportTypeChange = (value: string) => {
+        const validReportType = currentReportOptions.find(opt => opt.value === value)?.value as ReportType;
+        if (validReportType && validReportType !== selectedReportType) {
+            // When user selects a report, update the URL. State changes will follow.
+            urlStateManager.updateParam("report", validReportType);
+            urlStateManager.updateParam("inflow_report_table_filters", null); // Clear filters when changing report
+            urlStateManager.updateParam("outflow_report_table_filters", null);
+        }
+    };
 
 
     // Define available tabs based on role
@@ -113,11 +151,7 @@ export default function ReportsContainer() {
     }, [tabs, activeTab]);
 
 
-    const handleTabClick = useCallback((value: string) => {
-        if (activeTab !== value) {
-            setActiveTab(value);
-        }
-    }, [activeTab]);
+
 
 
     const currentReportOptions = useMemo(() => {
@@ -137,11 +171,6 @@ export default function ReportsContainer() {
         return [];
     }, [activeTab, role]);
 
-
-    const handleReportTypeChange = (value: string) => {
-        const validReportType = currentReportOptions.find(opt => opt.value === value)?.value;
-        setSelectedReportType(validReportType ? validReportType as ReportType : null);
-    };
 
     // Effect to auto-select/validate report type when options change
     useEffect(() => {

@@ -130,12 +130,19 @@ export default function VendorsPage() {
                 }
             }
         },
-        // {
-        //     accessorKey: "vendor_type",
-        //     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-        //     cell: ({ row }) => <Badge variant="outline">{row.getValue("vendor_type")}</Badge>,
-        //     size: 180,
-        // },
+        {
+            accessorKey: "vendor_type",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+            cell: ({ row }) => <Badge variant="outline">{row.getValue("vendor_type")}</Badge>,
+            size: 180,
+            enableColumnFilter: true,
+            meta: {
+                exportHeaderName: "Vendor Type",
+                exportValue: (row) => {
+                    return row.vendor_type
+                }
+            }
+        },
         {
             accessorKey: "vendor_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
@@ -214,7 +221,7 @@ export default function VendorsPage() {
         searchableFields: VENDOR_SEARCHABLE_FIELDS,
         defaultSort: 'creation desc',
         urlSyncKey: `vendors_list`, // Does not include type; type is a separate param
-        additionalFilters: additionalFilters,
+        // additionalFilters: additionalFilters,
         enableRowSelection: false, // Adjust if selection is needed
         shouldCache: true
     });
@@ -230,7 +237,7 @@ export default function VendorsPage() {
 
     const facetFilterOptions = useMemo(() => ({
         // For vendor_type, it's controlled by Radio. But if you want a facet too:
-        // vendor_type: { title: "Vendor Type", options: VENDOR_TYPE_OPTIONS },
+        vendor_type: { title: "Vendor Type", options: VENDOR_TYPE_OPTIONS },
         // For vendor_category, using the fetched category names
         // Column ID for filtering should match what backend expects for JSON field or be mapped
         // vendor_category: { title: "Specialized In", options: categoryFacetOptions },
@@ -245,7 +252,7 @@ export default function VendorsPage() {
             {/* Add other summary cards if needed */}
             {/* </div> */}
 
-            <div className="pb-4">
+            {/* <div className="pb-4">
                 <Radio.Group
                     options={radioOptions}
                     value={currentVendorType}
@@ -253,7 +260,7 @@ export default function VendorsPage() {
                     optionType="button"
                     buttonStyle="solid"
                 />
-            </div>
+            </div> */}
 
             <DataTable<VendorsType>
                 table={table}

@@ -24,6 +24,7 @@ const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMa
 const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
 const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
+const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
 
 type MenuItem = Required<MenuProps>["items"][number];
 
@@ -83,12 +84,16 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
     const menuItems: MenuItem[] = useMemo(() => [
         { label: "Overview", key: "overview" },
+        (vendor?.vendor_type !== "Service") &&
+        { label: "Vendor Ledger", key: "poVendorLedger" },
         (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
         { label: "Material Orders", key: "materialOrders" },
         (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
         { label: "Service Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
+        (vendor?.vendor_type !== "Service") &&
         { label: "Approved Quotes", key: "approvedQuotes" },
+
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
     const handleMenuClick: MenuProps["onClick"] = useCallback(e => setCurrentTab(e.key), []);
@@ -129,6 +134,8 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                 return <VendorApprovedQuotesTable
                     vendorId={vendorId}
                 />;
+            case "poVendorLedger": // <-- ADD THIS CASE
+                return <POVendorLedger vendorId={vendorId} />
             default:
                 return <div>Select a tab.</div>;
         }

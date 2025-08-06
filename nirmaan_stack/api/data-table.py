@@ -335,7 +335,8 @@ def get_list_with_count_enhanced(
     is_item_search: bool | str = False,
     require_pending_items: bool | str = False, # Flag for PR filtering
     to_cache: bool = False, # Flag for caching
-    aggregates_config: str | None = None # NEW: For summary card
+    aggregates_config: str | None = None, # NEW: For summary card
+    group_by_config: str | None = None # NEW: For "Top 5" style reports
 ) -> dict:
 
     """
@@ -751,7 +752,7 @@ def get_list_with_count_enhanced(
                 
                 # MODIFIED: Use the unified `final_matching_parent_names` list
                 if isinstance(config, list) and config and final_matching_parent_names:
-                    print(f"DEBUG: Processing aggregates_config: {config} for doctype '{doctype}', final_matching_parent_names: {final_matching_parent_names}")
+                    # print(f"DEBUG: Processing aggregates_config: {config} for doctype '{doctype}', final_matching_parent_names: {final_matching_parent_names}")
                     select_expressions = []
                     valid_functions = {"SUM", "AVG", "COUNT", "MIN", "MAX"}
                     meta = frappe.get_meta(doctype)
@@ -794,11 +795,62 @@ def get_list_with_count_enhanced(
                 aggregates_result = None
         # ================== END OF MODIFIED AGGREGATION LOGIC ==================
 
+        # ==================== NEW GROUP BY AGGREGATION LOGIC ====================
+        group_by_result = None
+        if group_by_config and isinstance(group_by_config, str):
+            try:
+                config = json.loads(group_by_config)
+                # print(f"DEBUG: Processing group_by_config: {config} for doctype '{doctype}' with final_matching_parent_names: {final_matching_parent_names}")
+                if isinstance(config, dict) and final_matching_parent_names:
+                    gb_field = config.get("groupByField")
+                    agg_field = config.get("aggregateField")
+                    agg_func = config.get("aggregateFunction", "sum").upper()
+                    limit = cint(config.get("limit", 5))
+
+                    # Security validation
+                    meta = frappe.get_meta(doctype)
+                    # print(f"DEBUG: Validating group_by_config: {meta} for doctype '{doctype}'")
+                    valid_fields = {f.fieldname for f in meta.fields}
+                    valid_numeric_fields = {f.fieldname for f in meta.fields if f.fieldtype in ['Data', 'Currency', 'Int', 'Float', 'Percent']}
+                    valid_functions = {"SUM", "AVG", "COUNT"}
+                    print(f"DEBUG: Valid fields: {valid_fields}, Numeric fields: {valid_numeric_fields}, Functions: {valid_functions}, gb_field: {gb_field}, agg_field: {agg_field}, agg_func: {agg_func}")
+
+                    if gb_field in valid_fields and agg_field in valid_numeric_fields and agg_func in valid_functions:
+                        print("within next if")
+                        # Use CAST for PostgreSQL compatibility
+                        agg_expression = f"{agg_func}(CAST(`{agg_field}` AS DECIMAL(21, 9)))"
+
+                        query = f"""
+                            SELECT
+                                `{gb_field}` as group_key,
+                                {agg_expression} as aggregate_value
+                            FROM `tab{doctype}`
+                            WHERE name IN %(names)s
+                            GROUP BY `{gb_field}`
+                            ORDER BY aggregate_value DESC
+                            LIMIT %(limit)s
+                        """
+                        print(f"DEBUG: Executing Group By Query: {query} with names={final_matching_parent_names} and limit={limit}")
+                        result = frappe.db.sql(query, {
+                            "names": tuple(final_matching_parent_names),
+                            "limit": limit
+                        }, as_dict=True)
+                        
+                        group_by_result = result
+                        print(f"DEBUG: Group By Aggregation successful. Result: {group_by_result}")
+
+            except Exception as e:
+                print(f"WARNING: Could not process group_by_config. Error: {e}")
+                traceback.print_exc()
+                group_by_result = None
+        # ================== END OF NEW GROUP BY LOGIC ==================
+
 
         final_result = {
             "data": data,
             "total_count": total_records,
-            "aggregates": aggregates_result # NEW KEY
+            "aggregates": aggregates_result, # NEW KEY
+            "group_by_result": group_by_result # NEW KEY
         }
 
         # print(f"DEBUG: Final Result: {final_result}")

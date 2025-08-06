@@ -41,7 +41,10 @@ const CalculatedCell: React.FC<{
   table: Table<Projects>;
   accessor: keyof ProjectCalculatedFields | 'totalCredit'; // Which field to access from calculatedData
   formatter: (value: number | undefined) => string;
-}> = ({ row, table, accessor, formatter }) => {
+  isLink?: boolean;
+  projectId?: string;
+  linkToReport?: 'Inflow Report' | 'Outflow Report(Project)';
+}> = ({ row, table, accessor, formatter, isLink = false, projectId, linkToReport }) => {
   const meta = table.options.meta as ProjectTableMeta | undefined;
 
   if (!meta || typeof meta.getProjectCalculatedFields !== 'function') {
@@ -66,7 +69,32 @@ const CalculatedCell: React.FC<{
     valueToFormat = calculatedData[accessor];
   }
 
-  return <div className="tabular-nums">{formatter(valueToFormat)}</div>;
+  const displayValue = <div className="tabular-nums">{formatter(valueToFormat)}</div>;
+
+  if (isLink && projectId && linkToReport) {
+    // 1. Define the filter structure for tanstack-table
+    const filters = [{ id: 'project', value: [projectId] }];
+
+    // 2. Stringify and Base64 encode the filter array.
+    const encodedFilters = btoa(JSON.stringify(filters));
+
+    const reportType = encodeURIComponent(linkToReport);
+
+    const urlSyncKey = linkToReport === 'Inflow Report'
+      ? 'inflow_report_table'
+      : 'outflow_report_table';
+    // 3. Construct the URL with the correct sync key ('inflow_report_table') + '_filters'
+    // const targetUrl = `/reports?tab=projects&report=${reportType}&inflow_report_table_filters=${encodedFilters}`;
+    const targetUrl = `/reports?tab=projects&report=${reportType}&${urlSyncKey}_filters=${encodedFilters}`;
+
+    return (
+      <Link to={targetUrl} className="text-blue-600 hover:underline">
+        {displayValue}
+      </Link>
+    );
+  }
+
+  return displayValue;
 };
 
 
@@ -95,13 +123,14 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   {
     id: "totalInflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Inflow" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalInflow" formatter={formatDisplayValueToLakhs} />,
+    // This now correctly passes isLink and projectId to our updated CalculatedCell
+    cell: (props) => <CalculatedCell {...props} accessor="totalInflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name} linkToReport="Inflow Report" />,
     meta: { exportHeaderName: "Inflow", isNumeric: true }
   },
   {
     id: "totalOutflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name} linkToReport="Outflow Report(Project)" />,
     meta: { exportHeaderName: "Outflow", isNumeric: true }
   },
   {
@@ -123,15 +152,15 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
     cell: ({ row }) => <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>,
     meta: { exportHeaderName: "Value (excl. GST)", exportValue: (row: Projects) => formatValueToLakhsString(row.project_value), isNumeric: true }
   },
-   // --- ✨ THIS IS THE FIX FOR YOUR NEW COLUMNS ---
+  // --- ✨ THIS IS THE FIX FOR YOUR NEW COLUMNS ---
   {
     id: "totalBalanceCredit", // A unique ID for the column
     header: ({ column }) => <DataTableColumnHeader column={column} title="Total Liabilities" />,
     // Pass the correct accessor string that matches the key in ProjectCalculatedFields
     cell: (props) => <CalculatedCell {...props} accessor="totalBalanceCredit" formatter={formatValueToLakhsString} />,
-    meta: { 
-      exportHeaderName: "Balance on Credit (Lakhs)", 
-      isNumeric: true 
+    meta: {
+      exportHeaderName: "Balance on Credit (Lakhs)",
+      isNumeric: true
     }
   },
   {
@@ -139,18 +168,18 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Total Due Not Paid" />,
     // Pass the correct accessor string
     cell: (props) => <CalculatedCell {...props} accessor="totalDue" formatter={formatValueToLakhsString} />,
-    meta: { 
-      exportHeaderName: "Amount Due (Lakhs)", 
+    meta: {
+      exportHeaderName: "Amount Due (Lakhs)",
       isNumeric: true
     }
   },
   // --- END OF FIX ---
-  
+
   {
     accessorKey: "creation",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Creation Date" />,
     cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
     meta: { exportHeaderName: "Creation Date", exportValue: (row: Projects) => formatDate(row.creation) }
   },
-  
+
 ];

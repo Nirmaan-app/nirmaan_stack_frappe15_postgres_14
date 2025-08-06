@@ -63,6 +63,7 @@ import ItemsPage from "@/pages/Items/itemsPage";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
+import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -394,7 +395,14 @@ export const appRoutes: RouteObject[] = [
 
           // --- Approved Quotes / Debug ---
           {
-            path: "approved-quotes", // Keep separate from debug or merge?
+            path: "all-AQs",
+            children: [
+              { index: true, element: <AdminApprovedQuotationsTable /> },
+              { path: ":poId", lazy: () => import("@/components/POSummary") },
+            ],
+          },
+          {
+            path: "item-price", // Keep separate from debug or merge?
             children: [
               { index: true, element: <ApprovedQuotationsPage /> },
               { path: ":poId", lazy: () => import("@/components/POSummary") },

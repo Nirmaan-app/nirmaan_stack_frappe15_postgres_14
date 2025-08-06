@@ -61,6 +61,8 @@ export interface DataTableProps<T> {
 
   /* row selection / indicator */
   showRowSelection?: boolean;
+  showSearchBar?: boolean; // --- ADD THIS LINE ---
+
   isNewRow?: (row: TanRow<T>) => boolean;
   newRowIndicatorComponent?: React.ReactNode;
 
@@ -83,6 +85,7 @@ export function DataTable<T>({
   toolbarActions, className,
   summaryCard, // NEW
   showRowSelection = false,
+  showSearchBar = true, // --- ADD THIS LINE (with a default value) --
   isNewRow,
   newRowIndicatorComponent = <div className="h-2 w-2 rounded-full bg-red-500" />,
   estimatedRowHeight = 45,
@@ -186,6 +189,7 @@ export function DataTable<T>({
           searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
           searchTerm, onSearchTermChange,
           showExportButton, effectiveExport, toolbarActions, isLoading, table,
+           showSearchBar,
           showRowSelection
         }}
       />
@@ -391,7 +395,7 @@ function Toolbar(props: {
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 py-4">
-      <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
+      {/* <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
         {props.searchFieldOptions.length > 0 && (
           <Select value={props.selectedSearchField}
             onValueChange={props.onSelectedSearchFieldChange}>
@@ -408,7 +412,33 @@ function Toolbar(props: {
           className="h-9 w-full sm:w-[250px] lg:w-[300px]"
           placeholder={ph} value={props.searchTerm}
           onChange={e => props.onSearchTermChange(e.target.value)} />
-      </div>
+      </div> */}
+      {/* --- FIX STARTS HERE: Conditional Rendering --- */}
+      
+      {props.showSearchBar ? (
+        <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
+          {props.searchFieldOptions.length > 0 && (
+            <Select value={props.selectedSearchField}
+              onValueChange={props.onSelectedSearchFieldChange}>
+              <SelectTrigger className="w-[150px] h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {props.searchFieldOptions.map(o =>
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          <Input
+            aria-label={ph}
+            id={searchInputId}
+            className="h-9 w-full sm:w-[250px] lg:w-[300px]"
+            placeholder={ph} value={props.searchTerm}
+            onChange={e => props.onSearchTermChange(e.target.value)} />
+        </div>
+      ) : (
+        <div /> // Render an empty div to maintain flexbox justify-between layout
+      )}
+      {/* --- FIX ENDS HERE --- */}
+
 
       <div className="flex items-center gap-2">
         {props.toolbarActions}

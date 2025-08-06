@@ -142,8 +142,8 @@ export const ApproveSelectAmendPO: React.FC = () => {
              }, size: 180,
         },
         {
-            id: "po_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotal(row.original))}</p>),
+            id: "total_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
+            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.total_amount)}</p>),
             size: 150, enableSorting: false,
         }
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSeen, getTotal]); // Updated dependencies

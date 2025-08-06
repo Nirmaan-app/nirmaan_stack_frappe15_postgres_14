@@ -130,6 +130,24 @@ export const VendorsSelectionSummary: React.FC = () => {
   }, [paymentTerms, prId]); // The dependency array ensures this runs only when needed.
   // --- ADDED: State to control which vendor's payment terms are being edited ---
 
+    // =========================================================================
+  useEffect(() => {
+    // This function will be called when the component is about to unmount.
+    const cleanup = () => {
+      // Create the specific key for this PR's payment terms draft.
+      const storageKey = `paymentTermsDraft_${prId}`;
+      
+      // Remove the item from localStorage.
+      localStorage.removeItem(storageKey);
+      
+      console.log(`Cleaned up payment terms for PR: ${prId}`);
+    };
+
+    // React calls the returned function when the component unmounts.
+    return cleanup;
+
+  }, [prId]); 
+
   const [editingVendor, setEditingVendor] = useState<{
     id: string;
     name: string;
