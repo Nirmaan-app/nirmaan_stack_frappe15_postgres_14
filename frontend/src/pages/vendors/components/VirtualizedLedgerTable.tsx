@@ -33,7 +33,7 @@ const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ activeTab, poAmou
        return (
         <TableRow className="bg-gray-100 hover:bg-gray-100 sticky top-[0px] z-10">
             <TableCell colSpan={4} className="px-2 py-2 font-semibold text-gray-700 text-right">
-                Opening Balance
+                Opening Balance (as on 31st March 2025)
             </TableCell>
             <TableCell className="px-2 py-2 text-right font-mono font-semibold">
                 {formatToRoundedIndianRupee(openingAmount)}

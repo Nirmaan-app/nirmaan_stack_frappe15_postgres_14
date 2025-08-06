@@ -43,7 +43,7 @@ export const ProjectManager = () => {
                             className="bg-red-600"
                         /> */}
           <DashboardCard
-            title="Update Delivery Notes"
+            title="Delivery Notes"
             icon={<Truck className="h-8 w-8 text-white" />}
             onClick={() => navigate("/prs&milestones/delivery-notes")}
             className="bg-red-600"
@@ -55,12 +55,12 @@ export const ProjectManager = () => {
             className="bg-red-600"
           />
           <DashboardCard
-            title="Service Requests"
+            title="View Service Requests"
             icon={<HandPlatter className="h-8 w-8 text-white" />}
             onClick={() => navigate("/service-requests-list")}
             className="bg-red-600"
           />
-          <DashboardCard
+          {/* <DashboardCard
             title="Project Payments"
             icon={<CircleDollarSign className="h-8 w-8 text-white" />}
             onClick={() => navigate("/project-payments")}
@@ -71,7 +71,7 @@ export const ProjectManager = () => {
             icon={<ClipboardMinus className="h-8 w-8 text-white" />}
             onClick={() => navigate("/reports")}
             className="bg-red-600"
-          />
+          /> */}
         </div>
       </div>
     </>

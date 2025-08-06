@@ -81,7 +81,9 @@ export const useOutflowReportData = () => {
                 expenseType = 'Payment Against SR';
             }
             
-            const amountPaid = parseNumber(p.amount) - parseNumber(p.tds);
+            // const amountPaid = parseNumber(p.amount) - parseNumber(p.tds);
+            const amountPaid = parseNumber(p.amount);
+
 
             return {
                 id: p.name,

@@ -1,6 +1,6 @@
 // /workspace/development/frappe-bench/apps/nirmaan_stack/frontend/src/pages/reports/components/OutflowReportTable.tsx
 
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo,useEffect,useState } from "react";
 import { memoize } from "lodash";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 
@@ -95,9 +95,14 @@ export function OutflowReportTable() {
         expense_type: { title: "Expense Type", options: expenseTypeOptions }
     }), [projectOptions, vendorOptions, expenseTypeOptions]);
 
+   const [pagination, setPagination] = useState({
+        pageIndex: 0,
+        pageSize: 50, // Your default page size
+    });
+
     // 5. Initialize useServerDataTable in client-side mode
     const {
-        table, totalCount, isLoading: isTableHookLoading, error: tableHookError,
+        table, totalisLoading: isTableHookLoading, error: tableHookError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
         columnFilters
     } = useServerDataTable<OutflowRowData>({
@@ -107,13 +112,40 @@ export function OutflowReportTable() {
         clientTotalCount: processedReportData.length,
         searchableFields: OUTFLOW_SEARCHABLE_FIELDS,
         urlSyncKey: 'outflow_report_table',
-        defaultSort: 'payment_date desc',
+        defaultSort: 'payment_date desc',        
+        state: {
+            pagination, // The table's pagination is now controlled by our state
+        },
+        onPaginationChange: setPagination, // When the table wants to change pages, it updates our state
+        manualPagination: true,
+        // pageCount can be set to -1 initially and controlled by useEffect
+        pageCount: -1, 
+   
+
         // aggregatesConfig: OUTFLOW_AGGREGATES_CONFIG,
     });
+
+
 
     // --- THIS IS THE FIX ---
     // Get the dynamic count of rows *after* client-side filtering has been applied.
     const filteredRowCount = table.getFilteredRowModel().rows.length;
+
+   const correctPageCount = Math.ceil(filteredRowCount / pagination.pageSize) || 1; // Default to 1 page if 0 rows
+
+    // On every render, we forcefully update the table's options with the correct page count.
+    // This is more direct than useEffect and avoids timing issues.
+    table.setOptions(prev => ({
+        ...prev,
+        pageCount: correctPageCount,
+        // Also re-apply our state and handlers on every render to ensure consistency
+        state: {
+            ...prev.state,
+            pagination,
+        },
+        onPaginationChange: setPagination,
+    }));
+
 
     // --- IMPROVEMENT ---
     // This calculation is now cleaner and always reflects the filtered data.
