@@ -19,11 +19,11 @@ export const getOutflowReportColumns = (getProjectName: GetNameFn, getVendorName
         accessorKey: "payment_date",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />,
         cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.original.payment_date)}</div>,
-         filterFn: dateFilterFn,
-        // meta: {
-        //     exportValue: (row) => formatDate(row.original.payment_date),
-        //     exportHeaderName: "Payment Date"
-        // },
+        filterFn: dateFilterFn,
+        meta: {
+            exportValue: (row) => formatDate(row.payment_date),
+            exportHeaderName: "Payment Date"
+        },
     },
     {
         accessorKey: "project",
@@ -33,15 +33,15 @@ export const getOutflowReportColumns = (getProjectName: GetNameFn, getVendorName
             //     {getProjectName(row.original.project)}
             // </Link>
             <div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
-                                <span className="truncate" title={getProjectName(row.original.project)}>{getProjectName(row.original.project)}</span>
-                                <HoverCard><HoverCardTrigger asChild><Link to={`/projects/${row.original.project}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
-                            </div>
+                <span className="truncate" title={getProjectName(row.original.project)}>{getProjectName(row.original.project)}</span>
+                <HoverCard><HoverCardTrigger asChild><Link to={`/projects/${row.original.project}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
+            </div>
         ),
-                filterFn: facetedFilterFn, 
-        // meta: {
-        //     exportValue: (row) => getProjectName(row.original.project),
-        //     exportHeaderName: "Project"
-        // },
+        filterFn: facetedFilterFn,
+        meta: {
+            exportValue: (row) => getProjectName(row.project),
+            exportHeaderName: "Project"
+        },
     },
     {
         accessorKey: "vendor",
@@ -50,52 +50,52 @@ export const getOutflowReportColumns = (getProjectName: GetNameFn, getVendorName
             // <div className="truncate" title={getVendorName(row.original.vendor)}>
             //     {getVendorName(row.original.vendor)}
             // </div>
-             <div className="font-medium flex items-center gap-1.5 group">
-                                <span className="truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</span>
-                                <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View vendor</HoverCardContent></HoverCard>
-                            </div>
+            <div className="font-medium flex items-center gap-1.5 group">
+                <span className="truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</span>
+                <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View vendor</HoverCardContent></HoverCard>
+            </div>
         ),
-                filterFn: facetedFilterFn, 
-        // meta: {
-        //     exportValue: (row) => getVendorName(row.original.vendor),
-        //     exportHeaderName: "Vendor"
-        // },
+        filterFn: facetedFilterFn,
+        meta: {
+            exportValue: (row) => getVendorName(row.vendor),
+            exportHeaderName: "Vendor"
+        },
     },
     {
         accessorKey: "amount",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Amount Paid" className="text-right" />,
         cell: ({ row }) => <div className="font-medium text-right text-red-600 pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>,
-        // meta: {
-        //     exportValue: (row) => formatForReport(row.original.amount),
-        //     exportHeaderName: "Amount Paid"
-        // },
+        meta: {
+            exportValue: (row) => formatForReport(row.amount),
+            exportHeaderName: "Amount Paid"
+        },
     },
     {
         accessorKey: "expense_type",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Expense Type" />,
         cell: ({ row }) => <div className="truncate" title={row.original.expense_type}>{row.original.expense_type}</div>,
         filterFn: facetedFilterFn,
-        // meta: {
-        //     exportValue: (row) => row.original.expense_type,
-        //     exportHeaderName: "Expense Type"
-        // },
+        meta: {
+            exportValue: (row) => row.expense_type,
+            exportHeaderName: "Expense Type"
+        },
     },
     {
         accessorKey: "details",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Details" />,
         cell: ({ row }) => <div className="truncate max-w-xs" title={row.original.details}>{row.original.details}</div>,
-        // meta: {
-        //     exportValue: (row) => row.original.details,
-        //     exportHeaderName: "Details"
-        // },
+        meta: {
+            exportValue: (row) => row.details,
+            exportHeaderName: "Details"
+        },
     },
     {
         accessorKey: "ref",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Ref (UTR/Comment)" />,
         cell: ({ row }) => <div className="truncate max-w-xs" title={row.original.ref}>{row.original.ref}</div>,
-        // meta: {
-        //     exportValue: (row) => row.original.ref,
-        //     exportHeaderName: "Ref"
-        // },
+        meta: {
+            exportValue: (row) => row.ref,
+            exportHeaderName: "Ref"
+        },
     },
 ];

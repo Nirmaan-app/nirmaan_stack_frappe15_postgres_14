@@ -53,39 +53,44 @@ export default function ReportsContainer() {
 
     const [activeTab, setActiveTab] = useState<string>(initialTab);
 
-    // --- MODIFICATION 3: Refined effects for robust URL sync ---
+    // --- THIS IS THE FIX ---
+    // The dependency array is corrected to prevent the infinite loop.
+    // This effect's job is to sync the URL to the state, not to react to its own state changes.
     useEffect(() => {
-        // This effect runs on mount and whenever the URL changes.
-        // It ensures the component's state is always in sync with the URL.
         const urlTab = getUrlStringParam("tab", null);
         const urlReport = getUrlStringParam("report", null) as ReportType;
 
-        // Sync Tab
+        // Sync Tab from URL
         if (urlTab && urlTab !== activeTab) {
             setActiveTab(urlTab);
         }
 
-        // Sync Report Type: Prioritize URL. If no report in URL, set default.
+        // Sync Report Type from URL
         if (urlReport) {
-            if (urlReport !== selectedReportType) {
-                setSelectedReportType(urlReport);
-            }
+            // No need to check against selectedReportType here, just set it.
+            // This simplifies the logic and prevents cycles.
+            setSelectedReportType(urlReport);
         } else {
+            // If no report in URL, set the default for the current context.
             setDefaultReportType(activeTab, role);
         }
 
-        // Subscribe to future changes (for back/forward buttons)
+        // Subscribe to browser back/forward navigation
         const sub1 = urlStateManager.subscribe("tab", (_, v) => setActiveTab(v || initialTab));
         const sub2 = urlStateManager.subscribe("report", (_, v) => {
-            if (!v) setDefaultReportType(activeTab, role); // If report param is removed, set default
-            else setSelectedReportType(v as ReportType);
+            if (!v) {
+                setDefaultReportType(activeTab, role);
+            } else {
+                setSelectedReportType(v as ReportType);
+            }
         });
 
         return () => {
             sub1();
             sub2();
         };
-    }, [activeTab, role, initialTab, selectedReportType]); // Rerun if role changes, etc.
+        // The dependency array is now stable and won't cause loops.
+    }, [activeTab, role, initialTab, setDefaultReportType, setSelectedReportType]);
 
     const handleTabClick = useCallback((value: string) => {
         if (activeTab !== value) {
@@ -95,6 +100,7 @@ export default function ReportsContainer() {
             urlStateManager.updateParam("report", null);
             // This is important: Clear the filters specific to the inflow table.
             urlStateManager.updateParam("inflow_report_table_filters", null);
+            urlStateManager.updateParam("outflow_report_table_filters", null); // Also clear outflow filters
         }
     }, [activeTab]);
 
@@ -104,6 +110,7 @@ export default function ReportsContainer() {
             // When user selects a report, update the URL. State changes will follow.
             urlStateManager.updateParam("report", validReportType);
             urlStateManager.updateParam("inflow_report_table_filters", null); // Clear filters when changing report
+            urlStateManager.updateParam("outflow_report_table_filters", null);
         }
     };
 

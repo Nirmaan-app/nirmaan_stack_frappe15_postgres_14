@@ -63,7 +63,17 @@ export function OutflowReportTable() {
     // 3. Memoized lookups and options for performance
     const getProjectName = useCallback(memoize((id?: string) => projects?.find(p => p.name === id)?.project_name || id || '--'), [projects]);
     const getVendorName = useCallback(memoize((id?: string) => vendors?.find(v => v.name === id)?.vendor_name || id || 'Others'), [vendors]);
-    
+
+    // Add a name to the report data for easier searching if needed
+    const processedReportData = useMemo(() => {
+        if (!reportData) return [];
+        return reportData.map(row => ({
+            ...row,
+            project_name: getProjectName(row.project),
+            vendor_name: getVendorName(row.vendor)
+        }));
+    }, [reportData, getProjectName, getVendorName]);
+
     const projectOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
     const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
     // Create expense type options from both the Expense Type doctype and the hardcoded PO/SR types
@@ -93,22 +103,24 @@ export function OutflowReportTable() {
     } = useServerDataTable<OutflowRowData>({
         doctype: 'OutflowReportVirtual', // A virtual name for this client-side table
         columns: columns,
-        clientData: reportData,
-        clientTotalCount: reportData.length,
+        clientData: processedReportData,
+        clientTotalCount: processedReportData.length,
         searchableFields: OUTFLOW_SEARCHABLE_FIELDS,
         urlSyncKey: 'outflow_report_table',
         defaultSort: 'payment_date desc',
+        // aggregatesConfig: OUTFLOW_AGGREGATES_CONFIG,
     });
-    
-    // Calculate total outflow amount from the client-side data
+
+    // --- THIS IS THE FIX ---
+    // Get the dynamic count of rows *after* client-side filtering has been applied.
+    const filteredRowCount = table.getFilteredRowModel().rows.length;
+
+    // --- IMPROVEMENT ---
+    // This calculation is now cleaner and always reflects the filtered data.
     const totalOutflowAmount = useMemo(() => {
-        // Use the filtered rows from the table model if available, otherwise all data
-        const rowsToSum = table.getFilteredRowModel().rows.length > 0
-            ? table.getFilteredRowModel().rows
-            : table.getCoreRowModel().rows;
-            
+        const rowsToSum = table.getFilteredRowModel().rows;
         return rowsToSum.reduce((sum, row) => sum + row.original.amount, 0);
-    }, [table.getFilteredRowModel().rows, table.getCoreRowModel().rows]);
+    }, [table.getFilteredRowModel().rows]); // Dependency is the array of filtered rows
 
 
     const isLoadingOverall = isLoadingInitialData || projectsLoading || vendorsLoading || expenseTypesLoading || isTableHookLoading;
@@ -154,7 +166,7 @@ export function OutflowReportTable() {
     //         { header: "Details", accessorKey: "details" },
     //         { header: "Ref (UTR/Comment)", accessorKey: "ref" },
     //     ];
-        
+
     //     try {
     //         exportToCsv('Outflow_Report', dataToExport, exportColumnsConfig);
     //         toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success" });
@@ -172,7 +184,7 @@ export function OutflowReportTable() {
             columns={columns}
             isLoading={isLoadingOverall}
             error={tableHookError}
-            totalCount={totalCount}
+            totalCount={filteredRowCount}
             searchFieldOptions={OUTFLOW_SEARCHABLE_FIELDS}
             selectedSearchField={selectedSearchField}
             onSelectedSearchFieldChange={setSelectedSearchField}
@@ -203,7 +215,7 @@ export function OutflowReportTable() {
                             <div className="flex justify-between sm:block">
                                 <dt className="font-semibold text-gray-600">Total Transactions</dt>
                                 <dd className="sm:text-right font-bold text-lg text-red-600">
-                                    {totalCount}
+                                    {filteredRowCount}
                                 </dd>
                             </div>
                         </dl>

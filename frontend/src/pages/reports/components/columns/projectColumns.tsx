@@ -43,8 +43,8 @@ const CalculatedCell: React.FC<{
   formatter: (value: number | undefined) => string;
   isLink?: boolean;
   projectId?: string;
-    linkToReport?: 'Inflow Report' | 'Outflow Report';
-}> = ({ row, table, accessor, formatter, isLink = false, projectId,linkToReport }) => {
+  linkToReport?: 'Inflow Report' | 'Outflow Report(Project)';
+}> = ({ row, table, accessor, formatter, isLink = false, projectId, linkToReport }) => {
   const meta = table.options.meta as ProjectTableMeta | undefined;
 
   if (!meta || typeof meta.getProjectCalculatedFields !== 'function') {
@@ -80,13 +80,13 @@ const CalculatedCell: React.FC<{
 
     const reportType = encodeURIComponent(linkToReport);
 
-     const urlSyncKey = linkToReport === 'Inflow Report' 
-      ? 'inflow_report_table' 
+    const urlSyncKey = linkToReport === 'Inflow Report'
+      ? 'inflow_report_table'
       : 'outflow_report_table';
     // 3. Construct the URL with the correct sync key ('inflow_report_table') + '_filters'
     // const targetUrl = `/reports?tab=projects&report=${reportType}&inflow_report_table_filters=${encodedFilters}`;
     const targetUrl = `/reports?tab=projects&report=${reportType}&${urlSyncKey}_filters=${encodedFilters}`;
-    
+
     return (
       <Link to={targetUrl} className="text-blue-600 hover:underline">
         {displayValue}
@@ -130,7 +130,7 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   {
     id: "totalOutflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name}  linkToReport="Outflow Report"/>,
+    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name} linkToReport="Outflow Report(Project)" />,
     meta: { exportHeaderName: "Outflow", isNumeric: true }
   },
   {
