@@ -64,7 +64,7 @@ export const getOutflowReportColumns = (getProjectName: GetNameFn, getVendorName
     {
         accessorKey: "amount",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Amount Paid" className="text-right" />,
-        cell: ({ row }) => <div className="font-medium text-right text-red-600 pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>,
+        cell: ({ row }) => <div className="font-medium text-center text-red-600 pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>,
         meta: {
             exportValue: (row) => formatForReport(row.amount),
             exportHeaderName: "Amount Paid"
@@ -87,6 +87,24 @@ export const getOutflowReportColumns = (getProjectName: GetNameFn, getVendorName
         meta: {
             exportValue: (row) => row.details,
             exportHeaderName: "Details"
+        },
+    },
+    {
+        accessorKey: "effective_gst",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Effective GST" className="text-right" />,
+        cell: ({ row }) => {
+            const gst = row.original.effective_gst;
+            if (gst > 0) {
+                // Display the GST rate with two decimal places
+                return <div className="text-center font-medium tabular-nums pr-2">{gst.toFixed(2)}%</div>;
+            }
+            // Display a dash for rows with no applicable GST
+            return <div className="text-center text-gray-400">--</div>;
+        },
+        enableSorting: true,
+        meta: {
+            exportValue: (row) => (row.effective_gst > 0 ? row.effective_gst.toFixed(2) : 'N/A'),
+            exportHeaderName: "Effective GST (%)"
         },
     },
     {

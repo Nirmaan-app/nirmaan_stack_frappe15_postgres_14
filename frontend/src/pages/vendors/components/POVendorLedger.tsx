@@ -101,7 +101,7 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
 
         items = items.filter(item => {
             if (activeSubTab === 'poLedger') {
-                return item.type !== 'Invoice Recorded' && item.type !== 'Credit Note Recorded';
+                return item.type !== 'Invoice Recorded' && item.type !== 'Credit Note Recorded' && item.details.includes('PO');
             }
             return item.type !== 'PO Created';
         });

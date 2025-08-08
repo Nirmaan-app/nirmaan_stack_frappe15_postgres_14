@@ -5,7 +5,7 @@ import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses';
 import { parseNumber } from '@/utils/parseNumber';
-
+import { useOrderTotals } from '@/hooks/useOrderTotals';
 /**
  * A standardized interface for a single row in our Outflow Report.
  * This ensures that data from both ProjectPayments and ProjectExpenses
@@ -19,6 +19,7 @@ export interface OutflowRowData {
     amount: number;
     expense_type: string;
     details: string;
+     effective_gst: number; // <-- Add effective_gst field
     ref: string;
     source_doctype: 'Project Payments' | 'Project Expenses'; // For linking or debugging
     originalDoc: ProjectPayments | ProjectExpenses; // Keep the original document
@@ -42,6 +43,7 @@ export const useOutflowReportData = () => {
         limit: 0
     }, 'outflow-project-payments');
 
+    const {getEffectiveGST} = useOrderTotals()
 
 
     // 2. Fetch all Project Expenses
@@ -60,12 +62,6 @@ export const useOutflowReportData = () => {
         limit: 0
     }, 'outflow-project-expenses');
 
-    //     // --- DEBUGGING CONSOLE LOGS ---
-    // console.log("[Outflow Debug] Raw Project Payments Data:", projectPaymentsData);
-    // console.log("[Outflow Debug] Raw Project Expenses Data:", projectExpensesData);
-    // --- END DEBUGGING ---
-
-
     // 3. Combine and standardize the data once it's all fetched
     const reportData = useMemo<OutflowRowData[]>(() => {
         if (!projectPaymentsData || !projectExpensesData) {
@@ -75,10 +71,15 @@ export const useOutflowReportData = () => {
         // Map Project Payments to the standard OutflowRowData format
         const mappedPayments: OutflowRowData[] = projectPaymentsData.map(p => {
             let expenseType = 'Unknown Payment';
+            let effectiveGst;
             if (p.document_type === 'Procurement Orders') {
                 expenseType = 'Payment Against PO';
+             effectiveGst = getEffectiveGST(p.document_name, p.document_type);
+
             } else if (p.document_type === 'Service Requests') {
                 expenseType = 'Payment Against SR';
+             effectiveGst = getEffectiveGST(p.document_name, p.document_type);
+
             }
             
             // const amountPaid = parseNumber(p.amount) - parseNumber(p.tds);
@@ -93,6 +94,7 @@ export const useOutflowReportData = () => {
                 amount: amountPaid,
                 expense_type: expenseType,
                 details: p.document_name, // e.g., PO-00123
+                effective_gst: effectiveGst,
                 ref: p.utr || '--',
                 source_doctype: 'Project Payments',
                 originalDoc: p
@@ -108,6 +110,7 @@ export const useOutflowReportData = () => {
             amount: parseNumber(e.amount),
             expense_type: e.expense_type_name || e.type, // Use fetched label, fallback to ID
             details: e.description,
+            effective_gst: 0,
             ref: e.comment || '--',
             source_doctype: 'Project Expenses',
             originalDoc: e

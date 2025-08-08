@@ -25,7 +25,7 @@ export const TaskHistoryTable: React.FC = () => {
 
     const {data: usersList} = useUsersList()
 
-    const {getTotalAmount,getDeliveredAmount} = useOrderTotals()
+    const {getTotalAmount,getDeliveredAmount,getVendorName} = useOrderTotals()
     const {getAmount} = useOrderPayments()
 
     const [attachmentIds, setAttachmentIds] = React.useState<string[]>([]);
@@ -118,7 +118,7 @@ useEffect(() => {
     ]), [])
 
     // Columns don't depend on actions here, so Memo has no dynamic dependencies
-    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount), [usersList, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount]);
+    const columns = React.useMemo(() => getTaskHistoryColumns(getUserName, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount,getVendorName), [usersList, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount,getVendorName]);
 
     // --- Main Data Table Hook ---
     const {
