@@ -134,9 +134,9 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
                 </div>
             </TableHead>
             <TableHead className="px-2 py-1 min-w-[200px] font-semibold">Details</TableHead>
-            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">{activeSubTab === 'poLedger' ? 'PO Amount' : 'Invoice Amount'}</TableHead>
+            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">{activeSubTab === 'poLedger' ? 'PO Amount (incl. GST)' : 'Invoice Amount'}</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Payments</TableHead>
-            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Balance</TableHead>
+            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Balance Payable</TableHead>
           </TableRow>
                    <OpeningBalanceRow 
             activeTab={activeSubTab}

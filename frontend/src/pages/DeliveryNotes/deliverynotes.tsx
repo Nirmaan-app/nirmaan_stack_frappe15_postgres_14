@@ -117,27 +117,27 @@ const DeliveryNotes: React.FC = () => {
                 <Card>
                     <CardHeader className="flex flex-row items-start justify-between">
                         <div>
-                            <CardTitle>Create Delivery Note</CardTitle>
-                            <p className="text-sm text-muted-foreground pt-1">Select a project to see POs ready for delivery.</p>
+                            <CardTitle>Create New Delivery Note</CardTitle>
+                            <p className="text-sm text-muted-foreground pt-1">Select a project to see POs ready for new delivery update.</p>
                         </div>
                         <Button variant="outline" onClick={handleReset}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
                     </CardHeader>
                     <CardContent>
                         <div className="mb-4"><ProjectSelect onChange={handleProjectChange} /></div>
                         {selectedProject && (
-                             <Table>
+                            <Table>
                                 <TableHeader><TableRow><TableHead>PO No.</TableHead><TableHead>Dispatch Date</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
                                 <TableBody>
                                     {isLoading && <TableRow><TableCell colSpan={3} className="text-center">Loading...</TableCell></TableRow>}
                                     {selectedProjectPOs.length > 0 ? (
                                         selectedProjectPOs.map(po => (
                                             <TableRow key={po.name}>
-                                                <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${po.name.replaceAll("/", "&=")}`}>{po.name}</Link></TableCell>
+                                                <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${po.name.replaceAll("/", "&=")}`}>{`PO-${po.name.split("/")[1]}`}</Link></TableCell>
                                                 <TableCell>{formatDate(po.dispatch_date)}</TableCell>
                                                 <TableCell><Badge variant={po.status === "Dispatched" ? "orange" : "green"}>{po.status}</Badge></TableCell>
                                             </TableRow>
                                         ))
-                                    ) : ( <TableRow><TableCell colSpan={3} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
+                                    ) : (<TableRow><TableCell colSpan={3} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
                                 </TableBody>
                             </Table>
                         )}
@@ -146,13 +146,13 @@ const DeliveryNotes: React.FC = () => {
             )}
 
             {activeView === 'VIEW_EXISTING' && (
-                 <Card>
+                <Card>
                     <CardHeader className="flex flex-row items-start justify-between">
                         <div>
-                             <CardTitle>View Existing Delivery Notes</CardTitle>
-                             <p className="text-sm text-muted-foreground pt-1">Select a project to see its delivery history.</p>
+                            <CardTitle>View Existing Delivery Notes</CardTitle>
+                            <p className="text-sm text-muted-foreground pt-1">Select a project to see its delivery history.</p>
                         </div>
-                         <Button variant="outline" onClick={handleReset}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
+                        <Button variant="outline" onClick={handleReset}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
                     </CardHeader>
                     <CardContent>
                         <div className="mb-4"><ProjectSelect onChange={handleProjectChange} /></div>
@@ -164,17 +164,17 @@ const DeliveryNotes: React.FC = () => {
                                     {selectedProjectPOs.length > 0 ? (
                                         selectedProjectPOs.map(item => {
                                             const deliveryInfo = processDeliveryData(item.delivery_data);
-                                            const DN_ID=deriveDnIdFromPoId(item.name)
+                                            const DN_ID = deriveDnIdFromPoId(item.name)
                                             return (
                                                 <TableRow key={item.name}>
-                                                    <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${item.name.replaceAll("/", "&=")}`}>{`${DN_ID}/M`}</Link></TableCell>
+                                                    <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${item.name.replaceAll("/", "&=")}`}>{`DN/${item.name.split("/")[1]}/M`}</Link></TableCell>
                                                     <TableCell>{deliveryInfo.latestUpdateDate ? formatDate(deliveryInfo.latestUpdateDate) : 'N/A'}</TableCell>
                                                     <TableCell><Badge variant={item.status === "Delivered" ? "green" : "orange"}>{item.status}</Badge></TableCell>
                                                     <TableCell>{`${deliveryInfo.totalNoteCount}`}</TableCell>
                                                 </TableRow>
                                             );
                                         })
-                                    ) : ( <TableRow><TableCell colSpan={4} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow> )}
+                                    ) : (<TableRow><TableCell colSpan={4} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
                                 </TableBody>
                             </Table>
                         )}
