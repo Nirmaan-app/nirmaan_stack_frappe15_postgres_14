@@ -53,13 +53,13 @@ export const PendingTasksTable: React.FC = () => {
         // onActionSuccess: refetch, // Pass the refetch function from useServerDataTable
     });
 
-    const {getTotalAmount,getDeliveredAmount} = useOrderTotals()
+    const {getTotalAmount,getDeliveredAmount,getVendorName} = useOrderTotals()
     const {getAmount} = useOrderPayments()
 
     // --- Column Definitions (Memoized with dependencies) ---
     const columns = React.useMemo(
-        () => getPendingTaskColumns(openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap, getTotalAmount ,getAmount,getDeliveredAmount),
-        [openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount]
+        () => getPendingTaskColumns(openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap, getTotalAmount ,getAmount,getDeliveredAmount,getVendorName),
+        [openConfirmationDialog, loadingTaskId, isProcessing, attachmentsMap, getTotalAmount, getAmount,getDeliveredAmount,getVendorName]
     );
 
     const staticFilters = useMemo(() => getInvoiceTaskStaticFilters("Pending", role, user_id), [role, user_id])

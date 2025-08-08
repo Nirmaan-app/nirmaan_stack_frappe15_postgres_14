@@ -13,9 +13,11 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import SITEURL from "@/constants/siteURL";
 import { parseNumber } from "@/utils/parseNumber";
 
+
 // --- Helper function for common columns ---
 const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getAmount: (orderId: string, statuses: string[]) => number, getDeliveredAmount?: (orderId: string, type: string) => number,
+    getVendorName?: (orderId: string, type: string) => string
 ): ColumnDef<InvoiceApprovalTask>[] => [
         {
             accessorKey: "task_docname",
@@ -65,6 +67,15 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
                 }
             }
         },
+         {
+        id: "vendor_name",
+        header: "Vendor",
+        cell: ({ row }) => {
+            // Simply call the function with the task's parent doc info
+            const vendorName = getVendorName(row.original.task_docname, row.original.task_doctype);
+            return <div>{vendorName}</div>
+        }
+    },
         {
             id: "po_amount", // PO Amount
             header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Amt(incl. GST)" />,
@@ -201,18 +212,18 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
                 }
             }
         },
-        {
-            accessorKey: "creation",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Task Created" />,
-            cell: ({ row }) => <div>{formatDate(new Date(row.original.creation), 'dd-MMM-yyyy HH:mm')}</div>,
-            sortingFn: 'datetime',
-            meta: {
-                exportHeaderName: "Task Created",
-                exportValue: (row) => {
-                    return formatDate(new Date(row.creation), 'dd-MMM-yyyy HH:mm')
-                }
-            }
-        },
+        // {
+        //     accessorKey: "creation",
+        //     header: ({ column }) => <DataTableColumnHeader column={column} title="Task Created" />,
+        //     cell: ({ row }) => <div>{formatDate(new Date(row.original.creation), 'dd-MMM-yyyy HH:mm')}</div>,
+        //     sortingFn: 'datetime',
+        //     meta: {
+        //         exportHeaderName: "Task Created",
+        //         exportValue: (row) => {
+        //             return formatDate(new Date(row.creation), 'dd-MMM-yyyy HH:mm')
+        //         }
+        //     }
+        // },
     ];
 
 // --- Columns specific to Pending Tasks ---
@@ -223,9 +234,9 @@ export const getPendingTaskColumns = (
     attachmentsMap?: Record<string, string>,
     getTotalAmount: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getDeliveredAmount: (orderId: string, type: string) => number, // Pass the new getter
-    getAmount: (orderId: string, statuses: string[]) => number
+    getAmount: (orderId: string, statuses: string[]) => number,getVendorName: (orderId: string, type: string) => string
 ): ColumnDef<InvoiceApprovalTask>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getDeliveredAmount, getAmount), // Include common columns
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getDeliveredAmount, getAmount,getVendorName), // Include common columns
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -283,11 +294,11 @@ export const getTaskHistoryColumns = (getUserName: (id: string | undefined) => s
     attachmentsMap?: Record<string, string>,
     getTotalAmount: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getDeliveredAmount?: (orderId: string, type: string) => number, // New getter
-    getAmount: (orderId: string, statuses: string[]) => number
+    getAmount: (orderId: string, statuses: string[]) => number,getVendorName: (orderId: string, type: string) => string
 ): ColumnDef<InvoiceApprovalTask>[] => {
 
     return [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getDeliveredAmount, getAmount), // Include common columns
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getDeliveredAmount, getAmount,getVendorName), // Include common columns
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,

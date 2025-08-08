@@ -33,7 +33,7 @@ const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ activeTab, poAmou
        return (
         <TableRow className="bg-gray-100 hover:bg-gray-100 sticky top-[0px] z-10">
             <TableCell colSpan={4} className="px-2 py-2 font-semibold text-gray-700 text-right">
-                Opening Balance
+                Opening Balance (as on 31st March 2025)
             </TableCell>
             <TableCell className="px-2 py-2 text-right font-mono font-semibold">
                 {formatToRoundedIndianRupee(openingAmount)}
@@ -134,9 +134,9 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
                 </div>
             </TableHead>
             <TableHead className="px-2 py-1 min-w-[200px] font-semibold">Details</TableHead>
-            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">{activeSubTab === 'poLedger' ? 'PO Amount' : 'Invoice Amount'}</TableHead>
+            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">{activeSubTab === 'poLedger' ? 'PO Amount (incl. GST)' : 'Invoice Amount'}</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Payments</TableHead>
-            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Balance</TableHead>
+            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Balance Payable</TableHead>
           </TableRow>
                    <OpeningBalanceRow 
             activeTab={activeSubTab}

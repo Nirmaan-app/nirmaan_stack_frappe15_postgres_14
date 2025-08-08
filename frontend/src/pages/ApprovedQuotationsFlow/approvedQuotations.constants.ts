@@ -50,4 +50,5 @@ export const getSingleItemStaticFilters = (productId?: string): Array<[string, s
     return [["item_id", "=", productId]];
 };
 
+export const ALL_ITEMS_CACHE_KEY = 'allItemsMasterList';
 
