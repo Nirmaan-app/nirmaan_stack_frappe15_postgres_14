@@ -4,7 +4,7 @@ import { Radio } from "antd";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { POReportOption, SROption, ProjectReportType, ReportType, useReportStore } from './store/useReportStore';
+import { POReportOption, SROption, ProjectReportType, ReportType, useReportStore ,VendorReportType} from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 
@@ -12,6 +12,7 @@ import { urlStateManager } from '@/utils/urlStateManager';
 const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
 const POReports = React.lazy(() => import('./components/POReports'));
 const SRReports = React.lazy(() => import('./components/SRReports'));
+const VendorReports = React.lazy(() => import('./components/VendorReports'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -20,6 +21,9 @@ const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Outflow Report(Project)', value: 'Outflow Report(Project)' },
     { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
 ];
+const VendorReportOptions: { label: string; value: VendorReportType }[] = [{
+    label: 'Vendor Ledger', value: 'Vendor Ledger'
+}];
 
 const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
@@ -47,9 +51,13 @@ export default function ReportsContainer() {
             return REPORTS_TABS.PO;
         }
         // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
-        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
-        return REPORTS_TABS.PROJECTS;
+       if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
+        return REPORTS_TABS.PROJECTS; // Default for Admin/Accountant
     }, [role]);
+
+
+       
+
 
     const [activeTab, setActiveTab] = useState<string>(initialTab);
 
@@ -124,6 +132,13 @@ export default function ReportsContainer() {
                 value: REPORTS_TABS.PROJECTS,
             });
         }
+          if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            availableTabs.push({
+                label: <div className="flex items-center"><span>Vendors</span></div>,
+                value: REPORTS_TABS.VENDORS,
+            });
+        }
+        //
         // All three roles (Admin, Accountant, PM) can see PO and SR tabs
         if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({
@@ -159,7 +174,11 @@ export default function ReportsContainer() {
             return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? projectReportOptions
                 : [];
-        } else if (activeTab === REPORTS_TABS.PO) {
+        } else if(activeTab === REPORTS_TABS.VENDORS){
+            return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
+                ? VendorReportOptions
+                : [];
+        }else if (activeTab === REPORTS_TABS.PO) {
             return role === "Nirmaan Project Manager Profile"
                 ? poReportOptions.filter(option => option.value === 'Dispatched for 3 days')
                 : (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? poReportOptions : []);
@@ -216,6 +235,7 @@ export default function ReportsContainer() {
             return <div className="p-4 text-center text-gray-500">Please select an available report tab.</div>;
         }
         if (activeTab === REPORTS_TABS.PROJECTS) return <ProjectReports />;
+        if (activeTab === REPORTS_TABS.VENDORS) return <VendorReports />; // 👈 ADD THIS
         if (activeTab === REPORTS_TABS.PO) return <POReports />;
         if (activeTab === REPORTS_TABS.SR) return <SRReports />;
         return <div className="p-4 text-center text-gray-500">Select a report tab to view details.</div>;

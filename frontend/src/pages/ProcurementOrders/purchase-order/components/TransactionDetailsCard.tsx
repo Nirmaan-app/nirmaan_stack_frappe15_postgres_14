@@ -54,7 +54,7 @@ interface TransactionDetailsCardProps {
   getTotal: {
     total: number
     totalGst: number
-    totalAmt: number
+    totalWithTax: number
   }
   AllPoPaymentsListMutate: any
 }
@@ -91,9 +91,9 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
 
   const validateAmount = useCallback(
     debounce((amount: number) => {
-      const { totalAmt } = getTotal;
+      const { totalWithTax } = getTotal;
 
-      const compareAmount = totalAmt - amountPaid;
+      const compareAmount = totalWithTax - amountPaid;
 
       if (amount > compareAmount) {
         setWarning(
@@ -229,7 +229,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                   </div>
                   <div className="flex items-center justify-between">
                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal?.totalAmt || 0))}</span>
+                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal?.totalWithTax || 0))}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <Label className=" text-red-700">Amt Paid Till Now:</Label>

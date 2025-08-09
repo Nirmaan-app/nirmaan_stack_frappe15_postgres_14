@@ -2,7 +2,7 @@
 
 // src/pages/vendors/components/VirtualizedLedgerTable.tsx
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef,useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableFooter } from "@/components/ui/table";
 import { SimpleFacetedFilter } from '../../projects/components/SimpleFacetedFilter';
@@ -16,7 +16,9 @@ import { AdvancedDateFilter, DateFilterValue } from './AdvancedDateFilter';
 
 // Define an interface for the props of the editable opening balance row
 interface OpeningBalanceRowProps {
-    activeTab: 'poLedger' | 'invoicesLedger';
+      activeSubTab: 'poLedger' | 'invoicesLedger' | 'srLedger';
+      srAmountBalancing: number; // Add this new prop
+
     poAmount: number;
     invoiceAmount: number;
     paymentAmount: number;
@@ -25,9 +27,15 @@ interface OpeningBalanceRowProps {
     isSaving: boolean;
 }
 
-const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ activeTab, poAmount, invoiceAmount, paymentAmount, calculatedBalance, onEdit, isSaving }) => {
+const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ activeTab, poAmount,srAmount, invoiceAmount, paymentAmount, calculatedBalance, onEdit, isSaving }) => {
 
-    const openingAmount = activeTab === 'poLedger' ? poAmount : invoiceAmount;
+    const openingAmount = useMemo(() => {
+        switch (activeTab) {
+            case 'poLedger': return poAmount;
+            case 'srLedger': return srAmount; // Add this case
+            case 'invoicesLedger': return invoiceAmount;
+        }
+    }, [activeTab, poAmount, srAmount, invoiceAmount]);
 
    
        return (
@@ -86,6 +94,7 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
     onSetProjectFilter, 
     // Destructure new props
     openingBalance,
+    srAmountBalancing,
     poAmountBalancing,
     invoiceBalancing,
     paymentBalancing,
@@ -112,6 +121,13 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
   const paddingBottom = virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
   
   const colSpan = 7;
+   const amountColumnHeader = useMemo(() => {
+      switch (activeSubTab) {
+          case 'poLedger': return 'PO Amount';
+          case 'srLedger': return 'SR Amount'; // Add this case
+          case 'invoicesLedger': return 'Invoice Amount';
+      }
+  }, [activeSubTab]);
 
   return (
     <div ref={parentRef} className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto relative">
@@ -134,13 +150,14 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
                 </div>
             </TableHead>
             <TableHead className="px-2 py-1 min-w-[200px] font-semibold">Details</TableHead>
-            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">{activeSubTab === 'poLedger' ? 'PO Amount (incl. GST)' : 'Invoice Amount'}</TableHead>
+            <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">{amountColumnHeader}</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Payments</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Balance Payable</TableHead>
           </TableRow>
                    <OpeningBalanceRow 
             activeTab={activeSubTab}
             poAmount={poAmountBalancing}
+            srAmount={srAmountBalancing}
             invoiceAmount={invoiceBalancing}
             paymentAmount={paymentBalancing}
             calculatedBalance={openingBalance}
