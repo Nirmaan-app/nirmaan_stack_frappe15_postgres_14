@@ -29,7 +29,8 @@
   "vendor_gst",
   "po_amount_balance",
   "payment_balance",
-  "invoice_balance"
+  "invoice_balance",
+  "sr_amount_balance"
  ],
  "fields": [
   {
@@ -158,12 +159,17 @@
    "fieldname": "invoice_balance",
    "fieldtype": "Currency",
    "label": "Inovice Balance"
+  },
+  {
+   "fieldname": "sr_amount_balance",
+   "fieldtype": "Currency",
+   "label": "Sr Amount Balance"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-05 17:53:49.667205",
+ "modified": "2025-08-08 11:32:59.276855",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

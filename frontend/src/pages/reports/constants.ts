@@ -1,5 +1,6 @@
 export const REPORTS_TABS = {
   PROJECTS: 'projects',
+  VENDORS: 'vendors',
   PO: 'po',
   SR: 'sr',
 } as const; // Use "as const" for stricter typing

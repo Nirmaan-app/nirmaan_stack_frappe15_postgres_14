@@ -125,7 +125,7 @@ export const useOrderTotals = () => {
         const order = purchaseOrders?.find(i => i?.name === orderId);
         if (!order) return 0;
         if(orderId=="PO/071/00041/24-25"){
-      console.log("DEBUG EFFECTIVE GST",orderId)
+      // console.log("DEBUG EFFECTIVE GST",orderId)
 
         }
         const taxAmount = parseNumber(order.tax_amount);
@@ -134,7 +134,7 @@ export const useOrderTotals = () => {
 
         // Avoid division by zero and return the calculated rate
         if (baseAmount > 0 && taxAmount > 0) {
-          console.log("DEBUG EFFECTIVE GST6",orderId,parseNumber(taxAmount/baseAmount)*100)
+          // console.log("DEBUG EFFECTIVE GST6",orderId,parseNumber(taxAmount/baseAmount)*100)
           return parseNumber((taxAmount / baseAmount) * 100);
         }
         return 0;
