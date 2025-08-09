@@ -61,10 +61,10 @@ export const EstimatesExecutive = () => {
                         </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center">
-                        <Link to="/all-AQs">
+                        <Link to="/item-price">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    Approved Quotations
+                                 Item Price Search
                                 </CardTitle>
                                 <Coins className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
