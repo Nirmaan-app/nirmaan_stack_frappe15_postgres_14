@@ -84,7 +84,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
     const menuItems: MenuItem[] = useMemo(() => [
         { label: "Overview", key: "overview" },
-        (vendor?.vendor_type !== "Service") &&
+        // (vendor?.vendor_type !== "Service") &&
         { label: "Vendor Ledger", key: "poVendorLedger" },
         (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
         { label: "Material Orders", key: "materialOrders" },
