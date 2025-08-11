@@ -6,74 +6,74 @@ import { TailSpin } from "react-loader-spinner";
 
 
 export interface DashboardMetric {
-    id: string; // Unique key for mapping
-    title: string;
-    doctype: string;
-    linkTo: string;
-    Icon: LucideIcon;
-    dataCy?: string; // For cypress testing
-  }
-  
+  id: string; // Unique key for mapping
+  title: string;
+  doctype: string;
+  linkTo: string;
+  Icon: LucideIcon;
+  dataCy?: string; // For cypress testing
+}
+
 
 
 export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
-    {
-      id: "projects",
-      title: "Projects",
-      doctype: "Projects",
-      linkTo: "/projects",
-      Icon: HardHat,
-      dataCy: "admin-dashboard-project-card",
-    },
-    {
-      id: "users",
-      title: "Users",
-      doctype: "Nirmaan Users",
-      linkTo: "/users",
-      Icon: UsersRound,
-      dataCy: "admin-dashboard-users-card",
-    },
-    {
-      id: "products", // Assuming "Items" are products
-      title: "Products",
-      doctype: "Items",
-      linkTo: "/products",
-      Icon: ShoppingCart,
-      dataCy: "admin-dashboard-products-card",
-    },
-    {
-      id: "vendors",
-      title: "Vendors",
-      doctype: "Vendors",
-      linkTo: "/vendors",
-      Icon: Package,
-      dataCy: "admin-dashboard-vendors-card",
-    },
-    {
-      id: "customers",
-      title: "Customers",
-      doctype: "Customers",
-      linkTo: "/customers",
-      Icon: SquareUserRound,
-      dataCy: "admin-dashboard-customers-card",
-    },
-    {
-      id: "product-packages",
-      title: "Product Packages",
-      doctype: "Procurement Packages",
-      linkTo: "/product-packages",
-      Icon: Boxes,
-      dataCy: "admin-dashboard-proc-packages-card",
-    },
-    {
-      id: "approved-quotations",
-      title: "Approved Quotations",
-      doctype: "Approved Quotations",
-      linkTo: "/all-AQs",
-      Icon: Boxes,
-      dataCy: "admin-dashboard-approved-quotes-card",
-    },
-  ];
+  {
+    id: "projects",
+    title: "Projects",
+    doctype: "Projects",
+    linkTo: "/projects",
+    Icon: HardHat,
+    dataCy: "admin-dashboard-project-card",
+  },
+  {
+    id: "users",
+    title: "Users",
+    doctype: "Nirmaan Users",
+    linkTo: "/users",
+    Icon: UsersRound,
+    dataCy: "admin-dashboard-users-card",
+  },
+  {
+    id: "products", // Assuming "Items" are products
+    title: "Products",
+    doctype: "Items",
+    linkTo: "/products",
+    Icon: ShoppingCart,
+    dataCy: "admin-dashboard-products-card",
+  },
+  {
+    id: "vendors",
+    title: "Vendors",
+    doctype: "Vendors",
+    linkTo: "/vendors",
+    Icon: Package,
+    dataCy: "admin-dashboard-vendors-card",
+  },
+  {
+    id: "customers",
+    title: "Customers",
+    doctype: "Customers",
+    linkTo: "/customers",
+    Icon: SquareUserRound,
+    dataCy: "admin-dashboard-customers-card",
+  },
+  {
+    id: "product-packages",
+    title: "Product Packages",
+    doctype: "Procurement Packages",
+    linkTo: "/product-packages",
+    Icon: Boxes,
+    dataCy: "admin-dashboard-proc-packages-card",
+  },
+  // {
+  //   id: "approved-quotations",
+  //   title: "Approved Quotations",
+  //   doctype: "Approved Quotations",
+  //   linkTo: "/all-AQs",
+  //   Icon: Boxes,
+  //   dataCy: "admin-dashboard-approved-quotes-card",
+  // },
+];
 
 
 // Helper hook to encapsulate useFrappeGetDocCount logic if needed, or use directly
@@ -106,8 +106,8 @@ export default function DefaultDashboard() {
         {/* Optional: Add a global refresh button or date range selector here */}
       </div>
 
-      <div 
-    //   className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+      <div
+        //   className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
         className="grid gap-4 md:gap-6 md:grid-cols-2"
       > {/* Responsive grid */}
         {metricDataHooks.map(({ id, title, linkTo, Icon, dataCy, data, isLoading, error }) => (
@@ -120,8 +120,8 @@ export default function DefaultDashboard() {
             isLoading={isLoading}
             error={error}
             dataCy={dataCy}
-            // You can add custom colors here if needed, e.g., based on metric type
-            // iconColor={id === 'projects' ? 'text-blue-500' : undefined}
+          // You can add custom colors here if needed, e.g., based on metric type
+          // iconColor={id === 'projects' ? 'text-blue-500' : undefined}
           />
         ))}
       </div>

@@ -7,7 +7,7 @@ import {Link} from "react-router-dom";
 
 export interface LedgerEntry {
     date: string;
-    transactionType: 'PO Created' | 'Invoice Recorded' | 'Payment Made' | 'Refund Received' | 'Credit Note Recorded';
+    transactionType: 'PO Created' |'SR Created' | 'Invoice Recorded' | 'Payment Made' | 'Refund Received' | 'Credit Note Recorded';
     project: string;
     details: string;
     amount: number;
@@ -23,6 +23,8 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
   const getTransactionClass = () => {
     switch(item.transactionType) {
         case 'PO Created':
+            return 'font-semibold text-gray-800';
+        case 'SR Created': 
             return 'font-semibold text-gray-800';
         case 'Invoice Recorded':
             return 'font-semibold text-gray-800';
@@ -60,6 +62,17 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
                 </React.Fragment>
             );
         }
+        if (part.startsWith('SR: ') || part.startsWith('For SR: ')) {
+        const id = part.substring(part.indexOf(': ') + 2);
+        const prefix = part.substring(0, part.indexOf(': ') + 2);
+        return (
+            <React.Fragment key={index}>
+                {prefix}<Link className="text-blue-600 hover:underline font-medium" to={`/service-requests-list/${id}/order-view`}> {/* Update link path */}
+                    {id}
+                </Link>
+            </React.Fragment>
+        );
+    }
         return <React.Fragment key={index}>{part}{index < parts.length - 1 && <br />}</React.Fragment>;
     });
   };
