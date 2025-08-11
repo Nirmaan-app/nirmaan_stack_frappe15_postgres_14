@@ -229,7 +229,7 @@ export default function DeliveryNote() {
     <div className="container mx-auto px-4 py-6 max-w-4xl space-y-6">
       {/* --- (Indicator) MODIFIED: Header with new button and responsive wrapper --- */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-4">
-        <h1 className="text-2xl font-bold text-gray-800">{displayDnId}</h1>
+        <h1 className="text-2xl font-bold text-gray-800">{`${displayDnId}/M`}</h1>
         <div className="flex flex-col sm:flex-row gap-2">
           <Button
             onClick={handlePrintLatest}
