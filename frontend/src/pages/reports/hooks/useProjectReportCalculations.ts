@@ -29,7 +29,7 @@ export interface ProjectCalculatedFields {
     totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
- totalBalanceCredit: number; // ✨ NEW
+    totalBalanceCredit: number; // ✨ NEW
     totalDue: number;           // ✨ NEW
     // You can add more calculated fields here if needed, e.g., totalCredit
 }
@@ -213,8 +213,9 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
 
             let totalInvoiced = 0;
             relatedPOs.forEach(po => {
-                totalInvoiced += getPOTotal(po, po.loading_charges, po.freight_charges)?.totalAmt || 0;
+                totalInvoiced += getPOTotal(po)?.totalWithTax || 0;
             });
+            // console.log("DEBUG: totalInvoiced",totalInvoiced)
             relatedSRs.forEach(sr => {
                 const amount = getSRTotal(sr) || 0;
                 totalInvoiced += sr?.gst === "true" ? amount * 1.18 : amount;

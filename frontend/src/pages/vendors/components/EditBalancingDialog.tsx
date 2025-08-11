@@ -1,103 +1,166 @@
 // src/pages/vendors/components/EditBalancingDialog.tsx
 
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import React, { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from "lucide-react";
 
 interface EditBalancingDialogProps {
-    isOpen: boolean;
-    onClose: () => void;
-    onSave: (values: { po: number; invoice: number; payment: number; }) => void;
-    isSaving: boolean;
-    initialData: {
-        po: number;
-        invoice: number;
-        payment: number;
-    };
-    activeTab: 'poLedger' | 'invoicesLedger'; // <-- ADD THIS LINE
-
-
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (values: { po: number; invoice: number; payment: number }) => void;
+  isSaving: boolean;
+  initialData: {
+    po: number;
+    invoice: number;
+    payment: number;
+  };
+  activeTab: "poLedger" | "srLedger" | "invoicesLedger"; // <-- ADD THIS LINE
+  vendor_type: "Material" | "Service" | "Material & Service";
 }
 
-export const EditBalancingDialog: React.FC<EditBalancingDialogProps> = ({ isOpen, onClose, onSave, isSaving, initialData,activeTab }) => {
-    const [values, setValues] = useState(initialData);
+export const EditBalancingDialog: React.FC<EditBalancingDialogProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  isSaving,
+  initialData,
+  activeTab,
+  vendorType,
+}) => {
+  const [values, setValues] = useState(initialData);
 
-    useEffect(() => {
-        // Reset state if the dialog is reopened with new initial data
-        setValues(initialData);
-    }, [initialData, isOpen]);
+  useEffect(() => {
+    // Reset state if the dialog is reopened with new initial data
+    setValues(initialData);
+  }, [initialData, isOpen]);
 
-    const handleSave = () => {
-        onSave({
-            po: Number(values.po) || 0,
-            invoice: Number(values.invoice) || 0,
-            payment: Number(values.payment) || 0
-        });
-    };
-    
-    const hasChanged = JSON.stringify(values) !== JSON.stringify(initialData);
+  const handleSave = () => {
+    onSave({
+      po: Number(values.po) || 0,
+      sr: Number(values.sr) || 0,
+      invoice: Number(values.invoice) || 0,
+      payment: Number(values.payment) || 0,
+    });
+  };
 
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[480px]">
-                <DialogHeader>
-                    <DialogTitle>Edit Opening Balance Figures</DialogTitle>
-                    <DialogDescription>
-                        Enter the total amounts from before April 1st, 2025 to set the starting balance for this vendor's ledger.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-6 py-4">
-                    <div className="grid grid-cols-3 items-center gap-4">
-                        <Label htmlFor="po-balance" className="text-right">PO Amount</Label>
-                        <Input
-                            id="po-balance"
-                            type="number"
-                            value={values.po}
-                            onChange={(e) => setValues(v => ({ ...v, po: Number(e.target.value) }))}
-                            className="col-span-2 h-10"
-                            placeholder="e.g., 50000"
-                            disabled={activeTab === 'invoicesLedger' || isSaving}
+  const hasChanged = JSON.stringify(values) !== JSON.stringify(initialData);
 
-                        />
-                    </div>
-                    <div className="grid grid-cols-3 items-center gap-4">
-                         <Label htmlFor="invoice-balance" className="text-right">Invoice Amount</Label>
-                        <Input
-                            id="invoice-balance"
-                            type="number"
-                             value={values.invoice}
-                            onChange={(e) => setValues(v => ({ ...v, invoice: Number(e.target.value) }))}
-                            className="col-span-2 h-10"
-                            placeholder="e.g., 45000"
-                                                        disabled={activeTab === 'poLedger' || isSaving}
-                        />
-                    </div>
-                    <div className="grid grid-cols-3 items-center gap-4">
-                         <Label htmlFor="payment-balance" className="text-right">Payment Amount</Label>
-                        <Input
-                            id="payment-balance"
-                            type="number"
-                            value={values.payment}
-                            onChange={(e) => setValues(v => ({ ...v, payment: Number(e.target.value) }))}
-                            className="col-span-2 h-10"
-                            placeholder="e.g., 30000"
-                             disabled={isSaving} 
-                        />
-                    </div>
-                </div>
-                <DialogFooter>
-                    <DialogClose asChild>
-                        <Button type="button" variant="outline">Cancel</Button>
-                    </DialogClose>
-                    <Button onClick={handleSave} disabled={isSaving || !hasChanged}>
-                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Save Changes
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Edit Opening Balance Figures</DialogTitle>
+          <DialogDescription>
+            Enter the total amounts from before April 1st, 2025 to set the
+            starting balance for this vendor's ledger.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-6 py-4">
+          {(
+            activeTab === "poLedger") && (
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label htmlFor="po-balance" className="text-right">
+                PO Amount
+              </Label>
+              <Input
+                id="po-balance"
+                type="number"
+                value={values.po}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, po: Number(e.target.value) }))
+                }
+                className="col-span-2 h-10"
+                placeholder="e.g., 50000"
+                disabled={
+                 
+                  isSaving
+                }
+              />
+            </div>
+          )}
+          {(
+            activeTab === "srLedger") && (
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label htmlFor="sr-balance" className="text-right">
+                SR Amount
+              </Label>
+              <Input
+                id="sr-balance"
+                type="number"
+                value={values.sr}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, sr: Number(e.target.value) }))
+                }
+                className="col-span-2 h-10"
+                placeholder="e.g., 50000"
+                disabled={
+                  
+                  isSaving
+                }
+              />
+            </div>
+          )}
+          {activeTab === "invoicesLedger" && (
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label htmlFor="invoice-balance" className="text-right">
+                Invoice Amount
+              </Label>
+              <Input
+                id="invoice-balance"
+                type="number"
+                value={values.invoice}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, invoice: Number(e.target.value) }))
+                }
+                className="col-span-2 h-10"
+                placeholder="e.g., 45000"
+                disabled={
+                  isSaving
+                }
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 items-center gap-4">
+            <Label htmlFor="payment-balance" className="text-right">
+              Payment Amount
+            </Label>
+            <Input
+              id="payment-balance"
+              type="number"
+              value={values.payment}
+              onChange={(e) =>
+                setValues((v) => ({ ...v, payment: Number(e.target.value) }))
+              }
+              className="col-span-2 h-10"
+              placeholder="e.g., 30000"
+              disabled={isSaving}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button onClick={handleSave} disabled={isSaving || !hasChanged}>
+            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 };
