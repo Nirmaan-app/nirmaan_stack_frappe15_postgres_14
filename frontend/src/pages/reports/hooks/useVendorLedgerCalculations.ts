@@ -45,12 +45,12 @@ const isDateInPeriod = (dateStr: string | null | undefined, startDate: Date | nu
 };
 
 // Helper function to safely check if a date is before or on the end of the period
-const isDateBeforeOrOn = (dateStr: string | null | undefined, compareDate: Date | null): boolean => {
+const isDateOnOrAfter = (dateStr: string | null | undefined, compareDate: Date | null): boolean => {
     if (!dateStr || !compareDate) return false;
     try {
         const date = parseISO(dateStr);
         // isBefore includes the time, so we check if it's before the next day, or use <=
-        return date <= compareDate;
+        return date >= compareDate;
     } catch {
         return false;
     }
@@ -122,7 +122,7 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     // 5. Create the memoized function that performs the detailed ledger calculation.
     const getVendorCalculatedFields = useCallback(
         memoize((vendorId: string): VendorCalculatedFields | null => {
-            const isLoading = isLoadingPOs || isLoadingSRs || isLoadingPayments;
+            const isLoading = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments;
             if (isLoading) {
                 return null; // Data not ready
             }
@@ -166,6 +166,7 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
             
             const totalPaid = relatedPayments.reduce((sum, p) => {
                 if (isDateInPeriod(p.payment_date || p.creation, startDate, endDate)) {
+                    console.log("DEBUG: p.amount", p.amount, "vendor", vendorId, "sum", sum)
                     return sum + parseNumber(p.amount);
                 }
                 return sum;
@@ -184,19 +185,22 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
 
             const cumulativeInvoiced = [...relatedPOs, ...relatedSRs].reduce((sum, doc) => {
                 const invoiceData = doc.invoice_data?.data;
+                // console.log("DEBUG: invoiceData", invoiceData)
                 if (!invoiceData) return sum;
                 
                 let invoiceSum = 0;
                 for (const dateStr in invoiceData) {
-                    if (isDateBeforeOrOn(dateStr, endDate)) {
+                    if (isDateOnOrAfter(dateStr, new Date("2025-04-01"))) {
                         invoiceSum += parseNumber(invoiceData[dateStr].amount);
+                        // console.log("DEBUG: invoiceSum", invoiceSum)
                     }
                 }
+                // console.log("DEBUG: sum", sum+invoiceSum, "vendor", vendorId)
                 return sum + invoiceSum;
             }, 0);
 
             const cumulativePaid = relatedPayments.reduce((sum, p) => {
-                if (isDateBeforeOrOn(p.payment_date || p.creation, endDate)) {
+                if (isDateOnOrAfter(p.payment_date || p.creation, new Date("2025-04-01"))) {
                     return sum + parseNumber(p.amount);
                 }
                 return sum;
@@ -204,6 +208,7 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
             
             
             // const balance = cumulativeInvoiced - cumulativePaid;
+            // console.log("DEBUG: cumulativeInvoiced", cumulativeInvoiced, "cumulativePaid", cumulativePaid, "vendor", vendorId, "openingBalance", openingBalance)
             const balance = openingBalance + (cumulativeInvoiced - cumulativePaid);
 
             return { totalPO, totalSR, totalInvoiced, totalPaid, balance };
@@ -212,8 +217,8 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
         [posByVendor, srsByVendor, paymentsByVendor, isLoadingPOs, isLoadingSRs, isLoadingPayments, startDate, endDate]
     );
 
-    const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingPayments;
-    const globalDepsError = errorPOs || errorSRs || errorPayments;
+    const isLoadingGlobalDeps = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments;
+    const globalDepsError = errorVendors || errorPOs || errorSRs || errorPayments;
 
     return {
         getVendorCalculatedFields,

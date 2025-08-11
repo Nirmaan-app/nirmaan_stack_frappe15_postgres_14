@@ -213,7 +213,7 @@ export function NewSidebar() {
             { key: "/vendors", label: "Vendors" },
             { key: "/customers", label: "Customers" },
             { key: "/product-packages", label: "Product Packages" },
-            { key: "/all-AQs", label: "Approved Quotations" },
+            // { key: "/all-AQs", label: "Approved Quotations" },
             //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
           ],
         },
@@ -307,8 +307,8 @@ export function NewSidebar() {
     //     },
     //   ]
     // : []),
-    
-     ...(user_id == "Administrator"||["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile","Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role) 
+
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/item-price',
@@ -492,14 +492,14 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "vendors", "customers", "product-packages","all-AQs"],
+    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "all-AQs"],
     // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
     //   "approve-amended-po", "approve-payments"
     // ],
     // "/approved-quotes": ["approved-quotes"],
-    "/item-price":["item-price"],
+    "/item-price": ["item-price"],
 
     "/procurement-requests": ["procurement-requests", "prs&milestones", "sent-back-requests"],
     "/service-requests": ["service-requests", "service-requests-list"],
@@ -581,7 +581,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard","Item Price Search","Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

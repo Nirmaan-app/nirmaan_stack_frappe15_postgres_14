@@ -6,7 +6,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VendorCalculatedFields, useVendorLedgerCalculations } from "../../hooks/useVendorLedgerCalculations";
-import {dateFilterFn} from "@/utils/tableFilters";
+import { dateFilterFn } from "@/utils/tableFilters";
 
 // Define the expected structure of table.options.meta
 interface VendorTableMeta {
@@ -54,7 +54,7 @@ export const getVendorColumns = (): ColumnDef<Vendors>[] => [
   },
   {
     id: "totalPO",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Value" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Value (incl. GST)" />,
     cell: (props) => <CalculatedCell {...props} accessor="totalPO" />,
   },
   {
@@ -64,7 +64,7 @@ export const getVendorColumns = (): ColumnDef<Vendors>[] => [
   },
   {
     id: "totalInvoiced",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Invoiced" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Invoiced (incl. GST)" />,
     cell: (props) => <CalculatedCell {...props} accessor="totalInvoiced" />,
   },
   {
@@ -74,7 +74,7 @@ export const getVendorColumns = (): ColumnDef<Vendors>[] => [
   },
   {
     id: "balance",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Balance payable" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Balance Payable" />,
     cell: (props) => <CalculatedCell {...props} accessor="balance" />,
   },
 ];
