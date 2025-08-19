@@ -19,7 +19,10 @@
   "advance",
   "invoice_no",
   "invoice_date",
-  "latest_payment_date"
+  "latest_payment_date",
+  "service_request_totals_section",
+  "total_amount",
+  "amount_paid"
  ],
  "fields": [
   {
@@ -99,12 +102,27 @@
    "fieldname": "latest_payment_date",
    "fieldtype": "Datetime",
    "label": "Latest Payment Date"
+  },
+  {
+   "fieldname": "service_request_totals_section",
+   "fieldtype": "Section Break",
+   "label": "Service Request Totals"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount"
+  },
+  {
+   "fieldname": "amount_paid",
+   "fieldtype": "Currency",
+   "label": "Amount Paid"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-15 18:29:52.035526",
+ "modified": "2025-08-19 19:25:54.254711",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

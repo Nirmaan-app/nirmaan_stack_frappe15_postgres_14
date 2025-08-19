@@ -52,3 +52,6 @@ nirmaan_stack.patches.v2_7.migrate_sbc_item_list_to_child_table #v2
 nirmaan_stack.patches.v2_7.migrate_po_order_list_to_child_table #3
 nirmaan_stack.patches.v2_7.delivery_data_update #v4
 nirmaan_stack.patches.v2_7.update_po_amount_delivered
+
+nirmaan_stack.patches.v2_5.populate_sr_total_amount
+nirmaan_stack.patches.v2_5.populate_amount_paid_for_sr_and_po #2
