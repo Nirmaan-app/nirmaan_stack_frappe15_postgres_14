@@ -168,7 +168,7 @@ export const ReleasePOSelect: React.FC = () => {
 
     const getAmountPaid = useMemo(() => memoize((id: string) => {
         const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
-        const total =payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
+        const total = payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
         // console.log("getAmountPaid", id, payments, total)
         return total;
     }, (id: string) => id), [projectPayments])
@@ -202,8 +202,8 @@ export const ReleasePOSelect: React.FC = () => {
         "creation",
         "modified",
         "amount",
-        "loading_charges",
-        "freight_charges",
+        // "loading_charges",
+        // "freight_charges",
         "invoice_data",
         ...(tab === "Merged POs" ? ["merged", "modified_by"] : [])
     ], [tab]);
@@ -483,7 +483,7 @@ export const ReleasePOSelect: React.FC = () => {
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
         {
-           accessorKey: "amount",
+            accessorKey: "total_amount",
             header: ({ column }) => {
                 return (
                     <DataTableColumnHeader column={column} title="PO Amt" />
@@ -499,7 +499,7 @@ export const ReleasePOSelect: React.FC = () => {
             meta: {
                 exportHeaderName: "PO Amount",
                 exportValue: (row) => {
-                    
+
                     return formatForReport(row.original?.total_amount);
                 }
             }
@@ -544,31 +544,56 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
-        ...(tab !== "Merged POs" ? [
-            {
-                id: "Amount_paid",
-                header: "Amt Paid",
-                cell: ({ row }) => {
-                    const amountPaid = getAmountPaid(row.original?.name);
-                    return (
-                        <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
-                            {formatToRoundedIndianRupee(amountPaid || 0)}
-                        </div>
-                    );
+        {
+            accessorKey: "amount_paid",
+            header: ({ column }) => {
+                return (
+                    <DataTableColumnHeader column={column} title="Amount Paid" />
+                )
+            },
+            cell: ({ row }) => {
 
-                },
-                size: 200,
-                // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
-                enableSorting: false,
-                meta: {
-                    exportHeaderName: "Amount Paid",
-                    exportValue: (row) => {
-                        const amountPaid = getAmountPaid(row.original?.name);
-                        return formatForReport(amountPaid || 0);
-                    }
+                return (<div className={`font-medium pr-2 ${row.original?.amount_paid !== 0 ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => row.original?.amount_paid !== 0 && setSelectedPaymentPO(row.original)} >
+                    {formatToRoundedIndianRupee(row.original?.amount_paid)}
+                </div>
+                );
+
+            },
+            size: 200,
+            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+            meta: {
+                exportHeaderName: "Amount Paid",
+                exportValue: (row) => {
+
+                    return formatForReport(row.original?.amount_paid);
                 }
-            } as ColumnDef<ProcurementOrdersType>
-        ] : []),
+            }
+        },
+        // ...(tab !== "Merged POs" ? [
+        //     {
+        //         id: "Amount_paid",
+        //         header: "Amt Paid",
+        //         cell: ({ row }) => {
+        //             const amountPaid = getAmountPaid(row.original?.name);
+        //             return (
+        //                 <div className={`font-medium pr-2 ${amountPaid ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => amountPaid && setSelectedPaymentPO(row.original)} >
+        //                     {formatToRoundedIndianRupee(amountPaid || 0)}
+        //                 </div>
+        //             );
+
+        //         },
+        //         size: 200,
+        //         // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+        //         enableSorting: false,
+        //         meta: {
+        //             exportHeaderName: "Amount Paid",
+        //             exportValue: (row) => {
+        //                 const amountPaid = getAmountPaid(row.original?.name);
+        //                 return formatForReport(amountPaid || 0);
+        //             }
+        //         }
+        //     } as ColumnDef<ProcurementOrdersType>
+        // ] : []),
         ...(["All POs"].includes(tab) ? [
             {
                 accessorKey: 'status',

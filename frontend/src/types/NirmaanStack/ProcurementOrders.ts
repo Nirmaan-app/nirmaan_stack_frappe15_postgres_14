@@ -121,6 +121,8 @@ export interface ProcurementOrder {
 	// }
 	po_amount_delivered?: number
 
+	amount_paid?: number
+
 	items: PurchaseOrderItem[]
 	// payment_terms:
 	/**	Category List : JSON	*/

@@ -50,13 +50,12 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
         "project",
         "project_name",
         "total_amount",
+        "amount_paid",
         "amount",
         "vendor",
         "vendor_name",
         "procurement_request",
         "status",
-        "loading_charges",
-        "freight_charges",
         "custom", // Add custom if used for badge
         // Add invoice_data if needed for a column in this specific summary table
     ];
@@ -444,28 +443,47 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                     },
                 },
             },
-
             {
-                id: "amount_paid_po",
+                // Use 'accessorKey' to make it sortable by the data table library
+                accessorKey: "amount_paid",
                 header: ({ column }) => (
-                    <DataTableColumnHeader column={column} title="Amt. Paid" />
+                    <DataTableColumnHeader column={column} title="Amount Paid" />
                 ),
                 cell: ({ row }) => (
-                    <div className="font-medium pr-2 text-center">
-                        {formatToRoundedIndianRupee(
-                            getTotalAmountPaidForPO(row.original.name)
-                        )}
+                    <div className="font-medium pr-2 text-center tabular-nums">
+                        {formatToRoundedIndianRupee(row.original.amount_paid)}
                     </div>
                 ),
-                size: 130,
-                enableSorting: false,
+                size: 160,
+                // enableSorting is true by default when using accessorKey
                 meta: {
-                    exportHeaderName: "Amt. Paid",
+                    exportHeaderName: "Amount Paid",
                     exportValue: (row: ProcurementOrder) => {
-                        return formatForReport(getTotalAmountPaidForPO(row.name));
+                        return formatForReport(row.amount_paid); // Use the direct field for export
                     },
                 },
             },
+            // {
+            //     id: "amount_paid_po",
+            //     header: ({ column }) => (
+            //         <DataTableColumnHeader column={column} title="Amt. Paid" />
+            //     ),
+            //     cell: ({ row }) => (
+            //         <div className="font-medium pr-2 text-center">
+            //             {formatToRoundedIndianRupee(
+            //                 getTotalAmountPaidForPO(row.original.name)
+            //             )}
+            //         </div>
+            //     ),
+            //     size: 130,
+            //     enableSorting: false,
+            //     meta: {
+            //         exportHeaderName: "Amt. Paid",
+            //         exportValue: (row: ProcurementOrder) => {
+            //             return formatForReport(getTotalAmountPaidForPO(row.name));
+            //         },
+            //     },
+            // },
         ],
         [
             getVendorName,
