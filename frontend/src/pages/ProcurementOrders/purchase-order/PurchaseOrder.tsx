@@ -393,7 +393,7 @@ export const PurchaseOrder = ({
     {
       fields: ["*"],
       filters: [["document_name", "=", poId]],
-      limit: 1000,
+      limit: 0,
     },
     poId ? undefined : null
   );
@@ -402,8 +402,8 @@ export const PurchaseOrder = ({
     useFrappeGetDocList<ProjectPayments>("Project Payments", {
       fields: ["*"],
       filters: [["document_type", "=", "Procurement Orders"]],
-      limit: 1000,
-      order: 'desc'
+      limit: 0,
+      orderBy: { field: "name", order: "desc" },
     });
 
 
