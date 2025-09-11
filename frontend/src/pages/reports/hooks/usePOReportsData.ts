@@ -184,7 +184,9 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
 
         // Process Purchase Orders
         (purchaseOrders || []).forEach(po => {
-            const { totalAmt } = getPOTotal(po); // Assuming totalAmt includes tax
+            if(po.amount_paid){
+
+                 const { totalAmt } = getPOTotal(po); // Assuming totalAmt includes tax
             combinedData.push({
                 name: po.name,
                 // type: 'PO',
@@ -198,6 +200,8 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                 amountPaid: paymentsMap[po.name] || 0, // Look up pre-calculated paid amount
                 originalDoc: po,
             });
+            }
+           
         });
 
         // Process Service Requests
