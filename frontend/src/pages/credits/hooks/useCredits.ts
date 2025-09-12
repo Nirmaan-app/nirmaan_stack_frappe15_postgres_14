@@ -78,7 +78,7 @@ export const useCredits = () => {
     ];
 
     if (currentStatus !== "All") {
-      filters.push(['status', '!=', 'Merged'], ['PO Payment Terms', 'status', '=', currentStatus],);
+      filters.push(['status', '!=', 'Merged'], ['PO Payment Terms', 'term_status', '=', currentStatus],);
     }
     // --- NEW LOGIC ---
     // Translate TanStack column filters into Frappe API filters
@@ -96,6 +96,7 @@ export const useCredits = () => {
     urlSyncKey: "credits_terms_list",
     additionalFilters: additionalFilters,
   });
+
 
   // console.log("CreditsTable",data)
   const handleConfirmRequestPayment = useCallback(async () => {

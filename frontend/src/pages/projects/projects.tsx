@@ -164,8 +164,8 @@ export const Projects: React.FC<ProjectsProps> = ({
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
-    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
-    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
+    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
+    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.status !== "Created"));
 
     return memoize((projectId: string) => {
       // console.log("projectId",projectId);
