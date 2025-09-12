@@ -182,7 +182,6 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
                         const amount = parseNumber(term.amount);
 
                         // Rule for 'totalBalanceCredit'
-                        console.log(term)
                         if (term.term_status !=="Paid") {
                             totals.totalBalanceCredit += amount;
                         }
@@ -235,7 +234,6 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
 
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
-            console.log("totalBalanceCredit, totalDue",totalBalanceCredit, totalDue)
             return {
                 totalInvoiced: parseNumber(totalInvoiced),
                 totalPoSrInvoiced: parseNumber(totalPoSrInvoiced), // Add the new value here
