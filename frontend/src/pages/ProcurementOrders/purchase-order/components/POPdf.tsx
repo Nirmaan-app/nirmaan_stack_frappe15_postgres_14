@@ -35,6 +35,13 @@ interface POPdfProps {
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js";
 
+
+const gstAddressMap = {
+  "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
+  "06ABFCS9095N1ZH": "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram - 122002, Haryana",
+  "09ABFCS9095N1ZB": "MR1, Plot no. 21 & 21A, AltF 142 Noida, Sector 142, Noida - 201305, Uttar Pradesh"
+}
+
 export const POPdf: React.FC<POPdfProps> = ({
   po,
   orderData,
@@ -514,11 +521,7 @@ export const POPdf: React.FC<POPdfProps> = ({
 
                       <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
                         <div className="text-xs text-gray-600 font-normal">
-                          {po?.project_gst
-                            ? po?.project_gst === "29ABFCS9095N1Z9"
-                              ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
-                              : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
-                            : "Please set company GST number in order to display the Address!"}
+                          {gstAddressMap[po?.project_gst]}
                         </div>
                         <div className="text-xs text-gray-600 font-normal">
                           GST: {po?.project_gst || "N/A"}
