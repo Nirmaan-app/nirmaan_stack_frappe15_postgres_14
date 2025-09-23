@@ -154,12 +154,12 @@
   "work_package": "HVAC System"
  },
  {
-  "category_name": "Plenum Box",
+  "category_name": "HVAC Cables",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/plenum.jpg",
   "modified": "2025-08-02 11:18:10.299876",
-  "name": "Plenum Box",
+  "name": "HVAC Cables",
   "new_items": "false",
   "tax": "18",
   "work_package": "HVAC System"
@@ -944,5 +944,38 @@
   "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Tool & Equipments",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2025-09-23 11:57:00.091462",
+  "name": "Tool & Equipments",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Tool & Equipments"
+ },
+ {
+  "category_name": "Sensor & Control Panel",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2025-09-23 12:24:16.145622",
+  "name": "Sensor & Control Panel",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "VAV",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2025-09-23 12:25:28.555421",
+  "name": "VAV",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "HVAC System"
  }
 ]
