@@ -5,7 +5,7 @@ export const PO_PAYMENT_TERM_DOCTYPE = 'Procurement Orders';
 
 // Define exactly what fields to pull. Use dot notation for parent fields.
 export const TERM_LIST_FIELDS_TO_FETCH = [
-    'name', "total_amount","status as POstatus", "project", "project_name","vendor", "vendor_name",'`tabPO Payment Terms`.name as ptname', '`tabPO Payment Terms`.status', '`tabPO Payment Terms`.label', '`tabPO Payment Terms`.amount','`tabPO Payment Terms`.percentage', '`tabPO Payment Terms`.due_date', '`tabPO Payment Terms`.payment_type'
+    'name', "total_amount","status as POstatus", "project", "project_name","vendor", "vendor_name",'`tabPO Payment Terms`.name as ptname', '`tabPO Payment Terms`.term_status', '`tabPO Payment Terms`.label', '`tabPO Payment Terms`.amount','`tabPO Payment Terms`.percentage', '`tabPO Payment Terms`.due_date', '`tabPO Payment Terms`.payment_type'
 ];
 
 // Define what the user can search for.
@@ -32,7 +32,7 @@ export const PAYMENT_TERM_STATUS_OPTIONS = [
 ];
 
 export const CREDIT_FACET_FILTER_OPTIONS = {
-    '`tabPO Payment Terms`.status': {
+    'term_status': {
         title: "Status",
         options: [
             { label: "Due", value: "Scheduled" },

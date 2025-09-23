@@ -120,6 +120,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData(); // Get user role
     const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
+    const isAccountant=role ==="Nirmaan Accountant Profile"
 
     const { setEditFulfilledPaymentDialog } = useDialogStore(); // Get the setter for the new dialog
     const [paymentToEdit, setPaymentToEdit] = useState<ProjectPayments | null>(null); // State to hold the payment for the dialog
@@ -351,7 +352,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                             </a>
                         )}
                         {/* Edit button only for Admins */}
-                        {isAdmin && (
+                        {(isAdmin || isAccountant)&& (
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-600 hover:text-gray-800" onClick={() => handleOpenEditDialog(row.original)}>
                                 <Edit2 className="h-4 w-4" />
                             </Button>

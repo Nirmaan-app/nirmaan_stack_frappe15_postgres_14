@@ -29,7 +29,7 @@ interface ProcurementRequestState {
     ) => void;
     setSelectedWP: (wp: string, wpSpecificMakes: CategoryMakesMap) => void;
     addProcItem: (item: ProcurementRequestItem) => boolean;
-    updateProcItem: (updatedItem: Partial<ProcurementRequestItem> & { name: string }) => void;
+    updateProcItem: (updatedItem: Partial<ProcurementRequestItem> & { uniqueId: string }) => void;
     deleteProcItem: (itemName: string) => void;
     undoDelete: () => void;
     setNewPRComment: (comment: string) => void;
@@ -178,7 +178,7 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
 
             // Actions that affect procList now just call _recalculateCategories
             addProcItem: (item) => {
-                if (get().procList.some(i => i.name === item.name)) return false;
+                if (get().procList.some(i => i.name === item.name && i.item===item.item)) return false;
                 const stack = get().undoStack.filter(stackItem => stackItem.name !== item.name);
                 set(state => ({
                     procList: [...state.procList, { ...item, uniqueId: item.uniqueId || uuidv4() }],
@@ -189,9 +189,10 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             },
 
             updateProcItem: (updatedItem) => {
+                console.log("updateItem",updatedItem)
                 set(state => ({
                     procList: state.procList.map(item =>
-                        (item.uniqueId && item.uniqueId === updatedItem.uniqueId) || item.name === updatedItem.name
+                        (item.uniqueId && item.uniqueId === updatedItem.uniqueId) && item.name === updatedItem.name
                             ? { ...item, ...updatedItem }
                             : item
                     )

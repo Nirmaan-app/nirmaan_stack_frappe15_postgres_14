@@ -72,11 +72,12 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
   const { data: CreditData } = useCredits()
-
-  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
-  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
+console.log("CreditData financials",CreditData)
+  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
+  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
 
   const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
   const relatedTotalDue = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
 

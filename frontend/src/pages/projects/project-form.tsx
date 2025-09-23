@@ -34,6 +34,8 @@ import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes"
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 
+import {MultiSelect} from "./components/multi-select"
+
 
 const { Step } = Steps;
 
@@ -175,7 +177,9 @@ const projectFormSchema = z.object({
             location: z.string(),
             gst: z.string(),
         }))
+         // <<< ADD THIS LINE
     }),
+   
 })
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>
@@ -191,6 +195,19 @@ interface wpType {
 //     scope_of_work_name: string;
 //     work_package: string;
 // }
+
+
+const allGstOptions = [
+  { location: "Bengaluru", gst: "29ABFCS9095N1Z9" },
+  { location: "Gurugram", gst: "06ABFCS9095N1ZH" },
+  { location: "Noida", gst: "09ABFCS9095N1ZB" }, // Added Noida as it was in your logic
+];
+
+// Prepare options for the MultiSelect component
+const multiSelectGstOptions = allGstOptions.map(option => ({
+  label: `${option.location} (${option.gst})`,
+  value: option.location,
+}));
 
 export const ProjectForm = () => {
 
@@ -452,6 +469,17 @@ export const ProjectForm = () => {
         const fieldsToValidate = getFieldsForSection(section);
         const isValid = await form.trigger(fieldsToValidate);
 
+       
+        const gstList = form.getValues("project_gst_number.list");
+        if (!gstList || gstList.length === 0) {
+            toast({
+                title: "Failed!",
+                description: "At least one Project GST location must be selected.",
+                variant: "destructive"
+            });
+            return; // Stop further execution if this validation fails
+       
+
         if (section === "projectTimeline" && !form.getValues("project_end_date")) {
             toast({
                 title: "Failed!",
@@ -469,6 +497,8 @@ export const ProjectForm = () => {
             })
             return
         }
+        
+    }
 
         const nextSec = nextSection(section)
         const nextIndex = currentStep + 1
@@ -698,7 +728,7 @@ export const ProjectForm = () => {
                                         )
                                     }}
                                 />
-                                <FormField
+                                {/* <FormField
                                     control={form.control}
                                     name="project_gst_number"
                                     render={({ field }) => (
@@ -710,7 +740,10 @@ export const ProjectForm = () => {
                                                         field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
                                                     } else if (selectedLocation === "Bengaluru") {
                                                         field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
-                                                    } else {
+                                                    }else if (selectedLocation === "Noida") {
+                                                        field.onChange({ list: [{ location: "Noida", gst: "09ABFCS9095N1ZB" }] })
+                                                    }
+                                                     else {
                                                         field.onChange({ list: [{ location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
                                                     }
                                                 }}
@@ -733,7 +766,46 @@ export const ProjectForm = () => {
                                             </div>
                                         </FormItem>
                                     )}
-                                />
+                                /> */}
+
+                               
+<FormField
+  control={form.control}
+  name="project_gst_number" // Ensure this matches your form's schema for an array of objects
+  render={({ field }) => {
+    // Extract currently selected location names from the form field's value
+    // field.value is expected to be { list: [{ location: string, gst: string }, ...] }
+    const currentSelectedLocations = field.value?.list?.map((item: { location: string }) => item.location) || [];
+
+    return (
+      <FormItem className="lg:flex lg:items-center gap-4">
+        <FormLabel className="md:basis-2/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+        <div className="md:basis-2/4">
+          <MultiSelect
+            options={multiSelectGstOptions}
+            selected={currentSelectedLocations}
+            onSelectedChange={(selectedLocationValues: string[]) => {
+              // When the MultiSelect's selection changes, map the selected location names
+              // back to the full { location, gst } objects required by your form's schema.
+              const updatedGstList = selectedLocationValues.map(locationName => {
+                const foundOption = allGstOptions.find(opt => opt.location === locationName);
+                // Return the full GST object. If for some reason not found,
+                // handle gracefully (e.g., return a default or log error).
+                return foundOption || { location: locationName, gst: "" };
+              });
+              field.onChange({ list: updatedGstList }); // Update the form field with the new list
+            }}
+            placeholder="Select Project GST(s)"
+            className="w-full"
+            disabled={field.disabled} // Inherit disabled state from form field
+          />
+          <FormMessage />
+        </div>
+      </FormItem>
+    );
+  }}
+/>
+                                
                                 {/* <FormField
                                     control={form.control}
                                     name="subdivisions"
@@ -1537,7 +1609,7 @@ interface ReviewDetailsProps {
 const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, user, ...sectionProps }) => {
 
     const { setSection, setCurrentStep } = sectionProps
-
+    // console.log("gsts",form.getValues("project_gst_number").list.map(item => item.location).join(', '))
     return (
         <SectionProvider value={sectionProps}>
             <div className="p-6 bg-white shadow rounded-lg">
@@ -1547,6 +1619,8 @@ const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, 
                     <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
                     <Detail label="Project Value(excl. GST)" value={form.getValues("project_value")} />
                     <Detail label="Project Value(incl. GST)" value={form.getValues("project_value_gst")} />
+                    <Detail label="Selected GST List" value={form.getValues("project_gst_number").list.map(item => item.location).join(', ')} />
+
                 </Section>
 
                 <Section sectionKey="projectAddressDetails">

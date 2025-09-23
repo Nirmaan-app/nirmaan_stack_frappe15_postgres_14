@@ -135,14 +135,14 @@ def sidebar_counts(user: str) -> str:
     credit_po_filters["status"] = ["!=", "Merged"]
     credit_counts_raw = frappe.get_all(
         "PO Payment Terms",
-        fields=["status", "count(name) as count"],
+        fields=["term_status", "count(name) as count"],
         filters={
             "payment_type": "Credit",
             "parent": ["in", frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")]
         },
-        group_by="status"
+        group_by="term_status"
     )
-    credit_counts = {item.status.lower(): item.count for item in credit_counts_raw}
+    credit_counts = {item.term_status.lower(): item.count for item in credit_counts_raw}
     credit_counts["all"] = sum(credit_counts.values())
 
     return json.dumps({

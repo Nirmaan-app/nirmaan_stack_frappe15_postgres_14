@@ -120,7 +120,7 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
             "PO Payment Terms",   # The child DocType
             ptname,               # The unique row name we are targeting
             {
-                "status": "Requested",      # Set the initial status
+                "term_status": "Requested",      # Set the initial status
                 "project_payment": pay.name # Create the link FROM the PO Term TO the new Payment
             }
         )

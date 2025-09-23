@@ -42,7 +42,7 @@ export const getVendorColumns = (): ColumnDef<Vendors>[] => [
     accessorKey: "vendor_name",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor Name" />,
     cell: ({ row }) => (
-      <Link to={`/vendors/${row.original.name}`} className="text-blue-600 hover:underline">
+      <Link to={`/vendors/${row.original.name}?tab=poVendorLedger`} className="text-blue-600 hover:underline">
         {row.original.vendor_name || row.original.name}
       </Link>
     ),

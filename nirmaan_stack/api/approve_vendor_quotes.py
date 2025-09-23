@@ -139,7 +139,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                             "percentage": milestone.get('percentage'),
                             "amount": milestone.get('amount'),
                             "due_date": milestone.get('due_date'),
-                            "status": term_status # Example of setting a default status
+                            "term_status": term_status # Example of setting a default status
                         })
                         print(f"DEBUGPP3ifend: milestone: {milestone}")
                 else:

@@ -52,7 +52,7 @@ export default function SRReports() {
                     // Assuming 'Approved' SRs are candidates for invoicing.
                     if (srDoc.status === 'Approved') {
                         // Using pre-calculated fields from SRReportRowData
-                        return parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - delta;
+                        return (parseNumber(row.invoiceAmount) - parseNumber(srDoc.amount_paid)) <= delta;
                     }
                     return false;
                 });
