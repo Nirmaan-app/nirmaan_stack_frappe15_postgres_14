@@ -119,7 +119,13 @@ def create_project_with_address(values: dict):
         frontend_wps_data = values.get("project_work_packages", {}).get("work_packages", [])
         if not frontend_wps_data: # Check if the list itself is empty or not provided
             raise frappe.ValidationError('Please select at least one work package for this project.')
+        # --- NEW VALIDATION: For Work Headers if milestone tracking is enabled ---
+        enable_milestone_tracking = values.get("enable_project_milestone_tracking", False)
+        frontend_work_header_entries = values.get("project_work_header_entries", [])
 
+        if enable_milestone_tracking:
+            if not frontend_work_header_entries or not any(entry.get("enabled", False) for entry in frontend_work_header_entries):
+                raise frappe.ValidationError('Project Milestone Tracking is enabled, but no Work Headers were selected or enabled.')
         # --- Step 2: Format Dates (Keep your existing date formatting) ---
         try:
             # Assuming frontend sends ISO string like "2024-06-03T10:00:00.000Z"
@@ -182,6 +188,8 @@ def create_project_with_address(values: dict):
         
         # Other JSON fields (if they remain JSON)
         project_doc.project_scopes = values.get("project_scopes") 
+        # --- NEW: Set the enable_project_milestone_tracking field ---
+        project_doc.enable_project_milestone_tracking = enable_milestone_tracking
         # project_doc.subdivisions = values.get("subdivisions")
         # project_doc.subdivision_list = {"list":  values.get("areaNames", [])}
         
@@ -189,7 +197,7 @@ def create_project_with_address(values: dict):
 
         # --- Step 5: Populate the 'project_wp_category_makes' child table ---
         # This is the fieldname of the Table in Projects DocType
-        child_table_fieldname_in_project = "project_wp_category_makes" 
+        child_table_fieldname_in_project = "project_wp_category_makes"
         
         for fe_wp_data in frontend_wps_data: # `frontend_wps_data` defined in Step 1
             wp_docname = fe_wp_data.get("work_package_name")
@@ -250,6 +258,24 @@ def create_project_with_address(values: dict):
                         else:
                              frappe.log(f"Project {project_doc.project_name}, WP {wp_docname}, Cat {category_docname}: Skipping make due to missing 'value' in make object. Data: {make_obj}")
 
+        child_table_fieldname_work_headers = "project_work_header_entries" # Fieldname of the Table field in Projects DocType
+
+        if enable_milestone_tracking and frontend_work_header_entries:
+            for entry in frontend_work_header_entries:
+                work_header_name = entry.get("work_header_name")
+                enabled_status = entry.get("enabled", False)
+
+                if work_header_name: # Only append if checked by the user
+                    # Optional: Validate work_header_name exists in "Work Headers" DocType
+                    if not frappe.db.exists("Work Headers", work_header_name):
+                        frappe.log(f"Project {project_doc.project_name}: Work Header '{work_header_name}' not found. Skipping this entry.")
+                        continue
+                    
+                    project_doc.append(child_table_fieldname_work_headers, {
+                        "project_work_header_name": work_header_name,
+                        "enabled": enabled_status # This should be True if we're inside this 'if'
+                    })
+                
 
         # --- Step 6: Remove assignment to the old JSON field ---
         project_doc.project_work_packages = None # Or delete if not needed at all: delattr(project_doc, 'project_work_packages')
