@@ -64,6 +64,8 @@ import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
+import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
+import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -157,6 +159,15 @@ export const appRoutes: RouteObject[] = [
                   { path: ":projectId", element: <ManPowerOverallSummary /> },
                 ],
               },
+              {
+                path: "milestone-report",
+                children: [
+                  { index: true, element: <MilestonesSummary /> },
+                  { path: ":projectId", element: <MilestoneTab /> },
+                ],
+              },
+
+              
             ],
           },
 

@@ -21,6 +21,15 @@ export interface ProjectWPCategoryMake {
 	// Add other fields from this child doctype if needed by frontend
 }
 
+// --- NEW INTERFACE FOR CHILD TABLE ENTRIES ---
+export interface ProjectWorkHeaderEntry {
+    name: string; // Frappe's default name field for child table rows
+    owner?: string;
+    project_work_header_name: string; // Link to Work Headers
+    enabled: boolean; // Checkbox
+}
+
+
 export interface ProjectGSTNumber {
 	location: string;
 	gst: string;
@@ -86,4 +95,8 @@ export interface Projects {
 
 	// NEW Child Table field
 	project_wp_category_makes?: ProjectWPCategoryMake[]; // Array of child table rows
+
+	  // --- NEW FIELDS ---
+    enable_project_milestone_tracking: boolean;
+    project_work_header_entries?: ProjectWorkHeaderEntry[]; // Child table for work headers
 }
