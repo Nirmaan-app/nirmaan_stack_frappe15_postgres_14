@@ -11,6 +11,7 @@
   "report_date",
   "manpower_remarks",
   "attachment_remarks",
+  "report_status",
   "child_tables_section",
   "milestones",
   "manpower",
@@ -70,12 +71,17 @@
    "fieldtype": "Table",
    "label": "Attachments",
    "options": "Project Progress Report Attachments"
+  },
+  {
+   "fieldname": "report_status",
+   "fieldtype": "Data",
+   "label": "Report Status"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-23 20:36:57.369225",
+ "modified": "2025-09-26 11:53:50.812200",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Progress Reports",

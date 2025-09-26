@@ -1,3 +1,6 @@
+
+//Working Code of This Milestonetab creation new report and Create Report from previous report 
+
 import { useContext, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom"; // Import useNavigate
 import { UserContext } from "@/utils/auth/UserProvider";
@@ -106,12 +109,9 @@ interface WorkMilestoneFromFrappe {
   work_header: string;
 }
 
-interface FrappeProjectProgressReportPayload {
-  project: string;
-  report_date: string;
-  manpower_remarks?: string;
-  manpower?: FrappeManpowerDetail[]; // Child table field name is 'manpower' (with 'label')
-  milestones?: LocalMilestoneData[];
+// Updated interface for the previous report when fetched with full details
+interface FullPreviousProjectProgressReport extends ProjectProgressReportData {
+  name: string; // Ensure name is present for the full doc
 }
 // --- END: Refined Interfaces ---
 
@@ -137,6 +137,37 @@ export const MilestoneTab = () => {
     fields: ["*"],
     enabled: !!projectId,
   });
+
+  // --- START MODIFICATION FOR PREVIOUS REPORTS ---
+
+  // Step 1: Fetch list of previous reports (only main fields) to get the latest report name
+  const {
+    data: previousReportsList,
+    isLoading: previousReportsListLoading,
+    error: previousReportsListError,
+  } = useFrappeGetDocList<{ name: string, project: string, report_date: string }>("Project Progress Reports", {
+    fields: ["name", "project", "report_date"],
+    filters: [["project", "=", projectId]],
+    orderBy: { field: "report_date", order: "desc" },
+    limit: 1, // Get only the latest report's name
+    enabled: !!projectId,
+  });
+
+  // Extract the name of the latest previous report
+  const latestReportName = previousReportsList?.[0]?.name;
+
+  // Step 2: Use that name to fetch the complete document with child tables
+  const {
+    data: previousReport, // This will now hold the full document with milestones
+    isLoading: previousReportLoading,
+    error: previousReportError,
+  } = useFrappeGetDoc<FullPreviousProjectProgressReport>(
+    "Project Progress Reports",
+    latestReportName,
+    latestReportName ? undefined : null // Only enable if we have a name
+  );
+  // --- END MODIFICATION FOR PREVIOUS REPORTS ---
+
 
   const { createDoc, isLoading: isCreatingDoc } = useFrappeCreateDoc();
 
@@ -178,31 +209,132 @@ export const MilestoneTab = () => {
     return fullManpowerDetails.map(item => ({ ...item }));
   };
 
+  // Get all available tabs
+  const getAllAvailableTabs = () => {
+    return [
+      { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
+      ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
+        ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
+        : []),
+    ];
+  };
+
+  // Initialize tab structure in localStorage for the current date
+  const initializeTabStructureInLocalStorage = () => {
+    const dateString = formatDate(summaryWorkDate);
+    const allTabs = getAllAvailableTabs();
+    
+    allTabs.forEach(tab => {
+      const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
+      const existingData = localStorage.getItem(storageKey);
+      
+      if (!existingData) {
+        if (tab.project_work_header_name === "Work force") {
+          // Initialize manpower tab
+          const initialManpowerData: ProjectProgressReportData = {
+            project: projectId,
+            report_date: dateString,
+            manpower_remarks: "",
+            manpower: getManpowerRolesDefault().map(r => ({ label: r.label, count: r.count })),
+            milestones: [],
+          };
+          localStorage.setItem(storageKey, JSON.stringify(initialManpowerData));
+        } else {
+          // Initialize milestone tabs with inherited data or default data
+          console.log("project_work_header_name",tab.project_work_header_name)
+          const inheritedMilestones = getInheritedMilestones(tab.project_work_header_name);
+          const initialMilestoneData: ProjectProgressReportData = {
+            project: projectId,
+            report_date: dateString,
+            manpower: [],
+            milestones: inheritedMilestones,
+          };
+          localStorage.setItem(storageKey, JSON.stringify(initialMilestoneData));
+        }
+      }
+    });
+  };
+
+  // Get inherited milestones from previous reports or default milestones
+  const getInheritedMilestones = (workHeader: string): LocalMilestoneData[] => {
+    // Check if we have a previous full report and it has milestones
+    console.log("previousReport header get milestone",workHeader)
+
+    if (previousReport && previousReport.milestones && previousReport.milestones.length > 0) {
+      // Get milestones from the latest previous report for this work header
+      const previousMilestones = previousReport.milestones.filter(m => m.work_header === workHeader) || [];
+      console.log("previousMilestones",previousMilestones)
+      if (previousMilestones?.length > 0) {
+        // Inherit previous milestone data as base for new report
+        return previousMilestones.map(milestone => ({
+          ...milestone,
+          remarks: "", // Clear remarks for new report
+        }));
+      }
+    }
+    
+    // If no previous full report, or no relevant milestones in it, use default milestones from Frappe
+    const defaultMilestones: LocalMilestoneData[] = [];
+    const frappeMilestonesForHeader = allFrappeMilestones?.filter(m => m.work_header === workHeader) || [];
+    
+    frappeMilestonesForHeader.forEach(frappeM => {
+      defaultMilestones.push({
+        name: frappeM.name,
+        work_milestone_name: frappeM.work_milestone_name,
+        work_header: frappeM.work_header,
+        status: frappeM.status || 'Not Started',
+        progress: frappeM.progress || 0,
+        expected_start_date: frappeM.expected_start_date,
+        expected_completion_date: frappeM.expected_completion_date,
+        remarks: "",
+      });
+    });
+    
+    return defaultMilestones;
+  };
+
   const loadDailyReport = () => {
     setReportsLoading(true);
     const dateString = formatDate(summaryWorkDate);
-    const storageKey = `project_${projectId}_date_${dateString}`;
+    const storageKey = `project_${projectId}_date_${dateString}_tab_${activeTabValue}`;
     const storedData = localStorage.getItem(storageKey);
 
     if (storedData) {
       const parsedData: ProjectProgressReportData = JSON.parse(storedData);
       
-      const fetchedManpower: FrappeManpowerDetail[] = parsedData.manpower || getManpowerRolesDefault().map(r => ({ label: r.label, count: r.count }));
-
-      setLocalDailyReport({
-        ...parsedData,
-        milestones: parsedData.milestones || [],
-        manpower: fetchedManpower
-      });
-      setDialogManpowerRoles(fetchedManpower.map(item => ({
-        id: `dialog_${item.label}`,
-        label: item.label,
-        count: item.count
-      })));
-
+      if (activeTabValue === "Work force") {
+        const fetchedManpower: FrappeManpowerDetail[] = parsedData.manpower || getManpowerRolesDefault().map(r => ({ label: r.label, count: r.count }));
+        
+        setLocalDailyReport({
+          ...parsedData,
+          milestones: parsedData.milestones, // Milestones should be empty for manpower tab in its local storage
+          manpower: fetchedManpower
+        });
+        setDialogManpowerRoles(fetchedManpower.map(item => ({
+          id: `dialog_${item.label}`,
+          label: item.label,
+          count: item.count
+        })));
+      } else {
+        setLocalDailyReport({
+          ...parsedData,
+          milestones: parsedData.milestones || getInheritedMilestones(activeTabValue),
+          manpower: parsedData.manpower || [] // Manpower should be empty for milestone tabs in their local storage
+        });
+      }
     } else {
       setLocalDailyReport(null);
-      setDialogManpowerRoles(getManpowerRolesDefault());
+      if (activeTabValue === "Work force") {
+        setDialogManpowerRoles(getManpowerRolesDefault());
+      } else {
+        // If no stored data for a milestone tab, initialize with inherited/default milestones
+        setLocalDailyReport({
+          project: projectId,
+          report_date: dateString,
+          manpower: [],
+          milestones: getInheritedMilestones(activeTabValue),
+        });
+      }
     }
     setReportsLoading(false);
   };
@@ -215,11 +347,15 @@ export const MilestoneTab = () => {
   }, [projectId, selectedProject, setSelectedProject]);
 
   useEffect(() => {
-    loadDailyReport();
-  }, [summaryWorkDate, projectId]);
+    // Only initialize and load if all necessary data is available
+    if (projectId && !previousReportsListLoading && !previousReportLoading && allFrappeMilestones && projectData) {
+      initializeTabStructureInLocalStorage();
+      loadDailyReport();
+    }
+  }, [summaryWorkDate, projectId, activeTabValue, previousReportsListLoading, previousReportLoading, allFrappeMilestones, projectData]); // Added projectData to dependencies
 
   useEffect(() => {
-    if (localDailyReport) {
+    if (localDailyReport && activeTabValue === "Work force") {
       const fetchedManpowerDetails: ManpowerRole[] = (localDailyReport.manpower || []).map(item => ({
         id: `summary_${item.label}`,
         label: item.label,
@@ -239,13 +375,12 @@ export const MilestoneTab = () => {
       setSummaryManpowerRoles(combinedRoles);
       setDialogRemarks(localDailyReport.manpower_remarks || "");
       setDialogManpowerRoles(fetchedManpowerDetails); 
-    } else {
+    } else if (activeTabValue === "Work force") {
       setSummaryManpowerRoles(getManpowerRolesDefault());
       setDialogRemarks("");
       setDialogManpowerRoles(getManpowerRolesDefault());
     }
-  }, [localDailyReport, summaryWorkDate]);
-
+  }, [localDailyReport, summaryWorkDate, activeTabValue]);
 
   useEffect(() => {
     if (activeTabValue === "Work force" || !allFrappeMilestones) {
@@ -254,31 +389,17 @@ export const MilestoneTab = () => {
     }
 
     const milestonesForCurrentTab: LocalMilestoneData[] = [];
-    const frappeMilestonesForHeader = allFrappeMilestones.filter(m => m.work_header === activeTabValue);
-    const localMilestonesFlatArray = localDailyReport?.milestones || [];
+    // Ensure that if localDailyReport has milestones for this tab, they are prioritized
+    const localMilestonesFlatArray = localDailyReport?.milestones || getInheritedMilestones(activeTabValue);
 
-    frappeMilestonesForHeader.forEach(frappeM => {
-      const localM = localMilestonesFlatArray.find(lm => lm.name === frappeM.name && lm.work_header === frappeM.work_header);
-      
-      if (localM) {
-        milestonesForCurrentTab.push(localM);
-      } else {
-        milestonesForCurrentTab.push({
-          name: frappeM.name,
-          work_milestone_name: frappeM.work_milestone_name,
-          work_header: frappeM.work_header,
-          status: frappeM.status || 'Not Started',
-          progress: frappeM.progress || 0,
-          expected_start_date: frappeM.expected_start_date,
-          expected_completion_date: frappeM.expected_completion_date,
-          remarks: "",
-        });
+    localMilestonesFlatArray.forEach(milestone => {
+      if (milestone.work_header === activeTabValue) {
+        milestonesForCurrentTab.push(milestone);
       }
     });
+
     setCurrentTabMilestones(milestonesForCurrentTab);
-
-  }, [activeTabValue, localDailyReport, allFrappeMilestones]);
-
+  }, [activeTabValue, localDailyReport, allFrappeMilestones,]);
 
   // --- Manpower Dialog Handlers ---
   const handleDialogManpowerCountChange = (index: number, value: string) => {
@@ -297,107 +418,176 @@ export const MilestoneTab = () => {
     setDialogManpowerRoles([...dialogManpowerRoles, { id: `new_role_${Date.now()}`, label: "New Role", count: 0 }]);
   };
 
-
   const openUpdateManpowerDialog = () => {
     setIsUpdateManpowerDialogOpen(true);
+  };
+
+  // Move to next tab
+  const moveToNextTab = () => {
+    const allTabs = getAllAvailableTabs();
+    const currentIndex = allTabs.findIndex(tab => tab.project_work_header_name === activeTabValue);
+    
+    if (currentIndex < allTabs.length - 1) {
+      const nextTab = allTabs[currentIndex + 1];
+      setActiveTabValue(nextTab.project_work_header_name);
+      return false; // Not the last tab
+    }
+    return true; // Is the last tab
+  };
+
+  // Save current tab data to localStorage
+  const saveCurrentTabData = (milestoneData?: LocalMilestoneData[]) => {
+    const dateString = formatDate(summaryWorkDate);
+    const storageKey = `project_${projectId}_date_${dateString}_tab_${activeTabValue}`;
+
+    if (activeTabValue === "Work force") {
+      const manpowerToSave: FrappeManpowerDetail[] = dialogManpowerRoles.map((item) => ({
+        label: item.label,
+        count: item.count,
+      }));
+
+      const payload: ProjectProgressReportData = {
+        project: projectId,
+        report_date: dateString,
+        manpower_remarks: dialogRemarks,
+        manpower: manpowerToSave,
+        milestones: [], // Manpower tab does not store milestones directly in its local storage entry
+      };
+
+      localStorage.setItem(storageKey, JSON.stringify(payload));
+    } else {
+      const payload: ProjectProgressReportData = {
+        project: projectId,
+        report_date: dateString,
+        manpower: [], // Milestone tabs do not store manpower directly in their local storage entry
+        milestones: milestoneData || currentTabMilestones,
+      };
+
+      localStorage.setItem(storageKey, JSON.stringify(payload));
+    }
+  };
+
+  // Collect all tab data for final submission
+  const collectAllTabData = (): FrappeProjectProgressReportPayload => {
+    const dateString = formatDate(summaryWorkDate);
+    const allTabs = getAllAvailableTabs();
+    let allManpower: FrappeManpowerDetail[] = [];
+    let allMilestones: LocalMilestoneData[] = [];
+    let manpowerRemarks = "";
+
+    allTabs.forEach(tab => {
+      const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
+      const tabData = localStorage.getItem(storageKey);
+      
+      if (tabData) {
+        const parsedData: ProjectProgressReportData = JSON.parse(tabData);
+        
+        if (tab.project_work_header_name === "Work force") {
+          allManpower = parsedData.manpower || [];
+          manpowerRemarks = parsedData.manpower_remarks || "";
+        }
+        
+        // Accumulate milestones from all tabs (only milestone tabs should have them)
+        if (parsedData.milestones && parsedData.milestones.length > 0) {
+          allMilestones.push(...parsedData.milestones);
+        }
+      }
+    });
+
+    return {
+      project: projectId,
+      report_date: dateString,
+      manpower_remarks: manpowerRemarks,
+      manpower: allManpower,
+      milestones: allMilestones,
+    };
+  };
+
+  // Clear all tab data for the current date
+  const clearAllTabData = () => {
+    const dateString = formatDate(summaryWorkDate);
+    const allTabs = getAllAvailableTabs();
+    
+    allTabs.forEach(tab => {
+      const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
+      localStorage.removeItem(storageKey);
+    });
   };
 
   const handleSyncAndSubmitAllData = async (isCalledFromManpowerDialog = false) => {
     setIsLocalSaving(true);
 
-    const dateString = formatDate(summaryWorkDate);
-    const storageKey = `project_${projectId}_date_${dateString}`;
+    // Save current tab data before proceeding
+    saveCurrentTabData();
 
-    const manpowerToSubmitLocalAndFrappe: FrappeManpowerDetail[] = dialogManpowerRoles.map((item) => ({
-      label: item.label,
-      count: item.count,
-    }));
-
-    const allMilestonesForSubmission = localDailyReport?.milestones || [];
-
-    const finalLocalPayload: ProjectProgressReportData = {
-      project: projectId,
-      report_date: dateString,
-      manpower_remarks: dialogRemarks,
-      manpower: manpowerToSubmitLocalAndFrappe,
-      milestones: allMilestonesForSubmission,
-    };
-
-    localStorage.setItem(storageKey, JSON.stringify(finalLocalPayload));
-    
-    await new Promise(resolve => setTimeout(resolve, 300));
-    setIsLocalSaving(false);
+    // Show sync success message
     toast({
-      title: "Local Data Synced! 🎉",
-      description: "All data has been successfully saved to local storage.",
+      title: "Tab Data Synced! 🎉",
+      description: `${activeTabValue} data has been successfully saved.`,
       variant: "default",
     });
-    
+
     if (isCalledFromManpowerDialog) {
-        setIsUpdateManpowerDialogOpen(false);
+      setIsUpdateManpowerDialogOpen(false);
+      setIsLocalSaving(false);
+      return
     }
 
-    const allTabs = [
-      { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
-      ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
-        ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
-        : [])
-    ];
+    // Determine if it's the last tab and move to next if not
+    const allTabs = getAllAvailableTabs();
     const currentIndex = allTabs.findIndex(tab => tab.project_work_header_name === activeTabValue);
     const isLastTab = currentIndex === allTabs.length - 1;
 
-    if (!isLastTab) {
-      loadDailyReport();
-      return;
+    if (isLastTab) {
+      // --- Final Frappe Submission Logic ---
+      console.log("Attempting to submit to Frappe backend...");
+
+      const finalPayload = collectAllTabData();
+
+      try {
+        const response = await createDoc("Project Progress Reports", finalPayload);
+        console.log("Frappe submission response:", response);
+
+        toast({
+          title: "Report Submitted Successfully! ✅",
+          description: `Project Progress Report for ${finalPayload.report_date} created successfully.`,
+          variant: "default",
+        });
+        
+        // Clear all tab data and redirect
+        clearAllTabData();
+        navigate('/prs&milestones/milestone-report');
+
+      } catch (error: any) {
+        console.error("Error submitting to Frappe:", error);
+        toast({
+          title: "Submission Failed ❌",
+          description: error.message || "An unknown error occurred during submission.",
+          variant: "destructive",
+        });
+      }
+    } else {
+      // If it's not the last tab, just save locally and move to the next tab
+      // The loadDailyReport() will be triggered by activeTabValue change in useEffect
+      const nextTab = allTabs[currentIndex + 1];
+      setActiveTabValue(nextTab.project_work_header_name);
     }
 
-    // --- Frappe Submission Logic (only for the final tab) ---
-    console.log("Attempting to submit to Frappe backend...");
-
-    const frappePayload: FrappeProjectProgressReportPayload = {
-      project: projectId,
-      report_date: dateString,
-      manpower_remarks: dialogRemarks,
-      manpower: manpowerToSubmitLocalAndFrappe,
-      milestones: allMilestonesForSubmission,
-    };
-
-    try {
-      const response = await createDoc("Project Progress Reports", frappePayload);
-      console.log("Frappe submission response:", response);
-
-      toast({
-        title: "Frappe Submitted! ✅",
-        description: `Project Progress Report for ${dateString} created successfully.`,
-        variant: "success",
-      });
-      
-      // *** START: REDIRECTION AND LOCAL STORAGE CLEARING ***
-      localStorage.removeItem(storageKey); // Clear local storage for this specific report
-      navigate('/prs&milestones/milestone-report'); // Redirect to the milestone report list
-      // *** END: REDIRECTION AND LOCAL STORAGE CLEARING ***
-
-    } catch (error: any) {
-      console.error("Error submitting to Frappe:", error);
-      toast({
-        title: "Frappe Submission Failed ❌",
-        description: error.message || "An unknown error occurred during submission.",
-        variant: "destructive",
-      });
-    } finally {
-      loadDailyReport();
-    }
+    setIsLocalSaving(false);
   };
-
 
   // --- MILESTONE LOGIC ---
 
   const openUpdateMilestoneDialog = (milestone: LocalMilestoneData) => {
-    const originalFrappeMilestone = allFrappeMilestones?.find(m => m.name === milestone.name && m.work_header === milestone.work_header);
-    setSelectedMilestoneForDialog(originalFrappeMilestone || null);
+    // When opening the dialog, we need the original Frappe milestone to get its default properties
+    // like work_milestone_name and work_header, and the Frappe-defined expected dates.
+    // const originalFrappeMilestone = allFrappeMilestones?.find(m => m.name === milestone.name && m.work_header === milestone.work_header);
+    setSelectedMilestoneForDialog(milestone || null);
 
+    // Populate dialog state with the *current local state* of the milestone
     setNewStatus(milestone.status);
     setProgress(milestone.progress);
+    // Use the milestone's stored expected dates first, fallback to Frappe defaults for start date if applicable
     setExpectedDate(
       milestone.status === 'Not Started' && milestone.expected_start_date
         ? new Date(milestone.expected_start_date)
@@ -408,49 +598,49 @@ export const MilestoneTab = () => {
   };
   
   const handleUpdateMilestone = async () => {
+    console.log("selectedMilestoneForDialog",selectedMilestoneForDialog,activeTabValue)
     if (!selectedMilestoneForDialog || !activeTabValue) return;
+    console.log("selectedMilestoneForDialog3",selectedMilestoneForDialog,activeTabValue)
+
 
     const updatedLocalMilestone: LocalMilestoneData = {
       name: selectedMilestoneForDialog.name,
       work_milestone_name: selectedMilestoneForDialog.work_milestone_name,
       work_header: selectedMilestoneForDialog.work_header,
       status: newStatus,
-      progress: newStatus === 'Completed' ? 100 : progress,
+      progress:progress,
       remarks: milestoneRemarks,
     };
 
     if (newStatus === 'Not Started') {
       updatedLocalMilestone.expected_start_date = expectedDate ? formatDate(expectedDate) : undefined;
       updatedLocalMilestone.expected_completion_date = undefined;
-    } else if (newStatus === 'WIP' || newStatus === 'Completed') {
+      updatedLocalMilestone.progress = 0; // Reset progress if Not Started
+    } else if (newStatus === 'WIP') {
       updatedLocalMilestone.expected_completion_date = expectedDate ? formatDate(expectedDate) : undefined;
-      updatedLocalMilestone.expected_start_date = undefined;
+      updatedLocalMilestone.expected_start_date = undefined; 
+      updatedLocalMilestone.progress = progress; // Reset progress if Not Started
+    }else if(newStatus === 'Completed'){
+      updatedLocalMilestone.expected_completion_date = undefined;
+      updatedLocalMilestone.expected_start_date = undefined; 
+      updatedLocalMilestone.progress = 100; // Set progress to 100% if Completed
+    }else if(newStatus==='N/A'){
+      updatedLocalMilestone.expected_completion_date = undefined;
+      updatedLocalMilestone.expected_start_date = undefined; 
+      updatedLocalMilestone.progress = 0; // Reset progress if Not Started
     }
 
-    const currentDailyReport = localDailyReport || {
-      project: projectId,
-      report_date: formatDate(summaryWorkDate),
-      manpower: [], // Initialize manpower as empty FrappeManpowerDetail array
-      milestones: [],
-    };
-
-    const updatedMilestones = [...(currentDailyReport.milestones || [])];
-    const existingIndex = updatedMilestones.findIndex(m => m.name === updatedLocalMilestone.name && m.work_header === updatedLocalMilestone.work_header);
+    const updatedMilestonesForCurrentTab = [...currentTabMilestones];
+    const existingIndex = updatedMilestonesForCurrentTab.findIndex(m => m.name === updatedLocalMilestone.name && m.work_header === updatedLocalMilestone.work_header);
     
     if (existingIndex !== -1) {
-      updatedMilestones[existingIndex] = updatedLocalMilestone;
+      updatedMilestonesForCurrentTab[existingIndex] = updatedLocalMilestone;
     } else {
-      updatedMilestones.push(updatedLocalMilestone);
+      updatedMilestonesForCurrentTab.push(updatedLocalMilestone);
     }
     
-    const finalPayload: ProjectProgressReportData = {
-      ...currentDailyReport,
-      milestones: updatedMilestones,
-    };
-
-    const dateString = formatDate(summaryWorkDate);
-    const storageKey = `project_${projectId}_date_${dateString}`;
-    localStorage.setItem(storageKey, JSON.stringify(finalPayload));
+    setCurrentTabMilestones(updatedMilestonesForCurrentTab);
+    saveCurrentTabData(updatedMilestonesForCurrentTab); // Save immediately to local storage for this tab
     
     setIsUpdateMilestoneDialogOpen(false);
     toast({
@@ -459,20 +649,7 @@ export const MilestoneTab = () => {
       variant: "default",
     });
 
-    loadDailyReport();
-    
-    const allTabs = [
-      { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
-      ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
-        ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
-        : [])
-    ];
-    const currentIndex = allTabs.findIndex(tab => tab.project_work_header_name === activeTabValue);
-    const isLastTab = currentIndex === allTabs.length - 1;
-
-    if (isLastTab) {
-      await handleSyncAndSubmitAllData();
-    }
+    loadDailyReport(); // Reload the current tab's data from local storage
   };
 
   const getStatusColor = (status: string) => {
@@ -490,9 +667,13 @@ export const MilestoneTab = () => {
     }
   };
 
+  // Combine all loading states
+  const isGlobalLoading = projectLoading || reportsLoading || frappeMilestonesLoading || previousReportsListLoading || previousReportLoading;
+  const isGlobalError = projectError || frappeMilestonesError || previousReportsListError || previousReportError;
   const isGlobalSyncDisabled = isLocalSaving || isCreatingDoc;
 
-  if (projectLoading || reportsLoading || frappeMilestonesLoading) {
+
+  if (isGlobalLoading) {
     return (
       <div className="flex justify-center items-center min-h-[50vh]">
         <TailSpin color="#6366F1" height={80} width={80} />
@@ -500,46 +681,49 @@ export const MilestoneTab = () => {
     );
   }
 
-  if (projectError) {
-    return <div className="p-4 text-red-600">Error loading project data: {projectError.message}</div>;
-  }
-  
-  if (frappeMilestonesError) {
-    return <div className="p-4 text-red-600">Error loading milestones data: {frappeMilestonesError.message}</div>;
+  if (isGlobalError) {
+    return <div className="p-4 text-red-600">Error loading data: {isGlobalError.message}</div>;
   }
 
   if (!projectId) {
     return <div className="p-4 text-red-600">No Project ID found. Please select a project.</div>;
   }
 
-  const allAvailableTabs = [
-    { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
-    ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
-      ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
-      : []),
-  ];
+  const allAvailableTabs = getAllAvailableTabs();
+  const currentIndex = allAvailableTabs.findIndex(tab => tab.project_work_header_name === activeTabValue);
+  const isLastTab = currentIndex === allAvailableTabs.length - 1;
+
 
   const getVisibleTabs = (currentTabValue: string) => {
     const currentIndex = allAvailableTabs.findIndex(tab => tab.project_work_header_name === currentTabValue);
     const visibleTabs = [];
 
-    if (currentIndex > 0) {
-      visibleTabs.push(allAvailableTabs[currentIndex - 1]);
-    }
+    // Always show the current tab
     if (currentIndex !== -1) {
       visibleTabs.push(allAvailableTabs[currentIndex]);
     }
+
+    // Show previous tab if available
+    if (currentIndex > 0) {
+      visibleTabs.unshift(allAvailableTabs[currentIndex - 1]); // Add to the beginning
+    }
+
+    // Show next tab if available
     if (currentIndex !== -1 && currentIndex < allAvailableTabs.length - 1) {
       visibleTabs.push(allAvailableTabs[currentIndex + 1]);
     }
-
-    if (visibleTabs.length === 1 && currentIndex === 0 && allAvailableTabs.length > 1) {
-        visibleTabs.push(allAvailableTabs[1]);
-    } else if (visibleTabs.length === 1 && currentIndex === allAvailableTabs.length - 1 && allAvailableTabs.length > 1) {
-        visibleTabs.unshift(allAvailableTabs[allAvailableTabs.length - 2]);
-    } else if (visibleTabs.length === 0 && allAvailableTabs.length > 0) {
+    
+    // Ensure at least two tabs are visible if possible, especially at boundaries
+    if (allAvailableTabs.length >= 2) {
+      if (visibleTabs.length === 1 && currentIndex === 0) { // Only current tab, and it's the first
+        if (allAvailableTabs[1]) visibleTabs.push(allAvailableTabs[1]);
+      } else if (visibleTabs.length === 1 && currentIndex === allAvailableTabs.length - 1) { // Only current tab, and it's the last
+        if (allAvailableTabs[allAvailableTabs.length - 2]) visibleTabs.unshift(allAvailableTabs[allAvailableTabs.length - 2]);
+      } else if (visibleTabs.length === 0 && allAvailableTabs.length > 0) { // Fallback if somehow no tabs are visible (shouldn't happen with current logic)
         visibleTabs.push(allAvailableTabs[0]);
+      }
     }
+
 
     return visibleTabs;
   };
@@ -696,8 +880,17 @@ export const MilestoneTab = () => {
           onClick={() => handleSyncAndSubmitAllData(false)}
           disabled={isGlobalSyncDisabled}
         >
-          {isGlobalSyncDisabled ? <TailSpin height={20} width={20} color="#fff" /> : "Sync all data"}
+          {isGlobalSyncDisabled ? (
+            <TailSpin height={20} width={20} color="#fff" />
+          ) : isLastTab ? (
+            "Submit Final Report"
+          ) : (
+            `Save & Continue to Next Tab`
+          )}
         </Button>
+        <div className="text-center mt-2 text-sm text-gray-500">
+          Tab {currentIndex + 1} of {allAvailableTabs.length}
+        </div>
       </div>
 
       {/* --- Update Manpower Dialog --- */}
@@ -794,7 +987,7 @@ export const MilestoneTab = () => {
               onClick={() => handleSyncAndSubmitAllData(true)}
               disabled={isGlobalSyncDisabled}
             >
-              {isGlobalSyncDisabled ? <TailSpin height={20} width={20} color="#fff" /> : "Update & Sync"}
+              {isGlobalSyncDisabled ? <TailSpin height={20} width={20} color="#fff" /> : "Update & Continue"}
             </Button>
           </div>
         </DialogContent>
@@ -808,7 +1001,7 @@ export const MilestoneTab = () => {
             <DialogTitle>Update Work</DialogTitle>
             <DialogDescription className="text-gray-600">
               <span className="font-semibold text-base">{selectedMilestoneForDialog?.work_milestone_name}</span>
-              <span className="block text-sm text-gray-500">Package: Ducting</span> 
+              <span className="block text-sm text-gray-500">Package: {activeTabValue}</span> 
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
